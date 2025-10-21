@@ -677,24 +677,24 @@ async def initiate_truelayer_auth():
             detail="TrueLayer not configured. Set TRUELAYER_CLIENT_ID in .env",
         )
 
-    # Scopes: accounts, transactions, balance - ALL PROVIDERS
+    # Scopes: accounts, transactions, balance - MOCK PROVIDER ONLY (FAST & RELIABLE)
     auth_url = (
         f"{TRUELAYER_AUTH_URL}/?"
         f"response_type=code&"
         f"client_id={TRUELAYER_CLIENT_ID}&"
         f"scope=accounts%20transactions%20balance%20offline_access&"
-        f"redirect_uri={TRUELAYER_REDIRECT_URI}"
-        # No providers parameter = show ALL available providers
+        f"redirect_uri={TRUELAYER_REDIRECT_URI}&"
+        f"providers=uk-cs-mock"
     )
 
     return {
         "auth_url": auth_url,
-        "instructions": "Open this URL to connect your bank account via TrueLayer",
-        "provider": "truelayer",
+        "instructions": "⚡ Open this URL to connect with TrueLayer Mock Provider (fastest, most reliable)",
+        "provider": "truelayer-mock",
         "debug_info": {
             "client_id": TRUELAYER_CLIENT_ID,
             "redirect_uri": TRUELAYER_REDIRECT_URI,
-            "providers": "ALL (no filter applied)",
+            "providers": "uk-cs-mock (mock provider only - working configuration)",
         },
     }
 
@@ -1465,13 +1465,14 @@ async def debug_truelayer_config():
             f"response_type=code&"
             f"client_id={TRUELAYER_CLIENT_ID}&"
             f"scope=accounts%20transactions%20balance%20offline_access&"
-            f"redirect_uri={TRUELAYER_REDIRECT_URI}"
-            # No providers = ALL providers shown
+            f"redirect_uri={TRUELAYER_REDIRECT_URI}&"
+            f"providers=uk-cs-mock"
         ),
         "checklist": {
             "callback_endpoint_accessible": "Test: curl http://localhost:8000/auth/truelayer/test-callback",
             "redirect_uri_in_console": f"Make sure '{TRUELAYER_REDIRECT_URI}' is configured in TrueLayer Console",
             "environment": "Using sandbox environment (correct for testing)",
+            "provider": "uk-cs-mock (mock provider - fast and reliable)",
             "client_credentials": (
                 "Client ID configured" if TRUELAYER_CLIENT_ID else "Missing client ID"
             ),
