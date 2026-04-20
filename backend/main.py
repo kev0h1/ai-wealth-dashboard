@@ -58,15 +58,15 @@ MONZO_REDIRECT_URI = os.getenv(
 )
 
 # ============================================================================
-# TRUELAYER CONFIGURATION (RESTORED & IMPROVED)
+# TRUELAYER CONFIGURATION (PRODUCTION)
 # ============================================================================
 # Sign up at: https://console.truelayer.com/
-# Create a sandbox app and get credentials
+# Using PRODUCTION environment for real bank connections
 
 TRUELAYER_CLIENT_ID = os.getenv("TRUELAYER_CLIENT_ID")
 TRUELAYER_CLIENT_SECRET = os.getenv("TRUELAYER_CLIENT_SECRET")
-TRUELAYER_AUTH_URL = "https://auth.truelayer-sandbox.com"
-TRUELAYER_API_URL = "https://api.truelayer-sandbox.com"
+TRUELAYER_AUTH_URL = "https://auth.truelayer.com"  # PRODUCTION
+TRUELAYER_API_URL = "https://api.truelayer.com"  # PRODUCTION
 TRUELAYER_REDIRECT_URI = os.getenv(
     "TRUELAYER_REDIRECT_URI", "http://localhost:8000/auth/truelayer/callback"
 )
@@ -360,306 +360,6 @@ async def fetch_gocardless_account(account_id: str):
 import secrets
 
 
-@app.get("/auth/monzo/link")
-async def initiate_monzo_auth():
-    """
-    Direct Monzo Open Banking OAuth2 flow
-    Monzo Developer Docs: https://docs.monzo.com/
-    """
-    if not MONZO_CLIENT_ID:
-        raise HTTPException(
-            status_code=500,
-            detail="Monzo not configured. Set MONZO_CLIENT_ID and MONZO_CLIENT_SECRET in .env",
-        )
-
-    # Generate a random state for CSRF protection
-    state = secrets.token_urlsafe(32)
-
-    # Monzo OAuth2 authorization URL
-    auth_url = (
-        f"{MONZO_AUTH_URL}/?"
-        f"client_id={MONZO_CLIENT_ID}&"
-        f"redirect_uri={MONZO_REDIRECT_URI}&"
-        f"response_type=code&"
-        f"state={state}&"
-        f"scope=accounts%20transactions"
-    )
-
-    return {
-        "auth_url": auth_url,
-        "instructions": "Open this URL to connect your Monzo account via Open Banking",
-        "provider": "monzo",
-        "state": state,  # Return state so it can be stored if needed
-    }
-
-
-@app.get("/auth/monzo-dev/link")
-async def initiate_monzo_dev_auth():
-    """
-    Monzo Developer API (Personal Access Only)
-    For accessing your own Monzo account only
-    Register at: https://developers.monzo.com/
-    """
-    if not MONZO_CLIENT_ID:
-        raise HTTPException(
-            status_code=500,
-            detail="Monzo not configured. Set MONZO_CLIENT_ID and MONZO_CLIENT_SECRET in .env",
-        )
-
-    # Monzo Developer API OAuth2 authorization URL (not Open Banking)
-    auth_url = (
-        f"https://auth.monzo.com/?"
-        f"client_id={MONZO_CLIENT_ID}&"
-        f"redirect_uri={MONZO_REDIRECT_URI}&"
-        f"response_type=code"
-    )
-
-    return {
-        "auth_url": auth_url,
-        "instructions": "Open this URL to connect YOUR Monzo account (developer API - personal use only)",
-        "provider": "monzo-dev",
-        "note": "This accesses your personal Monzo account, not Open Banking",
-    }
-
-
-@app.get("/auth/monzo/test-token")
-async def test_monzo_token(token: str):
-    """
-    Test a Monzo token to see what permissions it has
-    Usage: GET /auth/monzo/test-token?token=YOUR_TOKEN
-    """
-    async with httpx.AsyncClient() as client:
-        # Test basic authentication
-        whoami_response = await client.get(
-            f"{MONZO_API_URL}/ping/whoami", headers={"Authorization": f"Bearer {token}"}
-        )
-
-        if whoami_response.status_code != 200:
-            return {
-                "valid": False,
-                "error": whoami_response.text,
-                "status_code": whoami_response.status_code,
-            }
-
-        whoami = whoami_response.json()
-
-        # Test accounts permission
-        accounts_response = await client.get(
-            f"{MONZO_API_URL}/accounts", headers={"Authorization": f"Bearer {token}"}
-        )
-
-        return {
-            "valid": True,
-            "user_id": whoami.get("user_id"),
-            "authenticated": whoami.get("authenticated"),
-            "client_id": whoami.get("client_id"),
-            "accounts_accessible": accounts_response.status_code == 200,
-            "accounts_error": (
-                accounts_response.text if accounts_response.status_code != 200 else None
-            ),
-        }
-
-
-@app.post("/auth/monzo/playground-token")
-async def set_monzo_playground_token(token: str, user_id: str = "default"):
-    """
-    Use a personal access token from Monzo API Playground for testing
-    Get your token from: https://developers.monzo.com/api/playground
-    Usage: POST /auth/monzo/playground-token?token=YOUR_TOKEN_HERE
-    """
-    # Store the playground token
-    if user_id not in user_tokens:
-        user_tokens[user_id] = {}
-
-    user_tokens[user_id]["monzo"] = {
-        "access_token": token,
-        "refresh_token": None,
-        "expires_at": datetime.now()
-        + timedelta(days=365),  # Playground tokens are long-lived
-        "provider": "monzo-playground",
-    }
-
-    # Immediately fetch accounts with the playground token
-    try:
-        accounts = await sync_monzo_accounts(user_id)
-        return {
-            "message": "Monzo playground token set successfully!",
-            "provider": "monzo-playground",
-            "accounts_found": len(accounts),
-        }
-    except Exception as e:
-        return {
-            "message": "Token set but failed to fetch accounts",
-            "error": str(e),
-            "provider": "monzo-playground",
-        }
-
-
-@app.get("/auth/monzo/callback")
-async def monzo_auth_callback(
-    code: str, state: Optional[str] = None, user_id: str = "default"
-):
-    """
-    Monzo OAuth2 callback - exchange code for access token
-    """
-    if not MONZO_CLIENT_ID or not MONZO_CLIENT_SECRET:
-        raise HTTPException(status_code=500, detail="Monzo not configured")
-
-    async with httpx.AsyncClient() as client:
-        # Exchange authorization code for access token
-        response = await client.post(
-            f"{MONZO_API_URL}/oauth2/token",
-            data={
-                "grant_type": "authorization_code",
-                "client_id": MONZO_CLIENT_ID,
-                "client_secret": MONZO_CLIENT_SECRET,
-                "redirect_uri": MONZO_REDIRECT_URI,
-                "code": code,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to exchange code for token: {response.text}",
-            )
-
-        token_data = response.json()
-
-        # Store Monzo token
-        if user_id not in user_tokens:
-            user_tokens[user_id] = {}
-
-        user_tokens[user_id]["monzo"] = {
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "expires_at": datetime.now()
-            + timedelta(seconds=token_data.get("expires_in", 3600)),
-            "provider": "monzo",
-        }
-
-    # Immediately fetch Monzo accounts
-    await sync_monzo_accounts(user_id)
-
-    return {
-        "message": "Monzo connected successfully!",
-        "provider": "monzo",
-        "redirect": "http://localhost:3000",
-    }
-
-
-async def sync_monzo_accounts(user_id: str = "default"):
-    """Fetch accounts directly from Monzo Open Banking API"""
-    if user_id not in user_tokens or "monzo" not in user_tokens[user_id]:
-        raise HTTPException(status_code=401, detail="Monzo not authenticated")
-
-    token_info = user_tokens[user_id]["monzo"]
-
-    async with httpx.AsyncClient() as client:
-        # Get Monzo accounts
-        response = await client.get(
-            f"{MONZO_API_URL}/accounts",
-            headers={"Authorization": f"Bearer {token_info['access_token']}"},
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Failed to fetch Monzo accounts: {response.text}",
-            )
-
-        data = response.json()
-        accounts = []
-
-        for acc in data.get("accounts", []):
-            # Get balance for each account
-            balance_response = await client.get(
-                f"{MONZO_API_URL}/balance",
-                params={"account_id": acc["id"]},
-                headers={"Authorization": f"Bearer {token_info['access_token']}"},
-            )
-
-            balance_data = (
-                balance_response.json() if balance_response.status_code == 200 else {}
-            )
-
-            account = Account(
-                id=acc["id"],
-                name=acc.get("description", f"Monzo {acc.get('type', 'Account')}"),
-                type="bank",
-                balance=balance_data.get("balance", 0)
-                / 100,  # Monzo amounts are in pence
-                currency=balance_data.get("currency", "GBP"),
-                provider="Monzo",
-                status="connected" if not acc.get("closed") else "closed",
-                account_number=acc.get("account_number"),
-                sort_code=acc.get("sort_code"),
-            )
-            accounts.append(account)
-
-        if user_id not in user_accounts:
-            user_accounts[user_id] = []
-
-        # Replace Monzo accounts (keep other providers)
-        user_accounts[user_id] = [
-            acc for acc in user_accounts[user_id] if acc.provider != "Monzo"
-        ]
-        user_accounts[user_id].extend(accounts)
-
-        # Fetch transactions for each account
-        for account in accounts:
-            await sync_monzo_transactions(user_id, account.id)
-
-        return accounts
-
-
-async def sync_monzo_transactions(user_id: str, account_id: str, days: int = 90):
-    """Fetch transactions directly from Monzo Open Banking API"""
-    if user_id not in user_tokens or "monzo" not in user_tokens[user_id]:
-        return []
-
-    token_info = user_tokens[user_id]["monzo"]
-
-    # Calculate date range
-    since = (datetime.now() - timedelta(days=days)).isoformat()
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{MONZO_API_URL}/transactions",
-            params={"account_id": account_id, "since": since, "expand[]": "merchant"},
-            headers={"Authorization": f"Bearer {token_info['access_token']}"},
-        )
-
-        if response.status_code != 200:
-            return []
-
-        data = response.json()
-        transactions = []
-
-        for txn in data.get("transactions", []):
-            transaction = Transaction(
-                id=txn["id"],
-                account_id=account_id,
-                date=datetime.fromisoformat(txn["created"].replace("Z", "+00:00")),
-                amount=abs(txn["amount"]) / 100,  # Convert from pence
-                currency=txn["currency"],
-                description=txn["description"],
-                merchant_name=(
-                    txn.get("merchant", {}).get("name") if txn.get("merchant") else None
-                ),
-                category=txn.get("category"),
-                transaction_type="debit" if txn["amount"] < 0 else "credit",
-            )
-            transactions.append(transaction)
-
-        if user_id not in user_transactions:
-            user_transactions[user_id] = {}
-        user_transactions[user_id][account_id] = transactions
-
-        return transactions
-
-
 # ============================================================================
 # TRUELAYER AUTH FLOW (RESTORED & IMPROVED)
 # ============================================================================
@@ -731,6 +431,48 @@ async def initiate_truelayer_auth_no_providers():
     }
 
 
+@app.get("/auth/truelayer/real-banks")
+async def initiate_truelayer_real_banks():
+    """
+    Connect REAL banks via TrueLayer Open Banking (UK banks)
+    This uses real bank connections, not mock data
+    """
+    if not TRUELAYER_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="TrueLayer not configured. Set TRUELAYER_CLIENT_ID in .env",
+        )
+
+    # Use uk-ob-all for real UK Open Banking providers
+    auth_url = (
+        f"{TRUELAYER_AUTH_URL}/?"
+        f"response_type=code&"
+        f"client_id={TRUELAYER_CLIENT_ID}&"
+        f"scope=accounts%20transactions%20balance%20offline_access&"
+        f"redirect_uri={TRUELAYER_REDIRECT_URI}&"
+        f"providers=uk-ob-all"
+    )
+
+    return {
+        "auth_url": auth_url,
+        "instructions": "🏦 Open this URL to connect your REAL bank account",
+        "provider": "truelayer-real-banks",
+        "supported_banks": [
+            "Barclays",
+            "HSBC",
+            "Lloyds",
+            "NatWest",
+            "Santander",
+            "Monzo",
+            "Revolut",
+            "Starling",
+            "and many more...",
+        ],
+        "note": "This connects to real banks via Open Banking - you'll need to login with your actual bank credentials",
+        "warning": "Make sure you're using a TrueLayer sandbox account or you'll connect real accounts!",
+    }
+
+
 @app.get("/auth/truelayer/mock")
 async def initiate_truelayer_mock_only():
     """
@@ -757,6 +499,36 @@ async def initiate_truelayer_mock_only():
         "instructions": "⚡ FASTEST: Mock provider only - should be instant!",
         "provider": "truelayer-mock-only",
         "note": "This uses only the mock provider for fastest testing",
+    }
+
+
+@app.get("/auth/truelayer/all-providers")
+async def initiate_truelayer_all_providers():
+    """
+    Show ALL available providers (mock + real banks)
+    Lets user choose between mock bank and real banks
+    """
+    if not TRUELAYER_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="TrueLayer not configured. Set TRUELAYER_CLIENT_ID in .env",
+        )
+
+    # Show all available providers
+    auth_url = (
+        f"{TRUELAYER_AUTH_URL}/?"
+        f"response_type=code&"
+        f"client_id={TRUELAYER_CLIENT_ID}&"
+        f"scope=accounts%20transactions%20balance%20offline_access&"
+        f"redirect_uri={TRUELAYER_REDIRECT_URI}"
+        # No providers parameter = show everything
+    )
+
+    return {
+        "auth_url": auth_url,
+        "instructions": "🔍 Open this URL to see ALL available options (mock + real banks)",
+        "provider": "truelayer-all",
+        "note": "TrueLayer will show you both mock provider AND real banks to choose from",
     }
 
 
@@ -876,18 +648,26 @@ async def truelayer_auth_callback(
 
     # Immediately fetch accounts
     try:
-        await sync_accounts(user_id)
+        accounts = await sync_accounts(user_id)
         return {
             "message": "TrueLayer connected successfully!",
+            "accounts_found": len(accounts),
             "redirect": "http://localhost:3000",
             "provider": "truelayer",
         }
     except Exception as e:
+        import traceback
+
+        error_details = traceback.format_exc()
+        print(f"🔥 ERROR FETCHING ACCOUNTS: {error_details}")
+
         return {
             "message": "Token received but failed to fetch accounts",
             "error": str(e),
+            "error_type": type(e).__name__,
             "redirect": "http://localhost:3000",
             "provider": "truelayer",
+            "suggestion": "Check server logs for detailed error. The token is saved and you can manually sync accounts later.",
         }
 
 
@@ -976,29 +756,51 @@ async def sync_accounts(user_id: str = "default"):
             headers={"Authorization": f"Bearer {access_token}"},
         )
 
+        print(f"🔥 ACCOUNTS API RESPONSE STATUS: {response.status_code}")
+        print(f"🔥 ACCOUNTS API RESPONSE BODY: {response.text}")
+
         if response.status_code != 200:
             raise HTTPException(
-                status_code=response.status_code, detail="Failed to fetch accounts"
+                status_code=response.status_code,
+                detail=f"Failed to fetch accounts: {response.text}",
             )
 
         data = response.json()
         accounts = []
 
         for acc in data.get("results", []):
+            print(f"🔥 PROCESSING ACCOUNT: {acc}")
+
+            # Handle different balance structures from TrueLayer API
+            balance = 0.0
+            if "current" in acc and acc["current"]:
+                balance = acc["current"].get("value", 0.0)
+            elif "balance" in acc:
+                balance = acc["balance"].get("current", 0.0)
+
             account = Account(
                 id=acc["account_id"],
                 name=acc.get(
                     "display_name", acc.get("account_type", "Unknown Account")
                 ),
                 type="bank",
-                balance=acc["current"]["value"],
-                currency=acc["currency"],
+                balance=balance,
+                currency=acc.get("currency", "GBP"),
                 provider=acc.get("provider", {}).get("display_name", "Unknown"),
                 status="connected",
-                account_number=acc.get("account_number", {}).get("number"),
-                sort_code=acc.get("account_number", {}).get("sort_code"),
+                account_number=(
+                    acc.get("account_number", {}).get("number")
+                    if acc.get("account_number")
+                    else None
+                ),
+                sort_code=(
+                    acc.get("account_number", {}).get("sort_code")
+                    if acc.get("account_number")
+                    else None
+                ),
             )
             accounts.append(account)
+            print(f"✅ ACCOUNT CREATED: {account.name} - £{account.balance}")
 
         user_accounts[user_id] = accounts
 
@@ -1075,15 +877,6 @@ async def refresh_accounts(user_id: str = "default"):
     """Manually trigger account & transaction sync for all providers"""
     synced_providers = []
     total_accounts = 0
-
-    # Sync Monzo if connected
-    if user_id in user_tokens and "monzo" in user_tokens[user_id]:
-        try:
-            accounts = await sync_monzo_accounts(user_id)
-            synced_providers.append("monzo")
-            total_accounts += len(accounts)
-        except Exception as e:
-            print(f"Failed to sync Monzo: {e}")
 
     # Sync TrueLayer if connected (legacy)
     if user_id in user_tokens and "access_token" in user_tokens[user_id]:
