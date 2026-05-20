@@ -23,3 +23,9 @@ journalctl -u wealth-bot -n 50
 ```
 
 Confirm health returns 200 before telling the user the change is live.
+
+## Git — CRITICAL
+
+**Never commit `backend/.env`, `backend/.session_secret`, or any file containing secrets, API keys, or tokens.**
+If any secrets file is already tracked, remove it with `git rm --cached <file>` before committing.
+Always verify `.gitignore` covers: `backend/.env`, `backend/.session_secret`, `backend/bot_state.json`.
