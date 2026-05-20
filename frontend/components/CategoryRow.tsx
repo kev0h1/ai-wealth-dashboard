@@ -3,8 +3,8 @@
 import { Transaction } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { CATEGORY_COLOURS } from "@/lib/categories";
-import { formatDate } from "@/lib/payPeriod";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import TransactionRow from "@/components/TransactionRow";
 
 interface CategoryData {
   name: string;
@@ -79,31 +79,11 @@ export default function CategoryRow({
       {expanded && (
         <div className="border-t border-slate-100 dark:border-slate-700">
           {data.transactions.map((tx) => (
-            <button
+            <TransactionRow
               key={tx.id}
+              transaction={tx}
               onClick={() => onTransactionClick(tx)}
-              className="w-full flex items-center justify-between px-5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 active:bg-slate-100 dark:active:bg-slate-700 transition-colors text-left"
-            >
-              <div>
-                <p className="text-sm text-slate-700 dark:text-slate-200">
-                  {tx.merchant_name || tx.description}
-                </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{formatDate(tx.date)}</p>
-              </div>
-              <span
-                className={`text-sm font-semibold ${
-                  tx.transaction_type === "credit"
-                    ? "text-emerald-500"
-                    : "text-slate-700 dark:text-slate-200"
-                }`}
-              >
-                {tx.transaction_type === "credit" ? "+" : "-"}£
-                {Math.abs(tx.amount).toLocaleString("en-GB", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </button>
+            />
           ))}
         </div>
       )}

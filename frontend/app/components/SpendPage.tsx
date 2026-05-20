@@ -17,6 +17,7 @@ import CategoryRow, { CategoryData } from "@/components/CategoryRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import TransactionRow from "@/components/TransactionRow";
 
 async function ensureAuth() {}
 
@@ -287,19 +288,11 @@ export default function SpendPage() {
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Income this period</p>
           </div>
           {incomeTxns.map(tx => (
-            <button
+            <TransactionRow
               key={tx.id}
+              transaction={tx}
               onClick={() => setSelectedTx(tx)}
-              className="w-full flex items-center justify-between px-4 py-2.5 border-t border-slate-50 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
-            >
-              <div>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tx.merchant_name || tx.description}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{formatDateLocal(tx.date)}</p>
-              </div>
-              <span className="text-sm font-semibold text-emerald-500 flex-shrink-0 ml-3">
-                +{fmtAmt(tx.amount)}
-              </span>
-            </button>
+            />
           ))}
         </div>
       )}

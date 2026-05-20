@@ -43,6 +43,75 @@ function formatDate(isoString: string) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; hideNetWorth: boolean }) {
+  const deficit = Math.abs(insights.monthly_surplus); // how much over budget per month
+  const breakEvenNeeded = deficit;                    // to stop debt growing
+  const goal12moNeeded = deficit + insights.payment_needed_12mo; // to clear in 12mo
+
+  const maxBar = Math.max(insights.monthly_income, insights.monthly_spending);
+  const incPct = (insights.monthly_income / maxBar) * 100;
+  const spendPct = (insights.monthly_spending / maxBar) * 100;
+
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
+      {/* Warning banner */}
+      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2.5">
+        <span className="text-lg">⚠️</span>
+        <div>
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400">Debt is growing</p>
+          <p className="text-xs text-red-600 dark:text-red-500">
+            You spend {hideNetWorth ? "••••" : fmt2(deficit)} more than you earn each month
+          </p>
+        </div>
+      </div>
+
+      {/* Income vs Spend bars */}
+      <div className="space-y-2">
+        <div>
+          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+            <span>Monthly income</span>
+            <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income)}</span>
+          </div>
+          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${incPct}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+            <span>Monthly spending</span>
+            <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending)}</span>
+          </div>
+          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-full bg-red-400 rounded-full" style={{ width: `${spendPct}%` }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Two levers */}
+      <div className="grid grid-cols-2 gap-2.5">
+        {/* Break even */}
+        <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5">Stop debt growing</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Cut spending <span className="font-semibold text-amber-700 dark:text-amber-400">{hideNetWorth ? "••••" : fmt2(breakEvenNeeded)}/mo</span>
+          </p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">or earn that much more</p>
+        </div>
+        {/* 12mo goal */}
+        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:text-indigo-400 mb-1.5">Debt-free in 12mo</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Need <span className="font-semibold text-indigo-700 dark:text-indigo-400">{hideNetWorth ? "••••" : fmt2(goal12moNeeded)}/mo</span> extra
+          </p>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+            {hideNetWorth ? "••••" : fmt2(breakEvenNeeded)} to break even + {hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)} to repay
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DebtPage() {
   const { user } = useAuth();
   const { colours } = useColours();
@@ -189,69 +258,53 @@ export default function DebtPage() {
         ) : (
           <>
             {/* ── Story card ── */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-              <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-                {gapExists ? (
-                  <>
-                    Your monthly surplus after expenses is{" "}
-                    <span className="font-semibold text-slate-900">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span>. To clear{" "}
-                    <span className="font-semibold text-slate-900">{hideNetWorth ? "••••" : fmt(insights.total_debt)}</span> of debt in 12
-                    months you need to put{" "}
-                    <span className="font-semibold text-slate-900">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span>{" "}
-                    towards it — that&apos;s{" "}
-                    <span className="font-semibold text-red-600">{hideNetWorth ? "••••" : fmt2(insights.gap_to_12mo)} more</span> than
-                    you&apos;re currently freeing up.
-                  </>
-                ) : (
-                  <>
-                    Great news! Your{" "}
-                    <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span> monthly
-                    surplus is enough to clear your{" "}
-                    <span className="font-semibold text-slate-900">{hideNetWorth ? "••••" : fmt(insights.total_debt)}</span> debt in 12
-                    months. Keep putting{" "}
-                    <span className="font-semibold text-slate-900">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span>{" "}
-                    towards repayments.
-                  </>
-                )}
-              </p>
-
-              {/* Timeline bar */}
-              <div className="mt-4">
-                <div className="relative h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-visible mx-1">
-                  <div
-                    className={`h-full rounded-full transition-all ${onTrack ? "bg-emerald-400" : "bg-red-400"}`}
-                    style={{ width: `${filledPct}%` }}
-                  />
-                  <div
-                    className="absolute top-0 bottom-0 w-0.5 bg-slate-500"
-                    style={{ left: `${marker12Pct}%` }}
-                  />
-                </div>
-                {/* Labels below bar — positioned to avoid overlap */}
-                <div className="relative mt-1.5 h-4">
-                  <span className="absolute left-0 text-[10px] text-slate-400">Now</span>
-                  <span
-                    className="absolute text-[10px] font-semibold text-slate-600 whitespace-nowrap"
-                    style={{
-                      left: `clamp(2rem, ${marker12Pct}%, calc(100% - 3.5rem))`,
-                      transform: "translateX(-50%)",
-                    }}
-                  >
-                    12mo goal
-                  </span>
-                  {displayMax < 999 && (
-                    <span className="absolute right-0 text-[10px] text-slate-400">{displayMax}mo</span>
+            {insights.monthly_surplus < 0 ? (
+              /* ── Negative surplus: debt growing ── */
+              <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} />
+            ) : (
+              /* ── Positive surplus: timeline ── */
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+                  {onTrack ? (
+                    <>
+                      Your <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span> monthly
+                      surplus is enough to clear your <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(insights.total_debt)}</span> debt in 12 months.
+                      Keep putting <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span> towards repayments.
+                    </>
+                  ) : (
+                    <>
+                      Your monthly surplus is <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span>.
+                      To clear your debt in 12 months you need <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span> — that&apos;s{" "}
+                      <span className="font-semibold text-red-600">{hideNetWorth ? "••••" : fmt2(insights.gap_to_12mo)} more</span> than you&apos;re freeing up.
+                    </>
                   )}
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Debt-free in{" "}
-                  <span className={`font-semibold ${onTrack ? "text-emerald-600" : "text-red-500"}`}>
-                    {insights.months_at_current_rate >= 999 ? "unknown (spend exceeds income)" : `${insights.months_at_current_rate} months`}
-                  </span>
-                  {" "}at your current rate.
                 </p>
+                <div className="mt-4">
+                  <div className="relative h-4 mb-0.5">
+                    <span
+                      className="absolute text-[10px] font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap -translate-x-1/2"
+                      style={{ left: `clamp(2.5rem, ${marker12Pct}%, calc(100% - 3rem))` }}
+                    >
+                      12mo goal
+                    </span>
+                  </div>
+                  <div className="relative h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-visible mx-1">
+                    <div
+                      className={`h-full rounded-full transition-all ${onTrack ? "bg-emerald-400" : "bg-amber-400"}`}
+                      style={{ width: `${filledPct}%` }}
+                    />
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-slate-500 dark:bg-slate-400" style={{ left: `${marker12Pct}%` }} />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[10px] text-slate-400">Now</span>
+                    {displayMax < 999 && <span className="text-[10px] text-slate-400">{displayMax}mo</span>}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Debt-free in <span className={`font-semibold ${onTrack ? "text-emerald-600" : "text-amber-600"}`}>{insights.months_at_current_rate} months</span> at your current rate.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ── Cards breakdown ── */}
             {insights.accounts.length > 0 && (
