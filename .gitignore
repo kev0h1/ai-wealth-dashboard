@@ -1,0 +1,20 @@
+# Dependencies
+frontend/node_modules/
+backend/.venv/
+backend/venv/
+
+# Build output
+frontend/.next/
+
+# Secrets & local config
+backend/.env
+backend/.session_secret
+backend/bot_state.json
+backend/store.json
+
+# Python cache
+backend/__pycache__/
+*.pyc
+
+# OS
+.DS_Store

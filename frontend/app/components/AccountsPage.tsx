@@ -1,0 +1,382 @@
+"use client";
+
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ArrowLeft, Plus, Landmark, RefreshCw } from "lucide-react";
+import { api, Account, Transaction } from "@/lib/api";
+import { getToken, setToken } from "@/lib/auth";
+import AccountMiniCard from "@/components/AccountMiniCard";
+import TransactionRow from "@/components/TransactionRow";
+import TransactionSheet from "@/components/TransactionSheet";
+import CategoryRow, { CategoryData } from "@/components/CategoryRow";
+import SegmentedControl from "@/components/SegmentedControl";
+import BottomNav from "@/components/BottomNav";
+import Spinner from "@/components/Spinner";
+import { usePreferences } from "@/components/PreferencesContext";
+
+async function ensureAuth() {}
+
+function typeLabel(type: string): string {
+  const t = type.toLowerCase();
+  if (t.includes("credit")) return "Credit Card";
+  if (t.includes("saving")) return "Savings";
+  if (t.includes("current") || t.includes("checking")) return "Current";
+  return "Bank";
+}
+
+function typeChipStyle(type: string): { bg: string; text: string } {
+  const t = type.toLowerCase();
+  if (t.includes("credit")) return { bg: "bg-pink-100", text: "text-pink-700" };
+  if (t.includes("saving")) return { bg: "bg-emerald-100", text: "text-emerald-700" };
+  return { bg: "bg-indigo-100", text: "text-indigo-700" };
+}
+
+const PAGE_SIZE = 20;
+
+export default function AccountsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { hideNetWorth } = usePreferences();
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
+  const [page, setPage] = useState(1);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const isSyncing = searchParams.get("syncing") === "1";
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      await ensureAuth();
+      const accs = await api.accounts().catch(() => [] as Account[]);
+      setAccounts(accs);
+      // Deep-link: if ?id= param present, open that account immediately
+      const deepId = searchParams.get("id");
+      if (deepId) {
+        setSelectedAccountId(deepId);
+        setSegment("Transactions");
+        setPage(1);
+        const txns = await api.transactions(deepId).catch(() => [] as Transaction[]);
+        const sorted = txns.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setTxnMap(prev => ({ ...prev, [deepId]: sorted }));
+      }
+    } catch {}
+    finally {
+      setLoading(false);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
+
+  // When redirected back from TrueLayer, poll until accounts appear then clear the flag
+  useEffect(() => {
+    if (!isSyncing) return;
+    const interval = setInterval(async () => {
+      const accs = await api.accounts().catch(() => [] as Account[]);
+      if (accs.length > 0) {
+        setAccounts(accs);
+        clearInterval(interval);
+        router.replace("/accounts");
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isSyncing, router]);
+
+  async function loadAccountTxns(accountId: string) {
+    if (txnMap[accountId]) return; // already loaded
+    setLoadingTxns(accountId);
+    try {
+      const txns = await api.transactions(accountId);
+      const sorted = txns.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      setTxnMap((prev) => ({ ...prev, [accountId]: sorted }));
+    } catch {}
+    finally {
+      setLoadingTxns(null);
+    }
+  }
+
+  async function handleSelectAccount(acc: Account) {
+    setSelectedAccountId(acc.id);
+    setSegment("Transactions");
+    setPage(1);
+    setExpandedCat(null);
+    await loadAccountTxns(acc.id);
+  }
+
+  function handleBack() {
+    setSelectedAccountId(null);
+    setSelectedTx(null);
+  }
+
+  async function handleConnectBank() {
+    setConnecting(true);
+    try {
+      const { auth_url } = await api.connectLink();
+      window.location.href = auth_url;
+    } catch {
+      setConnecting(false);
+    }
+  }
+
+  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+    setTxnMap((prev) => {
+      const next = { ...prev };
+      for (const [accId, list] of Object.entries(next)) {
+        next[accId] = list.map((t) => {
+          if (t.id === updated.id) return { ...t, category: updated.category };
+          if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };
+          return t;
+        });
+      }
+      return next;
+    });
+  }
+
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+  const accountTxns = selectedAccountId ? (txnMap[selectedAccountId] ?? []) : [];
+
+  // Pagination
+  const totalPages = Math.ceil(accountTxns.length / PAGE_SIZE);
+  const pagedTxns = accountTxns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Categories for selected account
+  const categories = useMemo((): CategoryData[] => {
+    const map: Record<string, { total: number; count: number; transactions: Transaction[] }> = {};
+    for (const tx of accountTxns) {
+      if (tx.transaction_type === "credit") continue;
+      const cat = tx.category || "Other";
+      if (!map[cat]) map[cat] = { total: 0, count: 0, transactions: [] };
+      map[cat].total += Math.abs(tx.amount);
+      map[cat].count += 1;
+      map[cat].transactions.push(tx);
+    }
+    const totalSpend = Object.values(map).reduce((s, v) => s + v.total, 0);
+    return Object.entries(map)
+      .map(([name, { total, count, transactions }]) => ({
+        name,
+        total,
+        count,
+        transactions: transactions.sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        ),
+        pct: totalSpend > 0 ? (total / totalSpend) * 100 : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [accountTxns]);
+
+  // --- Account detail view ---
+  if (selectedAccount) {
+    const isCredit = selectedAccount.type.toLowerCase().includes("credit");
+    const balance = selectedAccount.balance;
+
+    return (
+      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
+        {/* Header */}
+        <div
+          className="px-4 pt-6 pb-5 text-white"
+          style={{
+            background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+          }}
+        >
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-1.5 text-white/80 hover:text-white mb-4 transition-colors"
+          >
+            <ArrowLeft size={18} />
+            <span className="text-sm font-medium">Accounts</span>
+          </button>
+
+          <h1 className="text-xl font-bold mb-1">{selectedAccount.name}</h1>
+
+          <div className="flex items-center gap-3 mt-2">
+            <span
+              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                isCredit ? "bg-pink-400/30 text-pink-100" : "bg-indigo-400/30 text-indigo-100"
+              }`}
+            >
+              {typeLabel(selectedAccount.type)}
+            </span>
+            <span
+              className={`text-2xl font-bold ${
+                isCredit && balance < 0 ? "text-red-300" : "text-white"
+              }`}
+            >
+              {hideNetWorth ? "••••" : `${isCredit && balance < 0 ? "-" : ""}£${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            </span>
+          </div>
+        </div>
+
+        {/* Segmented control */}
+        <div className="px-4 pt-4">
+          <SegmentedControl
+            options={["Transactions", "Categories"]}
+            value={segment}
+            onChange={(v) => setSegment(v as typeof segment)}
+          />
+        </div>
+
+        <div className="px-4 pt-4 space-y-2">
+          {loadingTxns === selectedAccountId ? (
+            <div className="flex items-center justify-center py-16">
+              <Spinner size={32} />
+            </div>
+          ) : segment === "Transactions" ? (
+            <>
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                {pagedTxns.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <p className="text-sm text-slate-400 dark:text-slate-500">No transactions</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                    {pagedTxns.map((tx) => (
+                      <TransactionRow
+                        key={tx.id}
+                        transaction={tx}
+                        onClick={() => setSelectedTx(tx)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-3 py-2">
+                  <button
+                    disabled={page === 1}
+                    onClick={() => setPage((p) => p - 1)}
+                    className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                  >
+                    ← Prev
+                  </button>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    disabled={page === totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                    className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            /* Categories view */
+            categories.length === 0 ? (
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+                <p className="text-sm text-slate-400 dark:text-slate-500">No spending data</p>
+              </div>
+            ) : (
+              categories.map((cat) => (
+                <CategoryRow
+                  key={cat.name}
+                  data={cat}
+                  expanded={expandedCat === cat.name}
+                  onToggle={() =>
+                    setExpandedCat(expandedCat === cat.name ? null : cat.name)
+                  }
+                  onTransactionClick={(tx) => setSelectedTx(tx)}
+                />
+              ))
+            )
+          )}
+        </div>
+
+        {/* Transaction sheet */}
+        {selectedTx && (
+          <TransactionSheet
+            transaction={selectedTx}
+            onClose={() => setSelectedTx(null)}
+            onUpdated={handleTxUpdated}
+          />
+        )}
+
+        <BottomNav />
+      </div>
+    );
+  }
+
+  // --- Account list view ---
+  return (
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
+      {/* Header */}
+      <div
+        className="px-4 pt-6 pb-5 text-white"
+        style={{
+          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Accounts</h1>
+            <p className="text-sm opacity-70 mt-0.5">
+              {accounts.length} account{accounts.length !== 1 ? "s" : ""} connected
+            </p>
+          </div>
+          <button
+            onClick={handleConnectBank}
+            disabled={connecting}
+            className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3.5 py-2 rounded-xl text-sm font-semibold text-white"
+          >
+            <Plus size={16} />
+            {connecting ? "Opening…" : "Add Bank"}
+          </button>
+        </div>
+      </div>
+
+      {isSyncing && (
+        <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
+          <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
+          <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
+        </div>
+      )}
+
+      <div className="px-4 pt-4 space-y-3">
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Spinner size={32} />
+          </div>
+        ) : accounts.length === 0 ? (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
+            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
+              <Landmark size={26} color="#4f46e5" />
+            </div>
+            <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
+            <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">Connect your bank to start tracking your finances.</p>
+            <button
+              onClick={handleConnectBank}
+              disabled={connecting}
+              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+            >
+              <Plus size={16} />
+              {connecting ? "Opening…" : "Connect a Bank"}
+            </button>
+          </div>
+        ) : (
+          accounts.map((acc) => (
+            <AccountMiniCard
+              key={acc.id}
+              account={acc}
+              fullWidth
+              hidden={hideNetWorth}
+              onClick={() => handleSelectAccount(acc)}
+            />
+          ))
+        )}
+      </div>
+
+      <BottomNav />
+    </div>
+  );
+}
