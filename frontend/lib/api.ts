@@ -26,6 +26,28 @@ export interface Transaction {
   transaction_type: "debit" | "credit";
 }
 
+export interface MonoAccount {
+  id: string;
+  name: string;
+  type: string;
+  balance: number;
+  currency: string;
+  provider: string;
+  status: string;
+  source: "mono";
+}
+
+export interface MpesaAccount {
+  id: string;
+  name: string;
+  type: string;
+  balance: number;
+  currency: string;
+  provider: string;
+  status: string;
+  source: "mpesa";
+}
+
 export interface KPIs {
   net_worth: number;
   cash: number;
@@ -135,4 +157,91 @@ export const api = {
   getBudgetChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/budget/chat/session"),
   newBudgetChatSession: () => post<{ session_id: string; messages: [] }>("/budget/chat/new", {}),
   syncHistory: () => post<{ message: string; total_accounts: number }>("/accounts/sync-history"),
+  deleteAccount: (accountId: string) =>
+    fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  // Mono (Kenya open banking)
+  monoPublicKey: () => get<{ public_key: string }>("/auth/mono/public-key"),
+  monoExchange: (code: string) => post<{ message: string; account_id: string }>("/auth/mono/exchange", { code }),
+  monoSync: () => post<{ message: string }>("/mono/sync", {}),
+  getMonoAccounts: () => get<MonoAccount[]>("/mono/accounts"),
+  getMonoTransactions: (id: string) => get<Transaction[]>(`/mono/accounts/${id}/transactions`),
+  deleteMonoConnection: (id: string) =>
+    fetch(`${API_BASE}/mono/connections/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: boolean }>,
+
+  // M-Pesa CSV upload (legacy — kept for backward compat)
+  uploadMpesa: (file: File, password?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (password) form.append("password", password);
+    return fetch(`${API_BASE}/mpesa/upload`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: form,
+    }).then(async r => {
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error(text || `${r.status}`);
+      }
+      return r.json() as Promise<{ inserted: number; account_id: string }>;
+    });
+  },
+
+  // Generic bank statement upload (any bank, any region)
+  uploadStatement: async (file: File, password?: string, region = "Kenya") => {
+    const form = new FormData();
+    form.append("file", file);
+    if (password) form.append("password", password);
+    form.append("region", region);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 150_000); // 2.5 min
+
+    let r: Response;
+    try {
+      r = await fetch(`${API_BASE}/statement/upload`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error("The request timed out — the file may be too large or the server is busy. Please try again.");
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Network error: ${msg}`);
+    }
+    clearTimeout(timer);
+
+    if (!r.ok) {
+      let detail = `Server error (${r.status})`;
+      try {
+        const body = await r.json();
+        if (body?.detail) detail = body.detail;
+      } catch {
+        try { detail = await r.text() || detail; } catch { /* ignore */ }
+      }
+      throw new Error(detail);
+    }
+
+    return r.json() as Promise<{
+      inserted: number;
+      skipped: number;
+      account_id: string;
+      bank_name: string;
+      account_number: string;
+      balance: number | null;
+    }>;
+  },
+
+  getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
+  getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
 };

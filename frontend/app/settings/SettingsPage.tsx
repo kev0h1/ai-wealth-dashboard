@@ -5,7 +5,7 @@ import { RotateCcw, LogOut, Plus, Trash2 } from "lucide-react";
 import { CATEGORIES, CATEGORY_COLOURS } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useAuth } from "@/components/AuthProvider";
-import { usePreferences } from "@/components/PreferencesContext";
+import { usePreferences, Region } from "@/components/PreferencesContext";
 import { useCategories } from "@/components/CategoriesContext";
 import { api, Account, Transaction } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
@@ -24,7 +24,7 @@ interface CategorySpend {
 export default function SettingsPage() {
   const { colours, setColour, resetColour } = useColours();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode } = usePreferences();
+  const { darkMode, setDarkMode, region, setRegion } = usePreferences();
   const { allCategories, customCategories, addCategory, deleteCategory, defaultColour: catDefaultColour } = useCategories();
   const [topSpend, setTopSpend] = useState<CategorySpend[]>([]);
   const [newCatName, setNewCatName] = useState("");
@@ -124,6 +124,27 @@ export default function SettingsPage() {
                 className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${darkMode ? "translate-x-6" : "translate-x-0"}`}
               />
             </button>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700">
+            <div>
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Region</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {region === "UK" ? "TrueLayer open banking" : "Mono + M-Pesa + statements"}
+              </p>
+            </div>
+            <select
+              value={region}
+              onChange={(e) => {
+                setRegion(e.target.value as Region);
+                setTimeout(() => loadSpend(), 300);
+              }}
+              className="text-sm font-medium bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 border-0 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer appearance-none pr-7 bg-no-repeat"
+              style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")", backgroundPosition: "right 8px center" }}
+            >
+              {([["UK", "🇬🇧"], ["Kenya", "🇰🇪"]] as [Region, string][]).map(([r, flag]) => (
+                <option key={r} value={r}>{flag} {r}</option>
+              ))}
+            </select>
           </div>
         </div>
 

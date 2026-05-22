@@ -10,6 +10,7 @@ import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { getPayPeriod, filterPeriod } from "@/lib/payPeriod";
+import { usePreferences } from "@/components/PreferencesContext";
 import type { Transaction } from "@/lib/api";
 
 interface Budget {
@@ -23,12 +24,12 @@ interface ChatMessage {
   suggestedBudgets?: Budget[];
 }
 
-function fmt(n: number) {
-  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+function fmt(n: number, sym = "£") {
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-function fmt2(n: number) {
-  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmt2(n: number, sym = "£") {
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 const SKIP = new Set(["Transfer", "Savings", "Debt", "Income"]);
@@ -37,6 +38,8 @@ export default function BudgetPage() {
   const { user } = useAuth();
   const { colours } = useColours();
   const { allCategories } = useCategories();
+  const { region } = usePreferences();
+  const sym = region === "Kenya" ? "KES " : "£";
   const firstName = user?.name?.split(" ")[0] || "there";
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -197,7 +200,7 @@ export default function BudgetPage() {
             </div>
             <div className="flex-1 bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
               <p className="text-[10px] opacity-70 mb-0.5">Total limit</p>
-              <p className="text-lg font-bold">{fmt(budgets.reduce((s, b) => s + b.monthly_limit, 0))}</p>
+              <p className="text-lg font-bold">{fmt(budgets.reduce((s, b) => s + b.monthly_limit, 0), sym)}</p>
             </div>
           </div>
         )}
@@ -221,7 +224,7 @@ export default function BudgetPage() {
                   {availableCats.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <div className="relative flex-shrink-0">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">£</span>
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 whitespace-nowrap">{sym}</span>
                   <input
                     type="number"
                     min="1"
@@ -229,7 +232,7 @@ export default function BudgetPage() {
                     value={addLimit}
                     onChange={e => setAddLimit(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") handleAddBudget(); }}
-                    className="w-28 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl pl-7 pr-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"
+                    className={`text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl pr-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 ${sym.length > 2 ? "w-32 pl-11" : "w-28 pl-7"}`}
                   />
                 </div>
                 <button
@@ -267,7 +270,7 @@ export default function BudgetPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className={`text-xs font-semibold ${over ? "text-red-500" : "text-slate-600 dark:text-slate-300"}`}>
-                            {fmt2(spent)} / {fmt(b.monthly_limit)}
+                            {fmt2(spent, sym)} / {fmt(b.monthly_limit, "")}
                           </span>
                           <button
                             onClick={() => handleRemove(b.category)}
@@ -287,9 +290,9 @@ export default function BudgetPage() {
                       <div className="flex justify-between mt-0.5">
                         <span className="text-[10px] text-slate-400 dark:text-slate-500">{Math.round(pct)}% used</span>
                         {over ? (
-                          <span className="text-[10px] font-semibold text-red-500">{fmt2(spent - b.monthly_limit)} over</span>
+                          <span className="text-[10px] font-semibold text-red-500">{fmt2(spent - b.monthly_limit, sym)} over</span>
                         ) : (
-                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{fmt2(b.monthly_limit - spent)} left</span>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{fmt2(b.monthly_limit - spent, sym)} left</span>
                         )}
                       </div>
                     </div>
@@ -358,6 +361,7 @@ export default function BudgetPage() {
                   <ApplyBudgetCard
                     budgets={msg.suggestedBudgets}
                     colours={colours}
+                    sym={sym}
                     onApply={() => applyBudgets(msg.suggestedBudgets!)}
                   />
                 )}
@@ -405,10 +409,12 @@ export default function BudgetPage() {
 function ApplyBudgetCard({
   budgets,
   colours,
+  sym,
   onApply,
 }: {
   budgets: Budget[];
   colours: Record<string, string>;
+  sym: string;
   onApply: () => Promise<void>;
 }) {
   const [applied, setApplied] = useState(false);
@@ -436,7 +442,7 @@ function ApplyBudgetCard({
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
                 <span className="text-xs text-slate-700 dark:text-slate-200 truncate">{b.category}</span>
               </div>
-              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">£{b.monthly_limit}/mo</span>
+              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">{sym}{b.monthly_limit}/mo</span>
             </div>
           );
         })}

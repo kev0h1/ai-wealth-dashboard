@@ -30,12 +30,12 @@ interface ChatMessage {
   content: string;
 }
 
-function fmt(n: number) {
-  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+function fmt(n: number, sym = "£") {
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-function fmt2(n: number) {
-  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmt2(n: number, sym = "£") {
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatDate(isoString: string) {
@@ -43,10 +43,10 @@ function formatDate(isoString: string) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; hideNetWorth: boolean }) {
-  const deficit = Math.abs(insights.monthly_surplus); // how much over budget per month
-  const breakEvenNeeded = deficit;                    // to stop debt growing
-  const goal12moNeeded = deficit + insights.payment_needed_12mo; // to clear in 12mo
+function DebtGrowingCard({ insights, hideNetWorth, sym }: { insights: DebtInsights; hideNetWorth: boolean; sym: string }) {
+  const deficit = Math.abs(insights.monthly_surplus);
+  const breakEvenNeeded = deficit;
+  const goal12moNeeded = deficit + insights.payment_needed_12mo;
 
   const maxBar = Math.max(insights.monthly_income, insights.monthly_spending);
   const incPct = (insights.monthly_income / maxBar) * 100;
@@ -54,23 +54,21 @@ function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; h
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
-      {/* Warning banner */}
       <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2.5">
         <span className="text-lg">⚠️</span>
         <div>
           <p className="text-sm font-semibold text-red-700 dark:text-red-400">Debt is growing</p>
           <p className="text-xs text-red-600 dark:text-red-500">
-            You spend {hideNetWorth ? "••••" : fmt2(deficit)} more than you earn each month
+            You spend {hideNetWorth ? "••••" : fmt2(deficit, sym)} more than you earn each month
           </p>
         </div>
       </div>
 
-      {/* Income vs Spend bars */}
       <div className="space-y-2">
         <div>
           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Monthly income</span>
-            <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income)}</span>
+            <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
           </div>
           <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${incPct}%` }} />
@@ -79,7 +77,7 @@ function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; h
         <div>
           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Monthly spending</span>
-            <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending)}</span>
+            <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
           </div>
           <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
             <div className="h-full bg-red-400 rounded-full" style={{ width: `${spendPct}%` }} />
@@ -87,24 +85,21 @@ function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; h
         </div>
       </div>
 
-      {/* Two levers */}
       <div className="grid grid-cols-2 gap-2.5">
-        {/* Break even */}
         <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5">Stop debt growing</p>
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Cut spending <span className="font-semibold text-amber-700 dark:text-amber-400">{hideNetWorth ? "••••" : fmt2(breakEvenNeeded)}/mo</span>
+            Cut spending <span className="font-semibold text-amber-700 dark:text-amber-400">{hideNetWorth ? "••••" : fmt2(breakEvenNeeded, sym)}/mo</span>
           </p>
           <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">or earn that much more</p>
         </div>
-        {/* 12mo goal */}
         <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 dark:text-indigo-400 mb-1.5">Debt-free in 12mo</p>
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Need <span className="font-semibold text-indigo-700 dark:text-indigo-400">{hideNetWorth ? "••••" : fmt2(goal12moNeeded)}/mo</span> extra
+            Need <span className="font-semibold text-indigo-700 dark:text-indigo-400">{hideNetWorth ? "••••" : fmt2(goal12moNeeded, sym)}/mo</span> extra
           </p>
           <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-            {hideNetWorth ? "••••" : fmt2(breakEvenNeeded)} to break even + {hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)} to repay
+            {hideNetWorth ? "••••" : fmt2(breakEvenNeeded, sym)} to break even + {hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo, sym)} to repay
           </p>
         </div>
       </div>
@@ -115,7 +110,8 @@ function DebtGrowingCard({ insights, hideNetWorth }: { insights: DebtInsights; h
 export default function DebtPage() {
   const { user } = useAuth();
   const { colours } = useColours();
-  const { hideNetWorth } = usePreferences();
+  const { hideNetWorth, region } = usePreferences();
+  const sym = region === "Kenya" ? "KES " : "£";
   const [insights, setInsights] = useState<DebtInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [cutExpanded, setCutExpanded] = useState(false);
@@ -158,14 +154,18 @@ export default function DebtPage() {
       } else {
         const greeting: ChatMessage = {
           role: "assistant",
-          content: `Hi ${firstName}! I can see you have ${fmt(insights.total_debt)} in credit card debt. What would you like to work on first?`,
+          content: insights.total_debt > 0
+            ? `Hi ${firstName}! I can see you have ${fmt(insights.total_debt, sym)} in credit card debt. What would you like to work on first?`
+            : `Hi ${firstName}! You have no credit card debt — great position to be in. I can help you analyse your spending or work towards savings goals. What would you like to explore?`,
         };
         setMessages([greeting]);
       }
     }).catch(() => {
       const greeting: ChatMessage = {
         role: "assistant",
-        content: `Hi ${firstName}! I can see you have ${fmt(insights.total_debt)} in credit card debt. What would you like to work on first?`,
+        content: insights.total_debt > 0
+          ? `Hi ${firstName}! I can see you have ${fmt(insights.total_debt, sym)} in credit card debt. What would you like to work on first?`
+          : `Hi ${firstName}! You have no credit card debt — great position to be in. I can help you analyse your spending or work towards savings goals. What would you like to explore?`,
       };
       setMessages([greeting]);
     });
@@ -209,6 +209,7 @@ export default function DebtPage() {
     }
   }
 
+  const hasDebt = (insights?.total_debt ?? 0) > 0;
   const onTrack = insights ? insights.months_at_current_rate <= 12 : false;
   const gapExists = insights ? insights.gap_to_12mo > 0 : false;
 
@@ -237,11 +238,25 @@ export default function DebtPage() {
           <div className="mt-4 h-12 w-40 bg-white/20 rounded-xl animate-pulse" />
         ) : insights ? (
           <div className="mt-4">
-            <p className="text-xs opacity-70 mb-0.5">Total Outstanding</p>
-            <p className="text-4xl font-bold tracking-tight">{hideNetWorth ? "••••" : fmt(insights.total_debt)}</p>
-            <p className="text-sm opacity-60 mt-0.5">
-              across {insights.accounts.length} card{insights.accounts.length !== 1 ? "s" : ""}
-            </p>
+            {hasDebt ? (
+              <>
+                <p className="text-xs opacity-70 mb-0.5">Total Outstanding</p>
+                <p className="text-4xl font-bold tracking-tight">{hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}</p>
+                <p className="text-sm opacity-60 mt-0.5">
+                  across {insights.accounts.length} card{insights.accounts.length !== 1 ? "s" : ""}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xs opacity-70 mb-0.5">Monthly {insights.monthly_surplus >= 0 ? "Surplus" : "Deficit"}</p>
+                <p className="text-4xl font-bold tracking-tight">
+                  {hideNetWorth ? "••••" : fmt(Math.abs(insights.monthly_surplus), sym)}
+                </p>
+                <p className="text-sm opacity-60 mt-0.5">
+                  {insights.monthly_surplus >= 0 ? "No credit card debt" : "Spending exceeds income"}
+                </p>
+              </>
+            )}
           </div>
         ) : null}
       </div>
@@ -258,24 +273,74 @@ export default function DebtPage() {
         ) : (
           <>
             {/* ── Story card ── */}
-            {insights.monthly_surplus < 0 ? (
-              /* ── Negative surplus: debt growing ── */
-              <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} />
+            {!hasDebt ? (
+              /* ── No debt: income vs spending health card ── */
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
+                {insights.monthly_surplus >= 0 ? (
+                  <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-2.5">
+                    <span className="text-lg">✅</span>
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Finances look healthy</p>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-500">
+                        You have no credit card debt and a positive monthly surplus
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2.5">
+                    <span className="text-lg">⚠️</span>
+                    <div>
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Spending exceeds income</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                        You spend {hideNetWorth ? "••••" : fmt2(Math.abs(insights.monthly_surplus), sym)} more than you earn each month
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+                      <span>Monthly income</span>
+                      <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
+                    </div>
+                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+                      <span>Monthly spending</span>
+                      <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
+                    </div>
+                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-400 rounded-full" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+                {insights.monthly_surplus >= 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Monthly surplus: <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span>
+                  </p>
+                )}
+              </div>
+            ) : insights.monthly_surplus < 0 ? (
+              /* ── Has debt + negative surplus: debt growing ── */
+              <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} sym={sym} />
             ) : (
-              /* ── Positive surplus: timeline ── */
+              /* ── Has debt + positive surplus: timeline ── */
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   {onTrack ? (
                     <>
-                      Your <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span> monthly
-                      surplus is enough to clear your <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(insights.total_debt)}</span> debt in 12 months.
-                      Keep putting <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span> towards repayments.
+                      Your <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span> monthly
+                      surplus is enough to clear your <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}</span> debt in 12 months.
+                      Keep putting <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo, sym)}/month</span> towards repayments.
                     </>
                   ) : (
                     <>
-                      Your monthly surplus is <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus)}</span>.
-                      To clear your debt in 12 months you need <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo)}/month</span> — that&apos;s{" "}
-                      <span className="font-semibold text-red-600">{hideNetWorth ? "••••" : fmt2(insights.gap_to_12mo)} more</span> than you&apos;re freeing up.
+                      Your monthly surplus is <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span>.
+                      To clear your debt in 12 months you need <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt2(insights.payment_needed_12mo, sym)}/month</span> — that&apos;s{" "}
+                      <span className="font-semibold text-red-600">{hideNetWorth ? "••••" : fmt2(insights.gap_to_12mo, sym)} more</span> than you&apos;re freeing up.
                     </>
                   )}
                 </p>
@@ -307,7 +372,7 @@ export default function DebtPage() {
             )}
 
             {/* ── Cards breakdown ── */}
-            {insights.accounts.length > 0 && (
+            {hasDebt && insights.accounts.length > 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
                 <div className="px-4 pt-3 pb-2">
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Credit Cards</p>
@@ -322,7 +387,7 @@ export default function DebtPage() {
                           <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{acc.name}</p>
                           <p className="text-xs text-slate-400 dark:text-slate-500">{acc.provider}</p>
                         </div>
-                        <p className="text-sm font-bold text-red-500">{hideNetWorth ? "••••" : fmt2(owed)}</p>
+                        <p className="text-sm font-bold text-red-500">{hideNetWorth ? "••••" : fmt2(owed, sym)}</p>
                       </div>
                       <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                         <div
@@ -371,7 +436,7 @@ export default function DebtPage() {
                         </div>
                       </div>
                       <div className="flex flex-col items-end flex-shrink-0 ml-3">
-                        <span className="text-sm font-semibold text-red-500">{hideNetWorth ? "••••" : `-${fmt2(txn.amount)}`}</span>
+                        <span className="text-sm font-semibold text-red-500">{hideNetWorth ? "••••" : `-${fmt2(txn.amount, sym)}`}</span>
                         <span className="text-[10px] text-slate-400">{formatDate(txn.date)}</span>
                       </div>
                     </div>
@@ -414,20 +479,20 @@ export default function DebtPage() {
                             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</span>
                           </div>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                            {hideNetWorth ? "••••" : `${fmt2(rec.monthly_spend)}/mo`}
+                            {hideNetWorth ? "••••" : `${fmt2(rec.monthly_spend, sym)}/mo`}
                           </span>
                         </div>
                         <div className="flex gap-2">
                           <div className="flex-1 bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5 text-center">
                             <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">Cut 25%</p>
                             <p className="text-sm font-semibold text-emerald-600">
-                              {hideNetWorth ? "••••" : `+${fmt2(rec.cut_25pct_saves)}/mo`}
+                              {hideNetWorth ? "••••" : `+${fmt2(rec.cut_25pct_saves, sym)}/mo`}
                             </p>
                           </div>
                           <div className="flex-1 bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5 text-center">
                             <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">Cut 50%</p>
                             <p className="text-sm font-semibold text-emerald-600">
-                              {hideNetWorth ? "••••" : `+${fmt2(rec.cut_50pct_saves)}/mo`}
+                              {hideNetWorth ? "••••" : `+${fmt2(rec.cut_50pct_saves, sym)}/mo`}
                             </p>
                           </div>
                         </div>
@@ -474,7 +539,9 @@ export default function DebtPage() {
                     const greeting: ChatMessage = {
                       role: "assistant",
                       content: insights
-                        ? `Hi ${firstName}! Starting fresh. You have ${fmt(insights.total_debt)} in credit card debt. What would you like to work on?`
+                        ? insights.total_debt > 0
+                          ? `Hi ${firstName}! Starting fresh. You have ${fmt(insights.total_debt, sym)} in credit card debt. What would you like to work on?`
+                          : `Hi ${firstName}! Starting fresh. No credit card debt — I can help with spending or savings goals. What would you like to explore?`
                         : "Hi! How can I help you today?",
                     };
                     setMessages([greeting]);

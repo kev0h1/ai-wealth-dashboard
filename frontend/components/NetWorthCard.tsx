@@ -9,12 +9,13 @@ interface NetWorthCardProps {
   loading?: boolean;
 }
 
-function fmt(n: number): string {
-  return `£${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+function fmt(n: number, sym = "£"): string {
+  return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
-  const { hideNetWorth: hidden, setHideNetWorth } = usePreferences();
+  const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
+  const sym = region === "Kenya" ? "KES " : "£";
   const netWorth = kpis?.net_worth ?? 0;
   const isNegative = netWorth < 0;
   const cash = kpis?.cash ?? 0;
@@ -58,7 +59,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
           <div className="text-4xl font-bold tracking-tight mb-4 select-none">
             {hidden
               ? "••••••"
-              : `${isNegative ? "-" : ""}${fmt(netWorth)}`}
+              : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
           </div>
         )}
 
@@ -68,7 +69,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
             <p className="text-xs opacity-70 mb-0.5">Cash</p>
             {loading
               ? <div className="h-5 w-20 bg-white/20 rounded animate-pulse" />
-              : <p className="text-base font-semibold">{hidden ? "••••" : fmt(cash)}</p>}
+              : <p className="text-base font-semibold">{hidden ? "••••" : fmt(cash, sym)}</p>}
           </div>
           <div className="bg-white/15 backdrop-blur rounded-xl px-4 py-2">
             <p className="text-xs opacity-70 mb-0.5">Runway</p>

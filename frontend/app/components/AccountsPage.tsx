@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2 } from "lucide-react";
 import { api, Account, Transaction } from "@/lib/api";
-import { getToken, setToken } from "@/lib/auth";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
@@ -12,9 +11,9 @@ import CategoryRow, { CategoryData } from "@/components/CategoryRow";
 import SegmentedControl from "@/components/SegmentedControl";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import MonoConnectWidget from "@/components/MonoConnect";
+import StatementUpload from "@/components/StatementUpload";
 import { usePreferences } from "@/components/PreferencesContext";
-
-async function ensureAuth() {}
 
 function typeLabel(type: string): string {
   const t = type.toLowerCase();
@@ -36,7 +35,7 @@ const PAGE_SIZE = 20;
 export default function AccountsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { hideNetWorth } = usePreferences();
+  const { hideNetWorth, region } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
   const [loading, setLoading] = useState(true);
@@ -47,14 +46,14 @@ export default function AccountsPage() {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [showMpesaUpload, setShowMpesaUpload] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const isSyncing = searchParams.get("syncing") === "1";
 
   const loadAccounts = useCallback(async () => {
     try {
-      await ensureAuth();
       const accs = await api.accounts().catch(() => [] as Account[]);
       setAccounts(accs);
-      // Deep-link: if ?id= param present, open that account immediately
       const deepId = searchParams.get("id");
       if (deepId) {
         setSelectedAccountId(deepId);
@@ -89,7 +88,7 @@ export default function AccountsPage() {
   }, [isSyncing, router]);
 
   async function loadAccountTxns(accountId: string) {
-    if (txnMap[accountId]) return; // already loaded
+    if (txnMap[accountId]) return;
     setLoadingTxns(accountId);
     try {
       const txns = await api.transactions(accountId);
@@ -125,6 +124,35 @@ export default function AccountsPage() {
       setConnecting(false);
     }
   }
+
+  function handleMonoSuccess() {
+    loadAccounts();
+  }
+
+  function handleStatementSuccess() {
+    loadAccounts();
+    setShowMpesaUpload(false);
+  }
+
+  async function handleDeleteAccount() {
+    if (!selectedAccountId) return;
+    const confirmed = window.confirm("Remove this account and all its transactions?");
+    if (!confirmed) return;
+    setDeletingAccount(true);
+    try {
+      await api.deleteAccount(selectedAccountId);
+      setAccounts(prev => prev.filter(a => a.id !== selectedAccountId));
+      setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
+      handleBack();
+    } catch {
+      alert("Failed to remove account. Please try again.");
+    } finally {
+      setDeletingAccount(false);
+    }
+  }
+
+  // Backend already filters by region — accounts contains only the right source
+  const allAccounts = accounts;
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     setTxnMap((prev) => {
@@ -186,13 +214,23 @@ export default function AccountsPage() {
             background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
           }}
         >
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-1.5 text-white/80 hover:text-white mb-4 transition-colors"
-          >
-            <ArrowLeft size={18} />
-            <span className="text-sm font-medium">Accounts</span>
-          </button>
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={handleBack}
+              className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-sm font-medium">Accounts</span>
+            </button>
+            <button
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="flex items-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={13} />
+              {deletingAccount ? "Removing…" : "Remove"}
+            </button>
+          </div>
 
           <h1 className="text-xl font-bold mb-1">{selectedAccount.name}</h1>
 
@@ -209,7 +247,7 @@ export default function AccountsPage() {
                 isCredit && balance < 0 ? "text-red-300" : "text-white"
               }`}
             >
-              {hideNetWorth ? "••••" : `${isCredit && balance < 0 ? "-" : ""}£${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              {hideNetWorth ? "••••" : `${isCredit && balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           </div>
         </div>
@@ -324,14 +362,47 @@ export default function AccountsPage() {
               {accounts.length} account{accounts.length !== 1 ? "s" : ""} connected
             </p>
           </div>
-          <button
-            onClick={handleConnectBank}
-            disabled={connecting}
-            className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3.5 py-2 rounded-xl text-sm font-semibold text-white"
-          >
-            <Plus size={16} />
-            {connecting ? "Opening…" : "Add Bank"}
-          </button>
+          {region === "UK" ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleConnectBank}
+                disabled={connecting}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+              >
+                <Plus size={14} />
+                {connecting ? "Opening…" : "Add Bank"}
+              </button>
+              <button
+                onClick={() => setShowMpesaUpload(true)}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+              >
+                <Upload size={14} />
+                Statement
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <MonoConnectWidget onSuccess={handleMonoSuccess}>
+                {(open, loading) => (
+                  <button
+                    onClick={open}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+                  >
+                    <Plus size={14} />
+                    {loading ? "Opening…" : "Mono"}
+                  </button>
+                )}
+              </MonoConnectWidget>
+              <button
+                onClick={() => setShowMpesaUpload(true)}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+              >
+                <Upload size={14} />
+                Statement
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -353,15 +424,52 @@ export default function AccountsPage() {
               <Landmark size={26} color="#4f46e5" />
             </div>
             <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
-            <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">Connect your bank to start tracking your finances.</p>
-            <button
-              onClick={handleConnectBank}
-              disabled={connecting}
-              className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
-            >
-              <Plus size={16} />
-              {connecting ? "Opening…" : "Connect a Bank"}
-            </button>
+            <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
+              {region === "UK"
+                ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
+                : "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."}
+            </p>
+            {region === "UK" ? (
+              <div className="flex flex-col gap-2 items-center">
+                <button
+                  onClick={handleConnectBank}
+                  disabled={connecting}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                >
+                  <Plus size={16} />
+                  {connecting ? "Opening…" : "Connect a Bank"}
+                </button>
+                <button
+                  onClick={() => setShowMpesaUpload(true)}
+                  className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
+                >
+                  <Upload size={16} />
+                  Upload Statement
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 items-center">
+                <MonoConnectWidget onSuccess={handleMonoSuccess}>
+                  {(open, loading) => (
+                    <button
+                      onClick={open}
+                      disabled={loading}
+                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                    >
+                      <Plus size={16} />
+                      {loading ? "Opening…" : "Connect via Mono"}
+                    </button>
+                  )}
+                </MonoConnectWidget>
+                <button
+                  onClick={() => setShowMpesaUpload(true)}
+                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                >
+                  <Upload size={16} />
+                  Upload Bank Statement
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           accounts.map((acc) => (
@@ -375,6 +483,13 @@ export default function AccountsPage() {
           ))
         )}
       </div>
+
+      {showMpesaUpload && (
+        <StatementUpload
+          onSuccess={handleStatementSuccess}
+          onClose={() => setShowMpesaUpload(false)}
+        />
+      )}
 
       <BottomNav />
     </div>

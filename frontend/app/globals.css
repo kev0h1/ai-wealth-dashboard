@@ -81,6 +81,15 @@ body {
   animation: fadeIn 0.2s ease;
 }
 
+/* Recharts — no backgrounds or tooltip artifacts */
+.recharts-wrapper,
+.recharts-surface {
+  background: transparent !important;
+}
+.recharts-tooltip-wrapper {
+  display: none !important;
+}
+
 /* App shell centering */
 #app-shell {
   max-width: 430px;

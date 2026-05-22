@@ -34,6 +34,19 @@ export const BANK_META: Record<string, BankMeta> = {
   CHASE:        { label: "Chase",        bg: "linear-gradient(135deg,#117aca,#003087)", domain: "chase.co.uk",     initials: "Ch" },
   FIRST_DIRECT: { label: "first direct", bg: "linear-gradient(135deg,#111,#444)",       domain: "firstdirect.com", initials: "fd" },
   TSB:          { label: "TSB",          bg: "linear-gradient(135deg,#006ab0,#003f6b)", domain: "tsb.co.uk",       initials: "TSB", initialsSize: "9px" },
+  MONO:         { label: "Mono",         bg: "linear-gradient(135deg,#1a1a2e,#16213e)", domain: "mono.co",         initials: "M" },
+  MPESA:        { label: "M-Pesa",       bg: "linear-gradient(135deg,#4caf50,#1b5e20)", domain: "safaricom.co.ke", initials: "MP", initialsSize: "10px" },
+  // Kenyan banks (statement uploads)
+  EQUITY:       { label: "Equity Bank",  bg: "linear-gradient(135deg,#e60000,#8b0000)",  initials: "EQ" },
+  KCB:          { label: "KCB",          bg: "linear-gradient(135deg,#006400,#003300)",  initials: "KCB", initialsSize: "10px" },
+  NCBA:         { label: "NCBA",         bg: "linear-gradient(135deg,#00205b,#001133)",  initials: "NCBA", initialsSize: "8px" },
+  STANBIC:      { label: "Stanbic",      bg: "linear-gradient(135deg,#003087,#001f5b)",  initials: "SB" },
+  ABSA:         { label: "Absa",         bg: "linear-gradient(135deg,#dc143c,#8b0000)",  initials: "ABS", initialsSize: "9px" },
+  COOP:         { label: "Co-op Bank",   bg: "linear-gradient(135deg,#003087,#1a5276)",  initials: "CO" },
+  DTB:          { label: "DTB",          bg: "linear-gradient(135deg,#1a237e,#0d47a1)",  initials: "DTB", initialsSize: "10px" },
+  STANCHART:    { label: "Std Chartered",bg: "linear-gradient(135deg,#00a0e3,#005b9f)",  initials: "SC" },
+  FAMILY:       { label: "Family Bank",  bg: "linear-gradient(135deg,#ff6600,#cc3300)",  initials: "FB" },
+  IMBANK:       { label: "I&M Bank",     bg: "linear-gradient(135deg,#b22222,#7b0000)",  initials: "I&M", initialsSize: "9px" },
 };
 
 function typeLabel(type: string) {
@@ -82,7 +95,8 @@ export default function AccountMiniCard({ account, onClick, fullWidth, hidden }:
   const meta = BANK_META[key];
   const isCredit = account.type.toLowerCase().includes("credit");
   const balance = account.balance;
-  const balanceStr = `£${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const currSym = account.currency === "KES" ? "KES " : "£";
+  const balanceStr = `${currSym}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   return (
     <button

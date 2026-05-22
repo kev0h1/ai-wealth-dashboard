@@ -241,7 +241,8 @@ function buildSpend(txns: Transaction[], period: PayPeriod | null) {
 
 function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
   const { colours } = useColours();
-  const { payPeriodConfig } = usePreferences();
+  const { payPeriodConfig, region } = usePreferences();
+  const sym = region === "Kenya" ? "KES " : "£";
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const touchStartX = useRef<number | null>(null);
 
@@ -296,7 +297,6 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
         innerRadius={active ? innerRadius - 3 : innerRadius}
         outerRadius={active ? outerRadius + 10 : outerRadius}
         startAngle={startAngle} endAngle={endAngle} fill={fill}
-        style={active ? { filter: `drop-shadow(0 4px 10px ${fill}88)` } : undefined}
       />
     );
   };
@@ -376,9 +376,7 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
                 innerRadius={32} outerRadius={54}
                 strokeWidth={3} stroke="#fff"
                 shape={renderSector}
-                onMouseEnter={(_: unknown, index: number) => setActiveIndex(index)}
-                onMouseLeave={() => setActiveIndex(null)}
-                onClick={(_: unknown, index: number) => setActiveIndex((i) => (i === index ? null : index))}
+                style={{ pointerEvents: "none" }}
               >
                 {categorySpend.map((entry) => (
                   <Cell key={entry.name} fill={colours[entry.name] ?? CATEGORY_COLOURS.Other} />
@@ -409,7 +407,7 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
                     className={`ml-2 flex-shrink-0 transition-all ${active ? "text-sm font-extrabold" : "text-xs font-semibold text-slate-700 dark:text-slate-200"}`}
                     style={{ color: active ? colour : undefined }}
                   >
-                    £{cat.value.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                    {sym}{cat.value.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
                   </span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
