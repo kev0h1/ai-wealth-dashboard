@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 import { api, Account, Transaction, KPIs } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
@@ -91,106 +91,151 @@ export default function HomePage() {
     );
   }
 
-  const recent = transactions.slice(0, 15);
+  const recent = transactions.slice(0, 30);
+
+  const expiredProviders = useMemo(() => {
+    const seen = new Set<string>();
+    const result: { provider: string; provider_id?: string }[] = [];
+    for (const a of accounts) {
+      if (a.status === "expired" && !seen.has(a.provider)) {
+        seen.add(a.provider);
+        result.push({ provider: a.provider, provider_id: a.provider_id });
+      }
+    }
+    return result;
+  }, [accounts]);
+
+  async function handleReconnect(providerId?: string) {
+    try {
+      const { auth_url } = await api.connectLink(providerId);
+      window.location.href = auth_url;
+    } catch {}
+  }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
-      {/* Header */}
-      <div className="px-4 pt-6 pb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
-              Good {getGreeting()}
-            </p>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
-          </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform"
-          >
-            <RefreshCw
-              size={16}
-              color="#64748b"
-              className={syncing ? "animate-spin" : ""}
-            />
-          </button>
-        </div>
-        <NetWorthCard kpis={kpis} loading={loading} />
-      </div>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8">
+      {/* Desktop 2-col grid wrapper */}
+      <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
-      {/* Accounts horizontal scroll */}
-      <div className="px-4 mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accounts</p>
-          <button
-            onClick={() => router.push("/accounts")}
-            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
-          >
-            Manage <span className="text-base leading-none">+</span>
-          </button>
-        </div>
-        {loading ? (
-          <div className="flex gap-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex-shrink-0 w-40 h-24 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
-            ))}
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center shadow-sm">
-            <p className="text-sm text-slate-400 dark:text-slate-500">No accounts connected</p>
-          </div>
-        ) : (
-          <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-            {accounts.map((acc) => (
-              <AccountMiniCard
-                key={acc.id}
-                account={acc}
-                hidden={hideNetWorth}
-                onClick={() => router.push(`/accounts?id=${acc.id}`)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Spending donut — monthly with swipe navigation */}
-      {!loading && transactions.length > 0 && (
-        <SpendingDonut transactions={transactions} />
-      )}
-
-      {/* Recent Transactions */}
-      <div className="mx-4 mb-4">
-        <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3">Recent Transactions</p>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
-                  <div className="flex-1 space-y-1">
-                    <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
-                    <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                  </div>
-                  <div className="h-3.5 w-14 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : recent.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm text-slate-400 dark:text-slate-500">No transactions yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-50 dark:divide-slate-700">
-              {recent.map((tx) => (
-                <TransactionRow
-                  key={tx.id}
-                  transaction={tx}
-                  onClick={() => setSelectedTx(tx)}
+        {/* ── Left column: header, KPIs, accounts, donut ── */}
+        <div>
+          {/* Header */}
+          <div className="px-4 pt-6 pb-4 lg:px-0 lg:pt-0">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
+                  Good {getGreeting()}
+                </p>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
+              </div>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform"
+              >
+                <RefreshCw
+                  size={16}
+                  color="#64748b"
+                  className={syncing ? "animate-spin" : ""}
                 />
-              ))}
+              </button>
             </div>
+            <NetWorthCard kpis={kpis} loading={loading} />
+          </div>
+
+          {/* Reauth banners */}
+          {expiredProviders.map(({ provider, provider_id }) => (
+            <div key={provider} className="mx-4 mt-3 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
+              <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-tight">Transactions have stopped syncing.</p>
+              </div>
+              <button
+                onClick={() => handleReconnect(provider_id)}
+                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
+              >
+                Reconnect
+              </button>
+            </div>
+          ))}
+
+          {/* Accounts horizontal scroll */}
+          <div className="px-4 mb-5 lg:px-0">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accounts</p>
+              <button
+                onClick={() => router.push("/accounts")}
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
+              >
+                Manage <span className="text-base leading-none">+</span>
+              </button>
+            </div>
+            {loading ? (
+              <div className="flex gap-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex-shrink-0 w-40 h-24 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
+                ))}
+              </div>
+            ) : accounts.length === 0 ? (
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center shadow-sm">
+                <p className="text-sm text-slate-400 dark:text-slate-500">No accounts connected</p>
+              </div>
+            ) : (
+              <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                {accounts.map((acc) => (
+                  <AccountMiniCard
+                    key={acc.id}
+                    account={acc}
+                    hidden={hideNetWorth}
+                    onClick={() => router.push(`/accounts?id=${acc.id}`)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Spending donut — monthly with swipe navigation */}
+          {!loading && transactions.length > 0 && (
+            <SpendingDonut transactions={transactions} desktopFlat />
           )}
+        </div>
+
+        {/* ── Right column: recent transactions ── */}
+        <div>
+          <div className="mx-4 mb-4 lg:mx-0 lg:mt-0">
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3 lg:pt-0">Recent Transactions</p>
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+              {loading ? (
+                <div className="p-4 space-y-3">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                      <div className="flex-1 space-y-1">
+                        <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                        <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                      </div>
+                      <div className="h-3.5 w-14 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              ) : recent.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-slate-400 dark:text-slate-500">No transactions yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                  {recent.map((tx) => (
+                    <TransactionRow
+                      key={tx.id}
+                      transaction={tx}
+                      onClick={() => setSelectedTx(tx)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -199,6 +244,7 @@ export default function HomePage() {
           transaction={selectedTx}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
+          account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
         />
       )}
 
@@ -214,6 +260,10 @@ type PayPeriod = { start: Date; end: Date };
 function buildPayPeriodList(transactions: Transaction[], config: PayPeriodConfig): PayPeriod[] {
   const seen = new Set<string>();
   const periods: PayPeriod[] = [];
+  // Always include the current pay period so new months appear immediately
+  const [curStart, curEnd] = getPayPeriodWithConfig(new Date(), config);
+  seen.add(curStart.toISOString());
+  periods.push({ start: curStart, end: curEnd });
   for (const tx of transactions) {
     if (tx.transaction_type === "credit") continue;
     if (SKIP_CATS.has(tx.category || "")) continue;
@@ -239,7 +289,7 @@ function buildSpend(txns: Transaction[], period: PayPeriod | null) {
     .slice(0, 6);
 }
 
-function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
+function SpendingDonut({ transactions, desktopFlat }: { transactions: Transaction[]; desktopFlat?: boolean }) {
   const { colours } = useColours();
   const { payPeriodConfig, region } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
@@ -251,12 +301,15 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
   // periods array: each pay period + null sentinel for "All Time"
   const periods: Array<PayPeriod | null> = useMemo(() => [...payPeriods, null], [payPeriods]);
 
-  // Default to the pay period containing today
+  // Default to the most recent period with actual spending; fall back to current period
   const currentPeriodIdx = useMemo(() => {
+    for (let i = payPeriods.length - 1; i >= 0; i--) {
+      if (buildSpend(transactions, payPeriods[i]).length > 0) return i;
+    }
     const [curStart] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
     const idx = payPeriods.findIndex((p) => p.start.getTime() === curStart.getTime());
     return idx !== -1 ? idx : Math.max(0, payPeriods.length - 1);
-  }, [payPeriods, payPeriodConfig]);
+  }, [payPeriods, payPeriodConfig, transactions]);
 
   const [periodIdx, setPeriodIdx] = useState<number>(currentPeriodIdx);
 
@@ -301,8 +354,6 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
     );
   };
 
-  if (categorySpend.length === 0) return null;
-
   // Visible dot range — show at most 7 dots, centred on current
   const maxDots = Math.min(periods.length, 9);
   const half = Math.floor(maxDots / 2);
@@ -312,7 +363,7 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
 
   return (
     <div
-      className="mx-4 mb-5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 select-none"
+      className={`mb-5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 select-none ${desktopFlat ? "mx-4 lg:mx-0" : "mx-4"}`}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
@@ -365,62 +416,68 @@ function SpendingDonut({ transactions }: { transactions: Transaction[] }) {
       </div>
 
       {/* Chart + legend */}
-      <div className="flex items-center gap-3">
-        <div className="flex-shrink-0" style={{ width: 130, height: 130 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={categorySpend}
-                dataKey="value"
-                cx="50%" cy="50%"
-                innerRadius={32} outerRadius={54}
-                strokeWidth={3} stroke="#fff"
-                shape={renderSector}
-                style={{ pointerEvents: "none" }}
-              >
-                {categorySpend.map((entry) => (
-                  <Cell key={entry.name} fill={colours[entry.name] ?? CATEGORY_COLOURS.Other} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
+      {categorySpend.length === 0 ? (
+        <div className="flex items-center justify-center h-24 text-sm text-slate-400 dark:text-slate-500">
+          No spending this period
         </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className="flex-shrink-0" style={{ width: 130, height: 130 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={categorySpend}
+                  dataKey="value"
+                  cx="50%" cy="50%"
+                  innerRadius={32} outerRadius={54}
+                  strokeWidth={3} stroke="#fff"
+                  shape={renderSector}
+                  style={{ pointerEvents: "none" }}
+                >
+                  {categorySpend.map((entry) => (
+                    <Cell key={entry.name} fill={colours[entry.name] ?? CATEGORY_COLOURS.Other} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
 
-        <div className="flex-1 min-w-0 space-y-2">
-          {categorySpend.map((cat, i) => {
-            const colour = colours[cat.name] ?? CATEGORY_COLOURS.Other;
-            const pct = Math.round((cat.value / total) * 100);
-            const active = activeIndex === i;
-            return (
-              <button
-                key={cat.name}
-                className="w-full text-left"
-                onMouseEnter={() => setActiveIndex(i)}
-                onMouseLeave={() => setActiveIndex(null)}
-                onClick={() => setActiveIndex((j) => (j === i ? null : i))}
-              >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className={`text-xs truncate transition-all ${active ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-600 dark:text-slate-300"}`}>
-                    {cat.name}
-                  </span>
-                  <span
-                    className={`ml-2 flex-shrink-0 transition-all ${active ? "text-sm font-extrabold" : "text-xs font-semibold text-slate-700 dark:text-slate-200"}`}
-                    style={{ color: active ? colour : undefined }}
-                  >
-                    {sym}{cat.value.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
-                  </span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-200"
-                    style={{ width: `${pct}%`, backgroundColor: colour }}
-                  />
-                </div>
-              </button>
-            );
-          })}
+          <div className="flex-1 min-w-0 space-y-2">
+            {categorySpend.map((cat, i) => {
+              const colour = colours[cat.name] ?? CATEGORY_COLOURS.Other;
+              const pct = Math.round((cat.value / total) * 100);
+              const active = activeIndex === i;
+              return (
+                <button
+                  key={cat.name}
+                  className="w-full text-left"
+                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseLeave={() => setActiveIndex(null)}
+                  onClick={() => setActiveIndex((j) => (j === i ? null : i))}
+                >
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className={`text-xs truncate transition-all ${active ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-600 dark:text-slate-300"}`}>
+                      {cat.name}
+                    </span>
+                    <span
+                      className={`ml-2 flex-shrink-0 transition-all ${active ? "text-sm font-extrabold" : "text-xs font-semibold text-slate-700 dark:text-slate-200"}`}
+                      style={{ color: active ? colour : undefined }}
+                    >
+                      {sym}{cat.value.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-200"
+                      style={{ width: `${pct}%`, backgroundColor: colour }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

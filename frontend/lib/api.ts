@@ -9,6 +9,7 @@ export interface Account {
   balance: number;
   currency: string;
   provider: string;
+  provider_id?: string;
   status: string;
   account_number?: string;
   sort_code?: string;
@@ -24,6 +25,7 @@ export interface Transaction {
   merchant_name?: string;
   category?: string;
   transaction_type: "debit" | "credit";
+  planned?: boolean;
 }
 
 export interface MonoAccount {
@@ -67,6 +69,47 @@ export interface Insight {
   category: string;
 }
 
+export interface ChallengeProgress {
+  actual_so_far: number;
+  target: number;
+  pct_used: number;
+  on_track: boolean;
+  time_left: string;
+}
+
+export interface Challenge {
+  id: string;
+  tier: "easy" | "medium" | "stretch" | "budget";
+  cadence: "daily" | "weekly";
+  title: string;
+  category: string;
+  baseline: number;
+  target: number;
+  reduction_pct: number;
+  currency: string;
+  xp_reward: number;
+  period_start: string;
+  period_end: string;
+  status: "active" | "completed" | "failed";
+  actual: number | null;
+  progress?: ChallengeProgress;
+}
+
+export interface ChallengesData {
+  stats: {
+    total_xp: number;
+    level: number;
+    xp_in_level: number;
+    xp_per_level: number;
+    streak: number;
+    completed: number;
+    failed: number;
+  };
+  challenges: Challenge[];
+  budget_challenges: Challenge[];
+  history: Challenge[];
+}
+
 export function authHeaders(): HeadersInit {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -96,7 +139,8 @@ export const api = {
     get<Transaction[]>(`/accounts/${accountId}/transactions`),
   kpis: () => get<KPIs>("/kpis"),
   insights: () => get<Insight[]>("/insights"),
-  connectLink: () => get<{ auth_url: string }>("/auth/truelayer/link"),
+  truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
+  connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>
     fetch(`${API_BASE}/auth/session/validate`, {
@@ -115,7 +159,7 @@ export const api = {
   autoCategorise: () => post<{ message: string }>("/transactions/auto-categorise", {}),
   debtInsights: () => get<{
     total_debt: number;
-    accounts: { name: string; provider: string; balance: number }[];
+    accounts: { account_id: string; name: string; provider: string; balance: number; apr: number | null; monthly_interest: number }[];
     monthly_income: number;
     monthly_spending: number;
     monthly_surplus: number;
@@ -123,6 +167,7 @@ export const api = {
     payment_needed_12mo: number;
     gap_to_12mo: number;
     months_at_current_rate: number;
+    weighted_apr: number;
     category_spending: Record<string, number>;
     recommendations: { category: string; monthly_spend: number; cut_25pct_saves: number; cut_50pct_saves: number }[];
     recent_discretionary: { id: string; description: string; amount: number; date: string; category: string }[];
@@ -156,9 +201,22 @@ export const api = {
     post<{ reply: string; session_id?: string; suggested_budgets?: { category: string; monthly_limit: number }[] }>("/budget/chat", { messages, session_id }),
   getBudgetChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/budget/chat/session"),
   newBudgetChatSession: () => post<{ session_id: string; messages: [] }>("/budget/chat/new", {}),
+  budgetPaceProfile: () => get<{ curves: Record<string, number[]>; sample_points: number; periods_analysed: number }>("/budget/pace-profile"),
   syncHistory: () => post<{ message: string; total_accounts: number }>("/accounts/sync-history"),
   deleteAccount: (accountId: string) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  // Yapily (UK open banking)
+  yapilyInstitutions: (country = "GB") =>
+    get<{ id: string; name: string; logo: string; countries: string[] }[]>(`/auth/yapily/institutions?country=${country}`),
+  yapilyRequisition: (institution_id: string) =>
+    post<{ link: string; requisition_id: string }>("/auth/yapily/requisition", { institution_id }),
+  yapilySync: () => post<{ message: string }>("/yapily/sync", {}),
+  deleteYapilyConnection: (consentToken: string) =>
+    fetch(`${API_BASE}/yapily/connections/${encodeURIComponent(consentToken)}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(r => r.json()) as Promise<{ deleted: string }>,
@@ -242,6 +300,46 @@ export const api = {
     }>;
   },
 
+  challenges: () => get<ChallengesData>("/challenges"),
+  getRules: () => get<{ rules: { id: string; description: string; pattern: string; category: string; created_at: string }[] }>("/rules"),
+  parseRule: (text: string) => post<{ pattern: string; category: string } | { error: string }>("/rules/parse", { text }),
+  addRule: (description: string, pattern: string, category: string) =>
+    post<{ id: string; description: string; pattern: string; category: string }>("/rules", { description, pattern, category }),
+  setTransactionPlanned: (id: string, planned: boolean) =>
+    fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}/planned`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ planned }),
+    }).then(r => r.json()) as Promise<{ updated: string; planned: boolean }>,
+  deleteRule: (id: string) =>
+    fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ deleted: string }>,
   getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
   getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
+  getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),
+  setAccountRate: (accountId: string, apr: number | null) =>
+    fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}/rate`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ apr }),
+    }).then(r => r.json()) as Promise<{ apr: number | null }>,
+
+  debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
+    burndown: {
+      month: string;
+      actual: number | null;
+      target: number | null;
+      projected: number | null;
+    }[];
+    current_debt: number;
+    target_months: number;
+    target_date: string;
+    monthly_payment_needed: number;
+    currency: string;
+    total_interest_target: number;
+    total_interest_projected: number;
+    weighted_apr: number;
+    strategy: string;
+    has_rates: boolean;
+    start_date: string;
+  }>(`/debt/burndown?${new URLSearchParams({ ...(targetMonths !== undefined ? { target_months: String(targetMonths) } : {}), ...(strategy ? { strategy } : {}), ...(startDate ? { start_date: startDate } : {}) }).toString()}`),
 };

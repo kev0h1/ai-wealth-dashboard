@@ -21,6 +21,15 @@ export function getPayday(year: number, month: number): Date {
   return lastFriday(year, month);
 }
 
+/** Returns the last occurrence of `weekday` (0=Sun…6=Sat) in the given year/month. */
+export function lastWeekdayOfMonth(year: number, month: number, weekday: number): Date {
+  const lastDay = new Date(Date.UTC(year, month, 0));
+  const dayOfWeek = lastDay.getUTCDay();
+  const daysBack = (dayOfWeek - weekday + 7) % 7;
+  lastDay.setUTCDate(lastDay.getUTCDate() - daysBack);
+  return lastDay;
+}
+
 /**
  * Returns [start, end] for the pay period that contains refDate.
  * Start = last Friday of the previous month, End = day before last Friday of refDate's month.
@@ -111,6 +120,7 @@ export function formatDate(dateStr: string): string {
 
 export type PayPeriodConfig =
   | { type: "last_friday" }
+  | { type: "last_weekday_of_month"; weekday: number }
   | { type: "calendar_month" }
   | { type: "monthly_pay_date"; day: number }   // day 1-28: period from day N to day N-1 next month
   | { type: "weekly"; weekday: number }          // 0=Sun…6=Sat, 7-day periods
@@ -122,6 +132,23 @@ export const DEFAULT_PAY_PERIOD_CONFIG: PayPeriodConfig = { type: "calendar_mont
 function clampDay(year: number, month: number, day: number): number {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return Math.min(day, last);
+}
+
+function lastWeekdayOfMonthPeriod(refDate: Date, weekday: number): [Date, Date] {
+  const year = refDate.getUTCFullYear();
+  const month = refDate.getUTCMonth() + 1;
+  const thisPayday = lastWeekdayOfMonth(year, month, weekday);
+  if (refDate.getTime() >= thisPayday.getTime()) {
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear = month === 12 ? year + 1 : year;
+    const nextPayday = lastWeekdayOfMonth(nextYear, nextMonth, weekday);
+    return [thisPayday, new Date(nextPayday.getTime() - 86400000)];
+  } else {
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevPayday = lastWeekdayOfMonth(prevYear, prevMonth, weekday);
+    return [prevPayday, new Date(thisPayday.getTime() - 86400000)];
+  }
 }
 
 function calendarMonthPeriod(refDate: Date): [Date, Date] {
@@ -196,8 +223,9 @@ function customPeriod(refDate: Date, start: string, end: string): [Date, Date] {
 
 export function getPayPeriodWithConfig(refDate: Date, config: PayPeriodConfig): [Date, Date] {
   switch (config.type) {
-    case "last_friday":        return getPayPeriod(refDate);
-    case "calendar_month":     return calendarMonthPeriod(refDate);
+    case "last_friday":              return getPayPeriod(refDate);
+    case "last_weekday_of_month":   return lastWeekdayOfMonthPeriod(refDate, config.weekday);
+    case "calendar_month":          return calendarMonthPeriod(refDate);
     case "monthly_pay_date":   return monthlyPayDatePeriod(refDate, config.day);
     case "weekly":             return weeklyPeriod(refDate, config.weekday);
     case "biweekly":           return biweeklyPeriod(refDate, config.weekday, config.referenceDate);

@@ -13,6 +13,8 @@ export const CATEGORIES = [
   "Debt",
   "Transfer",
   "Income",
+  "Cash",
+  "Charity",
   "Other",
 ] as const;
 
@@ -33,10 +35,14 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   Debt: "#b91c1c",
   Transfer: "#9E9E9E",
   Income: "#26C6DA",
+  Cash: "#78909C",
+  Charity: "#66BB6A",
   Other: "#795548",
 };
 
+export const DEFAULT_CUSTOM_COLOUR = "#6366f1";
+
 export function getCategoryColour(category?: string): string {
   if (!category) return CATEGORY_COLOURS.Other;
-  return CATEGORY_COLOURS[category] ?? CATEGORY_COLOURS.Other;
+  return CATEGORY_COLOURS[category] ?? DEFAULT_CUSTOM_COLOUR;
 }

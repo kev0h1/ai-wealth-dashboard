@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as _date
+import calendar as _calendar
 import httpx
 import os
 import re
@@ -18,6 +19,7 @@ import urllib.parse
 import asyncio
 import uuid as uuid_lib
 import hashlib
+import base64
 from pathlib import Path
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
@@ -97,13 +99,17 @@ preferences_col  = db["preferences"]
 chat_sessions_col = db["chat_sessions"]
 episodic_memory_col = db["episodic_memory"]
 user_categories_col  = db["user_categories"]
+user_rules_col       = db["user_rules"]
 budgets_col          = db["budgets"]
+challenges_col       = db["challenges"]
 mono_connections_col = db["mono_connections"]   # isolated — drop to revert
 mono_accounts_col    = db["mono_accounts"]
 mono_transactions_col = db["mono_transactions"]
+account_rates_col    = db["account_rates"]      # APR per credit card account
 
 # ── TrueLayer config ──────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY", "")
 
 TRUELAYER_CLIENT_ID     = os.getenv("TRUELAYER_CLIENT_ID")
 TRUELAYER_CLIENT_SECRET = os.getenv("TRUELAYER_CLIENT_SECRET")
@@ -124,6 +130,11 @@ MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
 MONO_PUBLIC_KEY  = os.getenv("MONO_PUBLIC_KEY", "")
 MONO_API_URL     = "https://api.withmono.com/v2"
 
+# ── Yapily ────────────────────────────────────────────────────────────────────
+YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
+YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")
+YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
+
 # ── Models ────────────────────────────────────────────────────────────────────
 class Account(BaseModel):
     id: str
@@ -132,6 +143,7 @@ class Account(BaseModel):
     balance: float
     currency: str = "GBP"
     provider: str
+    provider_id: Optional[str] = None
     status: str = "connected"
     account_number: Optional[str] = None
     sort_code: Optional[str] = None
@@ -148,6 +160,7 @@ class Transaction(BaseModel):
     category: Optional[str] = None          # from TrueLayer or AI
     custom_category: Optional[str] = None   # user-set, takes priority
     transaction_type: str
+    planned: Optional[bool] = None
 
     @property
     def effective_category(self) -> str:
@@ -211,8 +224,11 @@ async def get_valid_token(connection_id: str) -> Optional[str]:
             },
         )
         if r.status_code == 200:
+            await connections_col.update_one({"_id": connection_id}, {"$unset": {"needs_reauth": ""}})
             await save_connection(connection_id, r.json())
             return r.json()["access_token"]
+    # Refresh failed — mark connection so the UI can prompt re-auth
+    await connections_col.update_one({"_id": connection_id}, {"$set": {"needs_reauth": True}})
     return None
 
 # ── Sync helpers ──────────────────────────────────────────────────────────────
@@ -265,128 +281,168 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     if not token:
         return []
 
-    # Resolve user_id from the connection doc if not passed directly
+    # Resolve user_id and last_synced from the connection doc if not passed directly
+    conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1, "last_synced": 1})
     if not user_id:
-        conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1})
         user_id = (conn_doc or {}).get("user_id", "unknown")
 
     if from_date is None:
-        from_date = datetime.now().strftime("%Y-%m-%d")
+        last_synced = (conn_doc or {}).get("last_synced")
+        if last_synced and isinstance(last_synced, datetime):
+            # Go back 1 extra day to catch any late-posting transactions
+            from_date = (last_synced - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
     to_date   = datetime.now().strftime("%Y-%m-%d")
     headers   = {"Authorization": f"Bearer {token}"}
     fetched   = []
 
     async with httpx.AsyncClient(timeout=30) as client:
 
-        # ── Bank accounts ──────────────────────────────────────────────────
-        r = await client.get(f"{TRUELAYER_API_URL}/data/v1/accounts", headers=headers)
-        if r.status_code == 200:
-            for acc in r.json().get("results", []):
-                account_id = acc["account_id"]
-                balance = 0.0
-                try:
-                    br = await client.get(
-                        f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/balance",
-                        headers=headers,
-                    )
-                    if br.status_code == 200:
-                        res = br.json().get("results", [])
-                        if res:
-                            balance = res[0].get("current", 0.0)
-                except Exception:
-                    pass
+        # Fetch account list and card list in parallel
+        accs_r, cards_r = await asyncio.gather(
+            client.get(f"{TRUELAYER_API_URL}/data/v1/accounts", headers=headers),
+            client.get(f"{TRUELAYER_API_URL}/data/v1/cards", headers=headers),
+        )
 
-                await accounts_col.update_one({"_id": account_id}, {"$set": {
-                    "_id":            account_id,
-                    "connection_id":  connection_id,
-                    "user_id":        user_id,
-                    "name":           acc.get("display_name", acc.get("account_type", "Account")),
-                    "type":           "bank",
-                    "balance":        balance,
-                    "currency":       acc.get("currency", "GBP"),
-                    "provider":       acc.get("provider", {}).get("display_name", "Unknown"),
-                    "status":         "connected",
-                    "account_number": (acc.get("account_number") or {}).get("number"),
-                    "sort_code":      (acc.get("account_number") or {}).get("sort_code"),
-                    "updated_at":     datetime.now(),
-                }}, upsert=True)
-                fetched.append(account_id)
+        async def _latest_txn_date(account_id: str) -> str:
+            """Return the date of the most recent stored transaction, or from_date if none."""
+            latest = await transactions_col.find_one(
+                {"account_id": account_id}, sort=[("date", -1)], projection={"date": 1}
+            )
+            if latest and latest.get("date"):
+                return latest["date"].strftime("%Y-%m-%d")
+            return from_date
 
-                try:
-                    tr = await client.get(
-                        f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/transactions",
-                        headers=headers, params={"from": from_date, "to": to_date},
-                    )
-                    if tr.status_code == 200:
-                        await _upsert_transactions(tr.json().get("results", []), account_id, user_id)
-                except Exception:
-                    pass
+        async def _sync_bank_account(acc: dict):
+            account_id = acc["account_id"]
+            sync_from = await _latest_txn_date(account_id)
+            balance = 0.0
+            try:
+                br, tr = await asyncio.gather(
+                    client.get(f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/balance", headers=headers),
+                    client.get(f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/transactions",
+                               headers=headers, params={"from": sync_from, "to": to_date}),
+                )
+                if br.status_code == 200:
+                    res = br.json().get("results", [])
+                    if res:
+                        balance = res[0].get("current", 0.0)
+                if tr.status_code == 200:
+                    await _upsert_transactions(tr.json().get("results", []), account_id, user_id)
+            except Exception:
+                pass
+            await accounts_col.update_one({"_id": account_id}, {"$set": {
+                "_id":            account_id,
+                "connection_id":  connection_id,
+                "user_id":        user_id,
+                "name":           acc.get("display_name", acc.get("account_type", "Account")),
+                "type":           "bank",
+                "balance":        balance,
+                "currency":       acc.get("currency", "GBP"),
+                "provider":       acc.get("provider", {}).get("display_name", "Unknown"),
+                "provider_id":    acc.get("provider", {}).get("provider_id"),
+                "status":         "connected",
+                "account_number": (acc.get("account_number") or {}).get("number"),
+                "sort_code":      (acc.get("account_number") or {}).get("sort_code"),
+                "updated_at":     datetime.now(),
+            }}, upsert=True)
+            return account_id
 
-        # ── Credit cards ───────────────────────────────────────────────────
-        cr = await client.get(f"{TRUELAYER_API_URL}/data/v1/cards", headers=headers)
-        if cr.status_code == 200:
-            for card in cr.json().get("results", []):
-                card_id = card["account_id"]
-                balance = 0.0
-                try:
-                    cbr = await client.get(
-                        f"{TRUELAYER_API_URL}/data/v1/cards/{card_id}/balance",
-                        headers=headers,
-                    )
-                    if cbr.status_code == 200:
-                        res = cbr.json().get("results", [])
-                        if res:
-                            # Credit card balance is what you owe — store as negative
-                            balance = -abs(res[0].get("current", 0.0))
-                except Exception:
-                    pass
+        async def _sync_card(card: dict):
+            card_id = card["account_id"]
+            sync_from = await _latest_txn_date(card_id)
+            balance = 0.0
+            try:
+                cbr, ctr = await asyncio.gather(
+                    client.get(f"{TRUELAYER_API_URL}/data/v1/cards/{card_id}/balance", headers=headers),
+                    client.get(f"{TRUELAYER_API_URL}/data/v1/cards/{card_id}/transactions",
+                               headers=headers, params={"from": sync_from, "to": to_date}),
+                )
+                if cbr.status_code == 200:
+                    res = cbr.json().get("results", [])
+                    if res:
+                        balance = -abs(res[0].get("current", 0.0))
+                if ctr.status_code == 200:
+                    await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True)
+            except Exception:
+                pass
+            await accounts_col.update_one({"_id": card_id}, {"$set": {
+                "_id":            card_id,
+                "connection_id":  connection_id,
+                "user_id":        user_id,
+                "name":           card.get("display_name", card.get("card_type", "Credit Card")),
+                "type":           "credit_card",
+                "balance":        balance,
+                "currency":       card.get("currency", "GBP"),
+                "provider":       card.get("provider", {}).get("display_name", "Unknown"),
+                "provider_id":    card.get("provider", {}).get("provider_id"),
+                "status":         "connected",
+                "account_number": card.get("partial_card_number"),
+                "sort_code":      None,
+                "updated_at":     datetime.now(),
+            }}, upsert=True)
+            return card_id
 
-                await accounts_col.update_one({"_id": card_id}, {"$set": {
-                    "_id":            card_id,
-                    "connection_id":  connection_id,
-                    "user_id":        user_id,
-                    "name":           card.get("display_name", card.get("card_type", "Credit Card")),
-                    "type":           "credit_card",
-                    "balance":        balance,
-                    "currency":       card.get("currency", "GBP"),
-                    "provider":       card.get("provider", {}).get("display_name", "Unknown"),
-                    "status":         "connected",
-                    "account_number": card.get("partial_card_number"),
-                    "sort_code":      None,
-                    "updated_at":     datetime.now(),
-                }}, upsert=True)
-                fetched.append(card_id)
+        # ── Bank accounts + credit cards all in parallel ───────────────────
+        bank_accs  = accs_r.json().get("results", [])  if accs_r.status_code  == 200 else []
+        card_accs  = cards_r.json().get("results", []) if cards_r.status_code == 200 else []
 
-                try:
-                    ctr = await client.get(
-                        f"{TRUELAYER_API_URL}/data/v1/cards/{card_id}/transactions",
-                        headers=headers, params={"from": from_date, "to": to_date},
-                    )
-                    if ctr.status_code == 200:
-                        await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True)
-                except Exception:
-                    pass
+        results = await asyncio.gather(
+            *[_sync_bank_account(a) for a in bank_accs],
+            *[_sync_card(c) for c in card_accs],
+            return_exceptions=True,
+        )
+        fetched = [r for r in results if isinstance(r, str)]
 
         await connections_col.update_one(
             {"_id": connection_id}, {"$set": {"last_synced": datetime.now()}}, upsert=True
         )
+
+        # Mark any DB accounts for this connection that TrueLayer no longer returns as expired
+        if fetched:
+            await accounts_col.update_many(
+                {"connection_id": connection_id, "_id": {"$nin": fetched}},
+                {"$set": {"status": "expired"}},
+            )
+            # Clear expired flag on accounts that are still live
+            await accounts_col.update_many(
+                {"connection_id": connection_id, "_id": {"$in": fetched}},
+                {"$set": {"status": "connected"}},
+            )
 
     return fetched
 
 
 # ── TrueLayer auth ────────────────────────────────────────────────────────────
 
+@app.get("/auth/truelayer/providers")
+async def truelayer_providers(user: dict = Depends(current_user)):
+    """Return TrueLayer's supported UK provider list for the custom bank picker."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get("https://auth.truelayer.com/api/providers?country=uk")
+    if r.status_code != 200:
+        return []
+    providers = r.json()
+    # Filter out mock/test providers and normalise shape
+    return [
+        {"id": p["provider_id"], "name": p["display_name"], "logo": p.get("logo_url", "")}
+        for p in providers
+        if p["provider_id"] != "mock"
+    ]
+
 @app.get("/auth/truelayer/link")
-async def truelayer_link(user: dict = Depends(current_user)):
+async def truelayer_link(provider: str = "", user: dict = Depends(current_user)):
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
     connection_id = secrets.token_hex(8)
-    # Reserve the connection slot so the callback can find the user_id
     await connections_col.update_one(
         {"_id": connection_id},
         {"$set": {"user_id": user["email"], "pending": True, "created_at": datetime.now()}},
         upsert=True,
     )
+    # If a specific provider is requested, skip TrueLayer's own picker
+    providers_param = f"uk-ob-all%20uk-cs-mock" if not provider else provider
     auth_url = (
         f"{TRUELAYER_AUTH_URL}/?"
         f"response_type=code&"
@@ -394,7 +450,7 @@ async def truelayer_link(user: dict = Depends(current_user)):
         f"scope=accounts%20transactions%20balance%20cards%20offline_access&"
         f"redirect_uri={TRUELAYER_REDIRECT_URI}&"
         f"state={connection_id}&"
-        f"providers=uk-ob-all%20uk-cs-mock"
+        f"providers={providers_param}"
     )
     return {"auth_url": auth_url, "connection_id": connection_id}
 
@@ -528,6 +584,15 @@ async def get_accounts(user: dict = Depends(current_user)):
             provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
             user_id=uid, connection_id="",
         ))
+    # Include Yapily accounts
+    yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
+    for a in yapily_accs:
+        result.append(Account(
+            id=a["_id"], name=a.get("name", "Account"), type=a.get("type", "bank"),
+            balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
+            provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
+            user_id=uid, connection_id=a.get("consent", ""),
+        ))
     return result
 
 
@@ -550,7 +615,14 @@ async def sync_all(user: dict = Depends(current_user)):
     for conn in conns:
         ids = await sync_connection(conn["_id"], uid)
         total += len(ids)
-    asyncio.create_task(_apply_rules_bulk(uid, structural=True))
+    # Also sync Yapily connections
+    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
+    for yc in yapily_conns:
+        asyncio.create_task(_sync_yapily_consent(yc["_id"], uid))
+    async def _post_sync(u):
+        await _apply_rules_bulk(u, structural=True)
+        await _categorise_others_bg(u)
+    asyncio.create_task(_post_sync(uid))
     return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
 
@@ -574,7 +646,14 @@ async def sync_history(user: dict = Depends(current_user)):
     for conn in conns:
         ids = await sync_connection(conn["_id"], uid, from_date=from_dt)
         total += len(ids)
-    asyncio.create_task(_apply_rules_bulk(uid, structural=True))
+    # Also sync Yapily connections
+    yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
+    for yc in yapily_conns:
+        asyncio.create_task(_sync_yapily_consent(yc["_id"], uid))
+    async def _post_sync(u):
+        await _apply_rules_bulk(u, structural=True)
+        await _categorise_others_bg(u)
+    asyncio.create_task(_post_sync(uid))
     return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
 
 
@@ -594,8 +673,11 @@ async def admin_sync_all(request: Request):
         ids = await sync_connection(conn["_id"], uid)
         total_accounts += len(ids)
         user_ids.add(uid)
+    async def _post_sync(u):
+        await _apply_rules_bulk(u, structural=True)
+        await _categorise_others_bg(u)
     for uid in user_ids:
-        asyncio.create_task(_apply_rules_bulk(uid, structural=True))
+        asyncio.create_task(_post_sync(uid))
     return {"connections": len(all_conns), "total_accounts": total_accounts, "users": len(user_ids)}
 
 
@@ -645,6 +727,13 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
             await mono_connections_col.delete_one({"_id": conn["_id"]})
         return {"deleted": account_id}
 
+    # --- Yapily account ---
+    yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
+    if yapily_acc:
+        await yapily_transactions_col.delete_many({"account_id": account_id})
+        await yapily_accounts_col.delete_one({"_id": account_id})
+        return {"deleted": account_id}
+
     # --- TrueLayer account ---
     tl_acc = await accounts_col.find_one({"_id": account_id, "user_id": uid})
     if tl_acc:
@@ -666,6 +755,29 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         return {"deleted": account_id}
 
     raise HTTPException(404, "Account not found")
+
+
+@app.get("/accounts/{account_id}/rate")
+async def get_account_rate(account_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    rec = await account_rates_col.find_one({"user_id": uid, "account_id": account_id})
+    return {"apr": rec["apr"] if rec else None}
+
+
+@app.put("/accounts/{account_id}/rate")
+async def set_account_rate(account_id: str, body: dict, user: dict = Depends(current_user)):
+    uid = user["email"]
+    apr_val = body.get("apr")
+    if apr_val is None:
+        await account_rates_col.delete_one({"user_id": uid, "account_id": account_id})
+        return {"apr": None}
+    apr = float(apr_val)
+    await account_rates_col.update_one(
+        {"user_id": uid, "account_id": account_id},
+        {"$set": {"apr": apr, "user_id": uid, "account_id": account_id}},
+        upsert=True,
+    )
+    return {"apr": apr}
 
 
 @app.get("/connections")
@@ -713,10 +825,39 @@ async def get_transactions(account_id: str, days: int = 90, user: dict = Depends
         ).sort("date", -1).to_list(None)
         return [_doc_to_tx(d) for d in docs]
 
+    # Yapily account
+    yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
+    if yapily_acc:
+        docs = await yapily_transactions_col.find(
+            {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
+        ).sort("date", -1).to_list(None)
+        return [_doc_to_tx(d) for d in docs]
+
     docs = await transactions_col.find(
         {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
     ).sort("date", -1).to_list(None)
     return [_doc_to_tx(d) for d in docs]
+
+
+def _description_stem(desc: str) -> str:
+    """Strip bank-appended date/reference suffixes to get the matchable core.
+
+    Examples:
+      'RENEWAL ON 26 APR BCC'      → 'RENEWAL'
+      'LYCAMOBILE ON 09 MAY BCC'   → 'LYCAMOBILE'
+      'SQSP* WEBSIT#23231 ON 28 APR' → 'SQSP* WEBSIT#23231'
+      'Nintendo CD1591416166'       → 'Nintendo'
+    """
+    s = desc.strip()
+    # Remove trailing bank-reference codes (2-4 uppercase letters at the very end)
+    s = re.sub(r'\s+[A-Z]{2,4}\s*$', '', s).strip()
+    # Remove trailing " ON DD MMM" or " DD MMM" date patterns and everything after
+    s = re.sub(r'\s+(?:ON\s+)?\d{1,2}\s+[A-Z]{3}\b.*$', '', s, flags=re.I).strip()
+    # Remove trailing " DDMMM" compact date (e.g. "22MAY")
+    s = re.sub(r'\s+\d{2}[A-Z]{3}\b.*$', '', s, flags=re.I).strip()
+    # Remove trailing long numeric reference IDs (6+ digits)
+    s = re.sub(r'\s+\d{6,}\s*$', '', s).strip()
+    return s or desc
 
 
 @app.get("/transactions/{transaction_id}/similar", response_model=List[Transaction])
@@ -738,7 +879,9 @@ async def similar_transactions(transaction_id: str, scope: str = "all", user: di
     if merchant:
         match["merchant_name"] = merchant
     else:
-        match["description"] = description
+        stem = _description_stem(description)
+        # Prefix regex so "RENEWAL" matches "RENEWAL ON 26 APR BCC", "RENEWAL ON 09 MAY BCC" etc.
+        match["description"] = re.compile(r'^\s*' + re.escape(stem), re.IGNORECASE)
 
     if scope == "future":
         match["date"] = {"$gte": ref["date"]}
@@ -780,13 +923,29 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     }
 
 
+@app.patch("/transactions/{transaction_id}/planned")
+async def set_transaction_planned(transaction_id: str, body: dict, user: dict = Depends(current_user)):
+    planned = bool(body.get("planned", True))
+    result = await transactions_col.update_one(
+        {"_id": transaction_id, "user_id": user["email"]},
+        {"$set": {"planned": planned}},
+    )
+    if result.matched_count == 0:
+        await yapily_transactions_col.update_one(
+            {"_id": transaction_id, "user_id": user["email"]},
+            {"$set": {"planned": planned}},
+        )
+    return {"updated": transaction_id, "planned": planned}
+
+
 RAW_TRUELAYER_CATEGORIES = {"BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE", "STANDING_ORDER",
                              "CREDIT", "TRANSFER"}
 
 VALID_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
     "Shopping", "Bills", "Subscriptions", "Health", "Travel",
-    "Software", "Savings", "Debt", "Transfer", "Income", "Other",
+    "Software", "Savings", "Debt", "Transfer", "Income",
+    "Cash", "Charity", "Other",
 ]
 
 # Rule-based merchant patterns — applied at sync time and before AI calls.
@@ -810,27 +969,27 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Groceries
     (re.compile(r'tesco|sainsbury|asda|morrisons?|waitrose|lidl|aldi|iceland food|co-?op\b|ocado|farmfoods|marks.{0,5}spencer food|m&s food|whole foods|budgens|londis|spar\b|nisa\b|costco', re.I), 'Groceries'),
     # Eating Out
-    (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.?eat|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house", re.I), 'Eating Out'),
+    (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house", re.I), 'Eating Out'),
     # Transport — public / ride-share
     (re.compile(r'tfl\b|transport for london|oyster|uber\b|bolt\b|trainline|national rail|avanti|lner\b|cross.?country|great western|south western|south.?eastern|northern rail|arriva|stagecoach|first.?bus|megabus|national express|eurostar|heathrow express|gatwick express|stansted express|go.?ahead|chiltern rail', re.I), 'Transport'),
     # Transport — fuel / parking
     (re.compile(r'\bbp\b|shell\b|esso\b|total energies|texaco|gulf\b|moto\b|roadchef|welcome break|petrol|fuel\b|parking|ncp\b|q-park|ringgo|paybyphone', re.I), 'Transport'),
     # Subscriptions (streaming / software / recurring)
-    (re.compile(r'netflix|spotify|disney\+?|amazon prime|apple music|youtube.?premium|google\*youtube|now tv|now\.tv|apple.?one|apple\.?com/bill|apple tv\+?|hulu|paramount\+?|bbc sounds|audible|kindle unlimited|duolingo|headspace|calm\b|grammarly|canva\b|adobe\b|microsoft 365|office 365|dropbox|icloud|google one|playstation|psn\b|ps\+|xbox.?game.?pass|nintendo online|twitch', re.I), 'Subscriptions'),
+    (re.compile(r'netflix|spotify|disney\+?|amazon prime|apple music|youtube.?premium|google\*youtube|now tv|now\.tv|apple.?one|apple\.?com/bill|apple tv\+?|hulu|paramount\+?|bbc sounds|audible|kindle unlimited|duolingo|headspace|calm\b|grammarly|canva\b|adobe\b|microsoft 365|office 365|dropbox|icloud|google one|playstation|psn\b|ps\+|xbox.?game.?pass|nintendo online|nintendo switch online|twitch|squarespace|\bsqsp\b|claude\.ai|anthropic\b', re.I), 'Subscriptions'),
     # Entertainment
-    (re.compile(r'odeon|vue cinema|cineworld|curzon|everyman cinema|ticketmaster|see.?tickets|eventbrite|sky sports|bt sport|dazn\b|steam\b|epic games|xbox store|nintendo eshop|google play|app store|museum|theatre|gallery|gig\b|concert', re.I), 'Entertainment'),
+    (re.compile(r'odeon|vue cinema|cineworld|curzon|everyman cinema|ticketmaster|see.?tickets|eventbrite|sky sports|bt sport|dazn\b|steam\b|epic games|xbox store|nintendo eshop|nintendo\b|google play|app store|museum|theatre|gallery|gig\b|concert', re.I), 'Entertainment'),
     # Shopping — online & retail
-    (re.compile(r'\bamazon\b(?!.*prime)|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|lush\b|holland.?barrett|the body shop|boots(?! pharmacy)', re.I), 'Shopping'),
+    (re.compile(r'\bamazon\b(?!.*prime)|\bamzn\b|amazon marketplace|amznmkt|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|lush\b|holland.?barrett|the body shop|boots(?! pharmacy)', re.I), 'Shopping'),
     # Bills — utilities & telecoms
-    (re.compile(r'british gas|octopus energy|edf energy|e\.?on\b|scottish power|npower|bulb\b|ovo energy|shell energy|thames water|severn trent|yorkshire water|united utilities|south west water|bt group\b|bt broadband|virgin media|sky\b|vodafone|ee\b|o2\b|three\b|giffgaff|talktalk|plusnet|now broadband|council tax|tv licence|water bill|electricity bill|gas bill|broadband', re.I), 'Bills'),
+    (re.compile(r'british gas|octopus energy|edf energy|e\.?on\b|scottish power|npower|bulb\b|ovo energy|shell energy|thames water|severn trent|yorkshire water|united utilities|south west water|bt group\b|bt broadband|virgin media|sky\b|vodafone|ee\b|o2\b|three\b|giffgaff|lycamobile|lyca mobile|lebara|voxi\b|smarty\b|talktalk|plusnet|now broadband|council tax|tv licence|water bill|electricity bill|gas bill|broadband|metropoli.*council|borough council|city council|district council|county council|local authority', re.I), 'Bills'),
     # Health & fitness
-    (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym group|anytime fitness|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein', re.I), 'Health'),
+    (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym\b|gym ltd|gym group|anytime fitness|jd gyms|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein', re.I), 'Health'),
     # Travel
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
     # Software & dev tools
     (re.compile(r'github\b|digitalocean|aws\b|amazon web services|google cloud|azure\b|heroku|netlify|vercel|cloudflare|linode|hetzner|namecheap|godaddy|1password|lastpass|dashlane|bitwarden|notion\b|figma\b|slack\b|zoom\b|webflow|railway\b|supabase|mongodb atlas|datadog|sentry\b|linear\b', re.I), 'Software'),
     # Savings & investments
-    (re.compile(r'moneybox|plum\b|chip\b|nutmeg|wealthify|wealthsimple|vanguard|hargreaves lansdown|fidelity|trading 212|freetrade|ii\b|interactive investor|isa\b|pension|savings', re.I), 'Savings'),
+    (re.compile(r'moneybox|plum\b|chip\b|nutmeg|wealthify|wealthsimple|vanguard|hargreaves lansdown|fidelity|trading 212|freetrade|ii\b|interactive investor|isa\b|pension|\bsavings?\b', re.I), 'Savings'),
     # Interest charges & fees → Bills
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     # Balance transfers & pot withdrawals (Monzo/Starling) → Transfer
@@ -846,13 +1005,13 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Personal standing orders with name patterns → Transfer
     (re.compile(r'\b(sto|standing order)\b', re.I), 'Transfer'),
     # Eating Out catch-all for dining/food descriptors
-    (re.compile(r'dining|diner\b|grill\b|kitchen\b|eatery|takeaway|take.?away', re.I), 'Eating Out'),
+    (re.compile(r'dining|diner\b|grill\b|kitchen\b|eatery|takeaway|take.?away|porters.?lodge|lodge.?cafe|kebab|shawarma|german.?diner|currywurst|schnitzel|bratwurst|falafel|gyros?\b', re.I), 'Eating Out'),
     # PayPal payments → Shopping (generic online purchase)
     (re.compile(r'\bpaypal\b', re.I), 'Shopping'),
     # ATM / cash withdrawals → Other
-    (re.compile(r'\batm\b|cash.?machine|cash.?withdrawal|cashpoint', re.I), 'Other'),
+    (re.compile(r'\batm\b|cash.?machine|cash.?withdrawal|cashpoint|notemachine|note.?machine', re.I), 'Other'),
     # Currency / crypto exchange → Transfer
-    (re.compile(r'exchanged? to\b|fx\b|foreign.?exchange|currency.?exchange', re.I), 'Transfer'),
+    (re.compile(r'exchanged? to\b|fx\b|foreign.?exchange|currency.?exchange|transnational', re.I), 'Transfer'),
     # Pot transfers (Monzo/Starling/Goldman) → Transfer
     (re.compile(r'from .* pot\b|to .* pot\b|pot.?transfer|pot.?withdrawal|pot.?deposit', re.I), 'Transfer'),
     # Post office → Shopping
@@ -869,6 +1028,38 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
         if pattern.search(text):
             return category
     return None
+
+
+async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
+    """Search Tavily for unknown merchant names to help categorisation.
+    Capped at 20 lookups per call to preserve quota.
+    Returns a map of merchant → short description snippet."""
+    if not TAVILY_API_KEY or not merchants:
+        return {}
+    results: dict[str, str] = {}
+    async with httpx.AsyncClient(timeout=15) as client:
+        for merchant in merchants[:20]:
+            try:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": TAVILY_API_KEY,
+                        "query": f"What is \"{merchant}\"? What type of business or service is it?",
+                        "search_depth": "basic",
+                        "max_results": 1,
+                        "include_answer": True,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    answer = data.get("answer") or ""
+                    if not answer and data.get("results"):
+                        answer = data["results"][0].get("content", "")[:200]
+                    if answer:
+                        results[merchant] = answer[:200]
+            except Exception:
+                pass
+    return results
 
 
 async def _apply_rules_bulk(user_id: str, structural: bool = False) -> int:
@@ -897,7 +1088,7 @@ async def _apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             updated += result.modified_count
 
         # ── Pass 2: Match transfer pairs by description + amount ──────────────
-        from collections import defaultdict
+        from collections import defaultdict, Counter
         all_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None, "description": {"$ne": None}},
             {"description": 1, "amount": 1, "transaction_type": 1, "date": 1, "category": 1},
@@ -932,6 +1123,40 @@ async def _apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             )
             updated += result.modified_count
 
+        # ── Pass 2.5: Propagate manual overrides ──────────────────────────────
+        # If the user has manually categorised transactions with a given description
+        # + direction, apply the same category to new transactions with custom_category=None.
+        # This means "I changed this Saving Challenge debit to Savings" automatically
+        # applies to every future Saving Challenge debit.
+        custom_txns = await transactions_col.find(
+            {"user_id": user_id, "custom_category": {"$ne": None}},
+            {"description": 1, "transaction_type": 1, "custom_category": 1},
+        ).to_list(None)
+
+        override_map: dict = defaultdict(Counter)
+        for t in custom_txns:
+            desc_key = re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
+            if desc_key:
+                override_map[(desc_key, t.get("transaction_type", "debit"))][t["custom_category"]] += 1
+
+        if override_map:
+            no_custom = await transactions_col.find(
+                {"user_id": user_id, "custom_category": None},
+                {"_id": 1, "description": 1, "transaction_type": 1, "category": 1},
+            ).to_list(None)
+            for t in no_custom:
+                desc_key = re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
+                key = (desc_key, t.get("transaction_type", "debit"))
+                if key not in override_map:
+                    continue
+                target_cat = override_map[key].most_common(1)[0][0]
+                if t.get("category") != target_cat:
+                    await transactions_col.update_one(
+                        {"_id": t["_id"], "custom_category": None},
+                        {"$set": {"category": target_cat}},
+                    )
+                    updated += 1
+
     # ── Pass 3: Merchant rules on null/raw/Other transactions ─────────────────
     raw_txns = await transactions_col.find(
         {"user_id": user_id, "custom_category": None,
@@ -961,6 +1186,139 @@ async def _apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": cat}})
             updated += 1
 
+    # ── Pass 3.5: Apply user-defined categorisation rules ─────────────────────
+    user_rules = await user_rules_col.find({"uid": user_id}).to_list(None)
+    if user_rules:
+        no_custom = await transactions_col.find(
+            {"user_id": user_id, "custom_category": None},
+            {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
+        ).to_list(None)
+        for t in no_custom:
+            text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
+            for rule in user_rules:
+                try:
+                    if re.search(rule["pattern"], text, re.IGNORECASE):
+                        if t.get("category") != rule["category"]:
+                            await transactions_col.update_one(
+                                {"_id": t["_id"]}, {"$set": {"category": rule["category"]}}
+                            )
+                            updated += 1
+                        break
+                except re.error:
+                    continue
+
+    # ── Pass 4: Propagate user custom_category overrides to auto-categorised txns ──
+    # Key is (normalised_text, transaction_type) so credits and debits with the same
+    # description can carry different categories — e.g. a transfer-out (credit) and a
+    # savings deduction (debit) sharing the same description won't bleed into each other.
+    user_overrides = await transactions_col.find(
+        {"user_id": user_id, "custom_category": {"$ne": None}},
+        {"merchant_name": 1, "description": 1, "custom_category": 1, "transaction_type": 1},
+    ).to_list(None)
+
+    override_map: dict[tuple[str, str], str] = {}
+    for h in user_overrides:
+        cat = h["custom_category"]
+        txn_type = h.get("transaction_type", "")
+        for key in [h.get("merchant_name"), h.get("description")]:
+            if key:
+                norm = re.sub(r'\s+', ' ', key.strip().lower())
+                map_key = (norm, txn_type)
+                if norm and map_key not in override_map:
+                    override_map[map_key] = cat
+
+    if override_map:
+        all_auto = await transactions_col.find(
+            {"user_id": user_id, "custom_category": None},
+            {"_id": 1, "merchant_name": 1, "description": 1, "category": 1, "transaction_type": 1},
+        ).to_list(None)
+        for t in all_auto:
+            txn_type = t.get("transaction_type", "")
+            for key in [t.get("merchant_name"), t.get("description")]:
+                if key:
+                    norm = re.sub(r'\s+', ' ', key.strip().lower())
+                    desired = override_map.get((norm, txn_type))
+                    if desired:
+                        if t.get("category") != desired:
+                            await transactions_col.update_one(
+                                {"_id": t["_id"]}, {"$set": {"category": desired}}
+                            )
+                            updated += 1
+                        break
+
+    return updated
+
+
+async def _categorise_others_bg(uid: str) -> int:
+    """Background task: Tavily + AI for transactions still on 'Other' that haven't been attempted yet.
+    Sets ai_attempted=True after each run so the same transaction is never retried on future syncs.
+    Never overwrites custom_category. Returns number of transactions successfully recategorised."""
+    others = await transactions_col.find(
+        {"user_id": uid, "category": "Other", "custom_category": None,
+         "ai_attempted": {"$ne": True}},
+        {"merchant_name": 1, "description": 1, "amount": 1, "transaction_type": 1},
+    ).to_list(100)
+
+    if not others or not OPENROUTER_API_KEY:
+        return 0
+
+    # Tavily lookup for short, name-like merchant strings
+    candidates = list({
+        name for t in others
+        if (name := (t.get("merchant_name") or "").strip()) and 2 < len(name) < 50
+        and not re.search(r'\d{6,}', name)
+    })
+    tavily_info = await tavily_lookup_merchants(candidates) if TAVILY_API_KEY else {}
+
+    lines = "\n".join(
+        f'{j}: merchant="{t.get("merchant_name") or ""}" '
+        f'desc="{(t.get("description") or "")[:80]}" amount=£{t["amount"]:.2f}'
+        + (f' [web: {tavily_info[(t.get("merchant_name") or "").strip()][:120]}]'
+           if (t.get("merchant_name") or "").strip() in tavily_info else "")
+        for j, t in enumerate(others)
+    )
+    prompt = (
+        f"UK personal finance categoriser. Assign each to one of: {', '.join(VALID_CATEGORIES)}.\n"
+        f"Use [web:] hints where available. Use 'Other' only if truly unidentifiable.\n"
+        f"Reply ONLY with JSON like {{\"0\": \"Shopping\", \"1\": \"Eating Out\"}}.\n\n"
+        f"Transactions:\n{lines}"
+    )
+
+    updated = 0
+    ids_attempted = [t["_id"] for t in others]
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                         "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
+                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
+                      "messages": [{"role": "user", "content": prompt}]},
+            )
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"]
+            m = re.search(r"\{.*\}", content, re.DOTALL)
+            if m:
+                for k, cat in json.loads(m.group()).items():
+                    if k.isdigit() and int(k) < len(others):
+                        final = cat if cat in VALID_CATEGORIES else "Other"
+                        update = {"ai_attempted": True}
+                        if final != "Other":
+                            update["category"] = final
+                            updated += 1
+                        await transactions_col.update_one(
+                            {"_id": others[int(k)]["_id"]}, {"$set": update}
+                        )
+                        ids_attempted.remove(others[int(k)]["_id"])
+    except Exception:
+        pass
+
+    # Mark any not covered by the AI response so they aren't retried either
+    if ids_attempted:
+        await transactions_col.update_many(
+            {"_id": {"$in": ids_attempted}}, {"$set": {"ai_attempted": True}}
+        )
+
     return updated
 
 
@@ -974,7 +1332,13 @@ async def auto_categorise(from_date: Optional[str] = None, to_date: Optional[str
     """
     uid = user["email"]
 
-    # Step 1: apply deterministic merchant rules to everything with a raw category
+    # Reset ai_attempted so a manual run always gets a fresh pass on all Others
+    await transactions_col.update_many(
+        {"user_id": uid, "category": "Other", "custom_category": None, "ai_attempted": True},
+        {"$unset": {"ai_attempted": ""}},
+    )
+
+    # Step 1: apply deterministic merchant rules + custom_category propagation to all transactions
     rules_fixed = await _apply_rules_bulk(uid, structural=True)
 
     # Step 2: find what's still uncategorised after rules
@@ -993,9 +1357,9 @@ async def auto_categorise(from_date: Optional[str] = None, to_date: Optional[str
     query: dict = {
         "user_id": uid,
         "custom_category": None,
-        "transaction_type": "debit",
         "$or": [
             {"category": None},
+            {"category": "Other"},
             {"category": {"$in": list(RAW_TRUELAYER_CATEGORIES)}},
         ],
     }
@@ -1008,36 +1372,40 @@ async def auto_categorise(from_date: Optional[str] = None, to_date: Optional[str
         return {"rules_fixed": rules_fixed, "ai_categorised": 0}
 
     # ── Step A: historical merchant matching ──────────────────────────────────
-    # Build a map of merchant_name/description → category from already-categorised transactions.
-    # Prefer custom_category (user-confirmed) over auto-assigned category.
+    # Build a map of (normalised text, transaction_type) → category.
+    # Keying on direction prevents credits and debits with the same description
+    # from inheriting each other's category (e.g. a savings transfer that appears
+    # as both a credit and a debit with different intended categories).
     historical = await transactions_col.find(
         {"user_id": uid,
          "$or": [{"custom_category": {"$ne": None}}, {"category": {"$nin": list(RAW_TRUELAYER_CATEGORIES) + [None]}}]},
-        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1},
+        {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1, "transaction_type": 1},
     ).to_list(None)
 
-    merchant_map: dict[str, str] = {}  # normalised key → category
+    merchant_map: dict[tuple[str, str], str] = {}
     for h in historical:
         cat = h.get("custom_category") or h.get("category")
         if not cat or cat in RAW_TRUELAYER_CATEGORIES:
             continue
-        # Prefer merchant_name exact match; fall back to normalised description
+        txn_type = h.get("transaction_type", "")
         for key in [h.get("merchant_name"), h.get("description")]:
             if key:
                 norm = re.sub(r'\s+', ' ', key.strip().lower())
-                if norm and norm not in merchant_map:
-                    merchant_map[norm] = cat
+                map_key = (norm, txn_type)
+                if norm and map_key not in merchant_map:
+                    merchant_map[map_key] = cat
 
     # Apply historical matches; only send remaining to AI
     needs_ai: list = []
     history_matched = 0
     for t in uncategorised:
+        txn_type = t.get("transaction_type", "")
         matched = None
         for key in [t.get("merchant_name"), t.get("description")]:
             if key:
                 norm = re.sub(r'\s+', ' ', key.strip().lower())
-                if norm in merchant_map:
-                    matched = merchant_map[norm]
+                if (norm, txn_type) in merchant_map:
+                    matched = merchant_map[(norm, txn_type)]
                     break
         if matched:
             await transactions_col.update_one(
@@ -1064,33 +1432,48 @@ async def auto_categorise(from_date: Optional[str] = None, to_date: Optional[str
         )
         example_block = f"User-confirmed examples (follow these patterns):\n{lines_ex}\n\n"
 
+    # Tavily lookup for merchants that rules couldn't identify
+    # Only search merchants that look like real names (not bank reference strings)
+    unknown_merchants = list({
+        name for t in needs_ai
+        if (name := (t.get("merchant_name") or "").strip()) and 2 < len(name) < 50
+        and not re.search(r'\d{6,}', name)  # skip strings that are mostly reference numbers
+    })
+    tavily_info = await tavily_lookup_merchants(unknown_merchants) if TAVILY_API_KEY else {}
+
     ai_total = 0
     for i in range(0, len(needs_ai), 30):
         batch = needs_ai[i:i + 30]
         lines = "\n".join(
             f'{j}: merchant="{t.get("merchant_name") or ""}" '
-            f'desc="{t.get("description", "")[:60]}" '
-            f'amount=£{t["amount"]:.2f}'
+            f'desc="{t.get("description", "")[:80]}" '
+            f'amount=£{t["amount"]:.2f} type={t.get("transaction_type", "debit")}'
+            + (f' [web: {tavily_info[t.get("merchant_name") or t.get("description", "")][:120]}]'
+               if (t.get("merchant_name") or t.get("description", "")) in tavily_info else "")
             for j, t in enumerate(batch)
         )
         prompt = (
-            f"You are a UK personal finance categoriser. "
-            f"Assign each transaction to exactly one category from: {', '.join(VALID_CATEGORIES)}.\n"
-            f"Use the merchant name and description to identify WHAT the transaction is — "
-            f"never use the payment method (direct debit, standing order, debit, purchase) as the category.\n"
-            f"If genuinely uncertain, use 'Other'. "
-            f"Reply with ONLY a JSON object like {{\"0\": \"Groceries\", \"1\": \"Transport\"}}.\n\n"
+            f"You are an expert UK personal finance categoriser. "
+            f"Assign each transaction to exactly one category from this list: {', '.join(VALID_CATEGORIES)}.\n\n"
+            f"Rules:\n"
+            f"- Use the merchant name and description to determine WHAT the business/service is, not HOW payment was made.\n"
+            f"- Ignore payment method words (direct debit, standing order, purchase, faster payment, BACS) — look at the actual merchant.\n"
+            f"- '[web: ...]' entries contain a web search result about the merchant — use this to inform your decision.\n"
+            f"- 'Other' is a last resort: only use it if you truly cannot identify the merchant or service after careful consideration.\n"
+            f"- Credits to a current account are usually 'Income' or 'Transfer' unless clearly a refund.\n"
+            f"- UK-specific: Monzo pots, Starling spaces, Marcus savings = 'Savings'; Amex/Barclaycard payments = 'Debt'.\n\n"
+            f"Reply with ONLY a JSON object mapping index to category, e.g. {{\"0\": \"Groceries\", \"1\": \"Transport\"}}.\n\n"
             f"{example_block}"
             f"Transactions:\n{lines}"
         )
         try:
-            async with httpx.AsyncClient(timeout=30) as http:
+            async with httpx.AsyncClient(timeout=45) as http:
                 r = await http.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
                              "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
                     json={"model": "anthropic/claude-haiku-4-5",
-                          "max_tokens": 400,
+                          "max_tokens": 600,
                           "messages": [{"role": "user", "content": prompt}]},
                 )
             if r.status_code == 200:
@@ -1150,15 +1533,20 @@ async def get_kpis(user: dict = Depends(current_user)):
         )
 
     accounts = await accounts_col.find({"user_id": uid}).to_list(None)
-    if not accounts:
+    yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
+    if not accounts and not yapily_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=datetime.now())
 
-    net_worth = sum(a["balance"] for a in accounts)
-    cash      = sum(a["balance"] for a in accounts if a["type"] == "bank")
+    net_worth = sum(a["balance"] for a in accounts) + sum(a.get("balance", 0) for a in yapily_accs)
+    cash      = sum(a["balance"] for a in accounts if a["type"] == "bank") + sum(a.get("balance", 0) for a in yapily_accs)
+    yapily_txn_debits = await yapily_transactions_col.find(
+        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
+    ).to_list(None)
     debits    = await transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
     ).to_list(None)
-    avg_spend = (sum(d["amount"] for d in debits) / 3) if debits else 1000
+    all_debits = debits + yapily_txn_debits
+    avg_spend = (sum(d["amount"] for d in all_debits) / 3) if all_debits else 1000
     runway    = cash / avg_spend if avg_spend else 0
 
     return KPIResponse(
@@ -1211,20 +1599,25 @@ async def get_insights(user: dict = Depends(current_user)):
 @app.get("/preferences")
 async def get_preferences(user: dict = Depends(current_user)):
     doc = await preferences_col.find_one({"user_id": user["email"]})
-    defaults = {
-        "hide_net_worth": False,
-        "dark_mode": False,
-        "pay_period_config": {"type": "calendar_month"},
-        "region": "UK",
-    }
     if not doc:
-        return defaults
-    return {
+        return {
+            "hide_net_worth": False,
+            "dark_mode": False,
+            "pay_period_config": {"type": "calendar_month"},
+            "region": "UK",
+            "debt_target_months": 12,
+        }
+    region = doc.get("region", "UK")
+    result = {
         "hide_net_worth": doc.get("hide_net_worth", False),
         "dark_mode": doc.get("dark_mode", False),
         "pay_period_config": doc.get("pay_period_config", {"type": "calendar_month"}),
-        "region": doc.get("region", "UK"),
+        "region": region,
+        "debt_target_months": doc.get("debt_target_months", 12),
     }
+    if "debt_tracking_start" in doc:
+        result["debt_tracking_start"] = doc["debt_tracking_start"]
+    return result
 
 @app.patch("/preferences")
 async def update_preferences(body: dict, user: dict = Depends(current_user)):
@@ -1240,13 +1633,17 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
 BUILTIN_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping",
     "Bills", "Subscriptions", "Health", "Travel", "Software",
-    "Savings", "Debt", "Transfer", "Income", "Other",
+    "Savings", "Debt", "Transfer", "Income", "Cash", "Charity", "Other",
 ]
+
+def _clean_custom(raw: list) -> list:
+    """Remove any custom categories that have since become built-in."""
+    return [c for c in raw if c not in BUILTIN_CATEGORIES]
 
 @app.get("/categories")
 async def get_categories(user: dict = Depends(current_user)):
     doc = await user_categories_col.find_one({"user_id": user["email"]})
-    custom = doc.get("categories", []) if doc else []
+    custom = _clean_custom(doc.get("categories", []) if doc else [])
     return {"builtin": BUILTIN_CATEGORIES, "custom": custom, "all": BUILTIN_CATEGORIES + custom}
 
 @app.post("/categories")
@@ -1262,18 +1659,106 @@ async def add_category(body: dict, user: dict = Depends(current_user)):
         upsert=True,
     )
     doc = await user_categories_col.find_one({"user_id": user["email"]})
-    custom = doc.get("categories", []) if doc else []
+    custom = _clean_custom(doc.get("categories", []) if doc else [])
     return {"builtin": BUILTIN_CATEGORIES, "custom": custom, "all": BUILTIN_CATEGORIES + custom}
 
 @app.delete("/categories/{name}")
 async def delete_category(name: str, user: dict = Depends(current_user)):
-    if name in BUILTIN_CATEGORIES:
-        raise HTTPException(400, "Cannot delete built-in categories")
+    # Always remove from custom list (handles migration where a category became built-in)
     await user_categories_col.update_one(
         {"user_id": user["email"]},
         {"$pull": {"categories": name}},
     )
+    if name in BUILTIN_CATEGORIES:
+        raise HTTPException(400, "Cannot delete built-in categories")
     return {"deleted": name}
+
+
+# ── Categorisation Rules ───────────────────────────────────────────────────────
+
+@app.get("/rules")
+async def get_rules(user: dict = Depends(current_user)):
+    uid = user["email"]
+    docs = await user_rules_col.find({"uid": uid}).sort("created_at", -1).to_list(None)
+    return {"rules": [{"id": str(d["_id"]), "description": d["description"],
+                        "pattern": d["pattern"], "category": d["category"],
+                        "created_at": d["created_at"].isoformat()} for d in docs]}
+
+@app.post("/rules/parse")
+async def parse_rule(body: dict, user: dict = Depends(current_user)):
+    """Use Haiku to extract a structured rule from natural language."""
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "No text provided")
+    doc = await user_categories_col.find_one({"user_id": user["email"]})
+    custom = doc.get("categories", []) if doc else []
+    all_cats = BUILTIN_CATEGORIES + custom
+    prompt = (
+        f"Extract a transaction categorisation rule from this instruction: \"{text}\"\n"
+        f"Available categories: {', '.join(all_cats)}\n"
+        f"Return ONLY JSON: {{\"pattern\": \"<simple regex>\", \"category\": \"<exact category name>\"}}\n"
+        f"The pattern should be a lowercase regex that matches the merchant name or description.\n"
+        f"If you cannot extract a valid rule, return: {{\"error\": \"reason\"}}"
+    )
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(503, "AI not configured")
+    async with httpx.AsyncClient(timeout=15) as http:
+        r = await http.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                     "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
+            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 100,
+                  "messages": [{"role": "user", "content": prompt}]},
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, "AI request failed")
+    content = r.json()["choices"][0]["message"]["content"]
+    m = re.search(r"\{.*\}", content, re.DOTALL)
+    if not m:
+        raise HTTPException(422, "Could not parse rule")
+    parsed = json.loads(m.group())
+    if "error" in parsed:
+        raise HTTPException(422, parsed["error"])
+    if parsed.get("category") not in all_cats:
+        raise HTTPException(422, f"Unknown category: {parsed.get('category')}")
+    try:
+        re.compile(parsed["pattern"])
+    except re.error:
+        raise HTTPException(422, "Invalid pattern generated")
+    return {"pattern": parsed["pattern"], "category": parsed["category"]}
+
+@app.post("/rules")
+async def add_rule(body: dict, user: dict = Depends(current_user)):
+    uid = user["email"]
+    description = (body.get("description") or "").strip()
+    pattern = (body.get("pattern") or "").strip()
+    category = (body.get("category") or "").strip()
+    if not description or not pattern or not category:
+        raise HTTPException(400, "description, pattern and category are required")
+    doc = await user_categories_col.find_one({"user_id": uid})
+    custom = doc.get("categories", []) if doc else []
+    if category not in BUILTIN_CATEGORIES + custom:
+        raise HTTPException(400, "Invalid category")
+    try:
+        re.compile(pattern)
+    except re.error:
+        raise HTTPException(400, "Invalid regex pattern")
+    rule_id = str(uuid_lib.uuid4())
+    await user_rules_col.insert_one({
+        "_id": rule_id, "uid": uid, "description": description,
+        "pattern": pattern.lower(), "category": category,
+        "created_at": datetime.utcnow(),
+    })
+    # Apply the new rule immediately
+    asyncio.create_task(_apply_rules_bulk(uid))
+    return {"id": rule_id, "description": description, "pattern": pattern.lower(), "category": category}
+
+@app.delete("/rules/{rule_id}")
+async def delete_rule(rule_id: str, user: dict = Depends(current_user)):
+    result = await user_rules_col.delete_one({"_id": rule_id, "uid": user["email"]})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Rule not found")
+    return {"deleted": rule_id}
 
 
 @app.get("/debt/insights")
@@ -1341,12 +1826,20 @@ async def debt_insights(user: dict = Depends(current_user)):
     income_txns = await transactions_col.find(
         {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
     ).to_list(None)
+    yapily_income_txns = await yapily_transactions_col.find(
+        {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
+    ).to_list(None)
+    income_txns = income_txns + yapily_income_txns
     monthly_income = sum(t["amount"] for t in income_txns) / 3
 
     # Monthly spending by category (debit only, exclude Transfer/Debt/Savings)
     debit_txns = await transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
     ).to_list(None)
+    yapily_debit_txns = await yapily_transactions_col.find(
+        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
+    ).to_list(None)
+    debit_txns = debit_txns + yapily_debit_txns
 
     cat_totals: dict[str, float] = {}
     for t in debit_txns:
@@ -1363,10 +1856,46 @@ async def debt_insights(user: dict = Depends(current_user)):
     monthly_essential = sum(v for k, v in monthly_cat.items() if k not in non_discretionary_cats)
     monthly_surplus = monthly_income - monthly_essential
 
-    # Payoff maths — simple (no interest modelling)
-    payment_for_12mo = round(total_debt / 12, 2) if total_debt > 0 else 0
-    gap = max(0, round(payment_for_12mo - monthly_surplus, 2))
-    months_at_current = round(total_debt / monthly_surplus, 1) if monthly_surplus > 0 else 999
+    # Look up APR per CC account
+    account_rates: dict[str, float] = {}
+    for a in cc_accounts:
+        rate_doc = await account_rates_col.find_one({"user_id": uid, "account_id": str(a["_id"])})
+        if rate_doc:
+            account_rates[str(a["_id"])] = float(rate_doc["apr"])
+
+    # Weighted average APR
+    weighted_apr = (
+        sum(abs(a["balance"]) * account_rates.get(str(a["_id"]), 0) for a in cc_accounts) / total_debt
+        if total_debt > 0 else 0.0
+    )
+    monthly_rate = weighted_apr / 12 / 100
+
+    # Payoff maths with compound interest
+    prefs_doc = await preferences_col.find_one({"user_id": uid}) or {}
+    target_months_pref = int(prefs_doc.get("debt_target_months", 12))
+    if monthly_rate > 0 and target_months_pref > 0:
+        payment_for_target = round(total_debt * monthly_rate / (1 - (1 + monthly_rate) ** (-target_months_pref)), 2) if total_debt > 0 else 0
+    else:
+        payment_for_target = round(total_debt / target_months_pref, 2) if total_debt > 0 else 0
+
+    gap = max(0, round(payment_for_target - monthly_surplus, 2))
+
+    # Months at current rate with compound interest
+    if monthly_surplus > 0 and total_debt > 0:
+        if monthly_rate > 0:
+            # Use simulation to find months to payoff at monthly_surplus
+            sim_bal = total_debt
+            months_at_current = 0
+            while sim_bal > 0.01 and months_at_current < 999:
+                sim_bal = sim_bal * (1 + monthly_rate) - monthly_surplus
+                months_at_current += 1
+            months_at_current = round(float(months_at_current), 1)
+        else:
+            months_at_current = round(total_debt / monthly_surplus, 1)
+    else:
+        months_at_current = 999
+
+    payment_for_12mo = payment_for_target  # kept for backwards compat
 
     # Discretionary categories — ranked by spend, with 25% cut savings
     DISCRETIONARY = ["Eating Out", "Entertainment", "Shopping", "Travel", "Subscriptions", "Software", "Other", "Health"]
@@ -1408,7 +1937,14 @@ async def debt_insights(user: dict = Depends(current_user)):
     return {
         "total_debt": round(total_debt, 2),
         "accounts": [
-            {"name": a["name"], "provider": a.get("provider", ""), "balance": round(a["balance"], 2)}
+            {
+                "account_id": str(a["_id"]),
+                "name": a["name"],
+                "provider": a.get("provider", ""),
+                "balance": round(a["balance"], 2),
+                "apr": account_rates.get(str(a["_id"])),
+                "monthly_interest": round(abs(a["balance"]) * account_rates.get(str(a["_id"]), 0) / 12 / 100, 2),
+            }
             for a in cc_accounts
         ],
         "monthly_income": round(monthly_income, 2),
@@ -1418,9 +1954,234 @@ async def debt_insights(user: dict = Depends(current_user)):
         "payment_needed_12mo": payment_for_12mo,
         "gap_to_12mo": gap,
         "months_at_current_rate": months_at_current,
+        "weighted_apr": round(weighted_apr, 4),
         "category_spending": {k: v for k, v in sorted(monthly_cat.items(), key=lambda x: -x[1])},
         "recommendations": recommendations,
         "recent_discretionary": recent_discretionary,
+    }
+
+
+@app.get("/debt/burndown")
+async def debt_burndown(
+    user: dict = Depends(current_user),
+    target_months: Optional[int] = None,
+    strategy: str = "avalanche",
+    start_date: Optional[str] = None,
+):
+    """Return monthly debt burndown with compound interest and repayment strategy."""
+    uid  = user["email"]
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    if target_months is None:
+        target_months = int(prefs.get("debt_target_months", 12))
+    region = prefs.get("region", "UK")
+    sym = "KES" if region == "Kenya" else "GBP"
+
+    # Current CC accounts and their APRs
+    accounts = await accounts_col.find({"user_id": uid}).to_list(None)
+    cc_accounts = [a for a in accounts if a.get("type") == "credit_card" and a.get("balance", 0) < 0]
+    cc_ids = [a["_id"] for a in cc_accounts]
+
+    # Load per-account APRs
+    apr_map: dict[str, float] = {}
+    for a in cc_accounts:
+        rate_doc = await account_rates_col.find_one({"user_id": uid, "account_id": str(a["_id"])})
+        if rate_doc:
+            apr_map[str(a["_id"])] = float(rate_doc["apr"])
+
+    # Build simulation cards (each card has its own balance + APR)
+    sim_cards = [
+        {
+            "id": str(a["_id"]),
+            "balance": abs(a["balance"]),
+            "monthly_rate": apr_map.get(str(a["_id"]), 0) / 12 / 100,
+        }
+        for a in cc_accounts
+    ]
+    current_debt = sum(c["balance"] for c in sim_cards)
+
+    today = datetime.now()
+    cur_mk = today.strftime("%Y-%m")
+    if start_date is None:
+        start_date = prefs.get("debt_tracking_start", cur_mk)
+
+    if current_debt == 0 or not cc_ids:
+        return {
+            "burndown": [], "current_debt": 0, "target_months": target_months,
+            "target_date": (today.replace(day=1) + timedelta(days=32 * target_months)).strftime("%Y-%m"),
+            "monthly_payment_needed": 0, "currency": sym,
+            "total_interest_target": 0, "total_interest_projected": 0,
+            "weighted_apr": 0, "strategy": strategy, "has_rates": False,
+            "start_date": start_date,
+        }
+
+    weighted_apr = sum(c["balance"] * c["monthly_rate"] * 12 * 100 for c in sim_cards) / current_debt if current_debt > 0 else 0
+    avg_monthly_rate = weighted_apr / 12 / 100
+    has_rates = any(c["monthly_rate"] > 0 for c in sim_cards)
+
+    # Historical data — check both TrueLayer and Yapily transaction collections
+    all_cc_txns = await transactions_col.find(
+        {"account_id": {"$in": cc_ids}, "user_id": uid},
+        {"amount": 1, "transaction_type": 1, "date": 1},
+    ).to_list(None)
+    yapily_cc_txns = await yapily_transactions_col.find(
+        {"account_id": {"$in": cc_ids}, "user_id": uid},
+        {"amount": 1, "transaction_type": 1, "date": 1},
+    ).to_list(None)
+    all_cc_txns += yapily_cc_txns
+
+    from collections import defaultdict as _dd
+    monthly_net: dict = _dd(float)
+    for t in all_cc_txns:
+        d = t.get("date")
+        if not isinstance(d, datetime):
+            continue
+        mk = d.strftime("%Y-%m")
+        if t["transaction_type"] == "debit":
+            monthly_net[mk] += t["amount"]
+        else:
+            monthly_net[mk] -= t["amount"]
+
+    # Build full history (all available months) for computing avg reduction
+    full_history: dict[str, float] = {cur_mk: current_debt}
+    running = current_debt
+    for mk in sorted(monthly_net.keys(), reverse=True):
+        running -= monthly_net[mk]
+        year, mon = map(int, mk.split("-"))
+        prev_mon = mon - 1 if mon > 1 else 12
+        prev_year = year if mon > 1 else year - 1
+        full_history[f"{prev_year}-{prev_mon:02d}"] = max(0.0, running)
+
+    # Average monthly reduction from full history (so projection is always based on real spending rate)
+    if len(full_history) >= 2:
+        sorted_full = sorted(full_history.items())
+        oldest_debt = sorted_full[0][1]
+        num_hist_months = len(sorted_full) - 1
+        avg_monthly_reduction = (oldest_debt - current_debt) / num_hist_months if num_hist_months > 0 else 0
+    else:
+        avg_monthly_reduction = 0
+
+    # Filter to start_date for chart display only
+    history = {mk: v for mk, v in full_history.items() if mk >= start_date}
+    if not history:
+        history = {cur_mk: current_debt}
+
+    # Target monthly payment using amortization formula (with interest)
+    if avg_monthly_rate > 0 and target_months > 0:
+        monthly_target_payment = current_debt * avg_monthly_rate / (1 - (1 + avg_monthly_rate) ** (-target_months))
+    else:
+        monthly_target_payment = current_debt / target_months if target_months > 0 else current_debt
+
+    # ── Strategy simulation (avalanche or snowball) ───────────────────────────
+    def simulate(cards: list[dict], monthly_payment: float, max_months: int) -> tuple[list[float], float]:
+        """Simulate debt payoff. Returns list of total balances per month and total interest paid."""
+        import copy
+        cards_s = copy.deepcopy(cards)
+        balances: list[float] = []
+        total_interest = 0.0
+        for _ in range(max_months):
+            # Apply monthly interest
+            for c in cards_s:
+                interest = c["balance"] * c["monthly_rate"]
+                c["balance"] += interest
+                total_interest += interest
+            # Sort by strategy
+            if strategy == "snowball":
+                order = sorted(cards_s, key=lambda x: x["balance"])
+            else:  # avalanche (default)
+                order = sorted(cards_s, key=lambda x: x["monthly_rate"], reverse=True)
+            # Apply payment
+            remaining = monthly_payment
+            for c in order:
+                pay = min(c["balance"], remaining)
+                c["balance"] = round(c["balance"] - pay, 4)
+                remaining -= pay
+                if remaining <= 0:
+                    break
+            total = sum(c["balance"] for c in cards_s)
+            balances.append(round(total, 2))
+            if total < 0.01:
+                break
+        return balances, round(total_interest, 2)
+
+    # Target line: simple total-debt amortization — strategy-independent, so target never
+    # moves when the user switches between avalanche/snowball.
+    target_balances: list[float] = []
+    total_interest_target = 0.0
+    _bal = current_debt
+    for _ in range(target_months):
+        _interest = _bal * avg_monthly_rate
+        total_interest_target += _interest
+        _bal = max(0.0, _bal + _interest - monthly_target_payment)
+        target_balances.append(round(_bal, 2))
+        if _bal < 0.01:
+            break
+    total_interest_target = round(total_interest_target, 2)
+
+    # Projected line: derive the implied monthly payment from actual historical behaviour.
+    # avg_monthly_reduction = historical net debt change per month (positive = shrinking, negative = growing).
+    # implied_payment = that net change + interest on current balance = what the user actually pays each month.
+    implied_payment = avg_monthly_reduction + avg_monthly_rate * current_debt
+    if implied_payment >= 0:
+        # Debt reducing (or just covering interest): simulate at historical payment rate
+        proj_balances, total_interest_projected = simulate(sim_cards, implied_payment, target_months)
+    else:
+        # Debt growing faster than any payment — project forward at historical growth rate
+        proj_balances = []
+        total_interest_projected = 0.0
+        _p = current_debt
+        for _ in range(target_months):
+            interest = _p * avg_monthly_rate
+            total_interest_projected += interest
+            # subtracting a negative avg_monthly_reduction = adding the growth amount
+            _p = _p * (1 + avg_monthly_rate) - avg_monthly_reduction
+            proj_balances.append(round(_p, 2))
+        total_interest_projected = round(total_interest_projected, 2)
+
+    # Assemble chart points
+    points: list[dict] = []
+
+    # Historical (actual) points — target line anchored at current_debt going back
+    for mk, debt_val in sorted(history.items()):
+        year, mon = map(int, mk.split("-"))
+        months_back = (today.year - year) * 12 + (today.month - mon)
+        if months_back > 0 and avg_monthly_rate > 0:
+            past_target = round(current_debt + months_back * monthly_target_payment / (1 + avg_monthly_rate) ** months_back, 2)
+        elif months_back > 0:
+            past_target = round(current_debt + months_back * monthly_target_payment, 2)
+        else:
+            past_target = round(current_debt, 2)
+        # Anchor the projected line at today's balance so it connects to the actual line
+        proj_anchor = round(current_debt, 2) if months_back == 0 else None
+        points.append({"month": mk, "actual": round(debt_val, 2), "target": max(0.0, past_target), "projected": proj_anchor})
+
+    # Future points — cap chart at exactly target_months
+    for i in range(1, target_months + 1):
+        future_dt = today.replace(day=1) + timedelta(days=32 * i)
+        mk = future_dt.strftime("%Y-%m")
+        target_val = target_balances[i - 1] if i - 1 < len(target_balances) else 0.0
+        proj_val   = proj_balances[i - 1]   if i - 1 < len(proj_balances)   else 0.0
+        points.append({
+            "month": mk,
+            "actual": None,
+            "target": round(max(0.0, target_val), 2),
+            "projected": round(max(0.0, proj_val), 2),
+        })
+
+    target_date = (today.replace(day=1) + timedelta(days=32 * target_months)).strftime("%Y-%m")
+
+    return {
+        "burndown": points,
+        "current_debt": round(current_debt, 2),
+        "target_months": target_months,
+        "target_date": target_date,
+        "monthly_payment_needed": round(monthly_target_payment, 2),
+        "currency": sym,
+        "total_interest_target": total_interest_target,
+        "total_interest_projected": total_interest_projected,
+        "weighted_apr": round(weighted_apr, 2),
+        "strategy": strategy,
+        "has_rates": has_rates,
+        "start_date": start_date,
     }
 
 
@@ -1572,7 +2333,7 @@ async def get_chat_session(user: dict = Depends(current_user)):
     uid = user["email"]
     # Find the most recent active session
     session = await chat_sessions_col.find_one(
-        {"user_id": uid},
+        {"user_id": uid, "session_type": "debt"},
         sort=[("created_at", -1)]
     )
     if not session:
@@ -1580,6 +2341,7 @@ async def get_chat_session(user: dict = Depends(current_user)):
         await chat_sessions_col.insert_one({
             "_id": session_id,
             "user_id": uid,
+            "session_type": "debt",
             "messages": [],
             "created_at": datetime.now(),
         })
@@ -1595,6 +2357,7 @@ async def new_chat_session(user: dict = Depends(current_user)):
     await chat_sessions_col.insert_one({
         "_id": session_id,
         "user_id": uid,
+        "session_type": "debt",
         "messages": [],
         "created_at": datetime.now(),
     })
@@ -1691,7 +2454,11 @@ async def debt_chat(body: dict, user: dict = Depends(current_user)):
         cc_accounts = [a for a in accounts if a.get("type") == "credit_card" and a.get("balance", 0) < 0]
         total_debt = sum(abs(a["balance"]) for a in cc_accounts)
         income_txns = await transactions_col.find({"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}).to_list(None)
+        yapily_income = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}).to_list(None)
+        income_txns = income_txns + yapily_income
         debit_txns  = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}).to_list(None)
+        yapily_debits = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}).to_list(None)
+        debit_txns = debit_txns + yapily_debits
 
     monthly_income = sum(t["amount"] for t in income_txns) / 3
     cat_totals: dict = {}
@@ -1772,6 +2539,161 @@ async def set_budgets(body: dict, user: dict = Depends(current_user)):
     )
     return {"budgets": budgets}
 
+# ── Pay-period helpers (mirror of frontend payPeriod.ts) ─────────────────────
+
+def _js_to_py_weekday(js_weekday: int) -> int:
+    """JS weekday (0=Sun) → Python weekday (0=Mon)."""
+    return (js_weekday - 1) % 7
+
+def _last_py_weekday_of_month(year: int, month: int, py_weekday: int) -> _date:
+    last = _date(year, month, _calendar.monthrange(year, month)[1])
+    return last - timedelta(days=(last.weekday() - py_weekday) % 7)
+
+def _period_last_weekday(ref: _date, py_weekday: int) -> tuple[_date, _date]:
+    y, m = ref.year, ref.month
+    this_pay = _last_py_weekday_of_month(y, m, py_weekday)
+    if ref >= this_pay:
+        nm = m % 12 + 1; ny = y + (1 if m == 12 else 0)
+        return this_pay, _last_py_weekday_of_month(ny, nm, py_weekday) - timedelta(days=1)
+    pm = 12 if m == 1 else m - 1; py_ = y - 1 if m == 1 else y
+    return _last_py_weekday_of_month(py_, pm, py_weekday), this_pay - timedelta(days=1)
+
+def _period_calendar_month(ref: _date) -> tuple[_date, _date]:
+    y, m = ref.year, ref.month
+    return _date(y, m, 1), _date(y, m, _calendar.monthrange(y, m)[1])
+
+def _period_monthly_pay_date(ref: _date, pay_day: int) -> tuple[_date, _date]:
+    def clamp(yr, mo, d): return min(d, _calendar.monthrange(yr, mo)[1])
+    y, m, d = ref.year, ref.month, ref.day
+    tp = clamp(y, m, pay_day)
+    if d >= tp:
+        nm = m % 12 + 1; ny = y + (1 if m == 12 else 0)
+        np = clamp(ny, nm, pay_day)
+        return _date(y, m, tp), _date(ny, nm, np) - timedelta(days=1)
+    pm = 12 if m == 1 else m - 1; py_ = y - 1 if m == 1 else y
+    pp = clamp(py_, pm, pay_day)
+    return _date(py_, pm, pp), _date(y, m, tp) - timedelta(days=1)
+
+def _period_weekly(ref: _date, js_weekday: int) -> tuple[_date, _date]:
+    py_wd = _js_to_py_weekday(js_weekday)
+    start = ref - timedelta(days=(ref.weekday() - py_wd) % 7)
+    return start, start + timedelta(days=6)
+
+def _period_biweekly(ref: _date, reference_date_str: str) -> tuple[_date, _date]:
+    ref_start = _date.fromisoformat(reference_date_str)
+    n = (ref - ref_start).days // 14
+    start = ref_start + timedelta(days=n * 14)
+    return start, start + timedelta(days=13)
+
+def _get_pay_period_for_date(ref: _date, config: dict) -> tuple[_date, _date]:
+    t = config.get("type", "calendar_month")
+    if t == "calendar_month":      return _period_calendar_month(ref)
+    if t == "last_friday":         return _period_last_weekday(ref, 4)
+    if t == "last_weekday_of_month": return _period_last_weekday(ref, _js_to_py_weekday(config.get("weekday", 4)))
+    if t == "monthly_pay_date":    return _period_monthly_pay_date(ref, config.get("day", 1))
+    if t == "weekly":              return _period_weekly(ref, config.get("weekday", 1))
+    if t == "biweekly":            return _period_biweekly(ref, config.get("referenceDate", "2024-01-01"))
+    return _period_calendar_month(ref)
+
+def _prev_pay_period(start: _date, config: dict) -> tuple[_date, _date]:
+    return _get_pay_period_for_date(start - timedelta(days=1), config)
+
+
+@app.get("/budget/pace-profile")
+async def budget_pace_profile(user: dict = Depends(current_user)):
+    """Return per-category cumulative spend curves built from the user's own history."""
+    uid = user["email"]
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    pay_config = prefs.get("pay_period_config", {"type": "calendar_month"})
+    region = prefs.get("region", "UK")
+
+    today = _date.today()
+    SKIP = {"Transfer", "Savings", "Debt", "Income"}
+    SAMPLE_POINTS = 20   # curve resolution (0 → 1 in 20 steps)
+    MIN_PERIODS = 2      # periods needed before trusting the curve
+
+    cur_start, _ = _get_pay_period_for_date(today, pay_config)
+
+    # Walk back up to 6 periods
+    periods: list[tuple[_date, _date]] = []
+    ps, pe = cur_start, _date.today()
+    for _ in range(6):
+        ps, pe = _prev_pay_period(ps, pay_config)
+        periods.append((ps, pe))
+        if ps < _date(2024, 1, 1):
+            break
+
+    if not periods:
+        return {"curves": {}, "sample_points": SAMPLE_POINTS, "periods_analysed": 0}
+
+    earliest_dt = datetime(min(p[0] for p in periods).year, min(p[0] for p in periods).month, min(p[0] for p in periods).day)
+    cutoff_dt = datetime(cur_start.year, cur_start.month, cur_start.day)
+    proj = {"date": 1, "amount": 1, "category": 1, "custom_category": 1, "planned": 1, "transaction_type": 1}
+    base_q = {"user_id": uid, "transaction_type": "debit", "date": {"$gte": earliest_dt, "$lt": cutoff_dt}}
+
+    raw: list[dict] = []
+    if region == "Kenya":
+        for col in [mono_transactions_col, mpesa_transactions_col, statement_transactions_col]:
+            raw.extend(await col.find(base_q, proj).to_list(None))
+    else:
+        raw.extend(await transactions_col.find(base_q, proj).to_list(None))
+        raw.extend(await yapily_transactions_col.find(base_q, proj).to_list(None))
+
+    # Map each transaction to (category, period_index, day_fraction, amount)
+    from collections import defaultdict
+    # cat → list[list[(frac, amount)]]  (outer list indexed by period)
+    cat_data: dict[str, list[list[tuple[float, float]]]] = defaultdict(
+        lambda: [[] for _ in range(len(periods))]
+    )
+
+    for tx in raw:
+        if tx.get("planned"):
+            continue
+        cat = tx.get("custom_category") or tx.get("category") or "Other"
+        if cat in SKIP:
+            continue
+        amount = abs(float(tx.get("amount", 0) or 0))
+        if amount <= 0:
+            continue
+        try:
+            d = tx["date"]
+            tx_date = d.date() if isinstance(d, datetime) else _date.fromisoformat(str(d)[:10])
+        except Exception:
+            continue
+        for i, (ps, pe) in enumerate(periods):
+            if ps <= tx_date <= pe:
+                span = max(1, (pe - ps).days)
+                frac = (tx_date - ps).days / span
+                cat_data[cat][i].append((frac, amount))
+                break
+
+    # Build cumulative curves averaged across periods
+    sample_fracs = [i / SAMPLE_POINTS for i in range(SAMPLE_POINTS + 1)]
+    curves: dict[str, list[float]] = {}
+
+    for cat, period_lists in cat_data.items():
+        per_period_curves: list[list[float]] = []
+        for period_txns in period_lists:
+            if not period_txns:
+                continue
+            total = sum(a for _, a in period_txns)
+            if total <= 0:
+                continue
+            per_period_curves.append([
+                sum(a for f, a in period_txns if f <= sf) / total
+                for sf in sample_fracs
+            ])
+        if len(per_period_curves) < MIN_PERIODS:
+            continue
+        n = len(per_period_curves)
+        curves[cat] = [
+            sum(pc[i] for pc in per_period_curves) / n
+            for i in range(len(sample_fracs))
+        ]
+
+    return {"curves": curves, "sample_points": SAMPLE_POINTS, "periods_analysed": len(periods)}
+
+
 @app.post("/budget/chat")
 async def budget_chat(body: dict, user: dict = Depends(current_user)):
     messages = body.get("messages", [])
@@ -1813,7 +2735,11 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
     else:
         currency = "£"
         debit_txns = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}).to_list(None)
+        yapily_debits_b = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}).to_list(None)
+        debit_txns = debit_txns + yapily_debits_b
         income_txns = await transactions_col.find({"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}).to_list(None)
+        yapily_income_b = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}).to_list(None)
+        income_txns = income_txns + yapily_income_b
 
     budgets_text = "\n".join(f"  - {b['category']}: {currency}{b['monthly_limit']:.0f}/mo" for b in current_budgets) if current_budgets else "  None set yet"
 
@@ -1931,6 +2857,9 @@ mpesa_accounts_col       = db["mpesa_accounts"]
 mpesa_transactions_col   = db["mpesa_transactions"]
 statement_accounts_col   = db["statement_accounts"]
 statement_transactions_col = db["statement_transactions"]
+yapily_consents_col      = db["yapily_consents"]
+yapily_accounts_col      = db["yapily_accounts"]
+yapily_transactions_col  = db["yapily_transactions"]
 
 BANK_SLUG_MAP: dict[str, str] = {
     "m-pesa": "mpesa", "mpesa": "mpesa", "safaricom": "mpesa",
@@ -1961,6 +2890,110 @@ def _statement_dedup_key(account_id: str, ref, date: str, txn_type: str, descrip
         f"{account_id}|{date_part}|{txn_type}|{desc_norm}".encode()
     ).hexdigest()[:24]
     return digest
+
+
+# ── Yapily helpers ────────────────────────────────────────────────────────────
+
+def _yapily_headers(consent: str | None = None) -> dict:
+    creds = base64.b64encode(f"{YAPILY_APP_UUID}:{YAPILY_SECRET}".encode()).decode()
+    h = {"Authorization": f"Basic {creds}", "Content-Type": "application/json"}
+    if consent:
+        h["consent"] = consent
+    return h
+
+
+async def _sync_yapily_consent(consent_token: str, user_id: str):
+    headers = _yapily_headers(consent_token)
+    async with httpx.AsyncClient(timeout=30) as client:
+        ar = await client.get(f"{YAPILY_BASE_URL}/accounts", headers=headers)
+    if ar.status_code != 200:
+        return
+    accounts = ar.json().get("data", [])
+    for acc in accounts:
+        acc_id = acc.get("id")
+        if not acc_id:
+            continue
+        balance = 0.0
+        for b in acc.get("balances", []):
+            try:
+                balance = float(b.get("amount", 0))
+                break
+            except Exception:
+                pass
+        currency = acc.get("currency", "GBP")
+        details = acc.get("details", {})
+        name = details.get("name") or acc.get("nickname") or acc.get("type", "Account")
+        institution_id = acc.get("institutionId", "")
+        await yapily_accounts_col.update_one({"_id": acc_id}, {"$set": {
+            "_id":          acc_id,
+            "user_id":      user_id,
+            "consent":      consent_token,
+            "name":         name,
+            "type":         acc.get("type", "TRANSACTION").lower(),
+            "balance":      balance,
+            "currency":     currency,
+            "institution_id": institution_id,
+            "status":       "connected",
+            "updated_at":   datetime.now(),
+        }}, upsert=True)
+        # Determine from-date based on last synced transaction for this account
+        latest_yapily = await yapily_transactions_col.find_one(
+            {"account_id": acc_id, "user_id": user_id},
+            sort=[("date", -1)],
+            projection={"date": 1},
+        )
+        txn_params: dict = {"accountId": acc_id, "limit": 500}
+        if latest_yapily and latest_yapily.get("date"):
+            last_dt = latest_yapily["date"]
+            if isinstance(last_dt, datetime):
+                from_dt = (last_dt - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            else:
+                from_dt = str(last_dt)[:10] + "T00:00:00Z"
+            txn_params["from"] = from_dt
+
+        # Fetch transactions
+        async with httpx.AsyncClient(timeout=30) as client:
+            tr = await client.get(
+                f"{YAPILY_BASE_URL}/transactions",
+                headers=headers,
+                params=txn_params
+            )
+        if tr.status_code != 200:
+            continue
+        txns = tr.json().get("data", [])
+        for txn in txns:
+            amt_obj = txn.get("amount", {})
+            try:
+                amount = abs(float(amt_obj.get("amount", txn.get("amount", 0))))
+            except Exception:
+                continue
+            if amount <= 0:
+                continue
+            txn_type_raw = str(txn.get("transactionInformation", {}).get("type", txn.get("type", "DEBIT"))).upper()
+            txn_type = "credit" if txn_type_raw == "CREDIT" else "debit"
+            desc = (txn.get("description") or txn.get("reference") or txn.get("proprietaryBankTransactionCode", {}).get("code") or "")
+            merchant = txn.get("merchant", {})
+            merchant_name = merchant.get("name") if isinstance(merchant, dict) else None
+            txn_id = txn.get("id")
+            if not txn_id:
+                txn_id = hashlib.sha256(f"{acc_id}|{txn.get('date','')}|{amount}|{desc[:60]}".encode()).hexdigest()[:24]
+            date_str = txn.get("date") or txn.get("bookingDateTime") or ""
+            try:
+                txn_date = datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+            except Exception:
+                txn_date = datetime.now()
+            cat = rule_categorise(merchant_name or "", desc)
+            await yapily_transactions_col.update_one({"_id": txn_id}, {"$set": {
+                "account_id":       acc_id,
+                "user_id":          user_id,
+                "date":             txn_date,
+                "amount":           amount,
+                "currency":         amt_obj.get("currency", currency) if isinstance(amt_obj, dict) else currency,
+                "description":      desc,
+                "merchant_name":    merchant_name,
+                "category":         cat,
+                "transaction_type": txn_type,
+            }, "$setOnInsert": {"custom_category": None}}, upsert=True)
 
 
 # ── Mono helpers ──────────────────────────────────────────────────────────────
@@ -2012,12 +3045,29 @@ async def _sync_mono_connection(connection_id: str, user_id: str) -> list:
             )
             fetched.append(account_id)
 
+        # Determine from-date based on last synced transaction for this account
+        latest_mono = await mono_transactions_col.find_one(
+            {"account_id": account_id, "user_id": user_id},
+            sort=[("date", -1)],
+            projection={"date": 1},
+        )
+        mono_from_date: str | None = None
+        if latest_mono and latest_mono.get("date"):
+            last_dt = latest_mono["date"]
+            if isinstance(last_dt, datetime):
+                mono_from_date = (last_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                mono_from_date = str(last_dt)[:10]
+
         # Transactions — Mono v2 pagination
         for page in range(1, 6):
+            txn_params: dict = {"page": page, "limit": 100}
+            if mono_from_date:
+                txn_params["start"] = mono_from_date
             tr = await client.get(
                 f"{MONO_API_URL}/accounts/{account_id}/transactions",
                 headers=_mono_headers(),
-                params={"page": page, "limit": 100},
+                params=txn_params,
             )
             if tr.status_code != 200:
                 break
@@ -2069,6 +3119,101 @@ async def _sync_mono_connection(connection_id: str, user_id: str) -> list:
         {"_id": connection_id}, {"$set": {"last_synced": datetime.now()}}
     )
     return fetched
+
+
+# ── Yapily endpoints ──────────────────────────────────────────────────────────
+
+@app.get("/auth/yapily/institutions")
+async def yapily_institutions(country: str = "GB", user: dict = Depends(current_user)):
+    if not YAPILY_APP_UUID:
+        raise HTTPException(503, "Yapily not configured")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{YAPILY_BASE_URL}/institutions",
+            headers=_yapily_headers(),
+            params={"filtered-countries": country}
+        )
+    if r.status_code != 200:
+        raise HTTPException(502, f"Yapily institutions failed: {r.text[:200]}")
+    institutions = r.json().get("data", [])
+    result = []
+    for inst in institutions:
+        media = inst.get("media", [])
+        logo = next((m.get("source", "") for m in media if m.get("type") == "icon"), "")
+        if not logo:
+            logo = next((m.get("source", "") for m in media), "")
+        result.append({"id": inst["id"], "name": inst.get("name", inst["id"]), "logo": logo, "countries": inst.get("countries", [])})
+    return result
+
+
+@app.post("/auth/yapily/requisition")
+async def yapily_create_requisition(body: dict, user: dict = Depends(current_user)):
+    institution_id = body.get("institution_id")
+    if not institution_id:
+        raise HTTPException(400, "institution_id required")
+    uid = user["email"]
+    if not YAPILY_APP_UUID:
+        raise HTTPException(503, "Yapily not configured")
+    callback = f"{APP_URL}/auth/yapily/callback"
+    from_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%dT00:00:00Z")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{YAPILY_BASE_URL}/account-auth-requests",
+            headers=_yapily_headers(),
+            json={
+                "applicationUserId": uid[:36],
+                "institutionId": institution_id,
+                "callback": callback,
+                "accountRequest": {"transactionFrom": from_date},
+            }
+        )
+    if r.status_code not in (200, 201):
+        raise HTTPException(502, f"Yapily auth request failed: {r.text[:300]}")
+    data = r.json().get("data", {})
+    consent_token = data.get("id")
+    auth_url = data.get("authorisationUrl")
+    if consent_token:
+        await yapily_consents_col.update_one({"_id": consent_token}, {"$set": {
+            "_id":            consent_token,
+            "user_id":        uid,
+            "institution_id": institution_id,
+            "status":         "AWAITING_AUTHORIZATION",
+            "created_at":     datetime.now(),
+        }}, upsert=True)
+    return {"link": auth_url, "requisition_id": consent_token}
+
+
+@app.get("/auth/yapily/callback")
+async def yapily_callback(consent: str = "", error: str = ""):
+    if consent:
+        doc = await yapily_consents_col.find_one({"_id": consent})
+        if doc:
+            await yapily_consents_col.update_one({"_id": consent}, {"$set": {"status": "AUTHORIZED"}})
+            asyncio.create_task(_sync_yapily_consent(consent, doc["user_id"]))
+    return RedirectResponse(url=f"{APP_URL}/accounts?yapily=connected")
+
+
+@app.post("/yapily/sync")
+async def yapily_sync_all(user: dict = Depends(current_user)):
+    uid = user["email"]
+    consents = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
+    for c in consents:
+        asyncio.create_task(_sync_yapily_consent(c["_id"], uid))
+    return {"message": f"Syncing {len(consents)} Yapily connections"}
+
+
+@app.delete("/yapily/connections/{consent_token}")
+async def yapily_delete_connection(consent_token: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = await yapily_consents_col.find_one({"_id": consent_token, "user_id": uid})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    accs = await yapily_accounts_col.find({"consent": consent_token, "user_id": uid}).to_list(None)
+    for acc in accs:
+        await yapily_transactions_col.delete_many({"account_id": acc["_id"]})
+        await yapily_accounts_col.delete_one({"_id": acc["_id"]})
+    await yapily_consents_col.delete_one({"_id": consent_token})
+    return {"deleted": consent_token}
 
 
 # ── Mono auth endpoints ────────────────────────────────────────────────────────
@@ -2586,6 +3731,298 @@ async def get_mpesa_transactions(account_id: str, user: dict = Depends(current_u
         }
         for t in txns
     ]
+
+
+# ── Weekly Challenges (3-tier: easy daily / medium weekly / stretch weekly) ────
+
+# Allowlist of categories eligible for tier challenges (regular, non-essential, recurring)
+CHALLENGE_CATS = {"Eating Out", "Entertainment", "Shopping", "Groceries", "Transport", "Subscriptions"}
+CHALLENGE_EXCL = {"Transfer", "Savings", "Debt", "Income", "Bills", "Utilities"}  # kept for budget adherence exclusion
+
+def _week_bounds():
+    now = datetime.utcnow()
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    return week_start, week_end
+
+def _day_bounds():
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(hours=23, minutes=59, seconds=59)
+    return day_start, day_end
+
+async def _get_debit_txns_challenge(uid: str, since: datetime) -> list:
+    region = await get_user_region(uid)
+    if region == "Kenya":
+        return await _get_kenya_transactions(uid, since)
+    tl  = await transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
+    yap = await yapily_transactions_col.find({"user_id": uid, "transaction_type": "debit", "date": {"$gte": since}}).to_list(None)
+    return tl + yap
+
+async def _resolve_stale_challenges(uid: str):
+    now = datetime.utcnow()
+    stale = await challenges_col.find({"uid": uid, "status": "active", "period_end": {"$lt": now}}).to_list(None)
+    for ch in stale:
+        txns = await _get_debit_txns_challenge(uid, ch["period_start"])
+        cat = ch["category"]
+        actual = sum(
+            t["amount"] for t in txns
+            if (t.get("custom_category") or t.get("category")) == cat
+            and ch["period_start"] <= t.get("date", datetime.min) <= ch["period_end"]
+        )
+        status = "completed" if actual <= ch["target"] else "failed"
+        update: dict = {"status": status, "actual": round(actual, 2)}
+        # Budget adherence: tiered XP based on how far under budget
+        if ch.get("tier") == "budget" and status == "completed" and ch["target"] > 0:
+            ratio = actual / ch["target"]
+            update["xp_reward"] = 60 if ratio <= 0.5 else 40 if ratio <= 0.75 else 20
+        await challenges_col.update_one({"_id": ch["_id"]}, {"$set": update})
+
+async def _get_challenge_stats(uid: str) -> dict:
+    history = await challenges_col.find(
+        {"uid": uid, "status": {"$in": ["completed", "failed"]}}
+    ).sort("period_start", -1).to_list(None)
+    total_xp = sum(ch["xp_reward"] for ch in history if ch["status"] == "completed")
+    level = total_xp // 300 + 1
+    xp_in_level = total_xp % 300
+    # Streak = consecutive weeks where at least medium was completed
+    seen_weeks: dict[str, dict] = {}
+    for ch in history:
+        wk = ch["period_start"].strftime("%Y-W%W") if ch["cadence"] == "weekly" else None
+        if wk:
+            seen_weeks.setdefault(wk, {})
+            if ch["status"] == "completed":
+                seen_weeks[wk][ch["tier"]] = True
+    streak = 0
+    for wk in sorted(seen_weeks.keys(), reverse=True):
+        if seen_weeks[wk].get("medium") or seen_weeks[wk].get("stretch"):
+            streak += 1
+        else:
+            break
+    return {
+        "total_xp": total_xp, "level": level,
+        "xp_in_level": xp_in_level, "xp_per_level": 300,
+        "streak": streak,
+        "completed": sum(1 for ch in history if ch["status"] == "completed"),
+        "failed": sum(1 for ch in history if ch["status"] == "failed"),
+    }
+
+async def _generate_all_challenges(uid: str) -> list[dict]:
+    """Generate easy (daily) + medium + stretch (weekly) challenges if not already created."""
+    week_start, week_end = _week_bounds()
+    day_start, day_end = _day_bounds()
+    region = await get_user_region(uid)
+    currency = "KES" if region == "Kenya" else "GBP"
+    min_weekly = 500 if region == "Kenya" else 5
+
+    # Load raw transactions for last 4 weeks (exclude current period)
+    four_weeks_ago = week_start - timedelta(days=28)
+    raw_txns = await _get_debit_txns_challenge(uid, four_weeks_ago)
+    hist_txns = [t for t in raw_txns if t.get("date", datetime.min) < week_start]
+
+    # Spending totals + daily frequency — only allowlisted regular categories
+    cat_totals: dict[str, float] = {}
+    cat_days: dict[str, set] = {}
+    for t in hist_txns:
+        cat = t.get("custom_category") or t.get("category") or "Other"
+        if cat not in CHALLENGE_CATS:
+            continue
+        cat_totals[cat] = cat_totals.get(cat, 0) + t["amount"]
+        cat_days.setdefault(cat, set()).add(t.get("date", datetime.min).date())
+
+    # Rank by weekly average spend
+    ranked = sorted(
+        [(cat, total / 4) for cat, total in cat_totals.items() if total / 4 >= min_weekly],
+        key=lambda x: -x[1]
+    )
+
+    new_docs: list[dict] = []
+
+    # ── Easy: daily goal on the most frequently purchased category ──
+    existing_easy = await challenges_col.find_one({"uid": uid, "tier": "easy", "period_start": day_start})
+    if not existing_easy and ranked:
+        # Prefer category with most spend days (frequent small purchases); fallback to top spend
+        daily_ranked = sorted(
+            [(cat, w) for cat, w in ranked if len(cat_days.get(cat, set())) >= 5],
+            key=lambda x: -len(cat_days.get(x[0], set()))
+        )
+        easy_cat, easy_baseline_wk = (daily_ranked[0] if daily_ranked else ranked[-1])  # least spend = easiest weekly
+        daily_baseline = easy_baseline_wk / 7
+        daily_target = round(daily_baseline * 0.85, 2)  # 15% under daily average
+        easy = {
+            "_id": str(uuid_lib.uuid4()), "uid": uid, "tier": "easy",
+            "cadence": "daily", "title": f"Keep {easy_cat} under budget today",
+            "category": easy_cat, "baseline": round(daily_baseline, 2),
+            "target": daily_target, "reduction_pct": 0.15, "currency": currency,
+            "xp_reward": 20, "period_start": day_start, "period_end": day_end,
+            "status": "active", "actual": None, "created_at": datetime.utcnow(),
+        }
+        await challenges_col.insert_one(easy)
+        new_docs.append(easy)
+
+    # ── Medium: weekly goal on 2nd highest category ──
+    existing_medium = await challenges_col.find_one({"uid": uid, "tier": "medium", "period_start": week_start})
+    if not existing_medium and len(ranked) >= 1:
+        med_cat, med_wk = ranked[min(1, len(ranked) - 1)]  # 2nd or top if only 1
+        med_target = round(med_wk * 0.80, 2)  # 20% reduction
+        medium = {
+            "_id": str(uuid_lib.uuid4()), "uid": uid, "tier": "medium",
+            "cadence": "weekly", "title": f"Cut {med_cat} spending by 20% this week",
+            "category": med_cat, "baseline": round(med_wk, 2),
+            "target": med_target, "reduction_pct": 0.20, "currency": currency,
+            "xp_reward": 75, "period_start": week_start, "period_end": week_end,
+            "status": "active", "actual": None, "created_at": datetime.utcnow(),
+        }
+        await challenges_col.insert_one(medium)
+        new_docs.append(medium)
+
+    # ── Stretch: weekly goal on top category, 35% cut ──
+    existing_stretch = await challenges_col.find_one({"uid": uid, "tier": "stretch", "period_start": week_start})
+    if not existing_stretch and len(ranked) >= 1:
+        str_cat, str_wk = ranked[0]
+        str_target = round(str_wk * 0.65, 2)  # 35% reduction
+        stretch = {
+            "_id": str(uuid_lib.uuid4()), "uid": uid, "tier": "stretch",
+            "cadence": "weekly", "title": f"Slash {str_cat} spending by 35% this week",
+            "category": str_cat, "baseline": round(str_wk, 2),
+            "target": str_target, "reduction_pct": 0.35, "currency": currency,
+            "xp_reward": 150, "period_start": week_start, "period_end": week_end,
+            "status": "active", "actual": None, "created_at": datetime.utcnow(),
+        }
+        await challenges_col.insert_one(stretch)
+        new_docs.append(stretch)
+
+    return new_docs
+
+async def _compute_progress(ch: dict, all_txns: list) -> dict:
+    cat = ch["category"]
+    actual_so_far = sum(
+        t["amount"] for t in all_txns
+        if (t.get("custom_category") or t.get("category")) == cat
+        and t.get("date", datetime.min) >= ch["period_start"]
+    )
+    now = datetime.utcnow()
+    if ch["cadence"] == "daily":
+        remaining_label = "today"
+        hours_left = max(0, int((ch["period_end"] - now).total_seconds() / 3600))
+        time_left = f"{hours_left}h left"
+    else:
+        days_left = max(0, (ch["period_end"] - now).days)
+        time_left = f"{days_left}d left"
+    pct_used = min(1.0, actual_so_far / ch["target"]) if ch["target"] > 0 else 0.0
+    return {
+        "actual_so_far": round(actual_so_far, 2),
+        "target": ch["target"],
+        "pct_used": round(pct_used * 100, 1),
+        "on_track": actual_so_far <= ch["target"],
+        "time_left": time_left,
+    }
+
+def _fmt_challenge(ch: dict, progress: dict | None = None) -> dict:
+    out = {
+        "id": ch["_id"], "tier": ch["tier"], "cadence": ch["cadence"],
+        "title": ch["title"], "category": ch["category"],
+        "baseline": ch["baseline"], "target": ch["target"],
+        "reduction_pct": ch["reduction_pct"], "currency": ch["currency"],
+        "xp_reward": ch["xp_reward"],
+        "period_start": ch["period_start"].isoformat(),
+        "period_end": ch["period_end"].isoformat(),
+        "status": ch["status"], "actual": ch.get("actual"),
+    }
+    if progress is not None:
+        out["progress"] = progress
+    return out
+
+async def _generate_budget_adherence_challenges(uid: str) -> None:
+    """One weekly 'stay within budget' challenge per non-planned budgeted category."""
+    week_start, week_end = _week_bounds()
+    region = await get_user_region(uid)
+    currency = "KES" if region == "Kenya" else "GBP"
+
+    budget_doc = await budgets_col.find_one({"user_id": uid, "region": region})
+    if not budget_doc:
+        return
+
+    for b in budget_doc.get("budgets", []):
+        cat = b.get("category", "")
+        if not cat or b.get("planned", False) or cat in CHALLENGE_EXCL:
+            continue
+        existing = await challenges_col.find_one(
+            {"uid": uid, "tier": "budget", "category": cat, "period_start": week_start}
+        )
+        if existing:
+            continue
+        weekly_target = round(b["monthly_limit"] / 4, 2)
+        await challenges_col.insert_one({
+            "_id": str(uuid_lib.uuid4()),
+            "uid": uid,
+            "tier": "budget",
+            "cadence": "weekly",
+            "title": f"Stay within your {cat} budget this week",
+            "category": cat,
+            "baseline": round(b["monthly_limit"], 2),
+            "target": weekly_target,
+            "reduction_pct": 0.0,
+            "currency": currency,
+            "xp_reward": 20,  # updated to tiered value at resolution
+            "period_start": week_start,
+            "period_end": week_end,
+            "status": "active",
+            "actual": None,
+            "created_at": datetime.utcnow(),
+        })
+
+
+@app.get("/challenges")
+async def get_challenges(user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _resolve_stale_challenges(uid)
+
+    # Generate any missing challenges for today/this week
+    await _generate_all_challenges(uid)
+    await _generate_budget_adherence_challenges(uid)
+
+    stats = await _get_challenge_stats(uid)
+
+    # Load all active challenges (only new-schema docs that have period_start)
+    active = await challenges_col.find({"uid": uid, "status": "active", "period_start": {"$exists": True}}).to_list(None)
+
+    # Compute progress for active challenges
+    if active:
+        earliest = min(ch["period_start"] for ch in active)
+        all_txns = await _get_debit_txns_challenge(uid, earliest)
+    else:
+        all_txns = []
+
+    tier_order = ["easy", "medium", "stretch"]
+    tier_challenges = []
+    budget_challenges = []
+    for ch in sorted(
+        [c for c in active if c.get("tier") in ("easy", "medium", "stretch")],
+        key=lambda c: tier_order.index(c.get("tier", "easy"))
+    ):
+        progress = await _compute_progress(ch, all_txns)
+        tier_challenges.append(_fmt_challenge(ch, progress))
+
+    for ch in sorted(
+        [c for c in active if c.get("tier") == "budget"],
+        key=lambda c: c.get("category", "")
+    ):
+        progress = await _compute_progress(ch, all_txns)
+        budget_challenges.append(_fmt_challenge(ch, progress))
+
+    # History — last 15 resolved, newest first
+    history_docs = await challenges_col.find(
+        {"uid": uid, "status": {"$in": ["completed", "failed"]}, "tier": {"$in": ["easy", "medium", "stretch"]}}
+    ).sort("period_start", -1).limit(15).to_list(None)
+
+    return {
+        "stats": stats,
+        "challenges": tier_challenges,
+        "budget_challenges": budget_challenges,
+        "history": [_fmt_challenge(ch) for ch in history_docs],
+    }
+
 
 
 if __name__ == "__main__":

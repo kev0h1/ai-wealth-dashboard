@@ -12,7 +12,7 @@ import {
   persistColour,
   clearColour,
 } from "@/lib/colourStore";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR } from "@/lib/categories";
 
 interface ColourContextValue {
   colours: Record<string, string>;
@@ -48,7 +48,7 @@ export function ColourProvider({ children }: { children: React.ReactNode }) {
     clearColour(cat);
     setColours((prev) => ({
       ...prev,
-      [cat]: CATEGORY_COLOURS[cat] ?? CATEGORY_COLOURS.Other,
+      [cat]: CATEGORY_COLOURS[cat] ?? DEFAULT_CUSTOM_COLOUR,
     }));
   }, []);
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "./Providers";
+import Sidebar from "@/components/Sidebar";
 
 export const metadata: Metadata = {
   title: "Wealth Dashboard",
@@ -23,9 +24,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full bg-[#f0f2f7] antialiased">
+      <body className="min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
         <Providers>
-          <div id="app-shell">{children}</div>
+          <Sidebar />
+          <div id="app-shell">
+            {children}
+          </div>
         </Providers>
       </body>
     </html>

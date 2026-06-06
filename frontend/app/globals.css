@@ -90,7 +90,7 @@ body {
   display: none !important;
 }
 
-/* App shell centering */
+/* App shell centering — mobile-first, uncapped on desktop */
 #app-shell {
   max-width: 430px;
   margin: 0 auto;
@@ -98,4 +98,13 @@ body {
   position: relative;
   background-color: var(--background);
   overflow-x: hidden;
+}
+
+@media (min-width: 1024px) {
+  #app-shell {
+    max-width: none;
+    margin-left: 16rem; /* 256px sidebar width */
+    margin-right: 0;
+    overflow-x: visible;
+  }
 }

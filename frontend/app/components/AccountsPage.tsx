@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle } from "lucide-react";
 import { api, Account, Transaction } from "@/lib/api";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
@@ -13,6 +13,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
+import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 
 function typeLabel(type: string): string {
@@ -47,13 +48,36 @@ export default function AccountsPage() {
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
+  const [showBankPicker, setShowBankPicker] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [reconnectWarning, setReconnectWarning] = useState<string | null>(null);
   const isSyncing = searchParams.get("syncing") === "1";
 
   const loadAccounts = useCallback(async () => {
     try {
       const accs = await api.accounts().catch(() => [] as Account[]);
       setAccounts(accs);
+
+      // Validate reconnect: check if the newly connected account matches what was expected
+      const raw = localStorage.getItem("reconnect_expected");
+      if (raw) {
+        try {
+          const expected = JSON.parse(raw) as { provider: string; account_number: string; sort_code: string | null };
+          localStorage.removeItem("reconnect_expected");
+          const match = accs.find(a =>
+            a.provider.toUpperCase() === expected.provider.toUpperCase() &&
+            a.status === "connected" &&
+            a.account_number
+          );
+          if (match && match.account_number !== expected.account_number) {
+            const masked = (n: string) => `••••${n.slice(-4)}`;
+            const gotNum = match.account_number ?? "";
+            setReconnectWarning(
+              `Different ${expected.provider} account connected. Expected ${masked(expected.account_number)}, got ${masked(gotNum)}. If this is wrong, remove it and reconnect again.`
+            );
+          }
+        } catch { /* ignore parse errors */ }
+      }
       const deepId = searchParams.get("id");
       if (deepId) {
         setSelectedAccountId(deepId);
@@ -134,6 +158,23 @@ export default function AccountsPage() {
     setShowMpesaUpload(false);
   }
 
+  async function handleReconnect(providerId?: string, account?: Account) {
+    try {
+      // Save expected account details so we can validate after OAuth return
+      if (account?.account_number) {
+        localStorage.setItem("reconnect_expected", JSON.stringify({
+          provider: account.provider,
+          account_number: account.account_number,
+          sort_code: account.sort_code ?? null,
+        }));
+      }
+      const { auth_url } = await api.connectLink(providerId);
+      window.location.href = auth_url;
+    } catch {
+      alert("Failed to start reconnection. Please try again.");
+    }
+  }
+
   async function handleDeleteAccount() {
     if (!selectedAccountId) return;
     const confirmed = window.confirm("Remove this account and all its transactions?");
@@ -153,6 +194,19 @@ export default function AccountsPage() {
 
   // Backend already filters by region — accounts contains only the right source
   const allAccounts = accounts;
+
+  // Unique providers with expired connections
+  const expiredProviders = useMemo(() => {
+    const seen = new Set<string>();
+    const result: { provider: string; provider_id?: string }[] = [];
+    for (const a of accounts) {
+      if (a.status === "expired" && !seen.has(a.provider)) {
+        seen.add(a.provider);
+        result.push({ provider: a.provider, provider_id: a.provider_id });
+      }
+    }
+    return result;
+  }, [accounts]);
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     setTxnMap((prev) => {
@@ -206,7 +260,7 @@ export default function AccountsPage() {
     const balance = selectedAccount.balance;
 
     return (
-      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
+      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
         {/* Header */}
         <div
           className="px-4 pt-6 pb-5 text-white"
@@ -222,14 +276,23 @@ export default function AccountsPage() {
               <ArrowLeft size={18} />
               <span className="text-sm font-medium">Accounts</span>
             </button>
-            <button
-              onClick={handleDeleteAccount}
-              disabled={deletingAccount}
-              className="flex items-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors disabled:opacity-50"
-            >
-              <Trash2 size={13} />
-              {deletingAccount ? "Removing…" : "Remove"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleReconnect(selectedAccount?.provider_id, selectedAccount)}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors"
+              >
+                <RefreshCw size={13} />
+                Reconnect
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deletingAccount}
+                className="flex items-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={13} />
+                {deletingAccount ? "Removing…" : "Remove"}
+              </button>
+            </div>
           </div>
 
           <h1 className="text-xl font-bold mb-1">{selectedAccount.name}</h1>
@@ -337,6 +400,7 @@ export default function AccountsPage() {
             transaction={selectedTx}
             onClose={() => setSelectedTx(null)}
             onUpdated={handleTxUpdated}
+            account={selectedAccount ? { name: selectedAccount.name, provider: selectedAccount.provider } : undefined}
           />
         )}
 
@@ -365,12 +429,11 @@ export default function AccountsPage() {
           {region === "UK" ? (
             <div className="flex items-center gap-2">
               <button
-                onClick={handleConnectBank}
-                disabled={connecting}
+                onClick={() => setShowBankPicker(true)}
                 className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
               >
                 <Plus size={14} />
-                {connecting ? "Opening…" : "Add Bank"}
+                Add Bank
               </button>
               <button
                 onClick={() => setShowMpesaUpload(true)}
@@ -413,6 +476,33 @@ export default function AccountsPage() {
         </div>
       )}
 
+      {reconnectWarning && (
+        <div className="mx-4 mt-4 flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
+          <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-red-800 dark:text-red-200">Wrong account connected</p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{reconnectWarning}</p>
+          </div>
+          <button onClick={() => setReconnectWarning(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+        </div>
+      )}
+
+      {expiredProviders.map(({ provider, provider_id }) => (
+        <div key={provider} className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+          <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs to be reconnected</p>
+            <p className="text-xs text-amber-600 dark:text-amber-400">Your consent has expired — transactions are no longer syncing.</p>
+          </div>
+          <button
+            onClick={() => handleReconnect(provider_id)}
+            className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
+          >
+            Reconnect
+          </button>
+        </div>
+      ))}
+
       <div className="px-4 pt-4 space-y-3">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -432,12 +522,11 @@ export default function AccountsPage() {
             {region === "UK" ? (
               <div className="flex flex-col gap-2 items-center">
                 <button
-                  onClick={handleConnectBank}
-                  disabled={connecting}
+                  onClick={() => setShowBankPicker(true)}
                   className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
                 >
                   <Plus size={16} />
-                  {connecting ? "Opening…" : "Connect a Bank"}
+                  Connect a Bank
                 </button>
                 <button
                   onClick={() => setShowMpesaUpload(true)}
@@ -479,6 +568,7 @@ export default function AccountsPage() {
               fullWidth
               hidden={hideNetWorth}
               onClick={() => handleSelectAccount(acc)}
+              onReconnect={() => handleReconnect(acc.provider_id, acc)}
             />
           ))
         )}
@@ -489,6 +579,10 @@ export default function AccountsPage() {
           onSuccess={handleStatementSuccess}
           onClose={() => setShowMpesaUpload(false)}
         />
+      )}
+
+      {showBankPicker && (
+        <BankPickerSheet onClose={() => setShowBankPicker(false)} />
       )}
 
       <BottomNav />

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { Account } from "@/lib/api";
 
 interface AccountMiniCardProps {
   account: Account;
   onClick?: () => void;
+  onReconnect?: () => void;
   fullWidth?: boolean;
   hidden?: boolean;
 }
@@ -21,7 +23,7 @@ export interface BankMeta {
 
 export const BANK_META: Record<string, BankMeta> = {
   BARCLAYS:     { label: "Barclays",     bg: "linear-gradient(135deg,#00aeef,#002d72)", logoFile: "barclays.png",  initials: "B" },
-  NATWEST:      { label: "NatWest",      bg: "linear-gradient(135deg,#5a0069,#d9006c)", domain: "natwest.com",     initials: "NW" },
+  NATWEST:      { label: "NatWest",      bg: "linear-gradient(135deg,#5a0069,#d9006c)", logoFile: "natwest.png",   initials: "NW" },
   HSBC:         { label: "HSBC",         bg: "linear-gradient(135deg,#db0011,#6b0008)", domain: "hsbc.co.uk",      initials: "HSBC", initialsSize: "8px" },
   MONZO:        { label: "Monzo",        bg: "linear-gradient(135deg,#ff3464,#ff6b35)", domain: "monzo.com",       initials: "M" },
   STARLING:     { label: "Starling",     bg: "linear-gradient(135deg,#6935d8,#00d4aa)", logoFile: "starling.png",  initials: "SB" },
@@ -55,7 +57,7 @@ function typeLabel(type: string) {
   return "Current";
 }
 
-function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw: string }) {
+export function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw: string }) {
   const [imgFailed, setImgFailed] = useState(false);
 
   const src = !imgFailed
@@ -90,7 +92,7 @@ function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw: string
   );
 }
 
-export default function AccountMiniCard({ account, onClick, fullWidth, hidden }: AccountMiniCardProps) {
+export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, hidden }: AccountMiniCardProps) {
   const key = (account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_");
   const meta = BANK_META[key];
   const isCredit = account.type.toLowerCase().includes("credit");
@@ -141,7 +143,35 @@ export default function AccountMiniCard({ account, onClick, fullWidth, hidden }:
         {hidden ? "••••" : `${isCredit && balance < 0 ? "-" : ""}${balanceStr}`}
       </p>
 
+      {/* Masked account number — own line so reconnect button doesn't overlap */}
+      {fullWidth && (account.account_number || account.sort_code) && (
+        <p className="text-[10px] font-mono mt-1" style={meta ? { color: "rgba(255,255,255,0.45)" } : { color: "#94a3b8" }}>
+          {account.sort_code
+            ? `${account.sort_code.replace(/(\d{2})(\d{2})(\d{2})/, "$1-$2-$3")} ••••${(account.account_number ?? "").slice(-4)}`
+            : `••••${(account.account_number ?? "").slice(-4)}`}
+        </p>
+      )}
+
       <div className="absolute -bottom-5 -right-5 w-20 h-20 rounded-full opacity-10 bg-white pointer-events-none" />
+
+      {/* Reconnect button */}
+      {onReconnect && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+          title="Reconnect this bank"
+          className={`
+            absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-all active:scale-95
+            ${fullWidth ? "bottom-3 right-3" : "top-2 right-2"}
+            ${account.status === "expired"
+              ? "ring-1 ring-amber-400/60 bg-amber-500/40 hover:bg-amber-500/60 text-white"
+              : "bg-white/15 hover:bg-white/30 text-white"
+            }
+          `}
+        >
+          <RefreshCw size={10} />
+          {account.status === "expired" && <span>Reconnect</span>}
+        </button>
+      )}
     </button>
   );
 }

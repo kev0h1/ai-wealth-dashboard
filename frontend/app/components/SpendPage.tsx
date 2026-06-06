@@ -47,10 +47,13 @@ export default function SpendPage() {
   const [incomeExpanded, setIncomeExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const [accounts, setAccounts] = useState<Account[]>([]);
+
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
       const accs = await api.accounts().catch(() => [] as Account[]);
+      setAccounts(accs);
       const all: Transaction[] = [];
       await Promise.all(
         accs.map(async (acc) => {
@@ -207,7 +210,7 @@ export default function SpendPage() {
     })}`;
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
       {/* Header */}
       <div
         className="px-4 pt-6 pb-5 text-white"
@@ -369,6 +372,7 @@ export default function SpendPage() {
           transaction={selectedTx}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
+          account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
         />
       )}
 
@@ -413,27 +417,24 @@ function PayPeriodSettingsSheet({
   onClose: () => void;
   onSave: (c: PayPeriodConfig) => void;
 }) {
-  const [mode, setMode] = useState<PayPeriodConfig["type"]>(current.type);
+  const [mode, setMode] = useState<PayPeriodConfig["type"]>(current.type === "custom" || current.type === "weekly" ? "calendar_month" : current.type);
   const [payDay, setPayDay] = useState(
     current.type === "monthly_pay_date" ? current.day : 25
   );
   const [weekday, setWeekday] = useState(
-    (current.type === "weekly" || current.type === "biweekly") ? current.weekday : 5
+    (current.type === "weekly" || current.type === "biweekly" || current.type === "last_weekday_of_month") ? current.weekday : 5
   );
   const [biweeklyRef, setBiweeklyRef] = useState(
     current.type === "biweekly" ? current.referenceDate : new Date().toISOString().slice(0, 10)
   );
-  const [customStart, setCustomStart] = useState(current.type === "custom" ? current.start : "");
-  const [customEnd, setCustomEnd] = useState(current.type === "custom" ? current.end : "");
 
   function buildConfig(): PayPeriodConfig {
     switch (mode) {
       case "last_friday": return { type: "last_friday" };
+      case "last_weekday_of_month": return { type: "last_weekday_of_month", weekday };
       case "calendar_month": return { type: "calendar_month" };
       case "monthly_pay_date": return { type: "monthly_pay_date", day: payDay };
-      case "weekly": return { type: "weekly", weekday };
       case "biweekly": return { type: "biweekly", weekday, referenceDate: biweeklyRef };
-      case "custom": return { type: "custom", start: customStart, end: customEnd };
       default: return { type: "calendar_month" };
     }
   }
@@ -441,10 +442,8 @@ function PayPeriodSettingsSheet({
   const MODES: Array<{ value: PayPeriodConfig["type"]; label: string; desc: string }> = [
     { value: "calendar_month", label: "Calendar month", desc: "1st to last day of each month" },
     { value: "monthly_pay_date", label: "Monthly pay date", desc: "Period starts on a fixed day each month" },
-    { value: "weekly", label: "Weekly", desc: "7-day periods starting on your pay day" },
     { value: "biweekly", label: "Every two weeks", desc: "14-day periods from a reference payday" },
-    { value: "last_friday", label: "Last Friday of month", desc: "Payday = last Friday each month" },
-    { value: "custom", label: "Custom dates", desc: "Set a start and end date; prev/next shift by the same length" },
+    { value: "last_weekday_of_month", label: "Last weekday of month", desc: "Payday = last chosen weekday each month" },
   ];
 
   return (
@@ -499,7 +498,20 @@ function PayPeriodSettingsSheet({
           </div>
         )}
 
-        {(mode === "weekly" || mode === "biweekly") && (
+        {mode === "last_weekday_of_month" && (
+          <div className="px-5 pb-4">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Day of week</p>
+            <select
+              value={weekday}
+              onChange={e => setWeekday(Number(e.target.value))}
+              className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+            >
+              {WEEKDAYS.map((w, i) => <option key={i} value={i}>{w}</option>)}
+            </select>
+          </div>
+        )}
+
+        {mode === "biweekly" && (
           <div className="px-5 pb-4 space-y-3">
             <div>
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Pay day</p>
@@ -511,39 +523,15 @@ function PayPeriodSettingsSheet({
                 {WEEKDAYS.map((w, i) => <option key={i} value={i}>{w}</option>)}
               </select>
             </div>
-            {mode === "biweekly" && (
-              <div>
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">A known payday date</p>
-                <input
-                  type="date"
-                  value={biweeklyRef}
-                  onChange={e => setBiweeklyRef(e.target.value)}
-                  className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {mode === "custom" && (
-          <div className="px-5 pb-4 space-y-3">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Period start &amp; end</p>
-            <div className="flex gap-2 items-center">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">A known payday date</p>
               <input
                 type="date"
-                value={customStart}
-                onChange={e => setCustomStart(e.target.value)}
-                className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <span className="text-slate-400">→</span>
-              <input
-                type="date"
-                value={customEnd}
-                onChange={e => setCustomEnd(e.target.value)}
-                className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-2 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                value={biweeklyRef}
+                onChange={e => setBiweeklyRef(e.target.value)}
+                className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
-            <p className="text-xs text-slate-400 dark:text-slate-500">Previous and next periods will use the same length automatically.</p>
           </div>
         )}
 

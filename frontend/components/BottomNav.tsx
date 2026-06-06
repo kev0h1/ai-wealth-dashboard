@@ -17,7 +17,7 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-50 safe-bottom"
+      className="lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] z-50 safe-bottom"
       style={{ height: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
     >
       <div className="flex items-center justify-around h-16">
