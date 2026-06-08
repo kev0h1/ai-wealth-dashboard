@@ -21,23 +21,23 @@ export const CATEGORIES = [
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_COLOURS: Record<string, string> = {
-  Groceries: "#4CAF50",
-  "Eating Out": "#FF9800",
-  Transport: "#2196F3",
-  Entertainment: "#9C27B0",
-  Shopping: "#E91E63",
-  Bills: "#F44336",
-  Subscriptions: "#FF5722",
-  Health: "#00BCD4",
-  Travel: "#3F51B5",
-  Software: "#607D8B",
-  Savings: "#8BC34A",
-  Debt: "#b91c1c",
-  Transfer: "#9E9E9E",
-  Income: "#26C6DA",
-  Cash: "#78909C",
-  Charity: "#66BB6A",
-  Other: "#795548",
+  Groceries:     "#06b6d4",  // cyan   — fresh/food
+  "Eating Out":  "#f97316",  // orange — warm/food
+  Transport:     "#2196F3",  // blue   — movement
+  Entertainment: "#9C27B0",  // purple — fun
+  Shopping:      "#E91E63",  // pink   — retail
+  Bills:         "#6366f1",  // indigo — financial/recurring
+  Subscriptions: "#8b5cf6",  // violet — digital
+  Health:        "#14b8a6",  // teal   — medical
+  Travel:        "#0284c7",  // sky    — adventure
+  Software:      "#607D8B",  // slate  — tech
+  Savings:       "#d97706",  // amber  — wealth/gold
+  Debt:          "#ef4444",  // red    — liability (semantic)
+  Transfer:      "#9E9E9E",  // grey
+  Income:        "#22c55e",  // green  — positive cash in
+  Cash:          "#78909C",  // blue-grey
+  Charity:       "#f472b6",  // pink   — giving
+  Other:         "#795548",  // brown
 };
 
 export const DEFAULT_CUSTOM_COLOUR = "#6366f1";

@@ -91,7 +91,7 @@ function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: 
   return (
     <div
       className="rounded-2xl p-4 text-white shadow-sm"
-      style={{ background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)" }}
+      style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)" }}
     >
       <div className="flex items-center gap-1.5 mb-3">
         <Target className="w-3.5 h-3.5 opacity-80" />
@@ -358,7 +358,7 @@ export default function DebtPage() {
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto">
       {/* Header */}
-      <div className="px-4 pt-6 pb-5 text-white" style={{ background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)" }}>
+      <div className="px-4 pt-6 pb-5 text-white" style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)" }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Debt Tracker</h1>
@@ -606,7 +606,7 @@ export default function DebtPage() {
       <button
         onClick={() => openChatWithPrompt()}
         className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "88px", right: "16px", background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)" }}
+        style={{ bottom: "88px", right: "16px", background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)" }}
         aria-label="Open Debt Advisor"
       >
         <MessageCircle className="w-6 h-6" />
@@ -619,7 +619,7 @@ export default function DebtPage() {
           style={{ bottom: "88px", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)" }}>
+            style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)" }}>
             <div>
               <p className="text-sm font-bold">Debt Advisor</p>
               <p className="text-[10px] opacity-70">Powered by Claude</p>
@@ -689,7 +689,7 @@ export default function DebtPage() {
 
           <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-t border-slate-100 dark:border-slate-700">
             <input
-              className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-red-300"
+              className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-indigo-300"
               placeholder="Ask anything…"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -700,7 +700,7 @@ export default function DebtPage() {
               onClick={() => sendMessage()}
               disabled={!inputText.trim() || chatLoading}
               className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 text-white"
-              style={{ background: "linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)" }}
+              style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)" }}
               aria-label="Send"
             >
               {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -812,12 +812,12 @@ function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRateChange 
                 <p className="text-xs text-slate-400 dark:text-slate-500">{acc.provider}</p>
               </div>
               <div className="flex flex-col items-end ml-3 gap-0.5">
-                <p className="text-sm font-bold text-red-500">{hideNetWorth ? "••••" : fmt2(owed, sym)}</p>
+                <p className="text-sm font-bold text-rose-500">{hideNetWorth ? "••••" : fmt2(owed, sym)}</p>
                 <AprInput accountId={acc.account_id} initialApr={acc.apr} onSaved={onRateChange} />
               </div>
             </div>
             <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct}%` }} />
+              <div className="h-full bg-rose-400 rounded-full" style={{ width: `${pct}%` }} />
             </div>
             <div className="flex justify-between mt-0.5">
               <span className="text-[10px] text-slate-400">{Math.round(pct)}% of total</span>
@@ -911,7 +911,7 @@ function DebtBurndownCard({
         <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
           Clear by <span className="font-medium text-slate-600 dark:text-slate-300">{fmtMonth(data.target_date)}</span>
           {" · "}
-          <span className="text-red-500 font-medium">{hideValues ? "••••" : `${sym}${data.monthly_payment_needed.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`}</span>
+          <span className="text-indigo-500 font-medium">{hideValues ? "••••" : `${sym}${data.monthly_payment_needed.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`}</span>
         </p>
       </div>
 
@@ -1076,7 +1076,7 @@ function DebtBurndownCard({
             <input
               type="month" value={trackingStart} max={today}
               onChange={e => { if (e.target.value) onTrackingStartChange(e.target.value); }}
-              className="text-xs bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-red-400"
+              className="text-xs bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-400"
             />
             {trackingStart !== today && (
               <button onClick={() => onTrackingStartChange(today)} className="text-[10px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 underline">
@@ -1092,14 +1092,14 @@ function DebtBurndownCard({
           <div className="flex gap-2 mb-3">
             <button
               onClick={() => onModeChange("time")}
-              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all text-left px-3 ${mode === "time" ? "bg-red-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"}`}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all text-left px-3 ${mode === "time" ? "bg-indigo-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"}`}
             >
               <span className="block font-bold">By date</span>
               <span className="text-[10px] opacity-70">Choose a timeline</span>
             </button>
             <button
               onClick={() => onModeChange("amount")}
-              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all text-left px-3 ${mode === "amount" ? "bg-red-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"}`}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all text-left px-3 ${mode === "amount" ? "bg-indigo-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"}`}
             >
               <span className="block font-bold">By amount</span>
               <span className="text-[10px] opacity-70">Set a monthly payment</span>
@@ -1114,7 +1114,7 @@ function DebtBurndownCard({
                   onClick={() => onTargetChange(mo)}
                   className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
                     targetMonths === mo
-                      ? "bg-red-500 text-white"
+                      ? "bg-indigo-600 text-white"
                       : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"
                   }`}
                 >
@@ -1130,7 +1130,7 @@ function DebtBurndownCard({
                   type="number" min="1" placeholder="e.g. 500"
                   value={monthlyPayment || ""}
                   onChange={e => onMonthlyPaymentChange(Number(e.target.value))}
-                  className={`w-full text-xs bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl py-2 outline-none focus:ring-2 focus:ring-red-400 ${sym.length > 2 ? "pl-11 pr-3" : "pl-7 pr-3"}`}
+                  className={`w-full text-xs bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl py-2 outline-none focus:ring-2 focus:ring-indigo-400 ${sym.length > 2 ? "pl-11 pr-3" : "pl-7 pr-3"}`}
                 />
               </div>
               <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
