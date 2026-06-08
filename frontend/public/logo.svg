@@ -1,51 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#1e1b4b"/>
-      <stop offset="100%" stop-color="#4c1d95"/>
-    </linearGradient>
+    <!-- Clip everything to the rounded square -->
+    <clipPath id="round">
+      <rect width="512" height="512" rx="112"/>
+    </clipPath>
+    <!-- Subtle purple bloom in the upper centre -->
+    <radialGradient id="bloom" cx="50%" cy="38%" r="52%">
+      <stop offset="0%"   stop-color="#3b0e8c" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#080810" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
-  <!-- Background rounded square -->
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g clip-path="url(#round)">
+    <!-- Background: near-black with slight purple tint -->
+    <rect width="512" height="512" fill="#09090f"/>
+    <!-- Purple bloom -->
+    <rect width="512" height="512" fill="url(#bloom)"/>
 
-  <!-- Subtle area fill beneath the trend line -->
-  <path
-    d="M 72 408 Q 176 368 256 294 Q 336 222 440 148 L 440 448 L 72 448 Z"
-    fill="rgba(255,255,255,0.07)"
-  />
+    <!-- ── Auriq floating diamond motifs ── -->
+    <!-- Large diamond — top right -->
+    <rect x="372" y="62" width="56" height="56" rx="6"
+          fill="#7c3aed"
+          transform="rotate(45 400 90)"/>
 
-  <!-- Trend line: smooth bezier from bottom-left to top-right -->
-  <path
-    d="M 72 408 Q 176 368 256 294 Q 336 222 440 148"
-    stroke="white"
-    stroke-width="26"
-    stroke-linecap="round"
-    fill="none"
-  />
+    <!-- Medium diamond — bottom left -->
+    <rect x="75" y="354" width="34" height="34" rx="4"
+          fill="#7c3aed" opacity="0.45"
+          transform="rotate(45 92 371)"/>
 
-  <!-- Dots along the line -->
-  <circle cx="72"  cy="408" r="16" fill="white" opacity="0.4"/>
-  <circle cx="256" cy="294" r="18" fill="white" opacity="0.7"/>
-  <circle cx="440" cy="148" r="22" fill="white"/>
+    <!-- Small diamond — right edge mid -->
+    <rect x="429" y="238" width="22" height="22" rx="3"
+          fill="#7c3aed" opacity="0.28"
+          transform="rotate(45 440 249)"/>
 
-  <!-- 4-pointed sparkle star (amber) floating above end dot -->
-  <!-- Center (382, 82), outer r=36, inner r=14 -->
-  <path d="
-    M 382 46
-    L 392 68
-    L 418 78
-    L 392 88
-    L 382 110
-    L 372 88
-    L 346 78
-    L 372 68
-    Z"
-    fill="#fbbf24"
-  />
+    <!-- ── Bold W letterform ── -->
+    <polyline
+      points="82,146 168,386 256,206 344,386 430,146"
+      stroke="white"
+      stroke-width="56"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+    />
 
-  <!-- Tiny accent dots for sparkle feel -->
-  <circle cx="432" cy="92"  r="6" fill="rgba(251,191,36,0.55)"/>
-  <circle cx="340" cy="60"  r="4" fill="rgba(251,191,36,0.40)"/>
-  <circle cx="456" cy="170" r="4" fill="rgba(255,255,255,0.30)"/>
+    <!-- ── Green live-indicator dot (Auriq "Taking on projects" motif) ── -->
+    <!-- Outer pulse ring -->
+    <circle cx="421" cy="421" r="20" fill="#22c55e" opacity="0.20"/>
+    <!-- Solid dot -->
+    <circle cx="421" cy="421" r="12" fill="#22c55e"/>
+  </g>
 </svg>
