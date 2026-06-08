@@ -1,9 +1,12 @@
 import { Suspense } from "react";
+import { Viewport } from "next";
 import AccountsPage from "../components/AccountsPage";
+
+export const viewport: Viewport = { themeColor: "#4f46e5" };
 
 export default function Accounts() {
   return (
-    <Suspense fallback={<div className="min-h-dvh bg-[#f0f2f7]" />}>
+    <Suspense fallback={<div className="min-h-dvh" style={{ background: "linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)" }} />}>
       <AccountsPage />
     </Suspense>
   );
