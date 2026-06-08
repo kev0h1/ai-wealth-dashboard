@@ -158,19 +158,19 @@ function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: { insigh
         <div>
           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Monthly income</span>
-            <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
+            <span className="font-semibold text-sky-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
           </div>
           <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(insights.monthly_income / maxBar) * 100}%` }} />
+            <div className="h-full bg-sky-400 rounded-full" style={{ width: `${(insights.monthly_income / maxBar) * 100}%` }} />
           </div>
         </div>
         <div>
           <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
             <span>Monthly spending</span>
-            <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
+            <span className="font-semibold text-orange-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
           </div>
           <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-red-400 rounded-full" style={{ width: `${(insights.monthly_spending / maxBar) * 100}%` }} />
+            <div className="h-full bg-orange-400 rounded-full" style={{ width: `${(insights.monthly_spending / maxBar) * 100}%` }} />
           </div>
         </div>
       </div>
@@ -452,19 +452,19 @@ export default function DebtPage() {
                   <div>
                     <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
                       <span>Monthly income</span>
-                      <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
+                      <span className="font-semibold text-sky-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
                     </div>
                     <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                      <div className="h-full bg-sky-400 rounded-full" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
                       <span>Monthly spending</span>
-                      <span className="font-semibold text-red-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
+                      <span className="font-semibold text-orange-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
                     </div>
                     <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-red-400 rounded-full" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                      <div className="h-full bg-orange-400 rounded-full" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
                     </div>
                   </div>
                 </div>
@@ -497,7 +497,7 @@ export default function DebtPage() {
                     </span>
                   </div>
                   <div className="relative h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-visible mx-1">
-                    <div className={`h-full rounded-full transition-all ${onTrack ? "bg-emerald-400" : "bg-amber-400"}`} style={{ width: `${filledPct}%` }} />
+                    <div className={`h-full rounded-full transition-all ${onTrack ? "bg-indigo-400" : "bg-amber-400"}`} style={{ width: `${filledPct}%` }} />
                     <div className="absolute top-0 bottom-0 w-0.5 bg-slate-500 dark:bg-slate-400" style={{ left: `${markerTargetPct}%` }} />
                   </div>
                   <div className="flex justify-between mt-1">
@@ -918,16 +918,16 @@ function DebtBurndownCard({
       {/* Legend row */}
       <div className="px-4 pb-2 flex items-center gap-4">
         <span className="flex items-center gap-1.5">
-          <span className="w-5 h-[2px] bg-red-400 rounded inline-block" />
+          <span className="w-5 h-[2px] bg-indigo-500 rounded inline-block" />
           <span className="text-[10px] text-slate-500 dark:text-slate-400">Actual</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-5 inline-block" style={{ borderTop: "2px dashed #10b981", display: "inline-block" }} />
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Target</span>
+          <span className="w-5 inline-block" style={{ borderTop: "2px dashed #14b8a6", display: "inline-block" }} />
+          <span className="text-[10px] text-teal-600 dark:text-teal-400">Target</span>
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-5 inline-block" style={{ borderTop: "2px dotted #6366f1", display: "inline-block" }} />
-          <span className="text-[10px] text-indigo-500 dark:text-indigo-400">Projected</span>
+          <span className="w-5 inline-block" style={{ borderTop: "2px dotted #f59e0b", display: "inline-block" }} />
+          <span className="text-[10px] text-amber-500 dark:text-amber-400">Projected</span>
         </span>
       </div>
 
@@ -971,8 +971,8 @@ function DebtBurndownCard({
             <ComposedChart data={chartData} margin={{ top: 36, right: 8, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="burndownActualGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f87171" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#f87171" stopOpacity={0.02} />
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
               <XAxis
@@ -1001,9 +1001,9 @@ function DebtBurndownCard({
                   return (
                     <div className="bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs space-y-0.5">
                       <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">{label}</p>
-                      {actual    !== undefined && <p className="text-red-500">Actual: {fmtVal(actual)}</p>}
-                      {target    !== undefined && <p className="text-emerald-600">Target: {fmtVal(target)}</p>}
-                      {projected !== undefined && <p className="text-indigo-500">Projected: {fmtVal(projected)}</p>}
+                      {actual    !== undefined && <p className="text-indigo-600">Actual: {fmtVal(actual)}</p>}
+                      {target    !== undefined && <p className="text-teal-600">Target: {fmtVal(target)}</p>}
+                      {projected !== undefined && <p className="text-amber-500">Projected: {fmtVal(projected)}</p>}
                     </div>
                   );
                 }}
@@ -1022,29 +1022,29 @@ function DebtBurndownCard({
                 type="monotone"
                 dataKey="actual"
                 name="Actual"
-                stroke="#f87171"
+                stroke="#6366f1"
                 strokeWidth={2.5}
                 fill="url(#burndownActualGradient)"
                 dot={false}
                 connectNulls={false}
               />
-              {/* Target — dashed green line */}
+              {/* Target — dashed teal line */}
               <Line
                 type="monotone"
                 dataKey="target"
                 name="Target"
-                stroke="#10b981"
+                stroke="#14b8a6"
                 strokeWidth={2}
                 strokeDasharray="6 3"
                 dot={false}
                 connectNulls={false}
               />
-              {/* Projected — dotted indigo line */}
+              {/* Projected — dotted amber line */}
               <Line
                 type="monotone"
                 dataKey="projected"
                 name="Projected"
-                stroke="#6366f1"
+                stroke="#f59e0b"
                 strokeWidth={1.5}
                 strokeDasharray="2 4"
                 dot={false}
@@ -1056,7 +1056,7 @@ function DebtBurndownCard({
                   x={chartData[todayIdx]?.month}
                   y={todayActual}
                   r={4}
-                  fill="#f87171"
+                  fill="#6366f1"
                   stroke="#fff"
                   strokeWidth={2}
                 />

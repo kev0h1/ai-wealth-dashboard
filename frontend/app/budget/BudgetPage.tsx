@@ -467,15 +467,15 @@ export default function BudgetPage() {
                 </div>
                 <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
                   <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    <span className="w-5 h-[2px] bg-emerald-500 inline-block rounded" />
+                    <span className="w-5 h-[2px] bg-indigo-500 inline-block rounded" />
                     Actual Spending
                   </span>
                   <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
+                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
                     Target Pacing
                   </span>
                   <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f87171" strokeWidth="1.5"/></svg>
+                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#fb7185" strokeWidth="1.5"/></svg>
                     Budget Limit
                   </span>
                 </div>
@@ -507,8 +507,8 @@ export default function BudgetPage() {
                   <ComposedChart data={paceChartData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
                     <defs>
                       <linearGradient id="actualAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#059669" stopOpacity={0.2} />
-                        <stop offset="100%" stopColor="#059669" stopOpacity={0.01} />
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0.01} />
                       </linearGradient>
                     </defs>
                     <XAxis
@@ -538,7 +538,7 @@ export default function BudgetPage() {
                         return (
                           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs pointer-events-none">
                             <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{label}</p>
-                            {actual != null && <p className="text-emerald-600 dark:text-emerald-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
+                            {actual != null && <p className="text-indigo-600 dark:text-indigo-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
                             {pace != null && <p className="text-slate-500 dark:text-slate-400">Target: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
                             {actual != null && pace != null && (
                               <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-500'}`}>
@@ -551,14 +551,14 @@ export default function BudgetPage() {
                         );
                       }}
                     />
-                    <ReferenceLine y={totalBudget} stroke="#f87171" strokeWidth={1.5} strokeOpacity={0.55} />
-                    <Line type="monotone" dataKey="pace" stroke="#cbd5e1" strokeWidth={1.5}
+                    <ReferenceLine y={totalBudget} stroke="#fb7185" strokeWidth={1.5} strokeOpacity={0.6} />
+                    <Line type="monotone" dataKey="pace" stroke="#f59e0b" strokeWidth={1.5}
                       strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-                    <Area type="monotone" dataKey="actual" stroke="#059669" strokeWidth={2.5}
+                    <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={2.5}
                       fill="url(#actualAreaGrad)" dot={false} connectNulls={false} isAnimationActive={false} />
                     {todayPoint?.actual !== null && elapsedFraction > 0.01 && (
                       <ReferenceDot x={todayPoint!.label} y={todayPoint!.actual ?? 0}
-                        r={5} fill="#059669" stroke="white" strokeWidth={2} />
+                        r={5} fill="#6366f1" stroke="white" strokeWidth={2} />
                     )}
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -603,7 +603,7 @@ export default function BudgetPage() {
                               {fixedSpend > 0.01 && (
                                 <p className="text-slate-400 dark:text-slate-500">Bills: {hideNetWorth ? '••••' : fmt2(fixedSpend, sym)}</p>
                               )}
-                              <p className={varSpend > 0 ? (abovePace ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400') : 'text-slate-400'}>
+                              <p className={varSpend > 0 ? (abovePace ? 'text-orange-600 dark:text-orange-400' : 'text-indigo-600 dark:text-indigo-400') : 'text-slate-400'}>
                                 Variable: {hideNetWorth ? '••••' : fmt2(varSpend, sym)}
                               </p>
                               {varExpected > 0.01 && (
@@ -620,7 +620,7 @@ export default function BudgetPage() {
                         {pastDays.map((entry, idx) => (
                           <Cell
                             key={idx}
-                            fill={(entry.variableSpend ?? 0) > (entry.variableDailyExpected ?? avgDailyPace) ? '#f59e0b' : '#059669'}
+                            fill={(entry.variableSpend ?? 0) > (entry.variableDailyExpected ?? avgDailyPace) ? '#f97316' : '#6366f1'}
                             fillOpacity={(entry.dailySpend ?? 0) <= LOG_FLOOR ? 0.15 : 0.75}
                           />
                         ))}
@@ -633,11 +633,11 @@ export default function BudgetPage() {
                       Variable daily budget
                     </span>
                     <span className="flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block opacity-80" />
+                      <span className="w-2.5 h-2.5 rounded-sm bg-orange-400 inline-block opacity-80" />
                       Variable over
                     </span>
                     <span className="flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block opacity-75" />
+                      <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block opacity-75" />
                       Variable under
                     </span>
                   </div>
