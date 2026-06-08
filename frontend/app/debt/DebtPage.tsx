@@ -91,7 +91,7 @@ function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: 
   return (
     <div
       className="rounded-2xl p-4 text-white shadow-sm"
-      style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+      style={{ background: "#b91c1c" }}
     >
       <div className="flex items-center gap-1.5 mb-3">
         <Target className="w-3.5 h-3.5 opacity-80" />
@@ -358,7 +358,7 @@ export default function DebtPage() {
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto">
       {/* Header */}
-      <div className="px-4 pt-6 pb-5 text-white" style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}>
+      <div className="px-4 pb-5 text-white" style={{ background: "#b91c1c", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Debt Tracker</h1>
@@ -606,7 +606,7 @@ export default function DebtPage() {
       <button
         onClick={() => openChatWithPrompt()}
         className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "88px", right: "16px", background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+        style={{ bottom: "88px", right: "16px", background: "#b91c1c" }}
         aria-label="Open Debt Advisor"
       >
         <MessageCircle className="w-6 h-6" />
@@ -619,7 +619,7 @@ export default function DebtPage() {
           style={{ bottom: "88px", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}>
+            style={{ background: "#b91c1c" }}>
             <div>
               <p className="text-sm font-bold">Debt Advisor</p>
               <p className="text-[10px] opacity-70">Powered by Claude</p>
@@ -700,7 +700,7 @@ export default function DebtPage() {
               onClick={() => sendMessage()}
               disabled={!inputText.trim() || chatLoading}
               className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 text-white"
-              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+              style={{ background: "#b91c1c" }}
               aria-label="Send"
             >
               {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

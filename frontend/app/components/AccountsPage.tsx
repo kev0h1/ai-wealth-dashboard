@@ -263,9 +263,10 @@ export default function AccountsPage() {
       <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
         {/* Header */}
         <div
-          className="px-4 pt-6 pb-5 text-white"
+          className="px-4 pb-5 text-white"
           style={{
             background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+            paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)",
           }}
         >
           <div className="flex items-center justify-between mb-4">

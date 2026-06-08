@@ -128,7 +128,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
-      <div className="px-4 pt-6 pb-5 text-white" style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}>
+      <div className="px-4 pb-5 text-white" style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
         <h1 className="text-xl font-bold">Settings</h1>
         <p className="text-sm opacity-70 mt-1">Customise your dashboard</p>
       </div>
