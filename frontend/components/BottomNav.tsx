@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, Target, TrendingDown } from "lucide-react";
+import { Home, PieChart, Settings, Target, TrendingDown, Lightbulb } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 
-const TABS = [
+const BASE_TABS = [
   { href: "/", label: "Home", Icon: Home },
   { href: "/spend", label: "Spend", Icon: PieChart },
   { href: "/budget", label: "Budget", Icon: Target },
@@ -12,8 +13,22 @@ const TABS = [
   { href: "/settings", label: "Settings", Icon: Settings },
 ];
 
+const KEVIN_EMAIL = "kevin.maingi12@gmail.com";
+
 export default function BottomNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+
+  const tabs = user?.email === KEVIN_EMAIL
+    ? [
+        BASE_TABS[0],
+        BASE_TABS[1],
+        BASE_TABS[2],
+        BASE_TABS[3],
+        { href: "/insights", label: "Insights", Icon: Lightbulb },
+        BASE_TABS[4],
+      ]
+    : BASE_TABS;
 
   return (
     <nav
@@ -21,7 +36,7 @@ export default function BottomNav() {
       style={{ height: "calc(64px + env(safe-area-inset-bottom, 0px))" }}
     >
       <div className="flex items-center justify-around h-16">
-        {TABS.map(({ href, label, Icon }) => {
+        {tabs.map(({ href, label, Icon }) => {
           const active = pathname === href;
           return (
             <Link
@@ -31,12 +46,12 @@ export default function BottomNav() {
               style={{ textDecoration: "none" }}
             >
               <Icon
-                size={22}
+                size={tabs.length > 5 ? 19 : 22}
                 strokeWidth={active ? 2.5 : 1.8}
                 color={active ? "#4f46e5" : "#94a3b8"}
               />
               <span
-                className="text-[11px] font-medium leading-none"
+                className={`${tabs.length > 5 ? "text-[10px]" : "text-[11px]"} font-medium leading-none`}
                 style={{ color: active ? "#4f46e5" : "#94a3b8" }}
               >
                 {label}

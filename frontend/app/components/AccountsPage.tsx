@@ -307,10 +307,10 @@ export default function AccountsPage() {
             </span>
             <span
               className={`text-2xl font-bold ${
-                isCredit && balance < 0 ? "text-red-300" : "text-white"
+                balance < 0 ? "text-red-300" : "text-white"
               }`}
             >
-              {hideNetWorth ? "••••" : `${isCredit && balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              {hideNetWorth ? "••••" : `${balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
           </div>
         </div>

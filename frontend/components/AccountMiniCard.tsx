@@ -137,10 +137,10 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
 
       {/* Balance */}
       <p
-        className={`text-xl font-bold tracking-tight leading-none ${!meta ? (isCredit && balance < 0 ? "text-red-500" : "text-slate-900 dark:text-slate-100") : ""}`}
+        className={`text-xl font-bold tracking-tight leading-none ${!meta ? (balance < 0 ? "text-red-500" : "text-slate-900 dark:text-slate-100") : ""}`}
         style={meta ? { color: "#fff" } : undefined}
       >
-        {hidden ? "••••" : `${isCredit && balance < 0 ? "-" : ""}${balanceStr}`}
+        {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
       </p>
 
       {/* Masked account number — own line so reconnect button doesn't overlap */}

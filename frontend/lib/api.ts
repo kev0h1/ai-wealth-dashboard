@@ -69,6 +69,36 @@ export interface Insight {
   category: string;
 }
 
+export interface SavingsInsight {
+  id: string;
+  category: string;
+  icon: string;
+  label: string;
+  title: string;
+  body: string;
+  savings_estimate: string | null;
+  pinned: boolean;
+  is_new: boolean;
+  refreshed_at: string | null;
+  triggered_by: { merchant_key: string; display_name: string; monthly_amount: number; occurrences: number }[];
+  user_context: Record<string, string> | null;
+  has_workflow: boolean;
+}
+
+export interface WorkflowStep {
+  id: string;
+  label: string;
+  type: "text" | "number" | "currency" | "select";
+  options?: string[];
+  placeholder?: string;
+  unit?: string;
+}
+
+export interface WorkflowDef {
+  cta: string;
+  steps: WorkflowStep[];
+}
+
 export interface ChallengeProgress {
   actual_so_far: number;
   target: number;
@@ -313,6 +343,32 @@ export const api = {
     }).then(r => r.json()) as Promise<{ updated: string; planned: boolean }>,
   deleteRule: (id: string) =>
     fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ deleted: string }>,
+  getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
+  pinSavingsInsight: (id: string) =>
+    fetch(`${API_BASE}/savings-insights/${encodeURIComponent(id)}/pin`, {
+      method: "PATCH",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ pinned: boolean }>,
+  refreshSavingsInsights: () => post<{ message: string }>("/savings-insights/refresh", {}),
+  getUnknownBills: () => get<{
+    unknown_bills: { merchant_key: string; display_name: string; monthly_amount: number; occurrences: number }[];
+    label_options: Record<string, { icon: string; label: string }>;
+  }>("/savings-insights/unknown-bills"),
+  labelBill: (merchant_key: string, category: string) =>
+    post<{ message: string; category: string }>("/savings-insights/label", { merchant_key, category }),
+  getWorkflows: () => get<Record<string, WorkflowDef>>("/savings-insights/workflows"),
+  saveInsightContext: (insightId: string, context: Record<string, string>) =>
+    fetch(`${API_BASE}/savings-insights/${encodeURIComponent(insightId)}/context`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ context }),
+    }).then(r => r.json()) as Promise<{ message: string }>,
+  getBillLabels: () => get<{ merchant_key: string; display_name: string; category: string; icon: string; label: string; is_skip: boolean }[]>("/savings-insights/labels"),
+  deleteBillLabel: (merchant_key: string) =>
+    fetch(`${API_BASE}/savings-insights/labels/${encodeURIComponent(merchant_key)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
   getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
   getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
   getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),

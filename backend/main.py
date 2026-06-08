@@ -3,7 +3,7 @@ AI Wealth API - FastAPI backend with MongoDB storage.
 Each bank connection gets its own connection_id so multiple banks coexist.
 """
 
-from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, Form
+from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
@@ -517,6 +517,10 @@ async def startup():
     await mono_connections_col.create_index("user_id")
     await mono_accounts_col.create_index("user_id")
     await mono_transactions_col.create_index([("user_id", 1), ("date", -1)])
+    # Savings insights: sparse TTL so pinned docs (expires_at=null) are never deleted
+    await savings_insights_col.create_index("expires_at", expireAfterSeconds=0, sparse=True)
+    await savings_insights_col.create_index([("user_id", 1), ("category", 1)])
+    await savings_labels_col.create_index([("user_id", 1), ("merchant_key", 1)], unique=True)
 
 
 @app.get("/health")
@@ -969,21 +973,21 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Groceries
     (re.compile(r'tesco|sainsbury|asda|morrisons?|waitrose|lidl|aldi|iceland food|co-?op\b|ocado|farmfoods|marks.{0,5}spencer food|m&s food|whole foods|budgens|londis|spar\b|nisa\b|costco', re.I), 'Groceries'),
     # Eating Out
-    (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house", re.I), 'Eating Out'),
-    # Transport — public / ride-share
-    (re.compile(r'tfl\b|transport for london|oyster|uber\b|bolt\b|trainline|national rail|avanti|lner\b|cross.?country|great western|south western|south.?eastern|northern rail|arriva|stagecoach|first.?bus|megabus|national express|eurostar|heathrow express|gatwick express|stansted express|go.?ahead|chiltern rail', re.I), 'Transport'),
-    # Transport — fuel / parking
-    (re.compile(r'\bbp\b|shell\b|esso\b|total energies|texaco|gulf\b|moto\b|roadchef|welcome break|petrol|fuel\b|parking|ncp\b|q-park|ringgo|paybyphone', re.I), 'Transport'),
+    (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house|cabana\b|dishoom|hawksmoor|bills restaurant|turtle bay|wahaca|zizzi\b|bella italia|frankie|benny|carluccio|harvester\b|toby carvery|ember inns|mitchells.?butlers|stonehouse\b|vintage inns", re.I), 'Eating Out'),
+    # Transport — public / ride-share / train booking
+    (re.compile(r'tfl\b|transport for london|oyster|uber\b|bolt\b|trainline|national rail|avanti|lner\b|cross.?country|great western|south western|south.?eastern|northern rail|arriva|stagecoach|first.?bus|megabus|national express|eurostar|heathrow express|gatwick express|stansted express|go.?ahead|chiltern rail|trainpal|train pal|railcard|splittickets|railsmartr|seatfrog', re.I), 'Transport'),
+    # Transport — fuel / parking / car parks
+    (re.compile(r'\bbp\b|shell\b|esso\b|total energies|texaco|gulf\b|moto\b|roadchef|welcome break|petrol|fuel\b|\bparking\b|ncp\b|q-park|ringgo|paybyphone|car.?par\b|car.?park|airparks|purple.?parking|jfk.?park|airport.?park|birmingham.?int.*car|int.*car.*par', re.I), 'Transport'),
     # Subscriptions (streaming / software / recurring)
     (re.compile(r'netflix|spotify|disney\+?|amazon prime|apple music|youtube.?premium|google\*youtube|now tv|now\.tv|apple.?one|apple\.?com/bill|apple tv\+?|hulu|paramount\+?|bbc sounds|audible|kindle unlimited|duolingo|headspace|calm\b|grammarly|canva\b|adobe\b|microsoft 365|office 365|dropbox|icloud|google one|playstation|psn\b|ps\+|xbox.?game.?pass|nintendo online|nintendo switch online|twitch|squarespace|\bsqsp\b|claude\.ai|anthropic\b', re.I), 'Subscriptions'),
     # Entertainment
     (re.compile(r'odeon|vue cinema|cineworld|curzon|everyman cinema|ticketmaster|see.?tickets|eventbrite|sky sports|bt sport|dazn\b|steam\b|epic games|xbox store|nintendo eshop|nintendo\b|google play|app store|museum|theatre|gallery|gig\b|concert', re.I), 'Entertainment'),
     # Shopping — online & retail
-    (re.compile(r'\bamazon\b(?!.*prime)|\bamzn\b|amazon marketplace|amznmkt|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|lush\b|holland.?barrett|the body shop|boots(?! pharmacy)', re.I), 'Shopping'),
+    (re.compile(r'\bamazon\b(?!.*prime)|\bamzn\b|amazon marketplace|amznmkt|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|lush\b|holland.?barrett|the body shop|boots(?! pharmacy)|dunelm\b|habitat\b|b&q\b|homebase\b|wickes\b|screwfix|toolstation|ikea\b|wayfair|made\.com|next\.co|very\.co|littlewoods|kaleidoscope|qvc\b|ao\.com|\bao\b appliances|smyths|toy.?r.?us|the range\b|homebargains|home bargains|pound.?land|poundworld|savers\b', re.I), 'Shopping'),
     # Bills — utilities & telecoms
     (re.compile(r'british gas|octopus energy|edf energy|e\.?on\b|scottish power|npower|bulb\b|ovo energy|shell energy|thames water|severn trent|yorkshire water|united utilities|south west water|bt group\b|bt broadband|virgin media|sky\b|vodafone|ee\b|o2\b|three\b|giffgaff|lycamobile|lyca mobile|lebara|voxi\b|smarty\b|talktalk|plusnet|now broadband|council tax|tv licence|water bill|electricity bill|gas bill|broadband|metropoli.*council|borough council|city council|district council|county council|local authority', re.I), 'Bills'),
     # Health & fitness
-    (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym\b|gym ltd|gym group|anytime fitness|jd gyms|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein', re.I), 'Health'),
+    (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym\b|gym ltd|gym group|anytime fitness|jd gyms|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein|\bspire\s+\w+|bupa\b|axa health|vitality health|aviva health|private.?health|medical.?centre|walk.?in.?centre|urgent.?care|physiotherapy|physio\b|osteopath|chiropractor|acupuncture|counselling|therapy\b|mental health', re.I), 'Health'),
     # Travel
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
     # Software & dev tools
@@ -993,7 +997,14 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Interest charges & fees → Bills
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     # Balance transfers & pot withdrawals (Monzo/Starling) → Transfer
-    (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b|goldman sachs\b', re.I), 'Transfer'),
+    (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b', re.I), 'Transfer'),
+    # Goldman Sachs payment from a bank account (Apple Card / Marcus repayments) → Transfer
+    # Matches "Goldman Sachs" only when description also contains payment-like words
+    (re.compile(r'goldman sachs.{0,30}(purchase|payment|ddr|direct debit|repay)', re.I), 'Transfer'),
+    # Personal Faster Payments from an individual (e.g. "From John Smith Payment") → Transfer
+    (re.compile(r'\bfrom\s+\w+\s+\w+(\s+\w+)?\s+(payment|transfer|paid)\b|fps credit\b|faster payment credit|\bpayment from\b', re.I), 'Transfer'),
+    # Valeting / car cleaning → Transport
+    (re.compile(r'valeting|car.?valet|car.?clean|car.?wash\b', re.I), 'Transport'),
     # Car rental → Transport
     (re.compile(r'enterprise rent|rent.?a.?car|hertz\b|avis\b|sixt\b|national car|zipcar|enterprise.?car', re.I), 'Transport'),
     # Service stations / fuel without brand → Transport
@@ -1250,76 +1261,114 @@ async def _apply_rules_bulk(user_id: str, structural: bool = False) -> int:
 
 
 async def _categorise_others_bg(uid: str) -> int:
-    """Background task: Tavily + AI for transactions still on 'Other' that haven't been attempted yet.
-    Sets ai_attempted=True after each run so the same transaction is never retried on future syncs.
-    Never overwrites custom_category. Returns number of transactions successfully recategorised."""
-    others = await transactions_col.find(
-        {"user_id": uid, "category": "Other", "custom_category": None,
-         "ai_attempted": {"$ne": True}},
-        {"merchant_name": 1, "description": 1, "amount": 1, "transaction_type": 1},
-    ).to_list(100)
-
-    if not others or not OPENROUTER_API_KEY:
+    """Background: LLM-classify transactions still on None/Other across all collections.
+    Uses a single Haiku call per collection per batch — no Tavily needed.
+    Sets ai_attempted=True so each transaction is tried at most once.
+    Never overwrites custom_category."""
+    if not OPENROUTER_API_KEY:
         return 0
 
-    # Tavily lookup for short, name-like merchant strings
-    candidates = list({
-        name for t in others
-        if (name := (t.get("merchant_name") or "").strip()) and 2 < len(name) < 50
-        and not re.search(r'\d{6,}', name)
-    })
-    tavily_info = await tavily_lookup_merchants(candidates) if TAVILY_API_KEY else {}
-
-    lines = "\n".join(
-        f'{j}: merchant="{t.get("merchant_name") or ""}" '
-        f'desc="{(t.get("description") or "")[:80]}" amount=£{t["amount"]:.2f}'
-        + (f' [web: {tavily_info[(t.get("merchant_name") or "").strip()][:120]}]'
-           if (t.get("merchant_name") or "").strip() in tavily_info else "")
-        for j, t in enumerate(others)
+    col_map = [
+        transactions_col,
+        statement_transactions_col,
+        mono_transactions_col,
+        mpesa_transactions_col,
+    ]
+    cat_list = ", ".join(VALID_CATEGORIES)
+    prompt_prefix = (
+        "You are a UK personal finance assistant categorising bank transactions.\n"
+        f"Assign each to exactly one of: {cat_list}.\n"
+        "Rules:\n"
+        "- Eating Out: restaurants, cafes, takeaways, delivery apps\n"
+        "- Transport: trains, buses, taxis, Uber, parking, fuel, car-related services\n"
+        "- Shopping: retail, online stores, non-food goods, homeware\n"
+        "- Bills: utilities, broadband, mobile, insurance, rent, council tax\n"
+        "- Subscriptions: streaming, software, recurring digital memberships\n"
+        "- Health: hospitals, pharmacies, gyms, dentists, medical services\n"
+        "- Travel: flights, hotels, holidays\n"
+        "- Transfer: payments between accounts, credit card repayments, personal transfers\n"
+        "- Income: salary, refunds, cashback, money received from people\n"
+        "- Other: only if genuinely unclassifiable\n"
+        "Reply ONLY with JSON: {\"1\": \"Category\", \"2\": \"Category\", ...}\n\n"
+        "Transactions:\n"
     )
-    prompt = (
-        f"UK personal finance categoriser. Assign each to one of: {', '.join(VALID_CATEGORIES)}.\n"
-        f"Use [web:] hints where available. Use 'Other' only if truly unidentifiable.\n"
-        f"Reply ONLY with JSON like {{\"0\": \"Shopping\", \"1\": \"Eating Out\"}}.\n\n"
-        f"Transactions:\n{lines}"
-    )
 
-    updated = 0
-    ids_attempted = [t["_id"] for t in others]
-    try:
-        async with httpx.AsyncClient(timeout=30) as http:
-            r = await http.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                         "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
-                      "messages": [{"role": "user", "content": prompt}]},
+    total_updated = 0
+
+    for col in col_map:
+        # Fetch up to 80 unclassified transactions not yet attempted
+        batch = await col.find(
+            {"user_id": uid, "custom_category": None,
+             "ai_attempted": {"$ne": True},
+             "category": {"$in": [None, "Other"]}},
+            {"merchant_name": 1, "description": 1, "transaction_type": 1},
+        ).to_list(80)
+
+        if not batch:
+            continue
+
+        # Deduplicate: one LLM call per unique label to save tokens
+        seen: dict[str, list] = {}  # label → [ids]
+        for t in batch:
+            label = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()[:100]
+            seen.setdefault(label, []).append(t["_id"])
+
+        unique_labels = list(seen.keys())
+        lines = "\n".join(f"{i+1}. {lbl}" for i, lbl in enumerate(unique_labels))
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                r = await http.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                    json={
+                        "model": "anthropic/claude-haiku-4-5",
+                        "max_tokens": 600,
+                        "temperature": 0,
+                        "messages": [{"role": "user", "content": prompt_prefix + lines}],
+                    },
+                )
+            data = r.json()
+            if "choices" not in data:
+                continue
+            raw = data["choices"][0]["message"]["content"].strip()
+            # Strip markdown fences
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```\s*$', '', raw).strip()
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
+                continue
+            classifications: dict = json.loads(m.group())
+        except Exception:
+            # Mark all as attempted so we don't retry on every sync
+            await col.update_many(
+                {"_id": {"$in": [t["_id"] for t in batch]}},
+                {"$set": {"ai_attempted": True}},
             )
-        if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"]
-            m = re.search(r"\{.*\}", content, re.DOTALL)
-            if m:
-                for k, cat in json.loads(m.group()).items():
-                    if k.isdigit() and int(k) < len(others):
-                        final = cat if cat in VALID_CATEGORIES else "Other"
-                        update = {"ai_attempted": True}
-                        if final != "Other":
-                            update["category"] = final
-                            updated += 1
-                        await transactions_col.update_one(
-                            {"_id": others[int(k)]["_id"]}, {"$set": update}
-                        )
-                        ids_attempted.remove(others[int(k)]["_id"])
-    except Exception:
-        pass
+            continue
 
-    # Mark any not covered by the AI response so they aren't retried either
-    if ids_attempted:
-        await transactions_col.update_many(
-            {"_id": {"$in": ids_attempted}}, {"$set": {"ai_attempted": True}}
-        )
+        # Apply results
+        for i, label in enumerate(unique_labels):
+            cat = classifications.get(str(i + 1))
+            final = cat if (cat and cat in VALID_CATEGORIES) else None
+            update: dict = {"ai_attempted": True}
+            if final and final != "Other":
+                update["category"] = final
+                total_updated += len(seen[label])
+            await col.update_many(
+                {"_id": {"$in": seen[label]}},
+                {"$set": update},
+            )
 
-    return updated
+        # Mark any not reached by the LLM response
+        reached_ids = {_id for ids in seen.values() for _id in ids}
+        all_ids = {t["_id"] for t in batch}
+        missed = list(all_ids - reached_ids)
+        if missed:
+            await col.update_many({"_id": {"$in": missed}}, {"$set": {"ai_attempted": True}})
+
+    return total_updated
 
 
 @app.post("/transactions/auto-categorise")
@@ -1534,11 +1583,20 @@ async def get_kpis(user: dict = Depends(current_user)):
 
     accounts = await accounts_col.find({"user_id": uid}).to_list(None)
     yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
-    if not accounts and not yapily_accs:
+    stmt_accs = await statement_accounts_col.find({"user_id": uid}).to_list(None)
+    if not accounts and not yapily_accs and not stmt_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=datetime.now())
 
-    net_worth = sum(a["balance"] for a in accounts) + sum(a.get("balance", 0) for a in yapily_accs)
-    cash      = sum(a["balance"] for a in accounts if a["type"] == "bank") + sum(a.get("balance", 0) for a in yapily_accs)
+    net_worth = (
+        sum(a["balance"] for a in accounts)
+        + sum(a.get("balance", 0) for a in yapily_accs)
+        + sum(a.get("balance", 0) for a in stmt_accs)
+    )
+    cash = (
+        sum(a["balance"] for a in accounts if a["type"] == "bank")
+        + sum(a.get("balance", 0) for a in yapily_accs)
+        + sum(a.get("balance", 0) for a in stmt_accs if a.get("type") == "bank")
+    )
     yapily_txn_debits = await yapily_transactions_col.find(
         {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
     ).to_list(None)
@@ -2860,6 +2918,8 @@ statement_transactions_col = db["statement_transactions"]
 yapily_consents_col      = db["yapily_consents"]
 yapily_accounts_col      = db["yapily_accounts"]
 yapily_transactions_col  = db["yapily_transactions"]
+savings_insights_col     = db["savings_insights"]
+savings_labels_col       = db["savings_insight_labels"]
 
 BANK_SLUG_MAP: dict[str, str] = {
     "m-pesa": "mpesa", "mpesa": "mpesa", "safaricom": "mpesa",
@@ -3387,12 +3447,17 @@ async def _llm_parse_mpesa(text: str) -> list[dict]:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "google/gemini-2.0-flash-001",
+                    "model": "google/gemini-2.5-flash",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0,
                 },
             )
-        raw = r.json()["choices"][0]["message"]["content"].strip()
+        resp_data = r.json()
+        if r.status_code != 200 or "choices" not in resp_data:
+            err = resp_data.get("error", {})
+            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
+            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+        raw = resp_data["choices"][0]["message"]["content"].strip()
         # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -3513,8 +3578,8 @@ async def mpesa_upload(
 # ── Generic Kenyan bank statement upload ──────────────────────────────────────
 
 async def _llm_parse_statement(text: str) -> dict:
-    """Parse any Kenyan bank statement (M-Pesa, Equity, KCB, NCBA, Stanbic, Absa, Co-op…).
-    Returns: {bank_name, account_number, currency, transactions: [{ref, date, type, amount, description, balance}]}
+    """Parse any bank statement (UK, Kenya, etc.).
+    Returns: {bank_name, account_number, currency, closing_balance, transactions: [{ref, date, type, amount, description, balance}]}
     """
     prompt = (
         "You are a financial data extraction assistant for bank statements.\n"
@@ -3522,9 +3587,10 @@ async def _llm_parse_statement(text: str) -> dict:
         "no markdown fences, no explanation.\n\n"
         "The object must use this exact schema:\n"
         "{\n"
-        '  "bank_name": "<bank name as printed, e.g. Barclays, HSBC, Monzo, Lloyds, NatWest, Revolut, M-Pesa, Equity Bank, KCB>",\n'
+        '  "bank_name": "<bank name as printed, e.g. Barclays, HSBC, Monzo, Lloyds, NatWest, Revolut, Chase, M-Pesa, Equity Bank, KCB>",\n'
         '  "account_number": "<the primary account number, IBAN, or phone number — digits and hyphens only, no spaces>",\n'
         '  "currency": "<ISO code, e.g. GBP, USD, KES>",\n'
+        '  "closing_balance": <the final closing balance as a signed number — negative for overdrafts/credit card debt, positive for assets. null if not found>,\n'
         '  "transactions": [\n'
         "    {\n"
         '      "ref": "<receipt / reference / cheque number, or null if absent>",\n'
@@ -3532,16 +3598,18 @@ async def _llm_parse_statement(text: str) -> dict:
         '      "type": "<credit or debit>",\n'
         '      "amount": <positive number>,\n'
         '      "description": "<full narration>",\n'
-        '      "balance": <running balance after transaction, or null>\n'
+        '      "balance": <running balance after transaction as signed number, or null>\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
         "Rules:\n"
         "- credit = money received / deposited into the account\n"
         "- debit = money sent / withdrawn / paid out\n"
+        "- closing_balance is signed: -463.45 means the account is overdrawn by £463.45\n"
         "- If ref is absent or unclear, set it to null (NOT a generated string)\n"
         "- Ignore header rows, footers, totals, and non-transaction lines\n"
-        "- Extract ALL transactions in the statement\n\n"
+        "- Do NOT include closing/opening balance summary rows as transactions\n"
+        "- Extract ALL real transactions in the statement\n\n"
         "STATEMENT TEXT:\n" + text[:14000]
     )
     try:
@@ -3549,9 +3617,14 @@ async def _llm_parse_statement(text: str) -> dict:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.0-flash-001", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
             )
-        raw = r.json()["choices"][0]["message"]["content"].strip()
+        resp_data = r.json()
+        if r.status_code != 200 or "choices" not in resp_data:
+            err = resp_data.get("error", {})
+            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
+            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+        raw = resp_data["choices"][0]["message"]["content"].strip()
         # Strip markdown fences if LLM wraps anyway
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -3601,6 +3674,13 @@ async def statement_upload(
     if not isinstance(rows, list):
         raise HTTPException(422, "LLM did not return a transactions list")
 
+    # Prefer the top-level closing_balance the LLM was explicitly asked for
+    raw_closing = parsed.get("closing_balance")
+    try:
+        closing_balance: float | None = float(raw_closing) if raw_closing is not None else None
+    except (TypeError, ValueError):
+        closing_balance = None
+
     slug        = _bank_slug(bank_name)
     acct_digits = re.sub(r"\D", "", account_number)
     acct_suffix = acct_digits[-8:] if len(acct_digits) >= 4 else hashlib.sha256(f"{uid}|{slug}".encode()).hexdigest()[:8]
@@ -3609,7 +3689,9 @@ async def statement_upload(
 
     imported = 0
     skipped  = 0
+    # Track the balance from the chronologically latest transaction that has one
     latest_balance: float | None = None
+    latest_balance_date: datetime | None = None
 
     for row in rows:
         if not isinstance(row, dict):
@@ -3635,7 +3717,11 @@ async def statement_upload(
 
         if bal is not None:
             try:
-                latest_balance = float(bal)
+                bal_f = float(bal)
+                # Keep balance from the chronologically latest transaction
+                if latest_balance_date is None or txn_date >= latest_balance_date:
+                    latest_balance = bal_f
+                    latest_balance_date = txn_date
             except (TypeError, ValueError):
                 pass
 
@@ -3660,22 +3746,43 @@ async def statement_upload(
         )
         imported += 1
 
+    # Resolve balance: prefer explicit closing_balance, fall back to per-row balance
+    resolved_balance = closing_balance if closing_balance is not None else latest_balance
+
+    # Only update the stored balance if this statement's data is newer than what's stored
+    # (prevents older statement uploads from overwriting a more recent balance)
+    existing = await statement_accounts_col.find_one({"_id": acc_id}, {"balance_date": 1, "balance": 1})
+    stored_balance_date: datetime | None = existing.get("balance_date") if existing else None
+    this_statement_date = latest_balance_date or datetime.now()
+
+    should_update_balance = (
+        resolved_balance is not None and
+        (stored_balance_date is None or this_statement_date >= stored_balance_date)
+    )
+
+    account_update: dict = {
+        "_id":            acc_id,
+        "user_id":        uid,
+        "name":           acc_name,
+        "type":           "bank",
+        "currency":       currency,
+        "provider":       slug.upper(),
+        "account_number": account_number,
+        "region":         region,
+        "status":         "connected",
+        "updated_at":     datetime.now(),
+    }
+    if should_update_balance:
+        account_update["balance"] = resolved_balance
+        account_update["balance_date"] = this_statement_date
+    elif existing is None:
+        # New account with no balance data yet
+        account_update["balance"] = 0
+
     # Upsert stable account record
     await statement_accounts_col.update_one(
         {"_id": acc_id},
-        {"$set": {
-            "_id":            acc_id,
-            "user_id":        uid,
-            "name":           acc_name,
-            "type":           "bank",
-            "balance":        latest_balance or 0,
-            "currency":       currency,
-            "provider":       slug.upper(),
-            "account_number": account_number,
-            "region":         region,
-            "status":         "connected",
-            "updated_at":     datetime.now(),
-        }},
+        {"$set": account_update},
         upsert=True,
     )
 
@@ -4023,6 +4130,605 @@ async def get_challenges(user: dict = Depends(current_user)):
         "history": [_fmt_challenge(ch) for ch in history_docs],
     }
 
+
+
+# ── Savings Insights ─────────────────────────────────────────────────────────
+
+INSIGHT_CATEGORIES: dict[str, dict] = {
+    "energy": {
+        "icon": "⚡",
+        "label": "Energy",
+        "query": "best energy tariff switch UK 2025 cheapest deals save money",
+        "triggers": ["british gas", "eon ", "edf", "scottish power", "octopus energy", "npower", "sse ", "bulb energy", "shell energy", "utilita", "utility warehouse", "bg energy"],
+    },
+    "mortgage": {
+        "icon": "🏠",
+        "label": "Mortgage",
+        "query": "best mortgage remortgage deals UK 2025 lowest fixed rate switch lender",
+        "triggers": ["mortgage", "nationwide", "halifax", "santander mortgage", "barclays mortgage", "lloyds mortgage", "natwest mortgage", "hsbc mortgage", "virgin money mortgage", "mortg"],
+    },
+    "car_finance": {
+        "icon": "🚘",
+        "label": "Car Finance",
+        "query": "refinance car loan UK 2025 best rate save money PCP HP alternatives",
+        "triggers": ["black horse", "close brothers", "moneybarn", "evolution funding", "motonovo", "car loan", "car finance", "hire purchase", "santander consumer", "toyota finance", "volkswagen finance"],
+    },
+    "car_insurance": {
+        "icon": "🚗",
+        "label": "Car Insurance",
+        "query": "cheapest car insurance deals UK 2025 comparison save",
+        "triggers": ["direct line", "admiral", "aviva", "hastings direct", "churchill", "more than", "lv= ", "esure", "elephant auto"],
+    },
+    "broadband": {
+        "icon": "📡",
+        "label": "Broadband",
+        "query": "best broadband deals UK 2025 switch provider save money",
+        "triggers": ["bt ", "bt group", "virgin media", "sky broadband", "talktalk", "vodafone broadband", "now broadband", "plusnet", "community fibre", "hyperoptic"],
+    },
+    "mobile": {
+        "icon": "📱",
+        "label": "Mobile",
+        "query": "best SIM only mobile plan UK 2025 cheapest deal",
+        "triggers": ["ee ltd", "ee limited", "ee ", "o2 ", "vodafone", "three ", "giffgaff", "sky mobile", "tesco mobile", "id mobile", "lycamobile"],
+    },
+    "groceries": {
+        "icon": "🛒",
+        "label": "Groceries",
+        "query": "cheapest UK supermarket comparison 2025 where to shop save groceries",
+        "triggers": ["tesco", "sainsbury", "asda", "morrisons", "waitrose", "lidl", "aldi", "co-op", "marks and spencer food", "ocado", "m&s food"],
+    },
+    "eating_out": {
+        "icon": "🍽️",
+        "label": "Eating Out",
+        "query": "restaurant dining offers discounts UK 2025 deals save money eating out",
+        "triggers": ["restaurant", "mcdonald", "kfc", "nando", "wagamama", "pizza express", "prezzo", "costa coffee", "starbucks", "pret a manger", "itsu", "leon ", "subway"],
+    },
+    "gym": {
+        "icon": "💪",
+        "label": "Gym",
+        "query": "best value gym membership UK 2025 cheapest monthly no contract",
+        "triggers": ["pure gym", "the gym group", "david lloyd", "virgin active", "anytime fitness", "nuffield health", "fitness first", "bannatyne", "everyone active"],
+    },
+    "subscriptions": {
+        "icon": "📺",
+        "label": "Subscriptions",
+        "query": "how to save on streaming subscriptions UK 2025 cheaper alternatives deals",
+        "triggers": ["netflix", "spotify", "amazon prime", "disney+", "disney plus", "apple tv", "youtube premium", "now tv", "sky entertainment", "paramount+", "apple music"],
+    },
+}
+
+# Categories the user can assign to unidentified bills (superset of auto-detectable ones)
+LABEL_OPTIONS: dict[str, dict] = {
+    **{k: {"icon": v["icon"], "label": v["label"]} for k, v in INSIGHT_CATEGORIES.items()},
+    "home_insurance":  {"icon": "🛡️", "label": "Home Insurance"},
+    "life_insurance":  {"icon": "❤️",  "label": "Life Insurance"},
+    "council_tax":     {"icon": "🏛️",  "label": "Council Tax"},
+    "water":           {"icon": "💧",  "label": "Water"},
+    "tv_licence":      {"icon": "📻",  "label": "TV Licence"},
+    "pension":         {"icon": "🏦",  "label": "Pension/Savings"},
+}
+
+
+async def _detect_insight_categories(user_id: str) -> list[str]:
+    """Return which INSIGHT_CATEGORIES apply based on last 90 days of transactions."""
+    cutoff = datetime.now() - timedelta(days=90)
+
+    # Gather from all transaction collections
+    pipelines = [
+        transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
+        yapily_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
+        mono_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
+        statement_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
+    ]
+    all_lists = await asyncio.gather(*pipelines, return_exceptions=True)
+
+    text_parts = []
+    for lst in all_lists:
+        if isinstance(lst, list):
+            for t in lst:
+                text_parts.append(f"{t.get('merchant_name', '')} {t.get('description', '')} {t.get('category', '')}".lower())
+    all_text = " ".join(text_parts)
+
+    detected = [k for k, cfg in INSIGHT_CATEGORIES.items() if any(trigger in all_text for trigger in cfg["triggers"])]
+
+    # Also include categories the user has explicitly labelled
+    labels = await savings_labels_col.find(
+        {"user_id": user_id, "category": {"$in": list(INSIGHT_CATEGORIES.keys())}}
+    ).to_list(None)
+    for lbl in labels:
+        if lbl["category"] not in detected:
+            detected.append(lbl["category"])
+
+    return detected
+
+
+async def _generate_savings_insight_content(category_key: str, user_context: Optional[dict] = None) -> Optional[dict]:
+    """Tavily search + Haiku summarise → returns {title, body, savings_estimate} or None."""
+    cfg = INSIGHT_CATEGORIES[category_key]
+
+    web_snippets: list[str] = []
+    if TAVILY_API_KEY:
+        async with httpx.AsyncClient(timeout=20) as client:
+            try:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": TAVILY_API_KEY,
+                        "query": cfg["query"],
+                        "search_depth": "basic",
+                        "max_results": 3,
+                        "include_answer": True,
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("answer"):
+                        web_snippets.append(data["answer"][:500])
+                    for res in (data.get("results") or [])[:2]:
+                        snippet = res.get("content", "")[:250]
+                        if snippet:
+                            web_snippets.append(snippet)
+            except Exception:
+                pass
+
+    if not web_snippets or not OPENROUTER_API_KEY:
+        return None
+
+    web_text = "\n\n".join(web_snippets)
+    if user_context:
+        ctx_lines = "\n".join(
+            f"- {k.replace('_', ' ').title()}: {v}"
+            for k, v in user_context.items() if v
+        )
+        prompt = (
+            f"Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"The user's current {cfg['label'].lower()} situation:\n{ctx_lines}\n\n"
+            "Write a HIGHLY PERSONALISED savings insight. Reference their specific rate, provider, amount or end date where relevant. "
+            "Give concrete next steps they should take right now.\n"
+            "JSON: title (max 8 words, specific to their situation), "
+            "body (2–3 sentences, direct advice referencing their details), "
+            "savings_estimate (calculate from their numbers if possible, else null)\n\n"
+            'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
+        )
+    else:
+        prompt = (
+            f"Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            "Write a concise savings insight card in JSON with three fields:\n"
+            "- title: max 8 words, punchy, present tense\n"
+            "- body: 1–2 sentences, specific deal or tip, no filler\n"
+            "- savings_estimate: e.g. 'Up to £200/yr' or 'Save 30%' if clearly stated, else null\n\n"
+            'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
+        )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            r = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
+                json={
+                    "model": "anthropic/claude-haiku-4-5",
+                    "max_tokens": 200,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                },
+            )
+            if r.status_code == 200:
+                raw = r.json()["choices"][0]["message"]["content"].strip()
+                # Strip markdown code fences that some models add despite json_object mode
+                if raw.startswith("```"):
+                    raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                    raw = re.sub(r'\s*```$', '', raw).strip()
+                parsed = json.loads(raw)
+                return {
+                    "title": str(parsed.get("title", cfg["label"])),
+                    "body": str(parsed.get("body", "")),
+                    "savings_estimate": parsed.get("savings_estimate") or None,
+                }
+        except Exception:
+            pass
+    return None
+
+
+async def _refresh_savings_insights_for_user(user_id: str) -> None:
+    """Detect applicable categories, search web, summarise with Haiku, upsert into MongoDB."""
+    applicable = await _detect_insight_categories(user_id)
+
+    # Always include energy and groceries as universal tips even without matching transactions
+    for cat in ("energy", "groceries"):
+        if cat not in applicable:
+            applicable.append(cat)
+
+    for cat_key in applicable:
+        cfg = INSIGHT_CATEGORIES.get(cat_key)
+        if not cfg:
+            continue
+
+        # Skip if refreshed in last 7 days (avoid hammering Tavily)
+        existing = await savings_insights_col.find_one({"user_id": user_id, "category": cat_key})
+        if existing and existing.get("refreshed_at"):
+            age_days = (datetime.now() - existing["refreshed_at"]).days
+            if age_days < 7:
+                continue
+
+        stored_context = existing.get("user_context") if existing else None
+        content = await _generate_savings_insight_content(cat_key, stored_context)
+        if not content or not content.get("body"):
+            continue
+
+        triggered_by = await _find_triggered_transactions(user_id, cat_key)
+        title = content["title"]
+        body = content["body"]
+        savings_estimate = content.get("savings_estimate")
+        content_hash = hashlib.md5(f"{title}{body}".encode()).hexdigest()
+        now = datetime.now()
+        is_new = not existing or existing.get("content_hash") != content_hash
+
+        if existing:
+            update: dict = {
+                "title": title, "body": body,
+                "savings_estimate": savings_estimate,
+                "triggered_by": triggered_by,
+                "refreshed_at": now, "content_hash": content_hash, "is_new": is_new,
+            }
+            if not existing.get("pinned"):
+                update["expires_at"] = now + timedelta(days=30)
+            await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": update})
+        else:
+            insight_id = f"{cat_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
+            await savings_insights_col.insert_one({
+                "insight_id": insight_id, "user_id": user_id,
+                "category": cat_key, "icon": cfg["icon"], "label": cfg["label"],
+                "title": title, "body": body, "savings_estimate": savings_estimate,
+                "triggered_by": triggered_by,
+                "pinned": False, "created_at": now, "refreshed_at": now,
+                "expires_at": now + timedelta(days=30),
+                "content_hash": content_hash, "is_new": True,
+            })
+
+
+@app.get("/savings-insights")
+async def get_savings_insights(user: dict = Depends(current_user)):
+    uid = user["email"]
+    docs = await savings_insights_col.find(
+        {"user_id": uid},
+    ).sort([("pinned", -1), ("refreshed_at", -1)]).to_list(None)
+
+    results = []
+    for d in docs:
+        # Lazily populate triggered_by for older insights that were created before this field existed
+        if not d.get("triggered_by"):
+            triggered_by = await _find_triggered_transactions(uid, d["category"])
+            if triggered_by:
+                await savings_insights_col.update_one({"_id": d["_id"]}, {"$set": {"triggered_by": triggered_by}})
+                d["triggered_by"] = triggered_by
+
+        results.append({
+            "id": d.get("insight_id", str(d["_id"])),
+            "category": d["category"],
+            "icon": d.get("icon", "💡"),
+            "label": d.get("label", d["category"].replace("_", " ").title()),
+            "title": d.get("title", ""),
+            "body": d.get("body", ""),
+            "savings_estimate": d.get("savings_estimate"),
+            "pinned": d.get("pinned", False),
+            "is_new": d.get("is_new", False),
+            "refreshed_at": d["refreshed_at"].isoformat() if d.get("refreshed_at") else None,
+            "triggered_by": d.get("triggered_by", []),
+            "user_context": d.get("user_context"),
+            "has_workflow": d["category"] in CATEGORY_WORKFLOWS,
+        })
+    return results
+
+
+@app.get("/savings-insights/workflows")
+async def get_workflows(_user: dict = Depends(current_user)):
+    return CATEGORY_WORKFLOWS
+
+
+@app.post("/savings-insights/{insight_id}/context")
+async def save_insight_context(
+    insight_id: str,
+    body: dict,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(current_user),
+):
+    uid = user["email"]
+    doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
+    if not doc:
+        raise HTTPException(404, "Insight not found")
+    context = body.get("context", {})
+    await savings_insights_col.update_one({"_id": doc["_id"]}, {"$set": {"user_context": context}})
+    background_tasks.add_task(_refresh_single_insight, uid, doc["category"], context)
+    return {"message": "Saved, regenerating insight"}
+
+
+@app.patch("/savings-insights/{insight_id}/pin")
+async def toggle_pin_insight(insight_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
+    if not doc:
+        raise HTTPException(404, "Insight not found")
+    new_pinned = not doc.get("pinned", False)
+    update: dict = {"pinned": new_pinned}
+    update["expires_at"] = None if new_pinned else datetime.now() + timedelta(days=30)
+    await savings_insights_col.update_one({"_id": doc["_id"]}, {"$set": update})
+    return {"pinned": new_pinned}
+
+
+@app.post("/savings-insights/refresh")
+async def trigger_refresh_insights(background_tasks: BackgroundTasks, user: dict = Depends(current_user)):
+    uid = user["email"]
+    background_tasks.add_task(_refresh_savings_insights_for_user, uid)
+    return {"message": "Refresh started"}
+
+
+CATEGORY_WORKFLOWS: dict[str, dict] = {
+    # Only ask for things we CANNOT derive from transactions
+    "mortgage": {
+        "cta": "Add your mortgage details",
+        "steps": [
+            {"id": "type",           "label": "Mortgage type",            "type": "select", "options": ["Fixed Rate", "Tracker", "Variable/SVR", "Interest Only", "Not sure"]},
+            {"id": "rate",           "label": "Current interest rate",    "type": "number", "placeholder": "e.g. 4.5", "unit": "%"},
+            {"id": "outstanding",    "label": "Amount outstanding",       "type": "currency", "placeholder": "e.g. 250000"},
+            {"id": "deal_end",       "label": "When does your deal end?", "type": "text",   "placeholder": "e.g. March 2027"},
+            {"id": "term_remaining", "label": "Years remaining",          "type": "number", "placeholder": "e.g. 22", "unit": "yrs"},
+        ],
+    },
+    "car_finance": {
+        "cta": "Add your finance details",
+        "steps": [
+            {"id": "type",             "label": "Finance type",        "type": "select", "options": ["Personal Loan", "PCP", "Hire Purchase (HP)", "Lease/PCH", "Not sure"]},
+            {"id": "rate",             "label": "Interest rate / APR", "type": "number", "placeholder": "e.g. 6.9", "unit": "%"},
+            {"id": "outstanding",      "label": "Amount outstanding",  "type": "currency", "placeholder": "e.g. 8000"},
+            {"id": "months_remaining", "label": "Months remaining",    "type": "number", "placeholder": "e.g. 36", "unit": "mo"},
+        ],
+    },
+    "energy": {
+        "cta": "Add your energy details",
+        "steps": [
+            {"id": "tariff_type", "label": "Tariff type",            "type": "select", "options": ["Fixed Rate", "Variable/SVR", "Not sure"]},
+            {"id": "deal_end",    "label": "When does your deal end?", "type": "text", "placeholder": "e.g. Oct 2026 or Rolling"},
+        ],
+    },
+    "broadband": {
+        "cta": "Add your broadband details",
+        "steps": [
+            {"id": "contract_end", "label": "Contract end date",  "type": "text",   "placeholder": "e.g. Aug 2026 or Rolling"},
+            {"id": "speed",        "label": "Download speed",     "type": "select", "options": ["Under 50 Mbps", "50–100 Mbps", "100–500 Mbps", "500 Mbps+", "Not sure"]},
+        ],
+    },
+    "mobile": {
+        "cta": "Add your plan details",
+        "steps": [
+            {"id": "contract_end", "label": "Contract end date",  "type": "text",   "placeholder": "e.g. Dec 2026 or Rolling"},
+            {"id": "data",         "label": "Monthly data usage", "type": "select", "options": ["Under 5 GB", "5–20 GB", "20–50 GB", "50 GB+", "Unlimited"]},
+        ],
+    },
+    "car_insurance": {
+        "cta": "Add your insurance details",
+        "steps": [
+            {"id": "renewal_date", "label": "Renewal date", "type": "text", "placeholder": "e.g. September 2026"},
+        ],
+    },
+    "gym": {
+        "cta": "Add your gym details",
+        "steps": [
+            {"id": "gym_name", "label": "Which gym?",     "type": "text",   "placeholder": "e.g. David Lloyd"},
+            {"id": "contract", "label": "Contract type",  "type": "select", "options": ["Monthly rolling", "3-month", "6-month", "12-month", "Not sure"]},
+        ],
+    },
+    "subscriptions": {
+        "cta": "Tell us about your subscriptions",
+        "steps": [
+            {"id": "services", "label": "Which services do you subscribe to?", "type": "text", "placeholder": "e.g. Netflix, Spotify, Disney+"},
+        ],
+    },
+    "groceries": {
+        "cta": "Add your shopping habits",
+        "steps": [
+            {"id": "main_supermarket", "label": "Where do you mostly shop?", "type": "select", "options": ["Tesco", "Sainsbury's", "ASDA", "Morrisons", "Waitrose", "M&S", "Lidl", "Aldi", "Mix of stores"]},
+        ],
+    },
+    "eating_out": {
+        "cta": "Add your dining habits",
+        "steps": [
+            {"id": "frequency", "label": "How often do you eat out?", "type": "select", "options": ["Daily", "2–3× per week", "Once a week", "Few times a month", "Rarely"]},
+        ],
+    },
+}
+
+
+async def _find_triggered_transactions(user_id: str, category_key: str) -> list[dict]:
+    """Find the recurring transactions that triggered this insight category."""
+    from collections import defaultdict
+    cfg = INSIGHT_CATEGORIES.get(category_key)
+    if not cfg:
+        return []
+    cutoff = datetime.now() - timedelta(days=90)
+
+    # Check for a user label pointing at this category
+    label = await savings_labels_col.find_one({"user_id": user_id, "category": category_key})
+    labelled_key = label["merchant_key"] if label else None
+
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for col in [transactions_col, yapily_transactions_col, statement_transactions_col, mono_transactions_col]:
+        try:
+            txns = await col.find(
+                {"user_id": user_id, "date": {"$gte": cutoff}, "transaction_type": "debit"},
+                {"merchant_name": 1, "description": 1, "amount": 1},
+            ).to_list(None)
+        except Exception:
+            continue
+        for t in txns:
+            key = (t.get("merchant_name") or t.get("description", "")[:30]).strip()
+            if not key:
+                continue
+            key_lower = key.lower()
+            if (labelled_key and key == labelled_key) or any(tr in key_lower for tr in cfg.get("triggers", [])):
+                buckets[key].append(float(t.get("amount", 0)))
+
+    result = []
+    for key, amounts in sorted(buckets.items(), key=lambda x: -sum(x[1])):
+        result.append({
+            "merchant_key": key,
+            "display_name": key.title(),
+            "monthly_amount": round(sum(amounts) / 3, 2),
+            "occurrences": len(amounts),
+        })
+        if len(result) >= 4:
+            break
+    return result
+
+
+async def _refresh_single_insight(user_id: str, category_key: str, user_context: Optional[dict] = None) -> None:
+    """Force-refresh one insight category, bypassing the 7-day throttle."""
+    cfg = INSIGHT_CATEGORIES.get(category_key)
+    if not cfg:
+        return
+    # If no context provided, carry forward any stored context
+    if user_context is None:
+        existing_doc = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
+        user_context = existing_doc.get("user_context") if existing_doc else None
+    content = await _generate_savings_insight_content(category_key, user_context)
+    if not content or not content.get("body"):
+        return
+    triggered_by = await _find_triggered_transactions(user_id, category_key)
+    title = content["title"]
+    body_text = content["body"]
+    savings_estimate = content.get("savings_estimate")
+    content_hash = hashlib.md5(f"{title}{body_text}".encode()).hexdigest()
+    now = datetime.now()
+    existing = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
+    is_new = not existing or existing.get("content_hash") != content_hash
+    base_update: dict = {
+        "title": title, "body": body_text,
+        "savings_estimate": savings_estimate,
+        "triggered_by": triggered_by,
+        "refreshed_at": now, "content_hash": content_hash, "is_new": is_new,
+    }
+    if user_context is not None:
+        base_update["user_context"] = user_context
+    if existing:
+        if not existing.get("pinned"):
+            base_update["expires_at"] = now + timedelta(days=30)
+        await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": base_update})
+    else:
+        insight_id = f"{category_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
+        await savings_insights_col.insert_one({
+            "insight_id": insight_id, "user_id": user_id,
+            "category": category_key, "icon": cfg["icon"], "label": cfg["label"],
+            "pinned": False, "created_at": now,
+            "expires_at": now + timedelta(days=30),
+            **base_update,
+        })
+
+
+BILL_CATEGORIES = {"bills", "housing", "utilities", "insurance"}
+
+# Triggers whose presence means we already know the category — exclude from unknown-bills
+_ALL_TRIGGERS: set[str] = {t for cfg in INSIGHT_CATEGORIES.values() for t in cfg.get("triggers", [])}
+
+
+@app.get("/savings-insights/unknown-bills")
+async def get_unknown_bills(user: dict = Depends(current_user)):
+    """Return recurring Bills transactions the system can't categorise automatically."""
+    uid = user["email"]
+    cutoff = datetime.now() - timedelta(days=90)
+    from collections import defaultdict
+
+    labelled_keys = {
+        lbl["merchant_key"]
+        async for lbl in savings_labels_col.find({"user_id": uid}, {"merchant_key": 1})
+    }
+
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for col in [transactions_col, yapily_transactions_col, statement_transactions_col]:
+        txns = await col.find(
+            {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "debit"},
+            {"merchant_name": 1, "description": 1, "category": 1, "custom_category": 1, "amount": 1},
+        ).to_list(None)
+        for t in txns:
+            cat = (t.get("custom_category") or t.get("category") or "").lower()
+            if cat not in BILL_CATEGORIES:
+                continue
+            key = (t.get("merchant_name") or t.get("description", "")[:30]).strip()
+            if not key:
+                continue
+            buckets[key].append(float(t.get("amount", 0)))
+
+    results = []
+    for key, amounts in sorted(buckets.items(), key=lambda x: -sum(x[1])):
+        if len(amounts) < 2:
+            continue
+        key_lower = key.lower()
+        if any(trigger in key_lower for trigger in _ALL_TRIGGERS):
+            continue
+        if key in labelled_keys:
+            continue
+        results.append({
+            "merchant_key": key,
+            "display_name": key.title(),
+            "monthly_amount": round(sum(amounts) / 3, 2),
+            "occurrences": len(amounts),
+        })
+        if len(results) >= 8:
+            break
+
+    return {"unknown_bills": results, "label_options": LABEL_OPTIONS}
+
+
+@app.post("/savings-insights/label")
+async def label_bill(body: dict, background_tasks: BackgroundTasks, user: dict = Depends(current_user)):
+    """User labels an unrecognised recurring bill; triggers an insight for that category."""
+    uid = user["email"]
+    merchant_key = (body.get("merchant_key") or "").strip()
+    category = (body.get("category") or "").strip()
+    if not merchant_key or not category:
+        raise HTTPException(400, "merchant_key and category required")
+    valid_cats = set(INSIGHT_CATEGORIES.keys()) | set(LABEL_OPTIONS.keys()) | {"skip"}
+    if category not in valid_cats:
+        raise HTTPException(400, "Invalid category")
+
+    await savings_labels_col.update_one(
+        {"user_id": uid, "merchant_key": merchant_key},
+        {"$set": {"user_id": uid, "merchant_key": merchant_key, "category": category, "updated_at": datetime.now()}},
+        upsert=True,
+    )
+
+    # Immediately generate an insight if the category is supported
+    if category in INSIGHT_CATEGORIES:
+        background_tasks.add_task(_refresh_single_insight, uid, category)
+
+    return {"message": "Labelled", "category": category}
+
+
+@app.get("/savings-insights/labels")
+async def get_bill_labels(user: dict = Depends(current_user)):
+    """Return all bill labels the user has assigned, for review and editing."""
+    uid = user["email"]
+    docs = await savings_labels_col.find({"user_id": uid}).sort("merchant_key", 1).to_list(None)
+    return [
+        {
+            "merchant_key": d["merchant_key"],
+            "display_name": d["merchant_key"].title(),
+            "category": d["category"],
+            "icon": LABEL_OPTIONS.get(d["category"], {}).get("icon", "💡"),
+            "label": LABEL_OPTIONS.get(d["category"], {}).get("label", d["category"].replace("_", " ").title()),
+            "is_skip": d["category"] == "skip",
+        }
+        for d in docs
+    ]
+
+
+@app.delete("/savings-insights/labels/{merchant_key}")
+async def delete_bill_label(merchant_key: str, user: dict = Depends(current_user)):
+    """Remove a label so the bill reappears in the unknown-bills panel."""
+    uid = user["email"]
+    await savings_labels_col.delete_one({"user_id": uid, "merchant_key": merchant_key})
+    return {"deleted": merchant_key}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
