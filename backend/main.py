@@ -3674,6 +3674,16 @@ async def statement_upload(
     currency       = str(parsed.get("currency") or "KES")
     rows           = parsed.get("transactions", [])
 
+    # Reject M-PESA / KES statements when user is in UK region
+    user_region = await get_user_region(uid)
+    is_mpesa = "mpesa" in bank_name.lower() or "m-pesa" in bank_name.lower() or currency == "KES"
+    if user_region != "Kenya" and is_mpesa:
+        raise HTTPException(
+            422,
+            "M-PESA / KES statements can only be uploaded in Kenya region. "
+            "Switch your region to Kenya in Settings to upload this statement.",
+        )
+
     if not isinstance(rows, list):
         raise HTTPException(422, "LLM did not return a transactions list")
 
