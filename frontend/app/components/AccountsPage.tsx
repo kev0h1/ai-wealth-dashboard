@@ -481,7 +481,7 @@ export default function AccountsPage() {
           <div>
             <h1 className="text-xl font-bold">Accounts</h1>
             <p className="text-sm opacity-70 mt-0.5">
-              {accounts.length} account{accounts.length !== 1 ? "s" : ""} connected
+              {accounts.length} bank · {investmentAccounts.length} investment
             </p>
           </div>
           {region === "UK" ? (
@@ -491,7 +491,7 @@ export default function AccountsPage() {
                 className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
               >
                 <Plus size={14} />
-                Add Bank
+                Bank
               </button>
               <button
                 onClick={() => setShowMpesaUpload(true)}
@@ -499,6 +499,13 @@ export default function AccountsPage() {
               >
                 <Upload size={14} />
                 Statement
+              </button>
+              <button
+                onClick={() => setShowInvestmentUpload(true)}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+              >
+                <TrendingUp size={14} />
+                Invest
               </button>
             </div>
           ) : (
@@ -521,6 +528,13 @@ export default function AccountsPage() {
               >
                 <Upload size={14} />
                 Statement
+              </button>
+              <button
+                onClick={() => setShowInvestmentUpload(true)}
+                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+              >
+                <TrendingUp size={14} />
+                Invest
               </button>
             </div>
           )}
