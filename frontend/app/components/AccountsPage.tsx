@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle } from "lucide-react";
-import { api, Account, Transaction } from "@/lib/api";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding } from "@/lib/api";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
@@ -13,6 +13,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import MonoConnectWidget from "@/components/MonoConnect";
 import StatementUpload from "@/components/StatementUpload";
+import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 
@@ -51,12 +52,23 @@ export default function AccountsPage() {
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [reconnectWarning, setReconnectWarning] = useState<string | null>(null);
+  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
+  const [showInvestmentUpload, setShowInvestmentUpload] = useState(false);
+  const [expandedInvestment, setExpandedInvestment] = useState<string | null>(null);
+  const [investmentHoldings, setInvestmentHoldings] = useState<Record<string, InvestmentHolding[]>>({});
+  const [loadingHoldings, setLoadingHoldings] = useState<string | null>(null);
+  const [refreshingInvestment, setRefreshingInvestment] = useState<string | null>(null);
+  const [deletingInvestment, setDeletingInvestment] = useState<string | null>(null);
   const isSyncing = searchParams.get("syncing") === "1";
 
   const loadAccounts = useCallback(async () => {
     try {
-      const accs = await api.accounts().catch(() => [] as Account[]);
+      const [accs, invAccs] = await Promise.all([
+        api.accounts().catch(() => [] as Account[]),
+        api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
+      ]);
       setAccounts(accs);
+      setInvestmentAccounts(invAccs);
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
@@ -190,6 +202,51 @@ export default function AccountsPage() {
     } finally {
       setDeletingAccount(false);
     }
+  }
+
+  async function handleToggleInvestment(id: string) {
+    if (expandedInvestment === id) {
+      setExpandedInvestment(null);
+      return;
+    }
+    setExpandedInvestment(id);
+    if (!investmentHoldings[id]) {
+      setLoadingHoldings(id);
+      try {
+        const h = await api.getInvestmentHoldings(id);
+        setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
+      } catch { /* ignore */ }
+      finally { setLoadingHoldings(null); }
+    }
+  }
+
+  async function handleRefreshInvestment(id: string) {
+    setRefreshingInvestment(id);
+    try {
+      const res = await api.refreshInvestmentPrices(id);
+      setInvestmentAccounts(prev =>
+        prev.map(a => a.id === id ? { ...a, total_value: res.new_total, last_refreshed: new Date().toISOString() } : a)
+      );
+      // Reload holdings to reflect updated prices
+      const h = await api.getInvestmentHoldings(id);
+      setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Refresh failed");
+    } finally {
+      setRefreshingInvestment(null);
+    }
+  }
+
+  async function handleDeleteInvestment(id: string) {
+    if (!confirm("Remove this investment account and all its holdings?")) return;
+    setDeletingInvestment(id);
+    try {
+      await api.deleteInvestmentAccount(id);
+      setInvestmentAccounts(prev => prev.filter(a => a.id !== id));
+      setInvestmentHoldings(prev => { const n = { ...prev }; delete n[id]; return n; });
+      if (expandedInvestment === id) setExpandedInvestment(null);
+    } catch { alert("Failed to remove investment account."); }
+    finally { setDeletingInvestment(null); }
   }
 
   // Backend already filters by region — accounts contains only the right source
@@ -575,10 +632,159 @@ export default function AccountsPage() {
         )}
       </div>
 
+      {/* Investments section */}
+      <div className="px-4 pt-5 pb-1">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Investments</p>
+          <button
+            onClick={() => setShowInvestmentUpload(true)}
+            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 active:scale-95 transition-all"
+          >
+            <Upload size={12} />
+            Upload statement
+          </button>
+        </div>
+
+        {investmentAccounts.length === 0 ? (
+          <button
+            onClick={() => setShowInvestmentUpload(true)}
+            className="w-full border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-5 flex items-center gap-3 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors"
+          >
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
+              <TrendingUp size={20} className="text-indigo-400" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No investment accounts</p>
+              <p className="text-xs text-slate-400 mt-0.5">Upload a Vanguard, Wealthify, or HL statement</p>
+            </div>
+          </button>
+        ) : (
+          <div className="space-y-2">
+            {investmentAccounts.map(inv => {
+              const isExpanded = expandedInvestment === inv.id;
+              const holdings = investmentHoldings[inv.id] ?? [];
+              const isRefreshing = refreshingInvestment === inv.id;
+              const isDeleting = deletingInvestment === inv.id;
+              const isLoadingH = loadingHoldings === inv.id;
+              const refreshDate = inv.last_refreshed
+                ? new Date(inv.last_refreshed).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                : null;
+
+              return (
+                <div key={inv.id} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => handleToggleInvestment(inv.id)}
+                    className="w-full flex items-center justify-between px-4 py-3.5 text-left"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
+                        <TrendingUp size={16} className="text-indigo-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                          {inv.provider} {inv.account_type}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {inv.account_reference}
+                          {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                        {hideNetWorth ? "••••" : `£${inv.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                      </span>
+                      {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-50 dark:border-slate-700">
+                      {/* Action row */}
+                      <div className="flex items-center gap-2 px-4 py-2.5">
+                        <button
+                          onClick={() => handleRefreshInvestment(inv.id)}
+                          disabled={isRefreshing}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
+                        >
+                          <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                          {isRefreshing ? "Refreshing prices…" : "Refresh prices"}
+                        </button>
+                        <span className="text-slate-200 dark:text-slate-600">|</span>
+                        <button
+                          onClick={() => handleDeleteInvestment(inv.id)}
+                          disabled={isDeleting}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 disabled:opacity-50"
+                        >
+                          <Trash2 size={12} />
+                          {isDeleting ? "Removing…" : "Remove"}
+                        </button>
+                      </div>
+
+                      {/* Holdings list */}
+                      {isLoadingH ? (
+                        <div className="flex items-center justify-center py-6">
+                          <Spinner size={24} />
+                        </div>
+                      ) : holdings.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-6">No holdings found</p>
+                      ) : (
+                        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                          {holdings.map(h => {
+                            const displayValue = h.current_value ?? h.statement_value;
+                            const displayPrice = h.current_price ?? h.price_per_unit;
+                            const hasLivePrice = h.current_price !== null;
+
+                            return (
+                              <div key={h.id} className="px-4 py-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 leading-tight">{h.name}</p>
+                                    <p className="text-xs text-slate-400 mt-0.5">
+                                      {h.isin && <span className="mr-1.5">{h.isin}</span>}
+                                      <span className="capitalize">{h.type.toLowerCase()}</span>
+                                      {h.units && <span className="ml-1.5">{h.units.toLocaleString("en-GB", { maximumFractionDigits: 4 })} units</span>}
+                                    </p>
+                                    {displayPrice && (
+                                      <p className="text-xs mt-0.5">
+                                        <span className={hasLivePrice ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
+                                          {hasLivePrice ? "Live " : ""}£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} / unit
+                                        </span>
+                                      </p>
+                                    )}
+                                  </div>
+                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
+                                    {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {showMpesaUpload && (
         <StatementUpload
           onSuccess={handleStatementSuccess}
           onClose={() => setShowMpesaUpload(false)}
+        />
+      )}
+
+      {showInvestmentUpload && (
+        <InvestmentUpload
+          onSuccess={() => {
+            api.getInvestmentAccounts().then(setInvestmentAccounts).catch(() => {});
+            setShowInvestmentUpload(false);
+          }}
+          onClose={() => setShowInvestmentUpload(false)}
         />
       )}
 

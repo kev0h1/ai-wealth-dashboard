@@ -140,6 +140,31 @@ export interface ChallengesData {
   history: Challenge[];
 }
 
+export interface InvestmentAccount {
+  id: string;
+  provider: string;
+  account_type: string;
+  account_reference: string;
+  currency: string;
+  total_value: number;
+  statement_date: string | null;
+  last_refreshed: string | null;
+  updated_at: string;
+}
+
+export interface InvestmentHolding {
+  id: string;
+  name: string;
+  isin: string | null;
+  type: string;
+  units: number | null;
+  price_per_unit: number | null;
+  statement_value: number;
+  current_price: number | null;
+  current_value: number | null;
+  last_refreshed: string | null;
+}
+
 export function authHeaders(): HeadersInit {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -328,6 +353,58 @@ export const api = {
       account_number: string;
       balance: number | null;
     }>;
+  },
+
+  // Investment accounts
+  getInvestmentAccounts: () => get<InvestmentAccount[]>("/investment/accounts"),
+
+  uploadInvestmentStatement: async (file: File, password?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (password) form.append("password", password);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 150_000);
+    let r: Response;
+    try {
+      r = await fetch(`${API_BASE}/investment/upload`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") throw new Error("Request timed out. Please try again.");
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+    clearTimeout(timer);
+    if (!r.ok) {
+      let detail = `Server error (${r.status})`;
+      try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
+      throw new Error(detail);
+    }
+    return r.json() as Promise<{ account_id: string; provider: string; account_type: string; total_value: number; holdings_count: number }>;
+  },
+
+  getInvestmentHoldings: (id: string) =>
+    get<InvestmentHolding[]>(`/investment/accounts/${encodeURIComponent(id)}/holdings`),
+
+  deleteInvestmentAccount: (id: string) =>
+    fetch(`${API_BASE}/investment/accounts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  refreshInvestmentPrices: async (id: string) => {
+    const r = await fetch(`${API_BASE}/investment/accounts/${encodeURIComponent(id)}/refresh`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({})) as Record<string, unknown>;
+      throw new Error((b?.detail as string) || `Error ${r.status}`);
+    }
+    return r.json() as Promise<{ updated: number; new_total: number }>;
   },
 
   challenges: () => get<ChallengesData>("/challenges"),
