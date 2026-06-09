@@ -1583,7 +1583,9 @@ async def get_kpis(user: dict = Depends(current_user)):
 
     accounts = await accounts_col.find({"user_id": uid}).to_list(None)
     yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
-    stmt_accs = await statement_accounts_col.find({"user_id": uid}).to_list(None)
+    stmt_accs_all = await statement_accounts_col.find({"user_id": uid}).to_list(None)
+    # Only include GBP / UK statement accounts in the UK net-worth figure
+    stmt_accs = [a for a in stmt_accs_all if a.get("currency", "GBP") == "GBP" or a.get("region", "UK") == "UK"]
     if not accounts and not yapily_accs and not stmt_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=datetime.now())
 
@@ -1592,9 +1594,10 @@ async def get_kpis(user: dict = Depends(current_user)):
         + sum(a.get("balance", 0) for a in yapily_accs)
         + sum(a.get("balance", 0) for a in stmt_accs)
     )
+    # Cash = liquid bank accounts only (exclude credit cards); Yapily filtered to bank type too
     cash = (
         sum(a["balance"] for a in accounts if a["type"] == "bank")
-        + sum(a.get("balance", 0) for a in yapily_accs)
+        + sum(a.get("balance", 0) for a in yapily_accs if a.get("type") == "bank")
         + sum(a.get("balance", 0) for a in stmt_accs if a.get("type") == "bank")
     )
     yapily_txn_debits = await yapily_transactions_col.find(
