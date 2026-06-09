@@ -48,6 +48,7 @@ export default function AccountsPage() {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [tab, setTab] = useState<"Banks" | "Investments">("Banks");
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -472,209 +473,224 @@ export default function AccountsPage() {
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
       {/* Header */}
       <div
-        className="px-4 pt-6 pb-5 text-white"
+        className="px-4 pb-0 text-white"
         style={{
           background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+          paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)",
         }}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-bold">Accounts</h1>
             <p className="text-sm opacity-70 mt-0.5">
               {accounts.length} bank · {investmentAccounts.length} investment
             </p>
           </div>
-          {region === "UK" ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowBankPicker(true)}
-                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-              >
-                <Plus size={14} />
-                Bank
-              </button>
-              <button
-                onClick={() => setShowMpesaUpload(true)}
-                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-              >
-                <Upload size={14} />
-                Statement
-              </button>
-              <button
-                onClick={() => setShowInvestmentUpload(true)}
-                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-              >
-                <TrendingUp size={14} />
-                Invest
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                {(open, loading) => (
-                  <button
-                    onClick={open}
-                    disabled={loading}
-                    className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-                  >
-                    <Plus size={14} />
-                    {loading ? "Opening…" : "Mono"}
-                  </button>
-                )}
-              </MonoConnectWidget>
-              <button
-                onClick={() => setShowMpesaUpload(true)}
-                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-              >
-                <Upload size={14} />
-                Statement
-              </button>
-              <button
-                onClick={() => setShowInvestmentUpload(true)}
-                className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
-              >
-                <TrendingUp size={14} />
-                Invest
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {isSyncing && (
-        <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
-          <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
-          <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
-        </div>
-      )}
-
-      {reconnectWarning && (
-        <div className="mx-4 mt-4 flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
-          <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-red-800 dark:text-red-200">Wrong account connected</p>
-            <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{reconnectWarning}</p>
-          </div>
-          <button onClick={() => setReconnectWarning(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
-        </div>
-      )}
-
-      {expiredProviders.map(({ provider, provider_id }) => (
-        <div key={provider} className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
-          <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs to be reconnected</p>
-            <p className="text-xs text-amber-600 dark:text-amber-400">Your consent has expired — transactions are no longer syncing.</p>
-          </div>
-          <button
-            onClick={() => handleReconnect(provider_id)}
-            className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
-          >
-            Reconnect
-          </button>
-        </div>
-      ))}
-
-      <div className="px-4 pt-4 space-y-3">
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Spinner size={32} />
-          </div>
-        ) : accounts.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
-              <Landmark size={26} color="#4f46e5" />
-            </div>
-            <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
-            <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
-              {region === "UK"
-                ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
-                : "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."}
-            </p>
-            {region === "UK" ? (
-              <div className="flex flex-col gap-2 items-center">
+          {/* Context-aware action buttons */}
+          {tab === "Banks" ? (
+            region === "UK" ? (
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowBankPicker(true)}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                 >
-                  <Plus size={16} />
-                  Connect a Bank
+                  <Plus size={14} />
+                  Add Bank
                 </button>
                 <button
                   onClick={() => setShowMpesaUpload(true)}
-                  className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
+                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                 >
-                  <Upload size={16} />
-                  Upload Statement
+                  <Upload size={14} />
+                  Statement
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-2 items-center">
+              <div className="flex items-center gap-2">
                 <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                  {(open, loading) => (
+                  {(open, monoLoading) => (
                     <button
                       onClick={open}
-                      disabled={loading}
-                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                      disabled={monoLoading}
+                      className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                     >
-                      <Plus size={16} />
-                      {loading ? "Opening…" : "Connect via Mono"}
+                      <Plus size={14} />
+                      {monoLoading ? "Opening…" : "Mono"}
                     </button>
                   )}
                 </MonoConnectWidget>
                 <button
                   onClick={() => setShowMpesaUpload(true)}
-                  className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                 >
-                  <Upload size={16} />
-                  Upload Bank Statement
+                  <Upload size={14} />
+                  Statement
                 </button>
               </div>
-            )}
-          </div>
-        ) : (
-          accounts.map((acc) => (
-            <AccountMiniCard
-              key={acc.id}
-              account={acc}
-              fullWidth
-              hidden={hideNetWorth}
-              onClick={() => handleSelectAccount(acc)}
-              onReconnect={() => handleReconnect(acc.provider_id, acc)}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Investments section */}
-      <div className="px-4 pt-5 pb-1">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Investments</p>
-          <button
-            onClick={() => setShowInvestmentUpload(true)}
-            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 active:scale-95 transition-all"
-          >
-            <Upload size={12} />
-            Upload statement
-          </button>
+            )
+          ) : (
+            <button
+              onClick={() => setShowInvestmentUpload(true)}
+              className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
+            >
+              <Upload size={14} />
+              Upload
+            </button>
+          )}
         </div>
 
-        {investmentAccounts.length === 0 ? (
-          <button
-            onClick={() => setShowInvestmentUpload(true)}
-            className="w-full border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-5 flex items-center gap-3 hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-900/10 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
-              <TrendingUp size={20} className="text-indigo-400" />
+        {/* Tab bar */}
+        <div className="flex bg-white/10 rounded-xl p-1 gap-1">
+          {(["Banks", "Investments"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${
+                tab === t
+                  ? "bg-white text-indigo-600 shadow-sm"
+                  : "text-white/70 hover:text-white"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        {/* Spacer so the tab bar sits flush with the page edge */}
+        <div className="h-4" />
+      </div>
+
+      {/* ── Banks tab ── */}
+      {tab === "Banks" && (
+        <>
+          {isSyncing && (
+            <div className="mx-4 mt-4 flex items-center gap-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-2xl px-4 py-3">
+              <RefreshCw size={16} className="animate-spin text-indigo-500 flex-shrink-0" />
+              <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">Syncing your bank accounts…</p>
             </div>
-            <div className="text-left">
-              <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">No investment accounts</p>
-              <p className="text-xs text-slate-400 mt-0.5">Upload a Vanguard, Wealthify, or HL statement</p>
+          )}
+
+          {reconnectWarning && (
+            <div className="mx-4 mt-4 flex items-start gap-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl px-4 py-3">
+              <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-red-800 dark:text-red-200">Wrong account connected</p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{reconnectWarning}</p>
+              </div>
+              <button onClick={() => setReconnectWarning(null)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
             </div>
-          </button>
-        ) : (
-          <div className="space-y-2">
-            {investmentAccounts.map(inv => {
+          )}
+
+          {expiredProviders.map(({ provider, provider_id }) => (
+            <div key={provider} className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
+              <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs to be reconnected</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">Your consent has expired — transactions are no longer syncing.</p>
+              </div>
+              <button
+                onClick={() => handleReconnect(provider_id)}
+                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
+              >
+                Reconnect
+              </button>
+            </div>
+          ))}
+
+          <div className="px-4 pt-4 space-y-3">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Spinner size={32} />
+              </div>
+            ) : accounts.length === 0 ? (
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
+                <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
+                  <Landmark size={26} color="#4f46e5" />
+                </div>
+                <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No banks connected</p>
+                <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
+                  {region === "UK"
+                    ? "Connect your bank via Open Banking, or upload a PDF/CSV statement."
+                    : "Connect via Mono or upload a bank statement (M-Pesa, Equity, KCB, NCBA…) to get started."}
+                </p>
+                {region === "UK" ? (
+                  <div className="flex flex-col gap-2 items-center">
+                    <button
+                      onClick={() => setShowBankPicker(true)}
+                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                    >
+                      <Plus size={16} />
+                      Connect a Bank
+                    </button>
+                    <button
+                      onClick={() => setShowMpesaUpload(true)}
+                      className="inline-flex items-center gap-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 hover:bg-slate-50 active:scale-95 transition-all text-slate-700 dark:text-slate-200 font-semibold px-5 py-3 rounded-xl text-sm"
+                    >
+                      <Upload size={16} />
+                      Upload Statement
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2 items-center">
+                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
+                      {(open, monoLoading) => (
+                        <button
+                          onClick={open}
+                          disabled={monoLoading}
+                          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                        >
+                          <Plus size={16} />
+                          {monoLoading ? "Opening…" : "Connect via Mono"}
+                        </button>
+                      )}
+                    </MonoConnectWidget>
+                    <button
+                      onClick={() => setShowMpesaUpload(true)}
+                      className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+                    >
+                      <Upload size={16} />
+                      Upload Bank Statement
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              accounts.map((acc) => (
+                <AccountMiniCard
+                  key={acc.id}
+                  account={acc}
+                  fullWidth
+                  hidden={hideNetWorth}
+                  onClick={() => handleSelectAccount(acc)}
+                  onReconnect={() => handleReconnect(acc.provider_id, acc)}
+                />
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Investments tab ── */}
+      {tab === "Investments" && (
+        <div className="px-4 pt-4 space-y-3">
+          {investmentAccounts.length === 0 ? (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
+                <TrendingUp size={26} color="#4f46e5" />
+              </div>
+              <p className="text-slate-800 dark:text-slate-100 font-semibold mb-1">No investment accounts</p>
+              <p className="text-slate-400 dark:text-slate-500 text-sm mb-5">
+                Upload a quarterly statement from Vanguard, Wealthify, Hargreaves Lansdown, Fidelity, or AJ Bell.
+              </p>
+              <button
+                onClick={() => setShowInvestmentUpload(true)}
+                className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
+              >
+                <Upload size={16} />
+                Upload Statement
+              </button>
+            </div>
+          ) : (
+            investmentAccounts.map(inv => {
               const isExpanded = expandedInvestment === inv.id;
               const holdings = investmentHoldings[inv.id] ?? [];
               const isRefreshing = refreshingInvestment === inv.id;
@@ -714,7 +730,6 @@ export default function AccountsPage() {
 
                   {isExpanded && (
                     <div className="border-t border-slate-50 dark:border-slate-700">
-                      {/* Action row */}
                       <div className="flex items-center gap-2 px-4 py-2.5">
                         <button
                           onClick={() => handleRefreshInvestment(inv.id)}
@@ -735,7 +750,6 @@ export default function AccountsPage() {
                         </button>
                       </div>
 
-                      {/* Holdings list */}
                       {isLoadingH ? (
                         <div className="flex items-center justify-center py-6">
                           <Spinner size={24} />
@@ -748,7 +762,6 @@ export default function AccountsPage() {
                             const displayValue = h.current_value ?? h.statement_value;
                             const displayPrice = h.current_price ?? h.price_per_unit;
                             const hasLivePrice = h.current_price !== null;
-
                             return (
                               <div key={h.id} className="px-4 py-3">
                                 <div className="flex items-start justify-between gap-2">
@@ -780,10 +793,10 @@ export default function AccountsPage() {
                   )}
                 </div>
               );
-            })}
-          </div>
-        )}
-      </div>
+            })
+          )}
+        </div>
+      )}
 
       {showMpesaUpload && (
         <StatementUpload
