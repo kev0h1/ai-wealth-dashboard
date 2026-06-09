@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { RefreshCw, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
-import { api, Account, Transaction, KPIs } from "@/lib/api";
+import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
 import AccountMiniCard from "@/components/AccountMiniCard";
+import InvestmentMiniCard from "@/components/InvestmentMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import BottomNav from "@/components/BottomNav";
@@ -29,6 +30,7 @@ export default function HomePage() {
   const router = useRouter();
   const { hideNetWorth } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,14 +40,16 @@ export default function HomePage() {
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
-      const [accs, kpiData] = await Promise.allSettled([
+      const [accs, kpiData, invAccs] = await Promise.allSettled([
         api.accounts(),
         api.kpis(),
+        api.getInvestmentAccounts(),
       ]);
 
       const loadedAccounts = accs.status === "fulfilled" ? accs.value : [];
       setAccounts(loadedAccounts);
       if (kpiData.status === "fulfilled") setKpis(kpiData.value);
+      if (invAccs.status === "fulfilled") setInvestmentAccounts(invAccs.value);
 
       if (loadedAccounts.length > 0) {
         const allTxns: Transaction[] = [];
@@ -194,6 +198,39 @@ export default function HomePage() {
               </div>
             )}
           </div>
+
+          {/* Investments horizontal scroll — only shown when accounts exist */}
+          {(loading || investmentAccounts.length > 0) && (
+            <div className="px-4 mb-5 lg:px-0">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Investments</p>
+                <button
+                  onClick={() => router.push("/accounts?tab=Investments")}
+                  className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
+                >
+                  Manage <span className="text-base leading-none">+</span>
+                </button>
+              </div>
+              {loading ? (
+                <div className="flex gap-3">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="flex-shrink-0 w-44 h-28 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+                  {investmentAccounts.map(inv => (
+                    <InvestmentMiniCard
+                      key={inv.id}
+                      account={inv}
+                      hidden={hideNetWorth}
+                      onClick={() => router.push("/accounts?tab=Investments")}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Spending donut — monthly with swipe navigation */}
           {!loading && transactions.length > 0 && (

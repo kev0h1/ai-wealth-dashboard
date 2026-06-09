@@ -48,7 +48,9 @@ export default function AccountsPage() {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [tab, setTab] = useState<"Banks" | "Investments">("Banks");
+  const [tab, setTab] = useState<"Banks" | "Investments">(
+    searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
+  );
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
   const [showBankPicker, setShowBankPicker] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
