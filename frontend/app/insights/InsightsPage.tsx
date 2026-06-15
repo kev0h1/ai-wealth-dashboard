@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, SlidersHorizontal, X, ArrowRight, CheckCircle2, ExternalLink } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   energy:        [{ label: "uSwitch", url: "https://www.uswitch.com/gas-electricity/" }, { label: "MoneySavingExpert", url: "https://www.moneysavingexpert.com/utilities/cheap-energy/" }],
@@ -713,26 +714,29 @@ export default function InsightsPage() {
   const unpinned = insights.filter(i => !i.pinned);
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
-      <div className="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-700">
-        <div className="max-w-[430px] mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white" style={{ background: "linear-gradient(135deg, #d97706 0%, #b45309 100%)" }}>
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[17px] font-bold text-slate-900 dark:text-slate-100">Savings Insights</h1>
-            <p className="text-[12px] text-slate-400">Personalised tips based on your spending</p>
+            <h1 className="text-xl font-bold">Savings Insights</h1>
+            <p className="text-sm opacity-70 mt-0.5">Personalised tips based on your spending</p>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing || refreshQueued}
-            className="flex items-center gap-1.5 text-[13px] font-medium text-indigo-600 dark:text-indigo-400 disabled:opacity-40"
-          >
-            <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
-            {refreshQueued ? "Searching…" : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            <TutorialTrigger />
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || refreshQueued}
+              className="flex items-center gap-1.5 text-[13px] font-medium text-white/80 hover:text-white disabled:opacity-40 transition-colors"
+            >
+              <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
+              {refreshQueued ? "Searching…" : "Refresh"}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-[430px] mx-auto px-4 pt-4 space-y-4">
+      <div className="max-w-[430px] mx-auto px-4 pt-4 space-y-4" data-tutorial-id="tutorial-insights-list">
         {/* Identify unknown bills */}
         <UnknownBillsPanel labelOptions={labelOptions} onNewInsight={loadInsights} />
 

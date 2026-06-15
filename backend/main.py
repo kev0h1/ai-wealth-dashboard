@@ -20,10 +20,16 @@ import asyncio
 import uuid as uuid_lib
 import hashlib
 import base64
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from motor.motor_asyncio import AsyncIOMotorClient
+from pywebpush import webpush, WebPushException
+from py_vapid import Vapid
+from cryptography.hazmat.primitives.serialization import (
+    Encoding, PublicFormat, PrivateFormat, NoEncryption,
+)
 
 load_dotenv()
 
@@ -105,7 +111,8 @@ challenges_col       = db["challenges"]
 mono_connections_col = db["mono_connections"]   # isolated — drop to revert
 mono_accounts_col    = db["mono_accounts"]
 mono_transactions_col = db["mono_transactions"]
-account_rates_col    = db["account_rates"]      # APR per credit card account
+account_rates_col       = db["account_rates"]         # APR per credit card account
+push_subscriptions_col  = db["push_subscriptions"]    # Web Push subscriptions per user
 
 # ── TrueLayer config ──────────────────────────────────────────────────────────
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -124,6 +131,28 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 APP_URL              = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
 ALLOWED_EMAILS       = {e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",")}
 SESSION_MAX_AGE      = 7 * 24 * 3600  # 7 days
+
+# ── VAPID / Web Push ──────────────────────────────────────────────────────────
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", f"mailto:admin@wealthdashboard.app")
+_vapid_key_file = Path(__file__).parent / ".vapid_private_key"
+
+if _vapid_pk_env := os.getenv("VAPID_PRIVATE_KEY"):
+    _vapid_pem = _vapid_pk_env.replace("\\n", "\n").encode()
+elif _vapid_key_file.exists():
+    _vapid_pem = _vapid_key_file.read_bytes()
+else:
+    _v = Vapid()
+    _v.generate_keys()
+    _vapid_pem = _v.private_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption())
+    _vapid_key_file.write_bytes(_vapid_pem)
+
+_vapid = Vapid.from_pem(_vapid_pem)
+VAPID_PRIVATE_KEY_PEM: str = _vapid_pem.decode()
+VAPID_PUBLIC_KEY_B64: str = (
+    __import__("base64").urlsafe_b64encode(
+        _vapid.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    ).rstrip(b"=").decode()
+)
 
 # ── Mono (Kenya) ──────────────────────────────────────────────────────────────
 MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
@@ -233,14 +262,65 @@ async def get_valid_token(connection_id: str) -> Optional[str]:
 
 # ── Sync helpers ──────────────────────────────────────────────────────────────
 
-async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_card: bool = False):
+async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/") -> None:
+    """Send a Web Push notification to every subscription registered by user_id."""
+    subs = await push_subscriptions_col.find({"user_id": user_id}).to_list(None)
+    if not subs:
+        return
+    expired = []
+    for sub in subs:
+        try:
+            await asyncio.to_thread(
+                webpush,
+                subscription_info={
+                    "endpoint": sub["endpoint"],
+                    "keys": {"p256dh": sub["keys"]["p256dh"], "auth": sub["keys"]["auth"]},
+                },
+                data=json.dumps({"title": title, "body": body, "url": url}),
+                vapid_private_key=_vapid,
+                vapid_claims={"sub": VAPID_SUBJECT},
+                ttl=3600,
+            )
+        except WebPushException as e:
+            if e.response is not None and e.response.status_code in (404, 410):
+                expired.append(sub["_id"])
+            else:
+                logging.warning("WebPushException for %s: %s", user_id, e)
+        except Exception as e:
+            logging.warning("Push send error for %s: %s", user_id, e)
+    if expired:
+        await push_subscriptions_col.delete_many({"_id": {"$in": expired}})
+
+
+async def _notify_new_transactions(user_id: str, new_txns: list) -> None:
+    """Build a human-readable push notification from a batch of new transactions."""
+    if not new_txns:
+        return
+    sym = "KES " if (new_txns[0].get("currency") == "KES") else "£"
+    if len(new_txns) == 1:
+        t = new_txns[0]
+        name = (t.get("merchant_name") or t.get("description", "Transaction"))[:30]
+        title = "New transaction"
+        body  = f"{name} — {sym}{t['amount']:,.2f}"
+    else:
+        title = f"{len(new_txns)} new transactions"
+        parts = [(t.get("merchant_name") or t.get("description", ""))[:20] for t in new_txns[:2]]
+        body  = " · ".join(p for p in parts if p)
+        if len(new_txns) > 2:
+            body += f" +{len(new_txns) - 2} more"
+    await send_push_to_user(user_id, title, body)
+
+
+async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_card: bool = False) -> list:
     """Upsert a batch of TrueLayer transaction results — never overwrite custom_category.
     Applies merchant rules immediately so raw TrueLayer categories are never stored as-is.
+    Returns a list of dicts for transactions that were genuinely new (not already stored).
 
     Sign convention differs between TrueLayer APIs:
       Bank accounts: positive = credit (income in), negative = debit (spending out)
       Cards:         positive = debit (purchase/charge), negative = credit (payment/refund)
     """
+    new_txns = []
     for txn in txns:
         merchant = txn.get("merchant_name") or ""
         description = txn.get("description", "")
@@ -268,11 +348,19 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             "category":         category,
             "transaction_type": "credit" if is_credit else "debit",
         }
-        await transactions_col.update_one(
+        result = await transactions_col.update_one(
             {"_id": txn["transaction_id"]},
             {"$set": tdoc, "$setOnInsert": {"_id": txn["transaction_id"], "custom_category": None}},
             upsert=True,
         )
+        if result.upserted_id is not None:
+            new_txns.append({
+                "description":   description,
+                "merchant_name": merchant or None,
+                "amount":        abs(txn["amount"]),
+                "currency":      txn["currency"],
+            })
+    return new_txns
 
 
 async def sync_connection(connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None):
@@ -285,6 +373,9 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1, "last_synced": 1})
     if not user_id:
         user_id = (conn_doc or {}).get("user_id", "unknown")
+    # Don't notify on first-ever sync (would flood with historical transactions)
+    is_initial_sync = not (conn_doc or {}).get("last_synced")
+    all_new_txns: list = []
 
     if from_date is None:
         last_synced = (conn_doc or {}).get("last_synced")
@@ -329,7 +420,8 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                     if res:
                         balance = res[0].get("current", 0.0)
                 if tr.status_code == 200:
-                    await _upsert_transactions(tr.json().get("results", []), account_id, user_id)
+                    new = await _upsert_transactions(tr.json().get("results", []), account_id, user_id)
+                    all_new_txns.extend(new)
             except Exception:
                 pass
             await accounts_col.update_one({"_id": account_id}, {"$set": {
@@ -364,7 +456,8 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                     if res:
                         balance = -abs(res[0].get("current", 0.0))
                 if ctr.status_code == 200:
-                    await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True)
+                    new = await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True)
+                    all_new_txns.extend(new)
             except Exception:
                 pass
             await accounts_col.update_one({"_id": card_id}, {"$set": {
@@ -410,6 +503,9 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                 {"connection_id": connection_id, "_id": {"$in": fetched}},
                 {"$set": {"status": "connected"}},
             )
+
+    if all_new_txns and not is_initial_sync and user_id and user_id != "unknown":
+        asyncio.create_task(_notify_new_transactions(user_id, all_new_txns))
 
     return fetched
 
@@ -526,6 +622,46 @@ async def startup():
 @app.get("/health")
 async def health():
     return {"status": "ok", "truelayer_configured": bool(TRUELAYER_CLIENT_ID)}
+
+
+# ── Push Notification endpoints ───────────────────────────────────────────────
+
+@app.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    """Return the VAPID public key so the browser can create a push subscription."""
+    return {"public_key": VAPID_PUBLIC_KEY_B64}
+
+
+@app.post("/push/subscribe")
+async def push_subscribe(request: Request, user: dict = Depends(current_user)):
+    """Store a push subscription for the authenticated user (keyed by endpoint URL)."""
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Missing endpoint")
+    await push_subscriptions_col.update_one(
+        {"_id": endpoint},
+        {"$set": {
+            "_id":        endpoint,
+            "user_id":    user["email"],
+            "endpoint":   endpoint,
+            "keys":       data.get("keys", {}),
+            "updated_at": datetime.now(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@app.delete("/push/subscribe")
+async def push_unsubscribe(request: Request, user: dict = Depends(current_user)):
+    """Remove a push subscription for the authenticated user."""
+    data = await request.json()
+    endpoint = data.get("endpoint")
+    if endpoint:
+        # user_id check ensures users can only remove their own subscriptions
+        await push_subscriptions_col.delete_one({"_id": endpoint, "user_id": user["email"]})
+    return {"ok": True}
 
 
 async def get_user_region(uid: str) -> str:
@@ -2977,6 +3113,8 @@ async def _sync_yapily_consent(consent_token: str, user_id: str):
     if ar.status_code != 200:
         return
     accounts = ar.json().get("data", [])
+    yapily_new_txns: list = []
+    yapily_is_initial = not await yapily_transactions_col.find_one({"user_id": user_id})
     for acc in accounts:
         acc_id = acc.get("id")
         if not acc_id:
@@ -3051,7 +3189,7 @@ async def _sync_yapily_consent(consent_token: str, user_id: str):
             except Exception:
                 txn_date = datetime.now()
             cat = rule_categorise(merchant_name or "", desc)
-            await yapily_transactions_col.update_one({"_id": txn_id}, {"$set": {
+            yresult = await yapily_transactions_col.update_one({"_id": txn_id}, {"$set": {
                 "account_id":       acc_id,
                 "user_id":          user_id,
                 "date":             txn_date,
@@ -3062,6 +3200,16 @@ async def _sync_yapily_consent(consent_token: str, user_id: str):
                 "category":         cat,
                 "transaction_type": txn_type,
             }, "$setOnInsert": {"custom_category": None}}, upsert=True)
+            if yresult.upserted_id is not None:
+                yapily_new_txns.append({
+                    "description":   desc,
+                    "merchant_name": merchant_name,
+                    "amount":        amount,
+                    "currency":      amt_obj.get("currency", currency) if isinstance(amt_obj, dict) else currency,
+                })
+
+    if yapily_new_txns and not yapily_is_initial and user_id and user_id != "unknown":
+        asyncio.create_task(_notify_new_transactions(user_id, yapily_new_txns))
 
 
 # ── Mono helpers ──────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { RotateCcw, LogOut, Plus, Trash2, Loader2, Check, AlertCircle } from "lucide-react";
+import { RotateCcw, LogOut, Plus, Trash2, Loader2, Check, AlertCircle, Bell, BellOff } from "lucide-react";
 import { CATEGORIES, CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useAuth } from "@/components/AuthProvider";
@@ -9,6 +9,7 @@ import { usePreferences, Region } from "@/components/PreferencesContext";
 import { useCategories } from "@/components/CategoriesContext";
 import { api } from "@/lib/api";
 import BottomNav from "@/components/BottomNav";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 interface Rule {
   id: string;
@@ -17,6 +18,8 @@ interface Rule {
   category: string;
   created_at: string;
 }
+
+// Deterministic per-item offsets that break perfect grid alignment without hydration risk
 
 // Inline colour-editable dot for a category
 function ColourDot({ cat, colour, onChange, onReset, isModified }: {
@@ -66,9 +69,63 @@ export default function SettingsPage() {
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [syncHistoryMsg, setSyncHistoryMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  type NotifPermission = "granted" | "denied" | "default" | "unsupported";
+  const [notifPermission, setNotifPermission] = useState<NotifPermission>("unsupported");
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifError, setNotifError] = useState("");
+
   useEffect(() => {
     api.getRules().then(({ rules: r }) => setRules(r)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setNotifPermission("unsupported");
+      return;
+    }
+    setNotifPermission(Notification.permission as NotifPermission);
+    if (Notification.permission === "granted") {
+      navigator.serviceWorker.ready.then((reg) =>
+        reg.pushManager.getSubscription()
+      ).then((sub) => {
+        setNotifEnabled(!!sub);
+      }).catch(() => {});
+    }
+  }, []);
+
+  async function handleToggleNotifications() {
+    setNotifLoading(true);
+    setNotifError("");
+    try {
+      if (notifEnabled) {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await api.unsubscribePush(sub.endpoint);
+          await sub.unsubscribe();
+        }
+        setNotifEnabled(false);
+      } else {
+        const permission = await Notification.requestPermission();
+        setNotifPermission(permission as NotifPermission);
+        if (permission !== "granted") return;
+
+        const { public_key } = await api.getVapidPublicKey();
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: public_key,
+        });
+        await api.subscribePush(sub.toJSON());
+        setNotifEnabled(true);
+      }
+    } catch (e) {
+      setNotifError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setNotifLoading(false);
+    }
+  }
 
   async function handleAddCategory() {
     const name = newCatName.trim();
@@ -127,10 +184,15 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
-      <div className="px-4 pb-5 text-white" style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
-        <h1 className="text-xl font-bold">Settings</h1>
-        <p className="text-sm opacity-70 mt-1">Customise your dashboard</p>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white" style={{ background: "linear-gradient(135deg, #475569 0%, #1e293b 100%)" }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold">Settings</h1>
+            <p className="text-sm opacity-70 mt-1">Customise your dashboard</p>
+          </div>
+          <TutorialTrigger />
+        </div>
       </div>
 
       <div className="px-4 pt-4 space-y-3">
@@ -173,6 +235,55 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Notifications ── */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notifications</p>
+          </div>
+          <div className="px-4 py-3.5">
+            {notifPermission === "unsupported" ? (
+              <div className="flex items-center gap-3">
+                <BellOff size={16} className="text-slate-400 flex-shrink-0" />
+                <p className="text-xs text-slate-400 dark:text-slate-500">Push notifications aren&apos;t supported in this browser.</p>
+              </div>
+            ) : notifPermission === "denied" ? (
+              <div className="flex items-start gap-3">
+                <BellOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Notifications blocked</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">To receive transaction alerts, allow notifications for this site in your browser settings.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Bell size={16} className={notifEnabled ? "text-indigo-500" : "text-slate-400"} />
+                  <div>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Transaction alerts</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Push notification when new transactions arrive</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleToggleNotifications}
+                  disabled={notifLoading}
+                  className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${notifEnabled ? "bg-indigo-500" : "bg-slate-200 dark:bg-slate-600"}`}
+                >
+                  {notifLoading
+                    ? <Loader2 size={12} className="absolute inset-0 m-auto animate-spin text-white" />
+                    : <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${notifEnabled ? "translate-x-6" : "translate-x-0"}`} />
+                  }
+                </button>
+              </div>
+            )}
+            {notifError && (
+              <div className="mt-2 flex items-center gap-1.5">
+                <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
+                <p className="text-xs text-red-500">{notifError}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* ── Categories ── */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
@@ -189,7 +300,10 @@ export default function SettingsPage() {
                 const def = CATEGORY_COLOURS[cat];
                 const isModified = colour !== def;
                 return (
-                  <div key={cat} className="flex items-center gap-2 py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/50">
+                  <div
+                    key={cat}
+                    className="flex items-center gap-2 py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/50 shadow-[0_1px_4px_rgba(0,0,0,0.07)] dark:shadow-[0_1px_4px_rgba(0,0,0,0.22)]"
+                  >
                     <ColourDot
                       cat={cat} colour={colour} isModified={isModified}
                       onChange={(hex) => setColour(cat, hex)}

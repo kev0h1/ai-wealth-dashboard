@@ -16,6 +16,7 @@ import StatementUpload from "@/components/StatementUpload";
 import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 function typeLabel(type: string): string {
   const t = type.toLowerCase();
@@ -320,14 +321,11 @@ export default function AccountsPage() {
     const balance = selectedAccount.balance;
 
     return (
-      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
+      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
         <div
-          className="px-4 pb-5 text-white"
-          style={{
-            background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-            paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)",
-          }}
+          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
+          style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
         >
           <div className="flex items-center justify-between mb-4">
             <button
@@ -472,14 +470,11 @@ export default function AccountsPage() {
 
   // --- Account list view ---
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div
-        className="px-4 pb-0 text-white"
-        style={{
-          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)",
-        }}
+        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
+        style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
       >
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -492,7 +487,9 @@ export default function AccountsPage() {
           {tab === "Banks" ? (
             region === "UK" ? (
               <div className="flex items-center gap-2">
+                <TutorialTrigger />
                 <button
+                  data-tutorial-id="tutorial-add-account"
                   onClick={() => setShowBankPicker(true)}
                   className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                 >
@@ -500,6 +497,7 @@ export default function AccountsPage() {
                   Add Bank
                 </button>
                 <button
+                  data-tutorial-id="tutorial-upload-statement"
                   onClick={() => setShowMpesaUpload(true)}
                   className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 active:scale-95 transition-all px-3 py-2 rounded-xl text-xs font-semibold text-white"
                 >

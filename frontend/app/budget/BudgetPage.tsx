@@ -13,6 +13,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { getPayPeriodWithConfig, filterPeriod, formatDate, formatPeriod, prevPeriodWithConfig, nextPeriodWithConfig } from "@/lib/payPeriod";
 import type { Transaction } from "@/lib/api";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 interface Budget {
   category: string;
@@ -369,16 +370,19 @@ export default function BudgetPage() {
     : [];
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
-      <div className="px-4 pb-5 text-white"
-        style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
+        style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Budgets</h1>
             {user && <p className="text-sm opacity-80 mt-0.5">Hi {firstName},</p>}
           </div>
-          <Target className="w-7 h-7 opacity-60" />
+          <div className="flex items-center gap-2">
+            <TutorialTrigger />
+            <Target className="w-7 h-7 opacity-60" />
+          </div>
         </div>
         {!loading && budgets.length > 0 && (
           <div className="mt-4">
@@ -428,7 +432,7 @@ export default function BudgetPage() {
             </div>
 
             {/* ── Add budget form ───────────────────────────────────────── */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" data-tutorial-id="tutorial-budget-form">
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add / Update Budget</p>
               <div className="flex gap-2 mb-2">
                 <select
@@ -449,6 +453,7 @@ export default function BudgetPage() {
                   />
                 </div>
                 <button
+                  data-tutorial-id="tutorial-budget-add"
                   onClick={handleAddBudget}
                   className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center active:scale-90 transition-transform"
                 >
@@ -792,6 +797,7 @@ export default function BudgetPage() {
 
       {/* AI Chat button */}
       <button
+        data-tutorial-id="tutorial-budget-chat"
         onClick={() => setChatOpen(true)}
         className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
         style={{ bottom: "88px", right: "16px", background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}

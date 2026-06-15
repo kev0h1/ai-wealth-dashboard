@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { MessageCircle, X, Send, Loader2, TrendingDown, ChevronDown, ChevronUp, RotateCcw, Target, Trash2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { useColours } from "@/components/ColourProvider";
@@ -9,6 +9,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import TutorialTrigger from "@/components/TutorialTrigger";
 import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, ReferenceDot,
@@ -52,10 +53,6 @@ function fmt2(n: number, sym = "£") {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function formatDate(isoString: string) {
-  const d = new Date(isoString);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
 
 function debtFreeDate(months: number): string {
   if (!isFinite(months) || months > 600) return "a very long time";
@@ -145,14 +142,13 @@ function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: { insigh
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
-      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-xl px-3 py-2.5">
-        <span className="text-lg">⚠️</span>
-        <div>
-          <p className="text-sm font-semibold text-red-700 dark:text-red-400">Debt is growing</p>
-          <p className="text-xs text-red-600 dark:text-red-500">
-            You spend {hideNetWorth ? "••••" : fmt2(deficit, sym)} more than you earn each month
-          </p>
-        </div>
+      <div className="rounded-2xl p-4 text-white" style={{ background: "#b91c1c", boxShadow: "0 2px 12px rgba(185,28,28,0.35)" }}>
+        <p className="text-base font-bold leading-tight mb-1">⚠️ Debt is Growing</p>
+        <p className="text-sm opacity-85">
+          Spending exceeds income by{" "}
+          <span className="font-semibold">{hideNetWorth ? "••••" : fmt2(deficit, sym)}/month</span>
+          {" "}— your balance will keep rising.
+        </p>
       </div>
       <div className="space-y-2">
         <div>
@@ -225,7 +221,6 @@ export default function DebtPage() {
   const [burndownMode, setBurndownMode] = useState<"time" | "amount">("time");
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [cutExpanded, setCutExpanded] = useState(false);
 
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -356,15 +351,18 @@ export default function DebtPage() {
     : (insights && insights.total_debt > 0 ? insights.total_debt / effectiveTargetMonths : 0);
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
-      <div className="px-4 pb-5 text-white" style={{ background: "#b91c1c", paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white" style={{ background: "#b91c1c" }} data-tutorial-id="tutorial-debt-header">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold">Debt Tracker</h1>
             {user && <p className="text-sm opacity-80 mt-0.5">Hi {firstName},</p>}
           </div>
-          <TrendingDown className="w-7 h-7 opacity-60" />
+          <div className="flex items-center gap-2">
+            <TutorialTrigger />
+            <TrendingDown className="w-7 h-7 opacity-60" />
+          </div>
         </div>
         {loading ? (
           <div className="mt-4 h-12 w-40 bg-white/20 rounded-xl animate-pulse" />
@@ -529,75 +527,43 @@ export default function DebtPage() {
               />
             )}
 
-            {/* Recent discretionary */}
-            {insights.recent_discretionary.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-4 pt-3 pb-1">
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Recent non-essential spending</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Reducing these frees up cash for repayment</p>
-                </div>
-                {insights.recent_discretionary.map((txn) => {
-                  const colour = colours[txn.category] ?? CATEGORY_COLOURS[txn.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
-                  return (
-                    <div key={txn.id} className="flex items-center justify-between px-4 py-2.5 border-t border-slate-50 dark:border-slate-700">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
-                        <div className="min-w-0">
-                          <p className="text-sm text-slate-800 dark:text-slate-100 truncate">{txn.description}</p>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">{txn.category}</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end flex-shrink-0 ml-3">
-                        <span className="text-sm font-semibold text-red-500">{hideNetWorth ? "••••" : `-${fmt2(txn.amount, sym)}`}</span>
-                        <span className="text-[10px] text-slate-400">{formatDate(txn.date)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Where to cut */}
-            {insights.recommendations.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                <button className="w-full flex items-center justify-between px-4 py-3" onClick={() => setCutExpanded((v) => !v)}>
-                  <div className="text-left">
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Where to Cut</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Monthly averages — last 3 months</p>
+            {/* Free Up Cash */}
+            {insights.recommendations.length > 0 && insights.monthly_surplus > 0 && (() => {
+              const rows = insights.recommendations
+                .map(rec => ({
+                  ...rec,
+                  moSaved: Math.max(0, insights.months_at_current_rate - (insights.total_debt / (insights.monthly_surplus + rec.cut_25pct_saves))),
+                }))
+                .filter(rec => rec.moSaved > 0.5)
+                .sort((a, b) => b.moSaved - a.moSaved)
+                .slice(0, 3);
+              if (rows.length === 0) return null;
+              return (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-4 pt-4 pb-2">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Free Up Cash</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Cut these to pay off debt sooner — based on last 3 months</p>
                   </div>
-                  {cutExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                </button>
-                {cutExpanded && insights.recommendations.map((rec) => {
-                  const colour = colours[rec.category] ?? CATEGORY_COLOURS[rec.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
-                  const surplus = insights.monthly_surplus;
-                  const moSaved = surplus > 0
-                    ? Math.max(0, insights.months_at_current_rate - (insights.total_debt / (surplus + rec.cut_25pct_saves)))
-                    : 0;
-                  return (
-                    <div key={rec.category} className="px-4 py-3 border-t border-slate-50 dark:border-slate-700">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
+                  {rows.map(rec => {
+                    const colour = colours[rec.category] ?? CATEGORY_COLOURS[rec.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                    return (
+                      <div key={rec.category} className="flex items-center justify-between px-4 py-3.5 border-t border-slate-50 dark:border-slate-700/60">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
-                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{hideNetWorth ? "••••" : `${fmt(rec.monthly_spend, sym)}/mo avg · cut 25% saves ${fmt(rec.cut_25pct_saves, sym)}/mo`}</p>
+                          </div>
                         </div>
-                        <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : `${fmt2(rec.monthly_spend, sym)}/mo`}</span>
-                      </div>
-                      <div className="flex gap-2">
-                        <div className="flex-1 bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5 text-center">
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">Cut 25%</p>
-                          <p className="text-sm font-semibold text-emerald-600">{hideNetWorth ? "••••" : `+${fmt2(rec.cut_25pct_saves, sym)}/mo`}</p>
-                          {moSaved > 0.5 && <p className="text-[9px] text-slate-400 mt-0.5">{Math.round(moSaved)} mo sooner</p>}
-                        </div>
-                        <div className="flex-1 bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5 text-center">
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500 mb-0.5">Cut 50%</p>
-                          <p className="text-sm font-semibold text-emerald-600">{hideNetWorth ? "••••" : `+${fmt2(rec.cut_50pct_saves, sym)}/mo`}</p>
+                        <div className="text-right flex-shrink-0 ml-3">
+                          <p className="text-sm font-bold text-emerald-600">{Math.round(rec.moSaved)} mo sooner</p>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
@@ -904,7 +870,7 @@ function DebtBurndownCard({
     ? Math.abs(actualPaydown - requiredPaydown) : null;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+    <div className="debt-burndown-frosted rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-700/60">
       {/* Card header */}
       <div className="px-4 pt-4 pb-2">
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Debt Burndown</p>
@@ -969,22 +935,16 @@ function DebtBurndownCard({
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 36, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="burndownActualGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
               <XAxis
                 dataKey="month"
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 300 }}
                 tickLine={false}
                 axisLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
                 tickFormatter={yFmt}
-                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 300 }}
                 tickLine={false}
                 axisLine={false}
                 width={44}
@@ -1017,9 +977,16 @@ function DebtBurndownCard({
                   label={{ value: "Today", position: "insideBottomRight", fontSize: 9, fill: "#94a3b8" }}
                 />
               )}
-              {/* Actual — gradient area */}
+              <defs>
+                <linearGradient id="burndownActualGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.16} />
+                  <stop offset="60%" stopColor="#6366f1" stopOpacity={0.06} />
+                  <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {/* Actual — gradient area with natural smooth curve */}
               <Area
-                type="monotone"
+                type="natural"
                 dataKey="actual"
                 name="Actual"
                 stroke="#6366f1"
@@ -1030,7 +997,7 @@ function DebtBurndownCard({
               />
               {/* Target — dashed teal line */}
               <Line
-                type="monotone"
+                type="natural"
                 dataKey="target"
                 name="Target"
                 stroke="#14b8a6"
@@ -1041,7 +1008,7 @@ function DebtBurndownCard({
               />
               {/* Projected — dotted amber line */}
               <Line
-                type="monotone"
+                type="natural"
                 dataKey="projected"
                 name="Projected"
                 stroke="#f59e0b"

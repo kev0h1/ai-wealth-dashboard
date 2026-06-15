@@ -5,6 +5,7 @@ import { RefreshCw, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-reac
 import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
+import ThemeColor from "@/components/ThemeColor";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import InvestmentMiniCard from "@/components/InvestmentMiniCard";
 import TransactionRow from "@/components/TransactionRow";
@@ -22,6 +23,7 @@ import {
 } from "recharts";
 import { useRouter } from "next/navigation";
 import { getPayPeriod, getPayPeriodWithConfig, formatPeriod, filterPeriod, PayPeriodConfig } from "@/lib/payPeriod";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 // Token is guaranteed by AuthProvider before this component mounts
 async function ensureAuth() {}
@@ -118,6 +120,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8">
+      <ThemeColor color={(kpis?.net_worth ?? 0) < 0 ? "#b91c1c" : "#4f46e5"} />
       {/* Desktop 2-col grid wrapper */}
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
@@ -132,17 +135,20 @@ export default function HomePage() {
                 </p>
                 <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
               </div>
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform"
-              >
-                <RefreshCw
-                  size={16}
-                  color="#64748b"
-                  className={syncing ? "animate-spin" : ""}
-                />
-              </button>
+              <div className="flex items-center gap-2">
+                <TutorialTrigger variant="dark-on-white" />
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform"
+                >
+                  <RefreshCw
+                    size={16}
+                    color="#64748b"
+                    className={syncing ? "animate-spin" : ""}
+                  />
+                </button>
+              </div>
             </div>
             <NetWorthCard kpis={kpis} loading={loading} />
           </div>
@@ -169,6 +175,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accounts</p>
               <button
+                data-tutorial-id="tutorial-manage-link"
                 onClick={() => router.push("/accounts")}
                 className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
               >
@@ -240,7 +247,7 @@ export default function HomePage() {
 
         {/* ── Right column: recent transactions ── */}
         <div>
-          <div className="mx-4 mb-4 lg:mx-0 lg:mt-0">
+          <div className="mx-4 mb-4 lg:mx-0 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3 lg:pt-0">Recent Transactions</p>
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
               {loading ? (
@@ -459,9 +466,9 @@ function SpendingDonut({ transactions, desktopFlat }: { transactions: Transactio
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <div className="flex-shrink-0" style={{ width: 130, height: 130 }}>
+          <div className="flex-shrink-0 outline-none" style={{ width: 130, height: 130 }} tabIndex={-1}>
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart tabIndex={-1}>
                 <Pie
                   data={categorySpend}
                   dataKey="value"
@@ -487,7 +494,7 @@ function SpendingDonut({ transactions, desktopFlat }: { transactions: Transactio
               return (
                 <button
                   key={cat.name}
-                  className="w-full text-left"
+                  className="w-full text-left focus:outline-none"
                   onMouseEnter={() => setActiveIndex(i)}
                   onMouseLeave={() => setActiveIndex(null)}
                   onClick={() => setActiveIndex((j) => (j === i ? null : i))}

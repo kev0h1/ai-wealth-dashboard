@@ -9,6 +9,7 @@ frontend/.next/
 # Secrets & local config
 backend/.env
 backend/.session_secret
+backend/.vapid_private_key
 backend/bot_state.json
 backend/store.json
 

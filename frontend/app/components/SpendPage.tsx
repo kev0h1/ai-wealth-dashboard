@@ -18,6 +18,7 @@ import TransactionSheet from "@/components/TransactionSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import TransactionRow from "@/components/TransactionRow";
+import TutorialTrigger from "@/components/TutorialTrigger";
 
 async function ensureAuth() {}
 
@@ -210,16 +211,16 @@ export default function SpendPage() {
     })}`;
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div
-        className="px-4 pb-5 text-white"
-        style={{
-          background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-          paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)",
-        }}
+        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
+        style={{ background: "linear-gradient(135deg, #0891b2 0%, #0e7490 100%)" }}
       >
-        <h1 className="text-lg font-bold mb-4">Spending</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-lg font-bold">Spending</h1>
+          <TutorialTrigger />
+        </div>
 
         {/* Period nav */}
         <div className="flex items-center justify-between bg-white/15 backdrop-blur rounded-2xl px-3 py-2">
@@ -302,7 +303,7 @@ export default function SpendPage() {
       )}
 
       {/* Category list */}
-      <div className="px-4 pt-4 space-y-2">
+      <div className="px-4 pt-4 space-y-2" data-tutorial-id="tutorial-spend-categories">
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Spinner size={32} />

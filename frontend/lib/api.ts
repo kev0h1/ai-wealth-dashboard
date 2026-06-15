@@ -456,6 +456,22 @@ export const api = {
       body: JSON.stringify({ apr }),
     }).then(r => r.json()) as Promise<{ apr: number | null }>,
 
+  getVapidPublicKey: () => get<{ public_key: string }>("/push/vapid-public-key"),
+
+  subscribePush: (subscription: PushSubscriptionJSON) =>
+    fetch(`${API_BASE}/push/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(subscription),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
+  unsubscribePush: (endpoint: string) =>
+    fetch(`${API_BASE}/push/subscribe`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
   debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
     burndown: {
       month: string;
