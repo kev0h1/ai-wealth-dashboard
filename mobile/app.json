@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Wealth Dashboard",
+    "slug": "wealth-dashboard",
+    "scheme": "wealthdash",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "co.uk.auriqltd.wealth"
+    },
+    "android": {
+      "package": "co.uk.auriqltd.wealth",
+      "adaptiveIcon": {
+        "backgroundColor": "#b91c1c",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      "expo-splash-screen"
+    ],
+    "extra": {
+      "apiUrl": "https://wealth.auriqltd.co.uk/api",
+      "router": {}
+    }
+  }
+}
