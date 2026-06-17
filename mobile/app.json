@@ -32,7 +32,11 @@
     ],
     "extra": {
       "apiUrl": "https://wealth.auriqltd.co.uk/api",
-      "router": {}
-    }
+      "router": {},
+      "eas": {
+        "projectId": "c316c0dc-32a7-4111-8b67-4299c53c4e69"
+      }
+    },
+    "owner": "kev0h1"
   }
 }
