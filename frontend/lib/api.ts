@@ -1,169 +1,18 @@
 import { getToken } from "./auth";
+import type {
+  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
+  ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
+  DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
+} from "@wealth/shared";
+export type {
+  Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
+  SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
+  ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
+  DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
+} from "@wealth/shared";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
-
-export interface Account {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  provider_id?: string;
-  status: string;
-  account_number?: string;
-  sort_code?: string;
-}
-
-export interface Transaction {
-  id: string;
-  account_id: string;
-  date: string;
-  amount: number;
-  currency: string;
-  description: string;
-  merchant_name?: string;
-  category?: string;
-  transaction_type: "debit" | "credit";
-  planned?: boolean;
-}
-
-export interface MonoAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mono";
-}
-
-export interface MpesaAccount {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-  source: "mpesa";
-}
-
-export interface KPIs {
-  net_worth: number;
-  cash: number;
-  runway: number;
-  investments: number;
-  pensions: number;
-  last_updated: string;
-}
-
-export interface Insight {
-  id: string;
-  title: string;
-  impact: number;
-  confidence: number;
-  rationale: string;
-  action: string;
-  category: string;
-}
-
-export interface SavingsInsight {
-  id: string;
-  category: string;
-  icon: string;
-  label: string;
-  title: string;
-  body: string;
-  savings_estimate: string | null;
-  pinned: boolean;
-  is_new: boolean;
-  refreshed_at: string | null;
-  triggered_by: { merchant_key: string; display_name: string; monthly_amount: number; occurrences: number }[];
-  user_context: Record<string, string> | null;
-  has_workflow: boolean;
-}
-
-export interface WorkflowStep {
-  id: string;
-  label: string;
-  type: "text" | "number" | "currency" | "select";
-  options?: string[];
-  placeholder?: string;
-  unit?: string;
-}
-
-export interface WorkflowDef {
-  cta: string;
-  steps: WorkflowStep[];
-}
-
-export interface ChallengeProgress {
-  actual_so_far: number;
-  target: number;
-  pct_used: number;
-  on_track: boolean;
-  time_left: string;
-}
-
-export interface Challenge {
-  id: string;
-  tier: "easy" | "medium" | "stretch" | "budget";
-  cadence: "daily" | "weekly";
-  title: string;
-  category: string;
-  baseline: number;
-  target: number;
-  reduction_pct: number;
-  currency: string;
-  xp_reward: number;
-  period_start: string;
-  period_end: string;
-  status: "active" | "completed" | "failed";
-  actual: number | null;
-  progress?: ChallengeProgress;
-}
-
-export interface ChallengesData {
-  stats: {
-    total_xp: number;
-    level: number;
-    xp_in_level: number;
-    xp_per_level: number;
-    streak: number;
-    completed: number;
-    failed: number;
-  };
-  challenges: Challenge[];
-  budget_challenges: Challenge[];
-  history: Challenge[];
-}
-
-export interface InvestmentAccount {
-  id: string;
-  provider: string;
-  account_type: string;
-  account_reference: string;
-  currency: string;
-  total_value: number;
-  statement_date: string | null;
-  last_refreshed: string | null;
-  updated_at: string;
-}
-
-export interface InvestmentHolding {
-  id: string;
-  name: string;
-  isin: string | null;
-  type: string;
-  units: number | null;
-  price_per_unit: number | null;
-  statement_value: number;
-  current_price: number | null;
-  current_value: number | null;
-  last_refreshed: string | null;
-}
 
 export function authHeaders(): HeadersInit {
   const token = getToken();

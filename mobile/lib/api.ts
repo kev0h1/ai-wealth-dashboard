@@ -1,5 +1,11 @@
 import Constants from "expo-constants";
 import { getToken } from "./storage";
+import type {
+  Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
+} from "@wealth/shared";
+export type {
+  Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
+} from "@wealth/shared";
 
 const API_BASE: string =
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
@@ -44,76 +50,6 @@ async function del<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { method: "DELETE", headers });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
-}
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface Account {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-  provider: string;
-  status: string;
-}
-
-export interface Transaction {
-  id: string;
-  account_id: string;
-  date: string;
-  amount: number;
-  currency: string;
-  description: string;
-  merchant_name?: string;
-  category?: string;
-  transaction_type: "debit" | "credit";
-}
-
-export interface KPIs {
-  net_worth: number;
-  cash: number;
-  runway: number;
-  investments: number;
-  pensions: number;
-  last_updated: string;
-}
-
-export interface DebtInsights {
-  total_debt: number;
-  accounts: {
-    account_id: string;
-    name: string;
-    provider: string;
-    balance: number;
-    apr: number | null;
-    monthly_interest: number;
-  }[];
-  monthly_income: number;
-  monthly_spending: number;
-  monthly_surplus: number;
-  months_at_current_rate: number;
-  weighted_apr: number;
-  recommendations: {
-    category: string;
-    monthly_spend: number;
-    cut_25pct_saves: number;
-  }[];
-}
-
-export interface BudgetItem {
-  category: string;
-  monthly_limit: number;
-}
-
-export interface SpendingItem {
-  category: string;
-  amount: number;
-}
-
-export interface UserInfo {
-  name: string;
-  email: string;
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
