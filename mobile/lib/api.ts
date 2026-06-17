@@ -2,10 +2,10 @@ import Constants from "expo-constants";
 import { getToken } from "./storage";
 import type {
   Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
-} from "@wealth/shared";
+} from "./shared";
 export type {
   Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
-} from "@wealth/shared";
+} from "./shared";
 
 const API_BASE: string =
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
