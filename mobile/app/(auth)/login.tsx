@@ -22,8 +22,13 @@ export default function LoginScreen() {
       const { session_token } = await api.pinLogin(pin);
       await saveToken(session_token);
       router.replace("/(tabs)");
-    } catch {
-      setError("Incorrect PIN. Try again.");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("401")) {
+        setError("Incorrect PIN. Try again.");
+      } else {
+        setError(`Error: ${msg}`);
+      }
       setPin("");
     } finally {
       setLoading(false);
