@@ -1,10 +1,13 @@
 import { useRef, useState, useEffect } from "react";
-import { StyleSheet, BackHandler, View, ActivityIndicator } from "react-native";
+import { StyleSheet, BackHandler, View, ActivityIndicator, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { WebView } from "react-native-webview";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 const DASHBOARD_URL = "https://wealth.auriqltd.co.uk";
 const TOKEN_KEY = "wealth_session_token";
+
+// Maps web app route colours — mirrors ThemeColor.tsx on the frontend
+const DEFAULT_THEME = "#4f46e5";
 
 async function fetchSessionToken(): Promise<string> {
   const res = await fetch("https://wealth.auriqltd.co.uk/api/auth/pin", {
@@ -16,9 +19,23 @@ async function fetchSessionToken(): Promise<string> {
   return data.session_token ?? "";
 }
 
+// Watches the theme-color meta tag and posts changes to the native layer
+const THEME_WATCH_JS = `
+  (function() {
+    function send() {
+      const m = document.querySelector('meta[name="theme-color"]');
+      if (m) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'themeColor', color: m.content }));
+    }
+    new MutationObserver(send).observe(document.head, { subtree: true, attributes: true, childList: true });
+    send();
+  })();
+  true;
+`;
+
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [themeColor, setThemeColor] = useState(DEFAULT_THEME);
 
   useEffect(() => {
     fetchSessionToken().then(setToken).catch(() => setToken(""));
@@ -32,16 +49,22 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  function onMessage(e: WebViewMessageEvent) {
+    try {
+      const msg = JSON.parse(e.nativeEvent.data);
+      if (msg.type === "themeColor" && msg.color) setThemeColor(msg.color);
+    } catch {}
+  }
+
   if (token === null) {
     return (
       <View style={styles.loading}>
+        <StatusBar backgroundColor="#f0f2f7" barStyle="dark-content" />
         <ActivityIndicator size="large" color="#b91c1c" />
       </View>
     );
   }
 
-  // Inject the session token into localStorage before the page loads
-  // so the web app's AuthProvider sees it and skips the login screen
   const injectedJS = `
     (function() {
       try { localStorage.setItem(${JSON.stringify(TOKEN_KEY)}, ${JSON.stringify(token)}); } catch(e) {}
@@ -50,20 +73,26 @@ export default function App() {
   `;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <WebView
-        ref={webViewRef}
-        source={{ uri: DASHBOARD_URL }}
-        style={styles.webview}
-        javaScriptEnabled
-        domStorageEnabled
-        thirdPartyCookiesEnabled
-        sharedCookiesEnabled
-        injectedJavaScriptBeforeContentLoaded={injectedJS}
-        allowsInlineMediaPlayback
-        onShouldStartLoadWithRequest={() => true}
-      />
-    </SafeAreaView>
+    <>
+      <StatusBar backgroundColor={themeColor} barStyle="light-content" translucent={false} />
+      {/* Bottom edge only — web app handles top safe area via viewport-fit:cover */}
+      <SafeAreaView style={styles.container} edges={["bottom"]}>
+        <WebView
+          ref={webViewRef}
+          source={{ uri: DASHBOARD_URL }}
+          style={styles.webview}
+          javaScriptEnabled
+          domStorageEnabled
+          thirdPartyCookiesEnabled
+          sharedCookiesEnabled
+          injectedJavaScriptBeforeContentLoaded={injectedJS}
+          injectedJavaScript={THEME_WATCH_JS}
+          onMessage={onMessage}
+          allowsInlineMediaPlayback
+          onShouldStartLoadWithRequest={() => true}
+        />
+      </SafeAreaView>
+    </>
   );
 }
 
