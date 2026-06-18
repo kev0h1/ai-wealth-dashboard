@@ -25,10 +25,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      "expo-secure-store",
-      "expo-font",
-      "expo-splash-screen"
+      "expo-router"
     ],
     "extra": {
       "apiUrl": "https://wealth.auriqltd.co.uk/api",
