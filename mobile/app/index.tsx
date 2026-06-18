@@ -65,9 +65,14 @@ export default function App() {
     );
   }
 
+  // SafeAreaView already handles the top inset natively, so zero out the
+  // env(safe-area-inset-top) padding that the web app adds on each page
   const injectedJS = `
     (function() {
       try { localStorage.setItem(${JSON.stringify(TOKEN_KEY)}, ${JSON.stringify(token)}); } catch(e) {}
+      const s = document.createElement('style');
+      s.textContent = '[style*="env(safe-area-inset-top"]{padding-top:0!important}.safe-top{padding-top:0!important}';
+      document.head.appendChild(s);
     })();
     true;
   `;
