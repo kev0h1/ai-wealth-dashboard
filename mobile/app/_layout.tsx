@@ -7,31 +7,36 @@ import { StatusBar } from "expo-status-bar";
 import { getToken, deleteToken } from "@/lib/storage";
 import { api } from "@/lib/api";
 import { View, ActivityIndicator } from "react-native";
+import { AuthContext, AuthUser } from "@/lib/AuthContext";
 
-interface AuthUser {
-  name: string;
-  email: string;
-}
-
-export default function RootLayout() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+function RootLayoutNav({ user, setUser }: { user: AuthUser | null; setUser: (u: AuthUser | null) => void }) {
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (loading) return;
     const inAuth = segments[0] === "(auth)";
     if (!user && !inAuth) {
       router.replace("/(auth)/login");
     } else if (user && inAuth) {
       router.replace("/(tabs)");
     }
-  }, [user, loading, segments]);
+  }, [user, segments]);
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
 
   async function checkAuth() {
     try {
@@ -47,6 +52,11 @@ export default function RootLayout() {
     }
   }
 
+  async function logout() {
+    await deleteToken();
+    setUser(null);
+  }
+
   if (loading) {
     return (
       <SafeAreaProvider>
@@ -58,12 +68,11 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-      </Stack>
-    </SafeAreaProvider>
+    <AuthContext.Provider value={{ user, setUser, logout }}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <RootLayoutNav user={user} setUser={setUser} />
+      </SafeAreaProvider>
+    </AuthContext.Provider>
   );
 }

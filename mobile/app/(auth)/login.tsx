@@ -1,113 +1,81 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, TextInput, TouchableOpacity, ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
 import { api } from "@/lib/api";
 import { saveToken } from "@/lib/storage";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function LoginScreen() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+  const { setUser } = useAuth();
+  const inputRef = useRef<TextInput>(null);
 
   async function handleLogin() {
-    if (pin.length < 4) { setError("Enter your PIN"); return; }
+    if (pin.length < 4) return;
     setError("");
     setLoading(true);
     try {
       const { session_token } = await api.pinLogin(pin);
       await saveToken(session_token);
-      router.replace("/(tabs)");
+      setUser({ name: "Local", email: "local" });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("401")) {
-        setError("Incorrect PIN. Try again.");
-      } else {
-        setError(`Error: ${msg}`);
-      }
+      setError(msg.includes("401") ? "Incorrect PIN" : `Connection error: ${msg}`);
       setPin("");
+      inputRef.current?.focus();
     } finally {
       setLoading(false);
     }
   }
 
-  function handleDigit(d: string) {
-    if (pin.length < 8) setPin(p => p + d);
-  }
-
-  function handleDelete() {
-    setPin(p => p.slice(0, -1));
-  }
-
-  const digits = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
-
   return (
-    <SafeAreaView className="flex-1 bg-[#b91c1c]">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <View className="flex-1 items-center justify-center px-8">
-          {/* Logo area */}
-          <View className="mb-12 items-center">
-            <Text className="text-white text-4xl font-bold tracking-tight">Wealth</Text>
-            <Text className="text-white/70 text-sm mt-1">Your financial dashboard</Text>
+    <SafeAreaView className="flex-1 bg-slate-950">
+      <View className="flex-1 items-center justify-center px-6">
+        <View className="w-full max-w-xs bg-slate-900 border border-slate-800 rounded-2xl p-8 items-center shadow-2xl">
+
+          {/* Icon */}
+          <View className={`w-14 h-14 rounded-full border items-center justify-center mb-5 ${error ? "bg-red-900/30 border-red-500/50" : "bg-indigo-500/20 border-indigo-500/30"}`}>
+            <Text className={`text-2xl ${error ? "text-red-400" : "text-indigo-400"}`}>🔒</Text>
           </View>
 
-          {/* PIN dots */}
-          <View className="flex-row gap-4 mb-10">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <View
-                key={i}
-                className={`w-4 h-4 rounded-full border-2 border-white/60 ${i < pin.length ? "bg-white" : "bg-transparent"}`}
-              />
-            ))}
-          </View>
+          <Text className="text-white text-lg font-semibold mb-1">Wealth Dashboard</Text>
+          <Text className="text-slate-400 text-sm mb-6">Enter your 4-digit PIN</Text>
 
-          {error ? (
-            <Text className="text-white/90 text-sm mb-6 bg-white/20 px-4 py-2 rounded-xl">
-              {error}
-            </Text>
-          ) : (
-            <Text className="text-white/60 text-sm mb-6">Enter your PIN</Text>
-          )}
+          <TextInput
+            ref={inputRef}
+            className={`w-full text-center text-2xl tracking-widest rounded-xl border-2 bg-slate-800 text-white py-4 ${error ? "border-red-500" : "border-slate-700"}`}
+            value={pin}
+            onChangeText={t => { setPin(t.replace(/\D/g, "").slice(0, 4)); setError(""); }}
+            keyboardType="number-pad"
+            maxLength={4}
+            secureTextEntry
+            autoFocus
+            placeholder="••••"
+            placeholderTextColor="#475569"
+            onSubmitEditing={handleLogin}
+            returnKeyType="done"
+          />
 
-          {/* Keypad */}
-          <View className="w-full max-w-xs">
-            <View className="flex-row flex-wrap justify-center gap-4">
-              {digits.map((d, i) => {
-                if (d === "") return <View key={i} className="w-20 h-16" />;
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => d === "⌫" ? handleDelete() : handleDigit(d)}
-                    className="w-20 h-16 rounded-2xl bg-white/20 active:bg-white/40 items-center justify-center"
-                  >
-                    <Text className="text-white text-2xl font-semibold">{d}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Login button */}
           <TouchableOpacity
             onPress={handleLogin}
             disabled={loading || pin.length < 4}
-            className="mt-8 w-full max-w-xs py-4 rounded-2xl bg-white items-center active:opacity-80 disabled:opacity-40"
+            className="mt-4 w-full py-3 rounded-xl bg-indigo-600 items-center active:opacity-80 disabled:opacity-40"
           >
-            {loading ? (
-              <ActivityIndicator color="#b91c1c" />
-            ) : (
-              <Text className="text-[#b91c1c] text-base font-bold">Unlock</Text>
-            )}
+            {loading
+              ? <ActivityIndicator color="white" />
+              : <Text className="text-white font-medium">Unlock</Text>
+            }
           </TouchableOpacity>
+
+          {error ? (
+            <Text className="text-red-400 text-sm mt-4">{error}</Text>
+          ) : null}
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
