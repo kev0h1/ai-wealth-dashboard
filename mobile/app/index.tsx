@@ -19,9 +19,15 @@ async function fetchSessionToken(): Promise<string> {
   return data.session_token ?? "";
 }
 
-// Watches the theme-color meta tag and posts changes to the native layer
-const THEME_WATCH_JS = `
+// Runs after DOM load: zero out the duplicate safe-area-inset-top padding
+// that web pages add (SafeAreaView already handles it natively), and
+// watch the theme-color meta tag to keep the status bar colour in sync.
+const POST_LOAD_JS = `
   (function() {
+    const s = document.createElement('style');
+    s.textContent = '[style*="env(safe-area-inset-top"]{padding-top:0!important}.safe-top{padding-top:0!important}';
+    document.head.appendChild(s);
+
     function send() {
       const m = document.querySelector('meta[name="theme-color"]');
       if (m) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'themeColor', color: m.content }));
@@ -65,14 +71,10 @@ export default function App() {
     );
   }
 
-  // SafeAreaView already handles the top inset natively, so zero out the
-  // env(safe-area-inset-top) padding that the web app adds on each page
+  // Runs before content: inject session token into localStorage
   const injectedJS = `
     (function() {
       try { localStorage.setItem(${JSON.stringify(TOKEN_KEY)}, ${JSON.stringify(token)}); } catch(e) {}
-      const s = document.createElement('style');
-      s.textContent = '[style*="env(safe-area-inset-top"]{padding-top:0!important}.safe-top{padding-top:0!important}';
-      document.head.appendChild(s);
     })();
     true;
   `;
@@ -91,7 +93,7 @@ export default function App() {
           thirdPartyCookiesEnabled
           sharedCookiesEnabled
           injectedJavaScriptBeforeContentLoaded={injectedJS}
-          injectedJavaScript={THEME_WATCH_JS}
+          injectedJavaScript={POST_LOAD_JS}
           onMessage={onMessage}
           allowsInlineMediaPlayback
           onShouldStartLoadWithRequest={() => true}
