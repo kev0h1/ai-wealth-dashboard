@@ -17,7 +17,8 @@ router = APIRouter(tags=["auth"])
 async def pin_login(body: dict):
     if body.get("pin") != DASHBOARD_PIN:
         raise HTTPException(401, "Incorrect PIN")
-    return {"session_token": serializer.dumps({"email": "local", "name": "Local"}), "ok": True}
+    email = next(iter(ALLOWED_EMAILS), "local")
+    return {"session_token": serializer.dumps({"email": email, "name": ""}), "ok": True}
 
 
 @router.post("/auth/session/validate")
