@@ -75,8 +75,8 @@ export default function App() {
   return (
     <>
       <StatusBar backgroundColor={themeColor} barStyle="light-content" translucent={false} />
-      {/* Bottom edge only — web app handles top safe area via viewport-fit:cover */}
-      <SafeAreaView style={styles.container} edges={["bottom"]}>
+      {/* Top edge only — pushes content below status bar; no bottom inset so content reaches screen edge */}
+      <SafeAreaView style={styles.container} edges={["top"]}>
         <WebView
           ref={webViewRef}
           source={{ uri: DASHBOARD_URL }}
