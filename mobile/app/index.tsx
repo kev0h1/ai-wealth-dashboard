@@ -2,7 +2,6 @@ import { useRef, useState, useEffect } from "react";
 import { StyleSheet, BackHandler, View, ActivityIndicator, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
-import * as NavigationBar from "expo-navigation-bar";
 
 const DASHBOARD_URL = "https://wealth.auriqltd.co.uk";
 const TOKEN_KEY = "wealth_session_token";
@@ -69,13 +68,6 @@ export default function App() {
     });
     return () => sub.remove();
   }, []);
-
-  // Update Android navigation bar when dark mode changes
-  useEffect(() => {
-    const bg = darkMode ? BG_DARK : BG_LIGHT;
-    NavigationBar.setBackgroundColorAsync(bg);
-    NavigationBar.setButtonStyleAsync(darkMode ? "light" : "dark");
-  }, [darkMode]);
 
   function onMessage(e: WebViewMessageEvent) {
     try {
