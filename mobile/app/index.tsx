@@ -5,7 +5,6 @@ import { WebView, WebViewMessageEvent } from "react-native-webview";
 
 const DASHBOARD_URL = "https://wealth.auriqltd.co.uk";
 const TOKEN_KEY = "wealth_session_token";
-const DEFAULT_THEME = "#4f46e5";
 const BG_LIGHT = "#f0f2f7";
 const BG_DARK  = "#0f172a";
 
@@ -19,32 +18,19 @@ async function fetchSessionToken(): Promise<string> {
   return data.session_token ?? "";
 }
 
-// Returns luminance 0–1 for a hex colour
-function luminance(hex: string): number {
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
-  return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
+// In edge-to-edge mode Android ignores StatusBar.backgroundColor — the status
+// bar background is always the app content behind it (bgColor). So we only
+// need to track dark mode to pick the right icon colour.
 const POST_LOAD_JS = `
   (function() {
-    // Zero out double-safe-area padding (SafeAreaView already handles top natively)
     const s = document.createElement('style');
     s.textContent = '[style*="env(safe-area-inset-top"]{padding-top:0!important}.safe-top{padding-top:0!important}';
     document.head.appendChild(s);
 
     function send() {
-      const m = document.querySelector('meta[name="theme-color"]');
       const dark = document.documentElement.classList.contains('dark');
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'update',
-        color: m ? m.content : null,
-        dark,
-      }));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'update', dark }));
     }
-    // Watch theme-color and dark-class changes
-    new MutationObserver(send).observe(document.head, { subtree: true, attributes: true, childList: true });
     new MutationObserver(send).observe(document.documentElement, { attributes: true });
     send();
   })();
@@ -54,7 +40,6 @@ const POST_LOAD_JS = `
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [themeColor, setThemeColor] = useState(DEFAULT_THEME);
   const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
@@ -72,18 +57,13 @@ export default function App() {
   function onMessage(e: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
-      if (msg.type === "update") {
-        if (msg.color) setThemeColor(msg.color);
-        setDarkMode(!!msg.dark);
-      }
+      if (msg.type === "update") setDarkMode(!!msg.dark);
     } catch {}
   }
 
   const bgColor = darkMode ? BG_DARK : BG_LIGHT;
-  // In dark mode: always use a dark status bar with white icons so mid-tone
-  // accent colours (cyan, amber) don't produce invisible dark icons.
-  const statusBarBg = darkMode ? BG_DARK : themeColor;
-  const barStyle = darkMode ? "light-content" : (luminance(themeColor) > 0.4 ? "dark-content" : "light-content");
+  // Light mode: dark icons on light-gray background. Dark mode: white icons on dark background.
+  const barStyle = darkMode ? "light-content" : "dark-content";
 
   if (token === null) {
     return (
@@ -103,7 +83,7 @@ export default function App() {
 
   return (
     <>
-      <StatusBar backgroundColor={statusBarBg} barStyle={barStyle} translucent={false} />
+      <StatusBar backgroundColor={bgColor} barStyle={barStyle} translucent={false} />
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]} edges={["top"]}>
         <WebView
           ref={webViewRef}
