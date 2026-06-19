@@ -80,8 +80,10 @@ export default function App() {
   }
 
   const bgColor = darkMode ? BG_DARK : BG_LIGHT;
-  // Use dark icons on light status bar colours, light icons on dark ones
-  const barStyle = luminance(themeColor) > 0.4 ? "dark-content" : "light-content";
+  // In dark mode: always use a dark status bar with white icons so mid-tone
+  // accent colours (cyan, amber) don't produce invisible dark icons.
+  const statusBarBg = darkMode ? BG_DARK : themeColor;
+  const barStyle = darkMode ? "light-content" : (luminance(themeColor) > 0.4 ? "dark-content" : "light-content");
 
   if (token === null) {
     return (
@@ -101,7 +103,7 @@ export default function App() {
 
   return (
     <>
-      <StatusBar backgroundColor={themeColor} barStyle={barStyle} translucent={false} />
+      <StatusBar backgroundColor={statusBarBg} barStyle={barStyle} translucent={false} />
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]} edges={["top"]}>
         <WebView
           ref={webViewRef}
