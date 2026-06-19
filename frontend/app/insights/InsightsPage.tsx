@@ -416,7 +416,7 @@ function WorkflowDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
         className="bg-white dark:bg-slate-900 rounded-t-3xl max-h-[90dvh] flex flex-col"
         onClick={e => e.stopPropagation()}

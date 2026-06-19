@@ -799,8 +799,8 @@ export default function BudgetPage() {
       <button
         data-tutorial-id="tutorial-budget-chat"
         onClick={() => setChatOpen(true)}
-        className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "88px", right: "16px", background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}
+        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
+        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}
         aria-label="Open Budget Advisor"
       >
         <MessageCircle className="w-6 h-6" />
@@ -809,8 +809,8 @@ export default function BudgetPage() {
       {/* AI Chat panel */}
       {chatOpen && (
         <div
-          className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
-          style={{ bottom: "88px", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "480px" }}
+          className="fixed z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
+          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "480px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
             style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}>

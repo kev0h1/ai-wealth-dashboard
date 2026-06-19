@@ -571,8 +571,8 @@ export default function DebtPage() {
       {/* Chat FAB */}
       <button
         onClick={() => openChatWithPrompt()}
-        className="fixed z-50 flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "88px", right: "16px", background: "#b91c1c" }}
+        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
+        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "#b91c1c" }}
         aria-label="Open Debt Advisor"
       >
         <MessageCircle className="w-6 h-6" />
@@ -581,8 +581,8 @@ export default function DebtPage() {
       {/* Chat panel */}
       {chatOpen && (
         <div
-          className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
-          style={{ bottom: "88px", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
+          className="fixed z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
+          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
             style={{ background: "#b91c1c" }}>
