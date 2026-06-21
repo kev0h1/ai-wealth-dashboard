@@ -1,30 +1,28 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { StyleSheet, BackHandler, View, ActivityIndicator, StatusBar, Text, Pressable } from "react-native";
+import { StyleSheet, BackHandler, View, ActivityIndicator, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { WebView, WebViewMessageEvent } from "react-native-webview";
+import { WebView, WebViewMessageEvent, WebViewNavigation } from "react-native-webview";
+import {
+  GoogleSignin,
+  isSuccessResponse,
+} from "@react-native-google-signin/google-signin";
+import Constants from "expo-constants";
 
 const DASHBOARD_URL = "https://wealth.auriqltd.co.uk";
-const TOKEN_KEY = "wealth_session_token";
+const NATIVE_AUTH_URL = `${DASHBOARD_URL}/api/auth/google/native`;
 const BG_LIGHT = "#f0f2f7";
 const BG_DARK  = "#0f172a";
 
-async function fetchSessionToken(): Promise<string> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch("https://wealth.auriqltd.co.uk/api/auth/pin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: "8048" }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data.session_token) return data.session_token;
-    } catch {
-      if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-    }
-  }
-  return "";
-}
+const extra = (Constants.expoConfig?.extra ?? {}) as {
+  googleWebClientId?: string;
+  googleIosClientId?: string;
+};
+
+GoogleSignin.configure({
+  webClientId: extra.googleWebClientId,
+  iosClientId: extra.googleIosClientId || undefined,
+  offlineAccess: false,
+});
 
 // In edge-to-edge mode Android ignores StatusBar.backgroundColor — the status
 // bar background is always the app content behind it (bgColor). So we only
@@ -47,16 +45,10 @@ const POST_LOAD_JS = `
 
 export default function App() {
   const webViewRef = useRef<WebView>(null);
-  // null = fetching, "" = all retries failed, string = ready
-  const [token, setToken] = useState<string | null>(null);
+  const loggingIn = useRef(false);
   const [darkMode, setDarkMode] = useState(false);
-
-  const loadToken = useCallback(() => {
-    setToken(null);
-    fetchSessionToken().then(setToken);
-  }, []);
-
-  useEffect(() => { loadToken(); }, [loadToken]);
+  const [loading, setLoading] = useState(true);
+  const [sourceUri, setSourceUri] = useState(DASHBOARD_URL);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -66,6 +58,13 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // Reload the WebView with the session token so the website stores it and
+  // logs itself in.
+  const applyToken = useCallback((token: string) => {
+    setLoading(true);
+    setSourceUri(`${DASHBOARD_URL}?token=${encodeURIComponent(token)}`);
+  }, []);
+
   function onMessage(e: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
@@ -73,37 +72,50 @@ export default function App() {
     } catch {}
   }
 
+  // The web "Continue with Google" button navigates to /api/auth/google. We
+  // intercept it and run the platform-native Google Sign-In (Play Services on
+  // Android, the Google SDK on iOS) — no browser, no redirect. The native SDK
+  // returns an idToken which the backend verifies and exchanges for a session
+  // token; we then reload the WebView with that token.
+  async function startGoogleLogin() {
+    if (loggingIn.current) return;
+    loggingIn.current = true;
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      await GoogleSignin.signOut();
+      const response = await GoogleSignin.signIn();
+      if (!isSuccessResponse(response)) return;
+      const idToken = response.data?.idToken;
+      if (!idToken) return;
+      const res = await fetch(NATIVE_AUTH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: idToken }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.session_token) applyToken(data.session_token);
+    } catch {
+      // User cancelled or sign-in failed — stay on the login screen.
+    } finally {
+      loggingIn.current = false;
+    }
+  }
+
+  function onShouldStart(req: WebViewNavigation) {
+    if (
+      req.url.includes("/api/auth/google") &&
+      !req.url.includes("/mobile") &&
+      !req.url.includes("/callback")
+    ) {
+      startGoogleLogin();
+      return false;
+    }
+    return true;
+  }
+
   const bgColor = darkMode ? BG_DARK : BG_LIGHT;
   const barStyle = darkMode ? "light-content" : "dark-content";
-
-  if (token === null) {
-    return (
-      <View style={[styles.loading, { backgroundColor: BG_LIGHT }]}>
-        <StatusBar backgroundColor={BG_LIGHT} barStyle="dark-content" />
-        <ActivityIndicator size="large" color="#4f46e5" />
-      </View>
-    );
-  }
-
-  if (token === "") {
-    return (
-      <View style={[styles.loading, { backgroundColor: BG_LIGHT }]}>
-        <StatusBar backgroundColor={BG_LIGHT} barStyle="dark-content" />
-        <Text style={styles.errorTitle}>Connection failed</Text>
-        <Text style={styles.errorSub}>Check your internet connection and try again.</Text>
-        <Pressable style={styles.retryBtn} onPress={loadToken}>
-          <Text style={styles.retryText}>Retry</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  const injectedJS = `
-    (function() {
-      try { localStorage.setItem(${JSON.stringify(TOKEN_KEY)}, ${JSON.stringify(token)}); } catch(e) {}
-    })();
-    true;
-  `;
 
   return (
     <>
@@ -111,29 +123,31 @@ export default function App() {
       <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]} edges={["top"]}>
         <WebView
           ref={webViewRef}
-          source={{ uri: DASHBOARD_URL }}
+          source={{ uri: sourceUri }}
           style={styles.webview}
           javaScriptEnabled
           domStorageEnabled
           thirdPartyCookiesEnabled
           sharedCookiesEnabled
-          injectedJavaScriptBeforeContentLoaded={injectedJS}
           injectedJavaScript={POST_LOAD_JS}
           onMessage={onMessage}
+          onLoadEnd={() => setLoading(false)}
           allowsInlineMediaPlayback
-          onShouldStartLoadWithRequest={() => true}
+          onShouldStartLoadWithRequest={onShouldStart}
         />
+        {loading && (
+          <View style={[styles.loading, styles.overlay, { backgroundColor: bgColor }]}>
+            <ActivityIndicator size="large" color="#4f46e5" />
+          </View>
+        )}
       </SafeAreaView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container:  { flex: 1 },
-  webview:    { flex: 1 },
-  loading:    { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  errorTitle: { fontSize: 17, fontWeight: "600", color: "#1e293b", marginTop: 16, textAlign: "center" },
-  errorSub:   { fontSize: 14, color: "#64748b", marginTop: 8, textAlign: "center", lineHeight: 20 },
-  retryBtn:   { marginTop: 24, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 12, backgroundColor: "#4f46e5" },
-  retryText:  { color: "#fff", fontWeight: "600", fontSize: 15 },
+  container: { flex: 1 },
+  webview:   { flex: 1 },
+  loading:   { alignItems: "center", justifyContent: "center" },
+  overlay:   { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
 });

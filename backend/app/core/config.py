@@ -17,7 +17,9 @@ MONGO_URI           = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
-ALLOWED_EMAILS      = {e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",")}
+_raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",") if e.strip()]
+ALLOWED_EMAILS      = set(_raw_allowed_emails)
+PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
 SESSION_MAX_AGE     = 7 * 24 * 3600
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 

@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@react-native-google-signin/google-signin": "^16.1.2",
     "expo": "~56.0.12",
     "expo-constants": "~56.0.18",
     "expo-linking": "~56.0.14",
     "expo-router": "~56.2.11",
     "expo-status-bar": "~56.0.4",
+    "expo-web-browser": "~56.0.5",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-safe-area-context": "~5.7.0",

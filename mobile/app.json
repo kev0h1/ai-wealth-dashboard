@@ -25,10 +25,19 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.IOS_CLIENT_ID_PLACEHOLDER"
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://wealth.auriqltd.co.uk/api",
+      "googleWebClientId": "828077252293-bvcdr0nop66lc6uatvrh4m4vhdtb2vbo.apps.googleusercontent.com",
+      "googleIosClientId": "",
       "router": {},
       "eas": {
         "projectId": "c316c0dc-32a7-4111-8b67-4299c53c4e69"
