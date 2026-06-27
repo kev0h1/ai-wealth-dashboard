@@ -33,6 +33,10 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Firebase / push credentials (service-account key is secret; google-services.json is safe to commit)
+GoogleService-Info.plist
+*firebase-adminsdk*.json
+
 # typescript
 *.tsbuildinfo
 
