@@ -13,6 +13,12 @@
     },
     "android": {
       "package": "co.uk.auriqltd.wealth",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#b91c1c",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -28,9 +34,22 @@
       "expo-router",
       "expo-web-browser",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "We use your location to find cheaper fuel near you."
+        }
+      ],
+      [
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.IOS_CLIENT_ID_PLACEHOLDER"
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#b91c1c"
         }
       ]
     ],
