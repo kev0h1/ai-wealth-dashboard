@@ -21,62 +21,53 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
   const cash = kpis?.cash ?? 0;
   const runway = kpis?.runway ?? 0;
 
-  const gradient = isNegative
-    ? "linear-gradient(135deg,#dc2626 0%,#9f1239 100%)"
-    : "linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)";
-  const shadow = isNegative
-    ? "0 8px 32px rgba(220,38,38,0.35)"
-    : "0 8px 32px rgba(79,70,229,0.35)";
-
+  // Neutral surface; the sign carries through the trend icon tint and a
+  // subtle red only on the figure when negative
   return (
-    <div className="rounded-3xl p-6 text-white relative overflow-hidden"
-      style={{ background: gradient, boxShadow: shadow }}>
-      <div className="absolute -top-8 -right-8 w-36 h-36 rounded-full opacity-10 bg-white" />
-      <div className="absolute -bottom-12 -left-6 w-44 h-44 rounded-full opacity-10 bg-white" />
-
-      <div className="relative z-10">
-        {/* Title row */}
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            {isNegative
-              ? <TrendingDown size={16} strokeWidth={2} className="opacity-80" />
-              : <TrendingUp size={16} strokeWidth={2} className="opacity-80" />}
-            <span className="text-sm font-medium opacity-80">Net Worth</span>
-          </div>
-          <button
-            onClick={() => setHideNetWorth(!hidden)}
-            className="opacity-70 hover:opacity-100 transition-opacity p-1 rounded-full"
-            aria-label={hidden ? "Show balance" : "Hide balance"}
-          >
-            {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
+    <div className="rounded-3xl p-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
+      {/* Title row */}
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          {isNegative
+            ? <TrendingDown size={16} strokeWidth={2} className="text-red-500 dark:text-red-400/80" />
+            : <TrendingUp size={16} strokeWidth={2} className="text-emerald-500 dark:text-emerald-400/80" />}
+          <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Net Worth</span>
         </div>
+        <button
+          onClick={() => setHideNetWorth(!hidden)}
+          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full"
+          aria-label={hidden ? "Show balance" : "Hide balance"}
+        >
+          {hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
 
-        {/* Main figure */}
-        {loading ? (
-          <div className="h-10 w-48 bg-white/20 rounded-lg animate-pulse mb-4" />
-        ) : (
-          <div className="text-4xl font-bold tracking-tight mb-4 select-none">
-            {hidden
-              ? "••••••"
-              : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
-          </div>
-        )}
+      {/* Main figure */}
+      {loading ? (
+        <div className="h-10 w-48 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-4" />
+      ) : (
+        <div className={`text-4xl font-bold tracking-tight mb-4 select-none ${
+          isNegative ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-slate-100"
+        }`}>
+          {hidden
+            ? "••••••"
+            : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+        </div>
+      )}
 
-        {/* Chips */}
-        <div className="flex gap-3 flex-wrap">
-          <div className="bg-white/15 backdrop-blur rounded-xl px-4 py-2">
-            <p className="text-xs opacity-70 mb-0.5">Cash</p>
-            {loading
-              ? <div className="h-5 w-20 bg-white/20 rounded animate-pulse" />
-              : <p className="text-base font-semibold">{hidden ? "••••" : fmt(cash, sym)}</p>}
-          </div>
-          <div className="bg-white/15 backdrop-blur rounded-xl px-4 py-2">
-            <p className="text-xs opacity-70 mb-0.5">Runway</p>
-            {loading
-              ? <div className="h-5 w-16 bg-white/20 rounded animate-pulse" />
-              : <p className="text-base font-semibold">{hidden ? "••" : `${runway}mo`}</p>}
-          </div>
+      {/* Chips */}
+      <div className="flex gap-3 flex-wrap">
+        <div className="bg-slate-50 dark:bg-slate-700/60 rounded-xl px-4 py-2">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Cash</p>
+          {loading
+            ? <div className="h-5 w-20 bg-slate-100 dark:bg-slate-600 rounded animate-pulse" />
+            : <p className="text-base font-semibold text-slate-800 dark:text-slate-100">{hidden ? "••••" : fmt(cash, sym)}</p>}
+        </div>
+        <div className="bg-slate-50 dark:bg-slate-700/60 rounded-xl px-4 py-2">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5" title="All cash ÷ average monthly outgoings">Cash runway</p>
+          {loading
+            ? <div className="h-5 w-16 bg-slate-100 dark:bg-slate-600 rounded animate-pulse" />
+            : <p className="text-base font-semibold text-slate-800 dark:text-slate-100">{hidden ? "••" : `${runway}mo`}</p>}
         </div>
       </div>
     </div>

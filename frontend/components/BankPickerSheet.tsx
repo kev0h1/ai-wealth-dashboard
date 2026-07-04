@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Search, ChevronRight, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 
 interface Bank {
   id: string;
@@ -12,14 +13,18 @@ interface Bank {
 
 interface BankPickerSheetProps {
   onClose: () => void;
+  /** Called the moment a bank is selected and OAuth is about to open. */
+  onConnecting?: () => void;
 }
 
-export default function BankPickerSheet({ onClose }: BankPickerSheetProps) {
+export default function BankPickerSheet({ onClose, onConnecting }: BankPickerSheetProps) {
+  useLockBodyScroll();
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -27,7 +32,20 @@ export default function BankPickerSheet({ onClose }: BankPickerSheetProps) {
       .then(setBanks)
       .catch(() => setError("Failed to load banks"))
       .finally(() => setLoading(false));
-    setTimeout(() => searchRef.current?.focus(), 300);
+  }, []);
+
+  // Push the sheet above the on-screen keyboard in mobile WebViews.
+  // visualViewport.height shrinks when the keyboard appears; window.innerHeight does not.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setKeyboardHeight(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
   }, []);
 
   const filtered = query.trim()
@@ -39,9 +57,21 @@ export default function BankPickerSheet({ onClose }: BankPickerSheetProps) {
     setError(null);
     try {
       const { auth_url } = await api.connectLink(bank.id);
-      window.location.href = auth_url;
-    } catch {
-      setError("Failed to connect. Please try again.");
+      // In the React Native WebView, open OAuth in the native browser so banks
+      // that redirect to their own app (e.g. Starling) work correctly.
+      onConnecting?.();
+      const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
+      if (rn) {
+        rn.postMessage(JSON.stringify({ type: "open_external", url: auth_url }));
+        onClose();
+      } else {
+        window.location.href = auth_url;
+      }
+    } catch (err) {
+      const msg = err instanceof Error && err.message.startsWith("402")
+        ? "Free plan allows 2 connected banks. Upgrade to Pro for unlimited connections."
+        : "Failed to connect. Please try again.";
+      setError(msg);
       setConnecting(null);
     }
   }
@@ -50,8 +80,8 @@ export default function BankPickerSheet({ onClose }: BankPickerSheetProps) {
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div
-        className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-t-3xl shadow-2xl flex flex-col"
-        style={{ maxHeight: "88dvh" }}
+        className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-t-3xl shadow-2xl flex flex-col transition-[margin] duration-100"
+        style={{ maxHeight: "88dvh", marginBottom: keyboardHeight }}
       >
         {/* Handle */}
         <div className="mx-auto w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full mt-3 mb-1 flex-shrink-0" />
@@ -81,7 +111,13 @@ export default function BankPickerSheet({ onClose }: BankPickerSheetProps) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search your bank…"
-              className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-100 outline-none placeholder:text-slate-400"
+              type="search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              enterKeyHint="search"
+              className="flex-1 bg-transparent text-sm text-slate-800 dark:text-slate-100 outline-none placeholder:text-slate-400 [&::-webkit-search-cancel-button]:hidden"
             />
             {query && (
               <button onClick={() => setQuery("")} className="text-slate-400 active:text-slate-600">

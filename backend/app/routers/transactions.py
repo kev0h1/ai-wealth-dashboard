@@ -16,6 +16,7 @@ from app.db.collections import (
 from app.services.categorisation import (
     RAW_TRUELAYER_CATEGORIES, VALID_CATEGORIES,
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
+    normalise_merchant, cache_merchant,
 )
 
 router = APIRouter(tags=["transactions"])
@@ -36,6 +37,20 @@ def _doc_to_tx(d) -> Transaction:
         id=str(d["_id"]), category=eff, custom_category=d.get("custom_category"),
         **{k: v for k, v in d.items() if k not in ("_id", "category", "custom_category")},
     )
+
+
+@router.get("/transactions/oldest")
+async def oldest_transaction(user: dict = Depends(current_user)):
+    """Date of the user's earliest transaction — lets the UI stop period
+    navigation before it pages into empty pre-history."""
+    uid = user["email"]
+    oldest = None
+    for col in (transactions_col, yapily_transactions_col,
+                mono_transactions_col, statement_transactions_col):
+        doc = await col.find_one({"user_id": uid}, {"date": 1}, sort=[("date", 1)])
+        if doc and doc.get("date") and (oldest is None or doc["date"] < oldest):
+            oldest = doc["date"]
+    return {"date": oldest.strftime("%Y-%m-%d") if oldest else None}
 
 
 @router.get("/accounts/{account_id}/transactions", response_model=List[Transaction])
@@ -119,6 +134,17 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
             {"$set": {"custom_category": category}},
         )
         bulk_count = result.modified_count
+
+    # Persist the correction to the learned merchant cache so it sticks across
+    # syncs and generalises to the same merchant on future transactions.
+    if category in VALID_CATEGORIES:
+        touched = await transactions_col.find(
+            {"_id": {"$in": [transaction_id, *additional_ids]}, "user_id": user["email"]},
+            {"merchant_name": 1, "description": 1},
+        ).to_list(None)
+        for d in touched:
+            key = normalise_merchant(d.get("merchant_name") or "", d.get("description") or "")
+            await cache_merchant(key, category, "user")
 
     return {"updated": transaction_id, "custom_category": category, "bulk_count": bulk_count}
 

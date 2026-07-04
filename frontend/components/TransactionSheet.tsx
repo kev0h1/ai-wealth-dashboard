@@ -3,11 +3,13 @@
 import { useState, useEffect } from "react";
 import { X, Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "lucide-react";
 import { Transaction, api } from "@/lib/api";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { BankBadge, BANK_META } from "@/components/AccountMiniCard";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
 import { formatDate } from "@/lib/payPeriod";
+import CustomSelect from "@/components/CustomSelect";
 
 type Scope = "single" | "all" | "future";
 
@@ -24,6 +26,7 @@ export default function TransactionSheet({
   onUpdated,
   account,
 }: TransactionSheetProps) {
+  useLockBodyScroll();
   const [category, setCategory] = useState(transaction.category ?? "Other");
   const [scope, setScope] = useState<Scope>("single");
   const [similar, setSimilar] = useState<Transaction[] | null>(null);
@@ -183,18 +186,11 @@ export default function TransactionSheet({
             </span>
           </div>
 
-          <div className="relative">
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full appearance-none bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-3 pr-10 text-sm font-medium text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-400 cursor-pointer"
-            >
-              {allCategories.map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-            <svg className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
-          </div>
+          <CustomSelect
+            value={category}
+            onChange={setCategory}
+            options={allCategories.map(cat => ({ value: cat, label: cat }))}
+          />
         </div>
 
         {/* Scope picker */}

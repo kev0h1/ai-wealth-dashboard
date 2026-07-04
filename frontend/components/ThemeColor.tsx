@@ -1,31 +1,26 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePreferences } from "@/components/PreferencesContext";
 
-const ROUTE_COLORS: Record<string, string> = {
-  "/":         "#4f46e5",
-  "/spend":    "#0891b2",
-  "/budget":   "#059669",
-  "/debt":     "#b91c1c",
-  "/accounts": "#2563eb",
-  "/settings": "#475569",
-  "/insights": "#d97706",
-};
+const LIGHT = "#f0f2f7";
+const DARK  = "#0f172a";
 
-export default function ThemeColor({ color }: { color?: string } = {}) {
-  const path = usePathname();
+// Drive the PWA status bar (theme-color) off the app's manual dark-mode state.
+// We keep a single managed meta and update its content; the per-page viewport
+// exports no longer emit theme-color metas, so there is nothing to collapse.
+export default function ThemeColor() {
+  const { darkMode } = usePreferences();
 
   useEffect(() => {
-    const resolved = color ?? ROUTE_COLORS[path] ?? "#4f46e5";
     let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (!meta) {
       meta = document.createElement("meta");
       meta.name = "theme-color";
       document.head.appendChild(meta);
     }
-    meta.content = resolved;
-  }, [color, path]);
+    meta.content = darkMode ? DARK : LIGHT;
+  }, [darkMode]);
 
   return null;
 }

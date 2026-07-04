@@ -10,6 +10,8 @@ frontend/.next/
 backend/.env
 backend/.session_secret
 backend/.vapid_private_key
+backend/.webhook_secret
+backend/.token_key
 backend/bot_state.json
 backend/store.json
 
@@ -19,3 +21,10 @@ backend/__pycache__/
 
 # OS
 .DS_Store
+
+# local SSH keys for throwaway hosts — never commit
+.keys/
+
+# cached fuel-price snapshots (collected via UK egress)
+backend/fuel_cache/
+backups/

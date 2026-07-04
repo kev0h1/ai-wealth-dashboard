@@ -3,12 +3,14 @@ import re
 import json
 import logging
 from collections import defaultdict, Counter
+from datetime import datetime
 from typing import Optional
 import httpx
 
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.db.collections import (
-    transactions_col, accounts_col, user_rules_col,
+    transactions_col, accounts_col, user_rules_col, user_profiles_col,
+    merchant_categories_col,
     statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
 )
 
@@ -19,7 +21,7 @@ RAW_TRUELAYER_CATEGORIES = {
 
 VALID_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
-    "Shopping", "Bills", "Subscriptions", "Health", "Travel",
+    "Shopping", "Bills", "Subscriptions", "Health", "Beauty", "Travel",
     "Software", "Savings", "Debt", "Transfer", "Income",
     "Cash", "Charity", "Other",
 ]
@@ -38,7 +40,9 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'\bbp\b|shell\b|esso\b|total energies|texaco|gulf\b|moto\b|roadchef|welcome break|petrol|fuel\b|\bparking\b|ncp\b|q-park|ringgo|paybyphone|car.?par\b|car.?park|airparks|purple.?parking|jfk.?park|airport.?park|birmingham.?int.*car|int.*car.*par', re.I), 'Transport'),
     (re.compile(r'netflix|spotify|disney\+?|amazon prime|apple music|youtube.?premium|google\*youtube|now tv|now\.tv|apple.?one|apple\.?com/bill|apple tv\+?|hulu|paramount\+?|bbc sounds|audible|kindle unlimited|duolingo|headspace|calm\b|grammarly|canva\b|adobe\b|microsoft 365|office 365|dropbox|icloud|google one|playstation|psn\b|ps\+|xbox.?game.?pass|nintendo online|nintendo switch online|twitch|squarespace|\bsqsp\b|claude\.ai|anthropic\b', re.I), 'Subscriptions'),
     (re.compile(r'odeon|vue cinema|cineworld|curzon|everyman cinema|ticketmaster|see.?tickets|eventbrite|sky sports|bt sport|dazn\b|steam\b|epic games|xbox store|nintendo eshop|nintendo\b|google play|app store|museum|theatre|gallery|gig\b|concert', re.I), 'Entertainment'),
-    (re.compile(r'\bamazon\b(?!.*prime)|\bamzn\b|amazon marketplace|amznmkt|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|lush\b|holland.?barrett|the body shop|boots(?! pharmacy)|dunelm\b|habitat\b|b&q\b|homebase\b|wickes\b|screwfix|toolstation|ikea\b|wayfair|made\.com|next\.co|very\.co|littlewoods|kaleidoscope|qvc\b|ao\.com|\bao\b appliances|smyths|toy.?r.?us|the range\b|homebargains|home bargains|pound.?land|poundworld|savers\b', re.I), 'Shopping'),
+    # Beauty before Shopping/Health so specialist retailers and salons win the match
+    (re.compile(r'lush\b|the body shop|superdrug(?! pharmacy)|sephora|space ?nk|lookfantastic|look fantastic|cult ?beauty|beauty ?bay|feelunique|glossier|charlotte tilbury|the perfume shop|fragrance (?:shop|direct)|jo malone|molton brown|rituals\b|kiko milano|barber|hairdress|hair (?:salon|studio|lounge|cuttery)|\bsalon\b|toni ?& ?guy|supercuts|headmasters|rush hair|regis hair|nail (?:bar|salon|studio|lounge)|\bnails\b|manicure|pedicure|waxing|\bbrows?\b|\blashes\b|tanning|\bspa\b|treatwell|fresha\b|booksy|beautician|aesthetics\b|cosmetics\b', re.I), 'Beauty'),
+    (re.compile(r'\bamazon\b(?!.*prime)|\bamzn\b|amazon marketplace|amznmkt|asos\b|zara\b|h&m\b|h and m|next\b|john lewis|argos\b|currys\b|pc world|ebay\b|very\b|boohoo|river island|topshop|primark|tkmaxx|tk maxx|matalan|new look|sports direct|jd sports|foot locker|footlocker|nike\b|adidas\b|vinted\b|etsy\b|zalando|prettylittlething|shein\b|uniqlo|gap\b|holland.?barrett|boots(?! pharmacy)|dunelm\b|habitat\b|b&q\b|homebase\b|wickes\b|screwfix|toolstation|ikea\b|wayfair|made\.com|next\.co|very\.co|littlewoods|kaleidoscope|qvc\b|ao\.com|\bao\b appliances|smyths|toy.?r.?us|the range\b|homebargains|home bargains|pound.?land|poundworld|savers\b', re.I), 'Shopping'),
     (re.compile(r'british gas|octopus energy|edf energy|e\.?on\b|scottish power|npower|bulb\b|ovo energy|shell energy|thames water|severn trent|yorkshire water|united utilities|south west water|bt group\b|bt broadband|virgin media|sky\b|vodafone|ee\b|o2\b|three\b|giffgaff|lycamobile|lyca mobile|lebara|voxi\b|smarty\b|talktalk|plusnet|now broadband|council tax|tv licence|water bill|electricity bill|gas bill|broadband|metropoli.*council|borough council|city council|district council|county council|local authority', re.I), 'Bills'),
     (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym\b|gym ltd|gym group|anytime fitness|jd gyms|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein|\bspire\s+\w+|bupa\b|axa health|vitality health|aviva health|private.?health|medical.?centre|walk.?in.?centre|urgent.?care|physiotherapy|physio\b|osteopath|chiropractor|acupuncture|counselling|therapy\b|mental health', re.I), 'Health'),
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
@@ -58,7 +62,7 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'\bpaypal\b', re.I), 'Shopping'),
     (re.compile(r'\batm\b|cash.?machine|cash.?withdrawal|cashpoint|notemachine|note.?machine', re.I), 'Other'),
     (re.compile(r'exchanged? to\b|fx\b|foreign.?exchange|currency.?exchange|transnational', re.I), 'Transfer'),
-    (re.compile(r'from .* pot\b|to .* pot\b|pot.?transfer|pot.?withdrawal|pot.?deposit', re.I), 'Transfer'),
+    (re.compile(r'from .* pot\b|transfer\s+from\s+(?:\w+\s+)*pot\b|to\s+(?:\w+\s+)*pot\b|pot.?transfer|pot.?withdrawal|pot.?deposit', re.I), 'Transfer'),
     (re.compile(r'post office\b|royal mail\b|parcelforce', re.I), 'Shopping'),
     (re.compile(r'\bperks?\b|cashback\b|reward.?payment|loyalty.?reward', re.I), 'Income'),
 ]
@@ -70,6 +74,101 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
         if pattern.search(text):
             return category
     return None
+
+
+async def user_identity(user_id: str) -> dict:
+    """Name tokens (from profile) + the user's own account number/sort-code
+    digit strings (from their TrueLayer accounts). Used to classify FT transfers."""
+    profile = await user_profiles_col.find_one({"_id": user_id}) or {}
+    name_tokens = profile.get("name_tokens", [])
+    own_ids: set[str] = set()
+    async for a in accounts_col.find(
+        {"user_id": user_id}, {"account_number": 1, "sort_code": 1}
+    ):
+        for field in ("account_number", "sort_code"):
+            digits = re.sub(r"\D", "", str(a.get(field) or ""))
+            if len(digits) >= 6:
+                own_ids.add(digits)
+    return {"name_tokens": name_tokens, "own_ids": own_ids}
+
+
+def _name_token_hits(description: str, name_tokens: list[str]) -> int:
+    """Count distinct user name tokens that fuzzy-match a word in the description.
+    A match is a >=3-char prefix overlap (so 'MAING' matches 'maingi')."""
+    words = re.split(r"[^a-zA-Z]+", description.lower())
+    words = [w for w in words if len(w) >= 3]
+    hits = 0
+    for tok in name_tokens:
+        if any(w == tok or w.startswith(tok) or tok.startswith(w) for w in words):
+            hits += 1
+    return hits
+
+
+def classify_ft(description: str, amount: float, identity: dict) -> Optional[str]:
+    """Classify a TrueLayer 'FT' (funds transfer) transaction.
+    Returns a category, or None if the description isn't an FT line."""
+    desc = (description or "").strip()
+    if not re.search(r"\bFT\s*$", desc, re.I):
+        return None
+    digits_in_desc = set(re.findall(r"\d{6,}", desc))
+    if any(oid in digits_in_desc for oid in identity["own_ids"]):
+        return "Transfer"
+    # The Income/Other split hinges on the name not matching, which is only
+    # meaningful once we know the user's name. Until then, leave it be.
+    if not identity["name_tokens"]:
+        return None
+    if _name_token_hits(desc, identity["name_tokens"]) >= 2:
+        return "Transfer"
+    return "Income" if amount > 0 else "Other"
+
+
+# Barclays-style trailing channel codes (mechanism, not merchant) — see project notes.
+_CHANNEL_CODES = {
+    "FT", "CPM", "BCC", "BGC", "DDR", "STO", "CLP", "CB",
+    "FP", "FPI", "FPO", "BP", "TFR", "DD", "SO",
+}
+
+
+def normalise_merchant(merchant: str, description: str = "") -> str:
+    """Reduce a merchant/description to a stable lowercase key for cache lookup.
+
+    Prefers a real merchant name; otherwise strips the Barclays-style template
+    noise from the description (trailing date fragments, reference numbers, and
+    channel codes) so 'TESCO 1234 ON 05 JUN CLP' and 'TESCO 5678 ON 11 JUL CLP'
+    collapse to the same key.
+    """
+    base = (merchant or "").strip()
+    if not base:
+        base = (description or "").strip()
+        # Drop trailing "ON 05 JUN ..." / "05 JUN ..." date fragments and anything after.
+        base = re.sub(r'\s+(?:ON\s+)?\d{1,2}\s*[A-Z]{3}\b.*$', '', base, flags=re.I)
+        # Drop long reference / card numbers.
+        base = re.sub(r'\s+\d{4,}\b', ' ', base)
+        # Peel off one or more trailing known channel codes.
+        while True:
+            m = re.search(r'\s+([A-Za-z]{2,4})\s*$', base)
+            if m and m.group(1).upper() in _CHANNEL_CODES:
+                base = base[:m.start()]
+            else:
+                break
+    key = re.sub(r'[^a-z0-9]+', ' ', base.lower()).strip()
+    return re.sub(r'\s+', ' ', key)
+
+
+async def cache_merchant(key: str, category: str, source: str) -> None:
+    """Persist a merchant->category decision. 'user' entries win: an 'llm' write
+    will not overwrite a category a user has explicitly corrected."""
+    if not key or category not in VALID_CATEGORIES:
+        return
+    if source != "user":
+        existing = await merchant_categories_col.find_one({"_id": key}, {"source": 1})
+        if existing and existing.get("source") == "user":
+            return
+    await merchant_categories_col.update_one(
+        {"_id": key},
+        {"$set": {"category": category, "source": source, "updated_at": datetime.utcnow()}},
+        upsert=True,
+    )
 
 
 async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
@@ -107,6 +206,23 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     updated = 0
 
     if structural:
+        # Pass 0: classify FT (funds transfer) lines via the user's identity
+        identity = await user_identity(user_id)
+        ft_txns = await transactions_col.find(
+            {"user_id": user_id, "custom_category": None,
+             "description": {"$regex": r"FT\s*$", "$options": "i"}},
+            {"description": 1, "amount": 1, "transaction_type": 1, "category": 1},
+        ).to_list(None)
+        for t in ft_txns:
+            signed = t["amount"] if t.get("transaction_type") == "credit" else -t["amount"]
+            cat = classify_ft(t.get("description", ""), signed, identity)
+            if cat and t.get("category") != cat:
+                await transactions_col.update_one(
+                    {"_id": t["_id"], "custom_category": None},
+                    {"$set": {"category": cat}},
+                )
+                updated += 1
+
         # Pass 1: credits on credit card accounts → Transfer
         cc_ids = [d["_id"] async for d in accounts_col.find({"user_id": user_id, "type": "credit_card"}, {"_id": 1})]
         if cc_ids:
@@ -211,6 +327,26 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         elif cat:
             await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": cat}})
             updated += 1
+
+    # Pass 3.4: learned merchant cache (persisted LLM + user decisions)
+    cache_docs = await merchant_categories_col.find(
+        {}, {"category": 1}
+    ).to_list(None)
+    cache = {d["_id"]: d["category"] for d in cache_docs if d.get("category") in VALID_CATEGORIES}
+    if cache:
+        cache_txns = await transactions_col.find(
+            {"user_id": user_id, "custom_category": None,
+             "$or": [{"category": None}, {"category": {"$in": list(RAW_TRUELAYER_CATEGORIES) + ["Other"]}}]},
+            {"merchant_name": 1, "description": 1, "category": 1},
+        ).to_list(None)
+        for t in cache_txns:
+            cat = cache.get(normalise_merchant(t.get("merchant_name") or "", t.get("description") or ""))
+            if cat and t.get("category") != cat:
+                await transactions_col.update_one(
+                    {"_id": t["_id"], "custom_category": None},
+                    {"$set": {"category": cat}},
+                )
+                updated += 1
 
     # Pass 3.5: user-defined rules
     user_rules = await user_rules_col.find({"uid": user_id}).to_list(None)
@@ -348,6 +484,7 @@ async def categorise_others_bg(uid: str) -> int:
             if final and final != "Other":
                 update["category"] = final
                 total_updated += len(seen[label])
+                await cache_merchant(normalise_merchant("", label), final, "llm")
             await col.update_many({"_id": {"$in": seen[label]}}, {"$set": update})
 
         reached_ids = {_id for ids in seen.values() for _id in ids}

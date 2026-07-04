@@ -10,8 +10,10 @@ import httpx
 from app.core.auth import current_user
 from app.core.config import (
     TRUELAYER_CLIENT_ID, TRUELAYER_CLIENT_SECRET,
-    TRUELAYER_AUTH_URL, TRUELAYER_REDIRECT_URI,
+    TRUELAYER_AUTH_URL, TRUELAYER_API_URL, TRUELAYER_REDIRECT_URI,
+    TRUELAYER_WEBHOOK_SECRET, APP_URL,
 )
+from app.core.subscription import check_connection_limit
 from app.db.collections import connections_col
 from app.services.truelayer_sync import save_connection, sync_connection
 
@@ -35,6 +37,7 @@ async def truelayer_providers(user: dict = Depends(current_user)):
 async def truelayer_link(provider: str = "", user: dict = Depends(current_user)):
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
+    await check_connection_limit(user["email"])
     connection_id = secrets.token_hex(8)
     await connections_col.update_one(
         {"_id": connection_id},
@@ -42,6 +45,8 @@ async def truelayer_link(provider: str = "", user: dict = Depends(current_user))
         upsert=True,
     )
     providers_param = f"uk-ob-all%20uk-cs-mock" if not provider else provider
+    webhook_uri = f"{APP_URL}/api/webhooks/truelayer/{TRUELAYER_WEBHOOK_SECRET}"
+    from urllib.parse import quote
     auth_url = (
         f"{TRUELAYER_AUTH_URL}/?"
         f"response_type=code&"
@@ -49,7 +54,8 @@ async def truelayer_link(provider: str = "", user: dict = Depends(current_user))
         f"scope=accounts%20transactions%20balance%20cards%20offline_access&"
         f"redirect_uri={TRUELAYER_REDIRECT_URI}&"
         f"state={connection_id}&"
-        f"providers={providers_param}"
+        f"providers={providers_param}&"
+        f"webhook_uri={quote(webhook_uri, safe='')}"
     )
     return {"auth_url": auth_url, "connection_id": connection_id}
 
@@ -78,13 +84,37 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
     user_id  = (conn_doc or {}).get("user_id", "unknown")
     asyncio.create_task(sync_connection(connection_id, user_id))
 
-    return HTMLResponse("""
-    <html><body style="font-family:sans-serif;text-align:center;padding:60px;background:#1a1a2e;color:#e0e0e0">
-    <h1 style="color:#00d4aa">&#10003; Bank Connected!</h1>
-    <p>Your account has been linked. Transactions are syncing in the background.</p>
-    <p>Head to Discord and use <strong>/summary</strong> to see your data.</p>
-    </body></html>
-    """)
+    return HTMLResponse("""<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
+  .icon{font-size:56px;margin-bottom:16px}
+  h1{color:#34d399;font-size:24px;margin:0 0 12px}
+  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
+  .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
+       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
+       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
+</style></head>
+<body>
+  <div class="icon">&#10003;</div>
+  <h1>Bank connected!</h1>
+  <p>Your account has been linked.<br>Transactions are syncing in the background.</p>
+  <button class="btn" onclick="returnToApp()">Return to app</button>
+  <script>
+    function returnToApp(){window.location.href='wealthdash://auth-complete';}
+    // Auto-attempt deep link after short delay; fall back to accounts page
+    // if the browser can't handle the scheme (desktop/web users).
+    setTimeout(function(){
+      var t=Date.now();
+      window.location.href='wealthdash://auth-complete';
+      setTimeout(function(){
+        if(Date.now()-t<1800){window.location.href='/accounts';}
+      },1500);
+    },800);
+  </script>
+</body></html>
+""")
 
 
 @router.get("/auth/truelayer/test-callback")

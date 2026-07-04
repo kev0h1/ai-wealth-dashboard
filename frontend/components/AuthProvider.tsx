@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { getToken, setToken, clearToken } from "@/lib/auth";
+import { api } from "@/lib/api";
 import LoginScreen from "@/components/LoginScreen";
+import Onboarding from "@/components/Onboarding";
 
 interface AuthUser {
   email: string;
@@ -21,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -59,6 +62,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           if (data.email) {
             setUser({ email: data.email, name: data.name || "" });
+            try {
+              const profile = await api.getProfile();
+              if (!profile.onboarding_complete) setNeedsOnboarding(true);
+            } catch {
+              // Don't block the app if the profile check fails.
+            }
           } else {
             // Old PIN-format token — no email, force re-auth via Google
             clearToken();
@@ -80,11 +89,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   if (checking) {
-    return <div className="min-h-dvh bg-[#f0f2f7]" />;
+    return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
   }
 
   if (!user) {
     return <LoginScreen error={authError} />;
+  }
+
+  if (needsOnboarding) {
+    return <Onboarding defaultName={user.name} onComplete={() => setNeedsOnboarding(false)} />;
   }
 
   return (

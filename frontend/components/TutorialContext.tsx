@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export interface TutorialStep {
@@ -93,10 +93,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     target: "tutorial-budget-chat",
     tooltipSide: "center",
     iconName: "Sparkles",
-    color: "#059669",
-    bg: "#d1fae5",
-    title: "Or Use the AI Advisor",
-    description: "Tap the green chat button to open the AI Budget Advisor. Describe what you want in plain English and it will create budgets for you automatically.",
+    color: "#4f46e5",
+    bg: "#e0e7ff",
+    title: "Or Ask Penny",
+    description: "Tap the chat button to ask Penny, your money advisor. Describe what you want in plain English and she'll create budgets for you automatically.",
     tip: "Example: \"Limit eating out to £200 per month\".",
   },
 ];
@@ -161,7 +161,23 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
     setCurrentStep(n);
   }, [router]);
 
-  const end = useCallback(() => setIsActive(false), []);
+  const end = useCallback(() => {
+    setIsActive(false);
+    // Persist so we don't auto-start again on future logins.
+    try { localStorage.setItem("wealth_tutorial_seen", "1"); } catch {}
+  }, []);
+
+  // Auto-start the tour when the user just finished onboarding.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem("wealth_tutorial_pending") === "1") {
+        localStorage.removeItem("wealth_tutorial_pending");
+        const t = setTimeout(() => { setCurrentStep(0); setIsActive(true); }, 800);
+        return () => clearTimeout(t);
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Ctx.Provider value={{

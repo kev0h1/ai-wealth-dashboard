@@ -5,6 +5,7 @@ export interface Account {
   id: string;
   name: string;
   type: string;
+  subtype?: string;
   balance: number;
   currency: string;
   provider: string;
@@ -12,6 +13,31 @@ export interface Account {
   status: string;
   account_number?: string;
   sort_code?: string;
+  manual?: boolean;
+}
+
+export type ManualAccountType = "savings" | "current" | "credit_card";
+
+export interface ManualAccount {
+  id: string;
+  name: string;
+  balance: number;
+  account_type: ManualAccountType;
+  updated_at: string | null;
+}
+
+export type RuleMatchType = "description_contains" | "category";
+export type RuleSign = "same" | "opposite";
+
+export interface ManualAccountRule {
+  id: string;
+  name: string;
+  target_account_id: string;
+  target_account_name: string | null;
+  match_type: RuleMatchType;
+  match_value: string;
+  sign: RuleSign;
+  active: boolean;
 }
 
 export interface Transaction {
@@ -256,4 +282,42 @@ export interface BillLabel {
   icon: string;
   label: string;
   is_skip: boolean;
+}
+
+export type SubscriptionTier = "free" | "pro" | "premium" | "family";
+
+export interface SubscriptionLimits {
+  max_connections: number | null;
+  history_days: number | null;
+  max_budget_categories: number | null;
+  ai_chat_messages_per_month: number | null;
+  receipt_scans_per_month: number | null;
+}
+
+export interface SubscriptionFeatures {
+  savings_insights: boolean;
+  debt_plan_creation: boolean;
+  investment_tracking: boolean;
+  custom_categories: boolean;
+  challenges: boolean;
+  export: boolean;
+}
+
+export interface SubscriptionUsage {
+  ai_chat_messages: number;
+  receipt_scans: number;
+}
+
+export interface TierPrice {
+  monthly: number;
+  annual: number;
+}
+
+export interface SubscriptionInfo {
+  tier: SubscriptionTier;
+  status: string;
+  limits: SubscriptionLimits;
+  features: SubscriptionFeatures;
+  usage: SubscriptionUsage;
+  prices: Record<string, TierPrice>;
 }

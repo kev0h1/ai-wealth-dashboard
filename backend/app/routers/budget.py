@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
+from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import (
     budgets_col, preferences_col, chat_sessions_col, episodic_memory_col,
     transactions_col, yapily_transactions_col,
@@ -48,6 +49,7 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "No messages or AI not configured")
 
     uid    = user["email"]
+    await check_ai_chat_limit(uid)
     name   = user.get("name", "").split()[0] or "there"
     region = await get_user_region(uid)
 
@@ -96,7 +98,7 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
     avg_text     = "\n".join(f"  - {k}: {currency}{v:.2f}/mo" for k, v in sorted(monthly_avg.items(), key=lambda x: -x[1]))
     monthly_income = round(sum(t["amount"] for t in income_txns) / 3, 2)
 
-    system = f"""You are a friendly, practical personal finance assistant helping {name} set up and manage monthly budgets.
+    system = f"""You are Penny, {name}'s friendly and practical personal finance advisor. You are helping them set up and manage monthly budgets.
 
 Their average monthly income: {currency}{monthly_income:.2f}
 
@@ -116,7 +118,9 @@ IMPORTANT: When the user wants to set or update budgets, respond with BOTH a fri
 ```
 
 Only include categories with actual limits. Don't include Transfer, Savings, Debt.
-Be encouraging, practical, and specific to their numbers. Suggest realistic budgets based on their actual spending."""
+Be encouraging, practical, and specific to their numbers. Suggest realistic budgets based on their actual spending.
+
+Format the friendly message in clean markdown: short paragraphs, **bold** for key numbers and amounts, and bullet points (-) for lists. Don't use headings. Keep the ```budgets``` JSON block exactly as specified."""
 
     full_messages = history + messages
 
@@ -131,6 +135,7 @@ Be encouraging, practical, and specific to their numbers. Suggest realistic budg
         raise HTTPException(500, "AI unavailable")
 
     reply = r.json()["choices"][0]["message"]["content"]
+    await increment_ai_chat_usage(uid)
 
     suggested_budgets = None
     try:

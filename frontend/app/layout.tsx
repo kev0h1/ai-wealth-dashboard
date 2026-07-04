@@ -41,7 +41,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className="h-full" suppressHydrationWarning>
+      <head>
+        {/* Apply cached dark mode before first paint — the server-fetched
+            preference confirms/corrects it later, but we never flash white */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem('wd_dark')==='1')document.documentElement.classList.add('dark')}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
         <Providers>
           <TutorialProvider>

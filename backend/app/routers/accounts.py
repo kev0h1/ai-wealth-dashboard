@@ -12,15 +12,38 @@ from app.db.collections import (
     mpesa_accounts_col, mpesa_transactions_col,
     statement_accounts_col, statement_transactions_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
-    account_rates_col,
+    account_rates_col, manual_accounts_col, cashflow_cache_col,
 )
 from app.services.region import get_user_region
 from app.services.truelayer_sync import sync_connection
 from app.services.yapily_sync import sync_yapily_consent
 from app.services.mono_sync import sync_mono_connection
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
+from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.routers.analytics import compute_and_cache_cashflow
 
 router = APIRouter(tags=["accounts"])
+
+
+def _manual_to_account(a: dict, currency: str) -> Account:
+    at = a.get("account_type", "savings")
+    if at == "credit_card":
+        return Account(
+            id=a["_id"], name=a.get("name", "Account"), type="credit_card",
+            subtype="CREDIT_CARD", balance=-abs(a.get("balance", 0)),
+            currency=currency, provider="Offline", status="connected", manual=True,
+        )
+    return Account(
+        id=a["_id"], name=a.get("name", "Account"), type="bank",
+        subtype="SAVINGS" if at == "savings" else "TRANSACTION",
+        balance=a.get("balance", 0), currency=currency,
+        provider="Offline", status="connected", manual=True,
+    )
+
+
+async def _manual_accounts(uid: str, currency: str) -> List[Account]:
+    docs = await manual_accounts_col.find({"user_id": uid}).to_list(None)
+    return [_manual_to_account(a, currency) for a in docs]
 
 
 @router.get("/accounts", response_model=List[Account])
@@ -54,6 +77,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
                 connection_id="",
             ))
+        result.extend(await _manual_accounts(uid, "KES"))
         return result
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
@@ -66,14 +90,22 @@ async def get_accounts(user: dict = Depends(current_user)):
             provider=a.get("provider", "BANK"), status=a.get("status", "connected"),
             connection_id="",
         ))
-    yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
-    for a in yapily_accs:
-        result.append(Account(
-            id=a["_id"], name=a.get("name", "Account"), type=a.get("type", "bank"),
-            balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
-            provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
-            connection_id=a.get("consent", ""),
-        ))
+    # Only include Yapily accounts if the user has an active Yapily consent.
+    # Stale records from past Yapily connections (consent since deleted) must
+    # not surface — they create phantom duplicates of TrueLayer accounts.
+    has_yapily_consent = await yapily_consents_col.count_documents(
+        {"user_id": uid, "status": "AUTHORIZED"}
+    ) > 0
+    if has_yapily_consent:
+        yapily_accs = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
+        for a in yapily_accs:
+            result.append(Account(
+                id=a["_id"], name=a.get("name", "Account"), type=a.get("type", "bank"),
+                balance=a.get("balance", 0), currency=a.get("currency", "GBP"),
+                provider=a.get("institution_id", "YAPILY"), status=a.get("status", "connected"),
+                connection_id=a.get("consent", ""),
+            ))
+    result.extend(await _manual_accounts(uid, "GBP"))
     return result
 
 
@@ -88,21 +120,31 @@ async def sync_all(user: dict = Depends(current_user)):
         for conn in conns:
             ids = await sync_mono_connection(conn["_id"], uid)
             total += len(ids)
+        asyncio.create_task(apply_mirror_rules(uid))
         return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
     total = 0
+    total_new_txns = 0
     for conn in conns:
-        ids = await sync_connection(conn["_id"], uid)
+        ids, new_count = await sync_connection(conn["_id"], uid)
         total += len(ids)
+        total_new_txns += new_count
     yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
     for yc in yapily_conns:
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
-    async def _post_sync(u):
+    async def _post_sync(u, has_new: bool):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
-    asyncio.create_task(_post_sync(uid))
+        await apply_mirror_rules(u)
+        # Always stamp sync time so the staleness clock resets even with no new data
+        await cashflow_cache_col.update_one(
+            {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
+        )
+        if has_new:
+            await compute_and_cache_cashflow(u)
+    asyncio.create_task(_post_sync(uid, total_new_txns > 0))
     return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
 
@@ -122,17 +164,25 @@ async def sync_history(user: dict = Depends(current_user)):
     conns   = await connections_col.find({"user_id": uid}).to_list(None)
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
     total   = 0
+    total_new_txns = 0
     for conn in conns:
-        ids = await sync_connection(conn["_id"], uid, from_date=from_dt)
+        ids, new_count = await sync_connection(conn["_id"], uid, from_date=from_dt)
         total += len(ids)
+        total_new_txns += new_count
     yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
     for yc in yapily_conns:
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
 
-    async def _post_sync(u):
+    async def _post_sync(u, has_new: bool):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
-    asyncio.create_task(_post_sync(uid))
+        await apply_mirror_rules(u)
+        await cashflow_cache_col.update_one(
+            {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
+        )
+        if has_new:
+            await compute_and_cache_cashflow(u)
+    asyncio.create_task(_post_sync(uid, total_new_txns > 0))
     return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
 
 
@@ -177,11 +227,12 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
             await mono_connections_col.delete_one({"_id": conn["_id"]})
         return {"deleted": account_id}
 
+    # Clean up Yapily record if present (stale duplicate from old Yapily connection).
+    # Do NOT return early — fall through so the TrueLayer exclusion is always written.
     yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if yapily_acc:
         await yapily_transactions_col.delete_many({"account_id": account_id})
         await yapily_accounts_col.delete_one({"_id": account_id})
-        return {"deleted": account_id}
 
     tl_acc = await accounts_col.find_one({"_id": account_id, "user_id": uid})
     if tl_acc:
@@ -189,6 +240,12 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         await transactions_col.delete_many({"account_id": account_id})
         await accounts_col.delete_one({"_id": account_id})
         if connection_id:
+            # Record the deleted account ID on the connection so the sync
+            # skips it on future runs — prevents it coming back automatically.
+            await connections_col.update_one(
+                {"_id": connection_id},
+                {"$addToSet": {"excluded_accounts": account_id}},
+            )
             remaining = await accounts_col.count_documents({"connection_id": connection_id})
             if remaining == 0:
                 await connections_col.delete_one({"_id": connection_id})

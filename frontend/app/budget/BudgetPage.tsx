@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, Target, ChevronDown, Flag, ChevronLeft, ChevronRight } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, ChevronDown, Flag, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
 import { ComposedChart, Area, Line, BarChart, Bar, Cell, Tooltip, ResponsiveContainer, XAxis, YAxis, ReferenceLine, ReferenceDot } from "recharts";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -11,9 +12,10 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import ChatMarkdown from "@/components/ChatMarkdown";
 import { getPayPeriodWithConfig, filterPeriod, formatDate, formatPeriod, prevPeriodWithConfig, nextPeriodWithConfig } from "@/lib/payPeriod";
 import type { Transaction } from "@/lib/api";
-import TutorialTrigger from "@/components/TutorialTrigger";
+import CustomSelect from "@/components/CustomSelect";
 
 interface Budget {
   category: string;
@@ -60,6 +62,7 @@ export default function BudgetPage() {
   const [paceProfile, setPaceProfile] = useState<Record<string, number[]>>({});
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [periodStart, setPeriodStart] = useState<Date>(() => getPayPeriodWithConfig(new Date(), { type: "calendar_month" })[0]);
+  const [oldestTxDate, setOldestTxDate] = useState<Date | null>(null);
   const [periodEnd, setPeriodEnd] = useState<Date>(() => getPayPeriodWithConfig(new Date(), { type: "calendar_month" })[1]);
   const allPeriodTxns = useMemo(
     () => filterPeriod(allTransactions, periodStart, periodEnd),
@@ -67,6 +70,8 @@ export default function BudgetPage() {
   );
   const [loading, setLoading] = useState(true);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showDaily, setShowDaily] = useState(false);
 
   // Add budget form
   const [addCat, setAddCat] = useState("");
@@ -108,6 +113,13 @@ export default function BudgetPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
+  }, []);
+
+  // Stop at the period containing the oldest transaction — no empty pre-history
+  const canGoPrev = !oldestTxDate || periodStart.getTime() > oldestTxDate.getTime();
 
   useEffect(() => {
     const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
@@ -212,10 +224,13 @@ export default function BudgetPage() {
     const dy = e.changedTouches[0].clientY - touchStartY.current;
     touchStartX.current = null;
     touchStartY.current = null;
+    // Ignore swipes while the chat panel is open
+    if (chatOpen) return;
     // Only respond to clearly horizontal swipes (dx dominates, at least 50px)
     if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
     if (dx > 0) {
-      // Swipe right → previous period
+      // Swipe right → previous period, stopping at the oldest transaction
+      if (!canGoPrev) return;
       const [s, en] = prevPeriodWithConfig(periodStart, payPeriodConfig);
       setPeriodStart(s); setPeriodEnd(en);
     } else {
@@ -370,37 +385,59 @@ export default function BudgetPage() {
     : [];
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header */}
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
-        style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      onTouchStart={handleChartTouchStart} onTouchEnd={handleChartTouchEnd}>
+      {/* Header — neutral surface, colour lives in the accents */}
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold">Budgets</h1>
-            {user && <p className="text-sm opacity-80 mt-0.5">Hi {firstName},</p>}
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Budgets</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <TutorialTrigger />
-            <Target className="w-7 h-7 opacity-60" />
+          <button
+            data-tutorial-id="tutorial-budget-form"
+            onClick={() => setShowAddForm(v => !v)}
+            aria-expanded={showAddForm}
+            className="flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 text-xs font-semibold active:scale-95 transition-all"
+          >
+            <Plus size={14} className={`transition-transform ${showAddForm ? "rotate-45" : ""}`} /> Budget
+          </button>
+        </div>
+
+        {/* Pay period stepper */}
+        <div className="flex items-center justify-between mt-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pay Period</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { if (!canGoPrev) return; const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig); setPeriodStart(s); setPeriodEnd(e); }}
+              disabled={!canGoPrev}
+              className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-95 transition-all disabled:opacity-30"
+            ><ChevronLeft size={13} className="text-slate-500 dark:text-slate-300" /></button>
+            <span className="text-xs font-medium min-w-[100px] text-center text-slate-700 dark:text-slate-200">{formatPeriod(periodStart, periodEnd)}</span>
+            <button
+              onClick={() => { const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig); const [cs] = getPayPeriodWithConfig(new Date(), payPeriodConfig); if (s.getTime() <= cs.getTime()) { setPeriodStart(s); setPeriodEnd(e); } }}
+              disabled={periodStart >= getPayPeriodWithConfig(new Date(), payPeriodConfig)[0]}
+              className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-95 transition-all disabled:opacity-30"
+            ><ChevronRight size={13} className="text-slate-500 dark:text-slate-300" /></button>
           </div>
         </div>
+
         {!loading && budgets.length > 0 && (
           <div className="mt-4">
             <div className="flex justify-between text-xs mb-1.5">
-              <span className="opacity-70">
+              <span className="text-slate-500 dark:text-slate-400">
                 {hideNetWorth ? "••••" : fmt(totalSpent, sym)} spent
-                {totalPlanned > 0 && <span className="ml-1 text-white/50">· {hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</span>}
-                {overBudgetCount > 0 && <span className="ml-1 text-red-300">· {overBudgetCount} over</span>}
+                {totalPlanned > 0 && <span className="ml-1 text-slate-400 dark:text-slate-500">· {hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</span>}
+                {overBudgetCount > 0 && <span className="ml-1 text-red-500">· {overBudgetCount} over</span>}
               </span>
-              <span className="font-semibold">{hideNetWorth ? "••••" : fmt(totalBudget, sym)} total</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{hideNetWorth ? "••••" : fmt(totalBudget, sym)} total</span>
             </div>
-            <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+            <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all"
-                style={{ width: `${overallPct}%`, backgroundColor: overBudgetCount > 0 ? "#fca5a5" : "#fff" }}
+                style={{ width: `${overallPct}%`, backgroundColor: overBudgetCount > 0 ? "#ef4444" : "#10b981" }}
               />
             </div>
-            <div className="flex justify-between mt-1 text-[10px] opacity-60">
+            <div className="flex justify-between mt-1 text-[10px] text-slate-400 dark:text-slate-500">
               <span>{Math.round(overallPct)}% used this pay period</span>
             </div>
           </div>
@@ -412,37 +449,18 @@ export default function BudgetPage() {
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : (
           <>
-            {/* ── Pay Period navigator (top of page) ───────────────────── */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Pay Period</p>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => { const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig); setPeriodStart(s); setPeriodEnd(e); }}
-                    className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200"
-                  ><ChevronLeft size={13} color="#94a3b8" /></button>
-                  <span className="text-xs text-slate-600 dark:text-slate-300 font-medium min-w-[100px] text-center">{formatPeriod(periodStart, periodEnd)}</span>
-                  <button
-                    onClick={() => { const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig); const [cs] = getPayPeriodWithConfig(new Date(), payPeriodConfig); if (s.getTime() <= cs.getTime()) { setPeriodStart(s); setPeriodEnd(e); } }}
-                    disabled={periodStart >= getPayPeriodWithConfig(new Date(), payPeriodConfig)[0]}
-                    className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 disabled:opacity-30"
-                  ><ChevronRight size={13} color="#94a3b8" /></button>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Add budget form ───────────────────────────────────────── */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" data-tutorial-id="tutorial-budget-form">
+            {/* ── Add budget form (revealed from the header) ────────────── */}
+            {(showAddForm || budgets.length === 0) && (
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add / Update Budget</p>
               <div className="flex gap-2 mb-2">
-                <select
+                <CustomSelect
                   value={addCat}
-                  onChange={e => { setAddCat(e.target.value); setAddError(""); }}
-                  className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 appearance-none"
-                >
-                  <option value="">Category…</option>
-                  {availableCats.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                  onChange={v => { setAddCat(v); setAddError(""); }}
+                  placeholder="Category…"
+                  options={availableCats.map(c => ({ value: c, label: c }))}
+                  className="flex-1"
+                />
                 <div className="relative flex-shrink-0">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 whitespace-nowrap">{sym}</span>
                   <input
@@ -462,11 +480,11 @@ export default function BudgetPage() {
               </div>
               {addError && <p className="text-xs text-red-500">{addError}</p>}
             </div>
+            )}
 
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
             {paceChartData.length > 1 && budgets.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4"
-                onTouchStart={handleChartTouchStart} onTouchEnd={handleChartTouchEnd}>
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Spend Pacing Curve</p>
                 </div>
@@ -578,9 +596,17 @@ export default function BudgetPage() {
                 .filter(d => d.dailySpend !== null)
                 .map(d => ({ ...d, displaySpend: Math.max(d.dailySpend ?? 0, LOG_FLOOR) }));
               return (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4"
-                  onTouchStart={handleChartTouchStart} onTouchEnd={handleChartTouchEnd}>
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Daily Summary</p>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                  <button
+                    onClick={() => setShowDaily(v => !v)}
+                    aria-expanded={showDaily}
+                    className={`w-full flex items-center justify-between ${showDaily ? "mb-3" : ""}`}
+                  >
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Daily Summary</p>
+                    <ChevronDown size={14} color="#94a3b8" className={`transition-transform ${showDaily ? "rotate-180" : ""}`} />
+                  </button>
+                  {showDaily && (
+                  <>
                   <ResponsiveContainer width="100%" height={90}>
                     <BarChart data={pastDays} margin={{ top: 4, right: 8, bottom: 0, left: 4 }}>
                       <XAxis
@@ -646,6 +672,8 @@ export default function BudgetPage() {
                       Variable under
                     </span>
                   </div>
+                  </>
+                  )}
                 </div>
               );
             })()}
@@ -799,9 +827,9 @@ export default function BudgetPage() {
       <button
         data-tutorial-id="tutorial-budget-chat"
         onClick={() => setChatOpen(true)}
-        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}
-        aria-label="Open Budget Advisor"
+        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-xl ring-2 ring-white/40 dark:ring-white/25 text-white"
+        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: BRAND_GRADIENT }}
+        aria-label="Chat with Penny"
       >
         <MessageCircle className="w-6 h-6" />
       </button>
@@ -813,10 +841,15 @@ export default function BudgetPage() {
           style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "480px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-            style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}>
-            <div>
-              <p className="text-sm font-bold">Budget Advisor</p>
-              <p className="text-[10px] opacity-70">Powered by Claude</p>
+            style={{ background: BRAND_GRADIENT }}>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">Penny</p>
+                <p className="text-[10px] opacity-70">Budget help · Powered by Claude</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -847,7 +880,7 @@ export default function BudgetPage() {
                     ? "bg-emerald-600 text-white rounded-br-sm"
                     : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm"
                 }`}>
-                  {cleanReply(msg.content)}
+                  {msg.role === "assistant" ? <ChatMarkdown>{cleanReply(msg.content)}</ChatMarkdown> : cleanReply(msg.content)}
                 </div>
                 {msg.suggestedBudgets && msg.suggestedBudgets.length > 0 && (
                   <ApplyBudgetCard

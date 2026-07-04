@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 import httpx
 
 from app.core.config import (
-    DASHBOARD_PIN, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APP_URL, ALLOWED_EMAILS, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
 )
 from itsdangerous import SignatureExpired, BadSignature
@@ -35,13 +35,6 @@ def _mobile_done_page() -> HTMLResponse:
         "padding:48px 24px;color:#1e293b\"><h2>You're signed in</h2>"
         "<p style=\"color:#64748b\">You can return to the app now.</p></body></html>"
     )
-
-
-@router.post("/auth/pin")
-async def pin_login(body: dict):
-    if body.get("pin") != DASHBOARD_PIN:
-        raise HTTPException(401, "Incorrect PIN")
-    return {"session_token": serializer.dumps({"email": PRIMARY_EMAIL, "name": ""}), "ok": True}
 
 
 @router.post("/auth/session/validate")

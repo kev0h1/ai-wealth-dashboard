@@ -1,15 +1,18 @@
 """Debt insights and burndown endpoints."""
 import copy
+import re
+import uuid as uuid_lib
 from collections import defaultdict as _dd
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
+from app.core.subscription import Tier, require_tier
 from app.db.collections import (
     accounts_col, transactions_col, yapily_transactions_col,
-    account_rates_col, preferences_col,
+    account_rates_col, preferences_col, debt_plans_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
@@ -168,6 +171,232 @@ async def debt_insights(user: dict = Depends(current_user)):
     }
 
 
+# ── Debt repayment plan ───────────────────────────────────────────────────────
+
+async def _current_total_debt(uid: str) -> float:
+    accounts = await accounts_col.find({"user_id": uid}).to_list(None)
+    cc = [a for a in accounts if a.get("type") == "credit_card" and a.get("balance", 0) < 0]
+    return round(sum(abs(a["balance"]) for a in cc), 2)
+
+
+def _plan_with_progress(plan: dict, total_debt: float) -> dict:
+    """Payment milestones auto-complete against live balance; action steps stay manual."""
+    milestones = []
+    for m in plan.get("milestones", []):
+        done = bool(m.get("done"))
+        if m.get("type") == "payment" and m.get("target_balance") is not None:
+            done = total_debt <= float(m["target_balance"])
+        created = m.get("done_at")
+        milestones.append({
+            "id": m["id"], "type": m.get("type", "action"), "text": m.get("text", ""),
+            "target_balance": m.get("target_balance"),
+            "done": done,
+            "done_at": created.isoformat() if isinstance(created, datetime) else created,
+        })
+    created_at = plan.get("created_at")
+    return {
+        "target_months":    plan.get("target_months"),
+        "debt_at_creation": plan.get("debt_at_creation"),
+        "created_at":       created_at.isoformat() if isinstance(created_at, datetime) else created_at,
+        "milestones":       milestones,
+        "done_count":       sum(1 for m in milestones if m["done"]),
+        "total_count":      len(milestones),
+        "current_debt":     total_debt,
+    }
+
+
+# Matches spend-cut milestones like "Cut eating out from £380 to £150/month"
+_CUT_RE = re.compile(
+    r"(?i)\b(?:cut|reduce|keep|cap|limit)\b.*?\b([a-z][a-z &']{2,30}?)\s+"
+    r"(?:from\s+£?[\d,]+(?:\s*/\s*(?:month|mo))?\s+)?(?:to|under|below|at)\s+£?([\d,]+)"
+)
+
+
+async def _enrich_action_milestones(uid: str, milestones: list[dict]) -> None:
+    """Attach live month-to-date spend to milestones that cap a category —
+    the app can see the transactions, so the user shouldn't have to self-certify."""
+    action_ms = [m for m in milestones if m.get("type") == "action"]
+    if not action_ms:
+        return
+    cats = set(await transactions_col.distinct("custom_category", {"user_id": uid}))
+    cats |= set(await transactions_col.distinct("category", {"user_id": uid}))
+    cats.discard(None)
+    now = datetime.now()
+    month_start = datetime(now.year, now.month, 1)
+    for m in action_ms:
+        match = _CUT_RE.search(m.get("text") or "")
+        if not match:
+            continue
+        phrase = match.group(1).strip().lower()
+        target = float(match.group(2).replace(",", ""))
+        cat = next((c for c in cats if c.lower() in phrase or phrase in c.lower()), None)
+        if not cat:
+            continue
+        pipeline = [
+            {"$match": {
+                "user_id": uid, "transaction_type": "debit",
+                "date": {"$gte": month_start},
+                "$or": [{"custom_category": cat},
+                        {"custom_category": None, "category": cat}],
+            }},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]
+        agg = await transactions_col.aggregate(pipeline).to_list(1)
+        m["live_category"] = cat
+        m["live_target"]   = target
+        m["live_spend"]    = round((agg[0]["total"] if agg else 0.0), 2)
+
+
+@router.get("/debt/plan")
+async def get_debt_plan(user: dict = Depends(current_user)):
+    uid  = user["email"]
+    plan = await debt_plans_col.find_one({"_id": uid})
+    if not plan:
+        return {"plan": None}
+    total_debt = await _current_total_debt(uid)
+    result = _plan_with_progress(plan, total_debt)
+    await _enrich_action_milestones(uid, result["milestones"])
+    return {"plan": result}
+
+
+@router.put("/debt/plan")
+async def save_debt_plan(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+    uid        = user["email"]
+    milestones = body.get("milestones", [])
+    if not isinstance(milestones, list) or not milestones:
+        raise HTTPException(400, "Plan must have at least one milestone")
+    total_debt = await _current_total_debt(uid)
+    norm = []
+    for m in milestones[:12]:
+        mtype = "payment" if m.get("type") == "payment" else "action"
+        tb    = m.get("target_balance")
+        text  = str(m.get("text", "")).strip()[:200]
+        if not text:
+            continue
+        norm.append({
+            "id":             str(uuid_lib.uuid4())[:8],
+            "type":           mtype,
+            "text":           text,
+            "target_balance": float(tb) if (mtype == "payment" and tb is not None) else None,
+            "done":           False,
+            "done_at":        None,
+        })
+    if not norm:
+        raise HTTPException(400, "Plan must have at least one milestone")
+    doc = {
+        "_id": uid, "user_id": uid,
+        "target_months":    int(body["target_months"]) if body.get("target_months") else None,
+        "debt_at_creation": total_debt,
+        "milestones":       norm,
+        "created_at":       datetime.now(),
+    }
+    await debt_plans_col.replace_one({"_id": uid}, doc, upsert=True)
+    return {"plan": _plan_with_progress(doc, total_debt)}
+
+
+@router.patch("/debt/plan/step/{step_id}")
+async def toggle_debt_plan_step(step_id: str, body: dict, user: dict = Depends(current_user)):
+    uid  = user["email"]
+    done = bool(body.get("done"))
+    plan = await debt_plans_col.find_one({"_id": uid})
+    if not plan:
+        raise HTTPException(404, "No plan")
+    found = False
+    for m in plan.get("milestones", []):
+        if m["id"] == step_id and m.get("type") != "payment":
+            m["done"]    = done
+            m["done_at"] = datetime.now() if done else None
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Step not found or not manually toggleable")
+    await debt_plans_col.update_one({"_id": uid}, {"$set": {"milestones": plan["milestones"]}})
+    total_debt = await _current_total_debt(uid)
+    return {"plan": _plan_with_progress(plan, total_debt)}
+
+
+def _norm_milestone(m: dict) -> Optional[dict]:
+    mtype = "payment" if m.get("type") == "payment" else "action"
+    text  = str(m.get("text", "")).strip()[:200]
+    if not text:
+        return None
+    tb = m.get("target_balance")
+    return {
+        "id":             str(uuid_lib.uuid4())[:8],
+        "type":           mtype,
+        "text":           text,
+        "target_balance": float(tb) if (mtype == "payment" and tb is not None) else None,
+        "done":           False,
+        "done_at":        None,
+    }
+
+
+@router.post("/debt/plan/milestones")
+async def add_debt_plan_milestones(body: dict, user: dict = Depends(current_user)):
+    """Append milestones to the existing plan (or create one), skipping duplicates."""
+    uid        = user["email"]
+    incoming   = body.get("milestones", [])
+    if not isinstance(incoming, list) or not incoming:
+        raise HTTPException(400, "No milestones to add")
+
+    total_debt = await _current_total_debt(uid)
+    plan       = await debt_plans_col.find_one({"_id": uid})
+
+    if not plan:
+        plan = {
+            "_id": uid, "user_id": uid,
+            "target_months":    int(body["target_months"]) if body.get("target_months") else None,
+            "debt_at_creation": total_debt,
+            "milestones":       [],
+            "created_at":       datetime.now(),
+        }
+
+    existing_texts = {m.get("text", "").strip().lower() for m in plan.get("milestones", [])}
+    added = 0
+    for m in incoming[:12]:
+        norm = _norm_milestone(m)
+        if not norm or norm["text"].lower() in existing_texts:
+            continue
+        if len(plan["milestones"]) >= 12:
+            break
+        plan["milestones"].append(norm)
+        existing_texts.add(norm["text"].lower())
+        added += 1
+
+    if added == 0 and not plan.get("milestones"):
+        raise HTTPException(400, "Plan must have at least one milestone")
+
+    if body.get("target_months") and not plan.get("target_months"):
+        plan["target_months"] = int(body["target_months"])
+
+    await debt_plans_col.replace_one({"_id": uid}, plan, upsert=True)
+    return {"plan": _plan_with_progress(plan, total_debt), "added": added}
+
+
+@router.delete("/debt/plan/step/{step_id}")
+async def delete_debt_plan_step(step_id: str, user: dict = Depends(current_user)):
+    uid  = user["email"]
+    plan = await debt_plans_col.find_one({"_id": uid})
+    if not plan:
+        raise HTTPException(404, "No plan")
+    remaining = [m for m in plan.get("milestones", []) if m["id"] != step_id]
+    if len(remaining) == len(plan.get("milestones", [])):
+        raise HTTPException(404, "Step not found")
+    if not remaining:
+        await debt_plans_col.delete_one({"_id": uid})
+        return {"plan": None}
+    await debt_plans_col.update_one({"_id": uid}, {"$set": {"milestones": remaining}})
+    plan["milestones"] = remaining
+    total_debt = await _current_total_debt(uid)
+    return {"plan": _plan_with_progress(plan, total_debt)}
+
+
+@router.delete("/debt/plan")
+async def delete_debt_plan(user: dict = Depends(current_user)):
+    await debt_plans_col.delete_one({"_id": user["email"]})
+    return {"plan": None}
+
+
 @router.get("/debt/burndown")
 async def debt_burndown(
     user: dict = Depends(current_user),
@@ -274,7 +503,13 @@ async def debt_burndown(
                 interest = c["balance"] * c["monthly_rate"]
                 c["balance"] += interest
                 total_interest += interest
-            order = sorted(cards_s, key=lambda x: x["balance"]) if strategy == "snowball" else sorted(cards_s, key=lambda x: x["monthly_rate"], reverse=True)
+            if strategy == "snowball":
+                order = sorted(cards_s, key=lambda x: x["balance"])
+            elif strategy == "costliest":
+                # Biggest £ interest drain first (balance × rate), not highest %
+                order = sorted(cards_s, key=lambda x: x["balance"] * x["monthly_rate"], reverse=True)
+            else:  # avalanche
+                order = sorted(cards_s, key=lambda x: x["monthly_rate"], reverse=True)
             remaining = monthly_payment
             for c in order:
                 pay = min(c["balance"], remaining)

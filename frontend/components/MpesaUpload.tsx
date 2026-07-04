@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Upload, X, CheckCircle, Eye, EyeOff } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 
 interface MpesaUploadProps {
   onSuccess: () => void;
@@ -10,6 +11,7 @@ interface MpesaUploadProps {
 }
 
 export default function MpesaUpload({ onSuccess, onClose }: MpesaUploadProps) {
+  useLockBodyScroll();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

@@ -7,6 +7,7 @@ export const CATEGORIES = [
   "Bills",
   "Subscriptions",
   "Health",
+  "Beauty",
   "Travel",
   "Software",
   "Savings",
@@ -20,24 +21,28 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+// CVD-safe qualitative palette (Paul Tol / Okabe–Ito), hue + luminance spaced so
+// adjacent categories stay distinct for colour-blind viewers and in greyscale.
+// Semantic anchors kept: Debt=red, Income=green, Savings=gold, Transfer=grey.
 export const CATEGORY_COLOURS: Record<string, string> = {
-  Groceries:     "#06b6d4",  // cyan   — fresh/food
-  "Eating Out":  "#f97316",  // orange — warm/food
-  Transport:     "#2196F3",  // blue   — movement
-  Entertainment: "#9C27B0",  // purple — fun
-  Shopping:      "#E91E63",  // pink   — retail
-  Bills:         "#6366f1",  // indigo — financial/recurring
-  Subscriptions: "#8b5cf6",  // violet — digital
-  Health:        "#14b8a6",  // teal   — medical
-  Travel:        "#0284c7",  // sky    — adventure
-  Software:      "#607D8B",  // slate  — tech
-  Savings:       "#d97706",  // amber  — wealth/gold
-  Debt:          "#ef4444",  // red    — liability (semantic)
-  Transfer:      "#9E9E9E",  // grey
-  Income:        "#22c55e",  // green  — positive cash in
-  Cash:          "#78909C",  // blue-grey
-  Charity:       "#f472b6",  // pink   — giving
-  Other:         "#795548",  // brown
+  Groceries:     "#117733",  // green   — food (dark)
+  "Eating Out":  "#EE7733",  // orange  — warm food
+  Transport:     "#4477AA",  // blue    — movement
+  Entertainment: "#AA4499",  // purple  — fun
+  Shopping:      "#EE3377",  // magenta — retail
+  Bills:         "#882255",  // wine    — recurring
+  Subscriptions: "#66CCEE",  // cyan    — digital
+  Health:        "#44AA99",  // teal    — medical
+  Beauty:        "#F781BF",  // pink    — personal care
+  Travel:        "#332288",  // indigo  — far/adventure
+  Software:      "#999933",  // olive   — tech
+  Savings:       "#E69F00",  // gold    — wealth (semantic)
+  Debt:          "#EE3333",  // red     — liability (semantic)
+  Transfer:      "#BBBBBB",  // grey    — neutral
+  Income:        "#228833",  // green   — positive cash in (not shown in spend donut)
+  Cash:          "#DDCC77",  // sand    — physical money
+  Charity:       "#CC79A7",  // rose    — giving
+  Other:         "#8B6B5A",  // brown   — misc
 };
 
 export const DEFAULT_CUSTOM_COLOUR = "#6366f1";

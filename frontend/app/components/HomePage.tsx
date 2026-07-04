@@ -1,35 +1,31 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { RefreshCw, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
+import { RefreshCw, ChevronRight, AlertTriangle, ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
 import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
-import ThemeColor from "@/components/ThemeColor";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import InvestmentMiniCard from "@/components/InvestmentMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import BottomNav from "@/components/BottomNav";
-import { CATEGORY_COLOURS } from "@/lib/categories";
-import { useColours } from "@/components/ColourProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Sector,
-  ResponsiveContainer,
-} from "recharts";
+import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
-import { getPayPeriod, getPayPeriodWithConfig, formatPeriod, filterPeriod, PayPeriodConfig } from "@/lib/payPeriod";
+import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import TutorialTrigger from "@/components/TutorialTrigger";
+import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
+import ValueDeliveredStat from "@/components/ValueDeliveredStat";
+import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
 
 // Token is guaranteed by AuthProvider before this component mounts
 async function ensureAuth() {}
 
 export default function HomePage() {
   const router = useRouter();
+  const { user } = useAuth();
+  const firstName = user?.name?.split(" ")[0]?.trim();
   const { hideNetWorth } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
@@ -38,6 +34,9 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [incomeBracket, setIncomeBracket] = useState("");
+  const [adjustedIncome, setAdjustedIncome] = useState<number | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
 
   const loadData = useCallback(async () => {
     try {
@@ -77,6 +76,28 @@ export default function HomePage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Last-known bracket from cache so the tax card doesn't pop in after paint
+  useLayoutEffect(() => {
+    try {
+      const b = localStorage.getItem("wd_bracket");
+      if (b !== null) setIncomeBracket(b);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    api.getPreferences().then(p => {
+      setIncomeBracket(p.income_bracket ?? "");
+      setPinnedIds(p.home_pinned_accounts ?? []);
+      try { localStorage.setItem("wd_bracket", p.income_bracket ?? ""); } catch {}
+      // Mirror the Tax page's adjusted-income computation so the two never disagree
+      let inc = 0;
+      if (p.income_value && p.income_value > 0) inc = p.income_value;
+      else if (p.income_bracket === "100k_125k") inc = 110_000;
+      else if (p.income_bracket === "125k_plus") inc = 130_000;
+      setAdjustedIncome(inc > 0 ? inc - (p.pension_annual ?? 0) : null);
+    }).catch(() => {});
+  }, []);
+
   async function handleSync() {
     setSyncing(true);
     try {
@@ -97,7 +118,31 @@ export default function HomePage() {
     );
   }
 
-  const recent = transactions.slice(0, 30);
+  // Micro pot-shuffles (round-ups, penny transfers) aren't "activity" worth
+  // a slot on the home screen
+  const recent = transactions
+    .filter(t => !(t.category === "Transfer" && t.amount < 1))
+    .slice(0, 6);
+
+  // Top picks: expired connections first (action needed), then the user's
+  // pins from the Accounts page, then autofill with the biggest balances
+  const topPickAccounts = useMemo(() => {
+    const picks: Account[] = [];
+    const seen = new Set<string>();
+    const add = (a?: Account) => { if (a && !seen.has(a.id)) { seen.add(a.id); picks.push(a); } };
+    accounts.filter(a => a.status === "expired").forEach(add);
+    pinnedIds.forEach(id => add(accounts.find(a => a.id === id)));
+    const isSavings = (a: Account) => (a.subtype ?? "").toLowerCase().includes("saving");
+    const isCredit  = (a: Account) => a.type.toLowerCase().includes("credit") || (a.subtype ?? "").toLowerCase().includes("credit");
+    const current = accounts.filter(a => !isSavings(a) && !isCredit(a)).sort((x, y) => y.balance - x.balance);
+    const savings = accounts.filter(isSavings).sort((x, y) => y.balance - x.balance);
+    for (const a of [...current, ...savings]) { if (picks.length >= 3) break; add(a); }
+    return picks.slice(0, 3);
+  }, [accounts, pinnedIds]);
+
+  const hiddenAccountCount =
+    Math.max(0, accounts.length - topPickAccounts.length) +
+    Math.max(0, investmentAccounts.length - 1);
 
   const expiredProviders = useMemo(() => {
     const seen = new Set<string>();
@@ -120,7 +165,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8">
-      <ThemeColor color={(kpis?.net_worth ?? 0) < 0 ? "#b91c1c" : "#4f46e5"} />
       {/* Desktop 2-col grid wrapper */}
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
@@ -133,7 +177,9 @@ export default function HomePage() {
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
                   Good {getGreeting()}
                 </p>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+                  {firstName ? `Hi, ${firstName}` : "Welcome back"}
+                </h1>
               </div>
               <div className="flex items-center gap-2">
                 <TutorialTrigger variant="dark-on-white" />
@@ -151,6 +197,7 @@ export default function HomePage() {
               </div>
             </div>
             <NetWorthCard kpis={kpis} loading={loading} />
+            {!loading && <ValueDeliveredStat />}
           </div>
 
           {/* Reauth banners */}
@@ -170,7 +217,23 @@ export default function HomePage() {
             </div>
           ))}
 
-          {/* Accounts horizontal scroll */}
+          {/* Spending pace — one-line "am I on track this period?" status */}
+          {!loading && transactions.length > 0 && (
+            <SpendingPace transactions={transactions} desktopFlat />
+          )}
+
+          {/* Upcoming bills — compact 4-item list, taps through to Spend */}
+          {!loading && <UpcomingBillsStrip />}
+
+          {/* AI savings spotlight — the single hero call-to-action */}
+          {!loading && <HomeInsightSpotlight />}
+
+          {/* Tax efficiency card — shown only for £100k+ earners */}
+          {!loading && (incomeBracket === "100k_125k" || incomeBracket === "125k_plus") && (
+            <TaxEfficiencyCard adjusted={adjustedIncome} router={router} />
+          )}
+
+          {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
           <div className="px-4 mb-5 lg:px-0">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accounts</p>
@@ -183,9 +246,9 @@ export default function HomePage() {
               </button>
             </div>
             {loading ? (
-              <div className="flex gap-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex-shrink-0 w-40 h-24 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-28 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
                 ))}
               </div>
             ) : accounts.length === 0 ? (
@@ -193,62 +256,52 @@ export default function HomePage() {
                 <p className="text-sm text-slate-400 dark:text-slate-500">No accounts connected</p>
               </div>
             ) : (
-              <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-                {accounts.map((acc) => (
+              <div className="grid grid-cols-2 gap-3">
+                {topPickAccounts.map((acc) => (
                   <AccountMiniCard
                     key={acc.id}
                     account={acc}
+                    grid
                     hidden={hideNetWorth}
                     onClick={() => router.push(`/accounts?id=${acc.id}`)}
                   />
                 ))}
+                {investmentAccounts.slice(0, 1).map(inv => (
+                  <InvestmentMiniCard
+                    key={inv.id}
+                    account={inv}
+                    grid
+                    hidden={hideNetWorth}
+                    onClick={() => router.push("/accounts?tab=Investments")}
+                  />
+                ))}
+                {hiddenAccountCount > 0 && (
+                  <button
+                    onClick={() => router.push("/accounts")}
+                    className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 active:scale-95 transition-transform min-h-[7rem]"
+                  >
+                    <span className="text-lg font-bold">+{hiddenAccountCount}</span>
+                    <span className="text-xs font-medium">more accounts</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
 
-          {/* Investments horizontal scroll — only shown when accounts exist */}
-          {(loading || investmentAccounts.length > 0) && (
-            <div className="px-4 mb-5 lg:px-0">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Investments</p>
-                <button
-                  onClick={() => router.push("/accounts?tab=Investments")}
-                  className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
-                >
-                  Manage <span className="text-base leading-none">+</span>
-                </button>
-              </div>
-              {loading ? (
-                <div className="flex gap-3">
-                  {[1, 2].map((i) => (
-                    <div key={i} className="flex-shrink-0 w-44 h-28 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
-                  {investmentAccounts.map(inv => (
-                    <InvestmentMiniCard
-                      key={inv.id}
-                      account={inv}
-                      hidden={hideNetWorth}
-                      onClick={() => router.push("/accounts?tab=Investments")}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Spending donut — monthly with swipe navigation */}
-          {!loading && transactions.length > 0 && (
-            <SpendingDonut transactions={transactions} desktopFlat />
-          )}
         </div>
 
         {/* ── Right column: recent transactions ── */}
         <div>
           <div className="mx-4 mb-4 lg:mx-0 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
-            <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3 lg:pt-0">Recent Transactions</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 lg:pt-0">Recent Transactions</p>
+              <button
+                onClick={() => router.push("/spend?view=list")}
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
+              >
+                See all <ChevronRight size={13} />
+              </button>
+            </div>
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
               {loading ? (
                 <div className="p-4 space-y-3">
@@ -299,229 +352,72 @@ export default function HomePage() {
 
 const SKIP_CATS = new Set(["Transfer", "Savings", "Debt", "Income"]);
 
-type PayPeriod = { start: Date; end: Date };
-
-function buildPayPeriodList(transactions: Transaction[], config: PayPeriodConfig): PayPeriod[] {
-  const seen = new Set<string>();
-  const periods: PayPeriod[] = [];
-  // Always include the current pay period so new months appear immediately
-  const [curStart, curEnd] = getPayPeriodWithConfig(new Date(), config);
-  seen.add(curStart.toISOString());
-  periods.push({ start: curStart, end: curEnd });
-  for (const tx of transactions) {
+// Sum of debit spend (excluding transfers/savings/debt/income) with date in [start, end).
+function spendBetween(txns: Transaction[], start: Date, end: Date): number {
+  let sum = 0;
+  for (const tx of txns) {
     if (tx.transaction_type === "credit") continue;
-    if (SKIP_CATS.has(tx.category || "")) continue;
-    const [start, end] = getPayPeriodWithConfig(new Date(tx.date), config);
-    const key = start.toISOString();
-    if (!seen.has(key)) { seen.add(key); periods.push({ start, end }); }
+    if (SKIP_CATS.has(tx.category || "Other")) continue;
+    const d = new Date(tx.date);
+    if (d >= start && d < end) sum += Math.abs(tx.amount);
   }
-  return periods.sort((a, b) => a.start.getTime() - b.start.getTime());
+  return sum;
 }
 
-function buildSpend(txns: Transaction[], period: PayPeriod | null) {
-  const map: Record<string, number> = {};
-  const filtered = period ? filterPeriod(txns, period.start, period.end) : txns;
-  for (const tx of filtered) {
-    if (tx.transaction_type === "credit") continue;
-    const cat = tx.category || "Other";
-    if (SKIP_CATS.has(cat)) continue;
-    map[cat] = (map[cat] ?? 0) + Math.abs(tx.amount);
-  }
-  return Object.entries(map)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6);
-}
-
-function SpendingDonut({ transactions, desktopFlat }: { transactions: Transaction[]; desktopFlat?: boolean }) {
-  const { colours } = useColours();
+// One-line "am I on track this period?" pace indicator.
+// Compares spend-so-far against spend at the SAME day-offset in the previous
+// pay period, so a partial period is never compared against a full one.
+function SpendingPace({ transactions, desktopFlat }: { transactions: Transaction[]; desktopFlat?: boolean }) {
   const { payPeriodConfig, region } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const touchStartX = useRef<number | null>(null);
+  const fmtMoney = (v: number) => `${sym}${Math.round(v).toLocaleString("en-GB")}`;
 
-  // Pay periods covering the transactions, oldest → newest
-  const payPeriods = useMemo(() => buildPayPeriodList(transactions, payPeriodConfig), [transactions, payPeriodConfig]);
-  // periods array: each pay period + null sentinel for "All Time"
-  const periods: Array<PayPeriod | null> = useMemo(() => [...payPeriods, null], [payPeriods]);
+  const { soFar, delta, hasComparison } = useMemo(() => {
+    const now = new Date();
+    const dayMs = 86_400_000;
+    const [curStart] = getPayPeriodWithConfig(now, payPeriodConfig);
+    const [prevStart] = getPayPeriodWithConfig(new Date(curStart.getTime() - dayMs), payPeriodConfig);
+    const offsetMs = now.getTime() - curStart.getTime();
+    const prevCutoff = new Date(prevStart.getTime() + offsetMs);
 
-  // Default to the most recent period with actual spending; fall back to current period
-  const currentPeriodIdx = useMemo(() => {
-    for (let i = payPeriods.length - 1; i >= 0; i--) {
-      if (buildSpend(transactions, payPeriods[i]).length > 0) return i;
-    }
-    const [curStart] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-    const idx = payPeriods.findIndex((p) => p.start.getTime() === curStart.getTime());
-    return idx !== -1 ? idx : Math.max(0, payPeriods.length - 1);
-  }, [payPeriods, payPeriodConfig, transactions]);
+    const soFar = spendBetween(transactions, curStart, now);
+    const prevSoFar = spendBetween(transactions, prevStart, prevCutoff);
+    return { soFar, delta: soFar - prevSoFar, hasComparison: prevSoFar > 0 };
+  }, [transactions, payPeriodConfig]);
 
-  const [periodIdx, setPeriodIdx] = useState<number>(currentPeriodIdx);
+  // Nothing meaningful to show yet
+  if (soFar === 0 && !hasComparison) return null;
 
-  useEffect(() => { setPeriodIdx(currentPeriodIdx); }, [currentPeriodIdx]);
-
-  const selectedPeriod = periods[periodIdx]; // null = All Time
-  const isTotal = selectedPeriod === null;
-  const categorySpend = useMemo(() => buildSpend(transactions, selectedPeriod ?? null), [transactions, selectedPeriod]);
-  const total = categorySpend.reduce((s, c) => s + c.value, 0);
-
-  const canGoLeft = periodIdx > 0;
-  const canGoRight = periodIdx < periods.length - 1;
-
-  function goLeft() { setActiveIndex(null); setPeriodIdx((i) => Math.max(0, i - 1)); }
-  function goRight() { setActiveIndex(null); setPeriodIdx((i) => Math.min(periods.length - 1, i + 1)); }
-
-  function onTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
-  }
-  function onTouchEnd(e: React.TouchEvent) {
-    if (touchStartX.current === null) return;
-    const dx = touchStartX.current - e.changedTouches[0].clientX;
-    if (Math.abs(dx) > 40) {
-      if (dx > 0) goLeft(); // swipe left → older month
-      else goRight();        // swipe right → newer / total
-    }
-    touchStartX.current = null;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderSector = (props: any) => {
-    const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, index } = props;
-    const fill = colours[categorySpend[index]?.name ?? ""] ?? CATEGORY_COLOURS.Other;
-    const active = index === activeIndex;
-    return (
-      <Sector
-        cx={cx} cy={cy}
-        innerRadius={active ? innerRadius - 3 : innerRadius}
-        outerRadius={active ? outerRadius + 10 : outerRadius}
-        startAngle={startAngle} endAngle={endAngle} fill={fill}
-      />
-    );
-  };
-
-  // Visible dot range — show at most 7 dots, centred on current
-  const maxDots = Math.min(periods.length, 9);
-  const half = Math.floor(maxDots / 2);
-  const dotStart = Math.max(0, Math.min(periodIdx - half, periods.length - maxDots));
-  const dotEnd = dotStart + maxDots;
-  const visibleDots = periods.slice(dotStart, dotEnd);
+  const prevSoFar = soFar - delta;
+  // "On track" = within ~10% of the same point last period (or a small £ buffer)
+  const onTrack = !hasComparison || Math.abs(delta) < Math.max(prevSoFar * 0.1, 20);
 
   return (
-    <div
-      className={`mb-5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 select-none ${desktopFlat ? "mx-4 lg:mx-0" : "mx-4"}`}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Navigation row */}
-      <div className="flex items-center justify-between mb-2">
-        <button
-          onClick={goLeft}
-          disabled={!canGoLeft}
-          className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 disabled:opacity-25 transition-opacity"
-        >
-          <ChevronLeft size={15} color="#64748b" />
-        </button>
-
-        <div className="text-center">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight">
-            {isTotal ? "All Time" : formatPeriod(selectedPeriod!.start, selectedPeriod!.end)}
-          </p>
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 leading-tight">Top Spending</p>
-        </div>
-
-        <button
-          onClick={goRight}
-          disabled={!canGoRight}
-          className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 disabled:opacity-25 transition-opacity"
-        >
-          <ChevronRight size={15} color="#64748b" />
-        </button>
+    <div className={`mb-5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 ${desktopFlat ? "mx-4 lg:mx-0" : "mx-4"}`}>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">
+        Spending this period
+      </p>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-xl font-bold text-slate-900 dark:text-slate-100">{fmtMoney(soFar)}</span>
+        {hasComparison && (
+          <>
+            <span className="text-slate-300 dark:text-slate-600">·</span>
+            {onTrack ? (
+              <span className="text-[13px] font-medium text-slate-500 dark:text-slate-400">on track</span>
+            ) : delta > 0 ? (
+              <span className="inline-flex items-center gap-0.5 text-[13px] font-medium text-rose-500 dark:text-rose-400">
+                <ArrowUp size={12} />
+                {fmtMoney(Math.abs(delta))} ahead of usual
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-0.5 text-[13px] font-medium text-emerald-600 dark:text-emerald-400">
+                <ArrowDown size={12} />
+                {fmtMoney(Math.abs(delta))} under usual
+              </span>
+            )}
+          </>
+        )}
       </div>
-
-      {/* Dot indicators */}
-      <div className="flex justify-center items-center gap-1 mb-3">
-        {visibleDots.map((p, i) => {
-          const absIdx = dotStart + i;
-          const active = absIdx === periodIdx;
-          const isT = p === null;
-          return (
-            <button
-              key={isT ? "total" : (p as PayPeriod).start.toISOString()}
-              onClick={() => { setActiveIndex(null); setPeriodIdx(absIdx); }}
-              className={`rounded-full transition-all duration-200 ${
-                active
-                  ? isT
-                    ? "w-4 h-1.5 bg-slate-500"
-                    : "w-4 h-1.5 bg-indigo-500"
-                  : "w-1.5 h-1.5 bg-slate-200 dark:bg-slate-600"
-              }`}
-            />
-          );
-        })}
-      </div>
-
-      {/* Chart + legend */}
-      {categorySpend.length === 0 ? (
-        <div className="flex items-center justify-center h-24 text-sm text-slate-400 dark:text-slate-500">
-          No spending this period
-        </div>
-      ) : (
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 outline-none" style={{ width: 130, height: 130 }} tabIndex={-1}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart tabIndex={-1}>
-                <Pie
-                  data={categorySpend}
-                  dataKey="value"
-                  cx="50%" cy="50%"
-                  innerRadius={32} outerRadius={54}
-                  strokeWidth={3} stroke="#fff"
-                  shape={renderSector}
-                  style={{ pointerEvents: "none" }}
-                >
-                  {categorySpend.map((entry) => (
-                    <Cell key={entry.name} fill={colours[entry.name] ?? CATEGORY_COLOURS.Other} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="flex-1 min-w-0 space-y-2">
-            {categorySpend.map((cat, i) => {
-              const colour = colours[cat.name] ?? CATEGORY_COLOURS.Other;
-              const pct = Math.round((cat.value / total) * 100);
-              const active = activeIndex === i;
-              return (
-                <button
-                  key={cat.name}
-                  className="w-full text-left focus:outline-none"
-                  onMouseEnter={() => setActiveIndex(i)}
-                  onMouseLeave={() => setActiveIndex(null)}
-                  onClick={() => setActiveIndex((j) => (j === i ? null : i))}
-                >
-                  <div className="flex items-center justify-between mb-0.5">
-                    <span className={`text-xs truncate transition-all ${active ? "font-semibold text-slate-900 dark:text-slate-100" : "font-medium text-slate-600 dark:text-slate-300"}`}>
-                      {cat.name}
-                    </span>
-                    <span
-                      className={`ml-2 flex-shrink-0 transition-all ${active ? "text-sm font-extrabold" : "text-xs font-semibold text-slate-700 dark:text-slate-200"}`}
-                      style={{ color: active ? colour : undefined }}
-                    >
-                      {sym}{cat.value.toLocaleString("en-GB", { maximumFractionDigits: 0 })}
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-200"
-                      style={{ width: `${pct}%`, backgroundColor: colour }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -531,4 +427,72 @@ function getGreeting(): string {
   if (h < 12) return "Morning";
   if (h < 17) return "Afternoon";
   return "Evening";
+}
+
+function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; router: ReturnType<typeof useRouter> }) {
+  // Same thresholds as the Tax page: taper starts at £100k, allowance gone at £125,140
+  const is125k    = adjusted !== null && adjusted >= 125_140;
+  const inTaper   = adjusted !== null && adjusted > 100_000 && adjusted < 125_140;
+  const protectedAllowance = adjusted !== null && adjusted <= 100_000;
+  // Plain card, not a gradient banner — permanent chrome shouldn't compete
+  // with the rotating insight spotlight above it
+  return (
+    <div
+      className="mx-4 mb-5 lg:mx-0 rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-transform bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
+      onClick={() => router.push("/insights?tab=tax")}
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400 mb-1">
+              Tax efficiency
+            </p>
+            {is125k ? (
+              <>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                  You&apos;ve lost your personal allowance
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Pension contributions still save 45p in every £1 — see how much to put in
+                </p>
+              </>
+            ) : protectedAllowance ? (
+              <>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                  Personal allowance protected
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Your pension contributions keep you under £100k — check your remaining levers
+                </p>
+              </>
+            ) : inTaper ? (
+              <>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                  You&apos;re in the 60% rate band
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Pension contributions can restore your personal allowance and cut your tax bill
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                  You may be in the 60% rate band
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Set your income in Settings for a precise picture
+                </p>
+              </>
+            )}
+          </div>
+          <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <TrendingUp size={16} className="text-violet-600 dark:text-violet-400" />
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-1 text-xs font-semibold text-violet-600 dark:text-violet-400">
+          See your tax position <ChevronRight size={13} />
+        </div>
+      </div>
+    </div>
+  );
 }

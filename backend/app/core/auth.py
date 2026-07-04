@@ -3,6 +3,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
 from app.core.config import BOT_SECRET, SESSION_MAX_AGE, serializer
+from app.core.ratelimit import check_rate_limit
 
 
 async def current_user(request: Request) -> dict:
@@ -24,7 +25,11 @@ async def auth_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    if path.startswith("/auth/") or path in {"/health", "/docs", "/openapi.json", "/redoc"}:
+    if path.startswith("/auth/") or path.startswith("/webhooks/"):
+        if limited := check_rate_limit(request):
+            return limited
+        return await call_next(request)
+    if path in {"/health", "/docs", "/openapi.json", "/redoc"}:
         return await call_next(request)
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):

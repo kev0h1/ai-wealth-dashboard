@@ -1,0 +1,399 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, CheckCircle2, AlertCircle, Info, Calendar } from "lucide-react";
+import { api } from "@/lib/api";
+import Spinner from "@/components/Spinner";
+import TaxChat from "@/components/TaxChat";
+
+const PA = 12_570;
+const TAPER_START = 100_000;
+const TAPER_END = 125_140;
+
+function taperLoss(income: number): number {
+  if (income <= TAPER_START) return 0;
+  if (income >= TAPER_END) return PA;
+  return Math.floor((income - TAPER_START) / 2);
+}
+
+function getTaxYear() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const apr6 = new Date(year, 3, 6);
+  const start = now >= apr6 ? apr6 : new Date(year - 1, 3, 6);
+  const end = new Date(start.getFullYear() + 1, 3, 5);
+  const total = end.getTime() - start.getTime();
+  const elapsed = now.getTime() - start.getTime();
+  const progressPct = Math.min(100, Math.round((elapsed / total) * 100));
+  const daysLeft = Math.ceil((end.getTime() - now.getTime()) / 86_400_000);
+  const label = `${start.getFullYear()}/${String(end.getFullYear()).slice(2)}`;
+  const monthsRemaining = Math.max(1, Math.round((end.getTime() - now.getTime()) / (30.44 * 86_400_000)));
+  const nextYear = end.getFullYear();
+  return { label, progressPct, daysLeft, monthsRemaining, nextYear };
+}
+
+function fmt(n: number) {
+  return Math.round(n).toLocaleString("en-GB");
+}
+
+type DoneKey =
+  | "self_assessment" | "tax_code" | "gift_aid"
+  | "salary_sacrifice" | "carry_forward" | "eis_seis" | "isa";
+
+function useDone() {
+  const [done, setDone] = useState<Set<DoneKey>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tax_checklist_done");
+      if (saved) setDone(new Set(JSON.parse(saved) as DoneKey[]));
+    } catch {}
+  }, []);
+
+  function toggle(key: DoneKey) {
+    setDone(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem("tax_checklist_done", JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
+
+  return { done, toggle };
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mt-2 mb-1">
+      {children}
+    </p>
+  );
+}
+
+function ActionRow({
+  status,
+  title,
+  detail,
+  highlight,
+  onToggle,
+}: {
+  status: "action" | "done" | "info";
+  title: string;
+  detail: string;
+  highlight?: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <div
+      className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex gap-3 ${onToggle ? "cursor-pointer active:scale-[0.98] transition-transform" : ""} ${highlight ? "ring-1 ring-amber-300 dark:ring-amber-600" : ""}`}
+      onClick={onToggle}
+    >
+      <div className="flex-shrink-0 mt-0.5">
+        {status === "done" ? (
+          <CheckCircle2 size={18} className="text-emerald-500" />
+        ) : status === "action" ? (
+          <AlertCircle size={18} className="text-amber-500" />
+        ) : (
+          <Info size={18} className="text-slate-400" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-[13px] font-semibold leading-snug ${status === "done" ? "text-slate-400 dark:text-slate-500 line-through" : "text-slate-800 dark:text-slate-100"}`}>
+          {title}
+        </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{detail}</p>
+        {onToggle && (
+          <p className="text-[11px] font-medium mt-2 text-slate-400 dark:text-slate-500">
+            {status === "done" ? "Tap to unmark" : "Tap to mark done"}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KeyDate({ date, label, sublabel }: { date: string; label: string; sublabel: string }) {
+  return (
+    <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-slate-700 last:border-0">
+      <div className="w-7 h-7 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0">
+        <Calendar size={13} className="text-violet-600 dark:text-violet-400" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">{label}</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{sublabel}</p>
+      </div>
+      <p className="text-xs font-medium text-slate-500 dark:text-slate-400 flex-shrink-0 pt-0.5">{date}</p>
+    </div>
+  );
+}
+
+export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
+  const router = useRouter();
+  const { done, toggle } = useDone();
+  const [loading, setLoading] = useState(true);
+
+  const [income, setIncome] = useState(0);
+  const [pensionAnnual, setPensionAnnual] = useState(0);
+  const [hasChildBenefit, setHasChildBenefit] = useState(false);
+  const [bracket, setBracket] = useState("");
+
+  useEffect(() => {
+    api.getPreferences().then(p => {
+      setBracket(p.income_bracket ?? "");
+      setPensionAnnual(p.pension_annual ?? 0);
+      setHasChildBenefit(p.has_child_benefit ?? false);
+      if (p.income_value && p.income_value > 0) {
+        setIncome(p.income_value);
+      } else if (p.income_bracket === "100k_125k") {
+        setIncome(110_000);
+      } else if (p.income_bracket === "125k_plus") {
+        setIncome(130_000);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const ty = getTaxYear();
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>;
+  }
+
+  if (!bracket || bracket === "under_100k" || income === 0) {
+    if (embedded) {
+      return (
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Set your income first</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
+          <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-xl">
+            Go to Settings
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+        <div className="px-4 pt-4 pb-6">
+          <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-slate-500 mb-4">
+            <ChevronLeft size={18} /> Back
+          </button>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
+            <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Set your income first</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
+            <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-xl">
+              Go to Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Core calculations
+  const adjustedIncome = income - pensionAnnual;
+  const allowanceLost = taperLoss(adjustedIncome);
+  const allowanceRemaining = PA - allowanceLost;
+  const over100k = Math.max(0, adjustedIncome - TAPER_START);
+  const pensionNeededTotal = Math.max(0, adjustedIncome - TAPER_START);
+  const taxSaving = Math.round(pensionNeededTotal * 0.6);
+  const effectiveCost = pensionNeededTotal - taxSaving;
+  const is125k = adjustedIncome >= TAPER_END;
+  const hasTaperIssue = over100k > 0;
+
+  const header = (
+    <div className="rounded-3xl px-4 pt-5 pb-5 text-white" style={{ background: "linear-gradient(135deg, #4c1d95 0%, #7c3aed 100%)" }}>
+      {!embedded && (
+        <button onClick={() => router.back()} className="flex items-center gap-1 text-xs text-violet-200 mb-3">
+          <ChevronLeft size={15} /> Back
+        </button>
+      )}
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-200 mb-0.5">Tax year {ty.label}</p>
+      <h1 className="text-xl font-bold mb-1">Tax efficiency</h1>
+
+      {is125k ? (
+        <p className="text-xs text-violet-200 mb-3">Personal allowance fully withdrawn · 45% rate on all income above basic band</p>
+      ) : hasTaperIssue ? (
+        <p className="text-xs text-violet-200 mb-3">
+          Personal allowance: <span className="font-bold text-white">£{fmt(allowanceRemaining)}</span> remaining · {fmt(allowanceLost)} lost to taper · 60% effective rate on £{fmt(over100k)}
+        </p>
+      ) : (
+        <p className="text-xs text-violet-200 mb-3">Full personal allowance intact · pension contributions on track</p>
+      )}
+
+      <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+        <div className="h-full bg-white/80 rounded-full" style={{ width: `${ty.progressPct}%` }} />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-violet-200">6 Apr</span>
+        <span className="text-[10px] text-violet-200">{ty.daysLeft} days left</span>
+        <span className="text-[10px] text-violet-200">5 Apr</span>
+      </div>
+    </div>
+  );
+
+  const sections = (
+    <div className="space-y-1.5">
+
+        {/* ── PENSION ─────────────────────────────────────────────────── */}
+        <SectionLabel>Biggest lever</SectionLabel>
+
+        {hasTaperIssue ? (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                  Contribute £{fmt(pensionNeededTotal)} more before 5 Apr
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                  Your adjusted income is £{fmt(adjustedIncome)} — £{fmt(over100k)} over the £100,000 threshold.
+                  Contributing £{fmt(pensionNeededTotal)} more this tax year (via any mix of regular or one-off payments)
+                  restores your full personal allowance.
+                </p>
+                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <p className="text-[11px] text-slate-400">Extra needed</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(pensionNeededTotal)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-400">Tax saved</p>
+                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">£{fmt(taxSaving)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-400">Costs you</p>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(effectiveCost)}</p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">
+                  Based on the income and pension figures you set in Settings. Update them there if your situation changes.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <ActionRow
+            status="done"
+            title="Pension — personal allowance protected"
+            detail={`Your adjusted income is £${fmt(adjustedIncome)}, below the £100,000 threshold. Full personal allowance intact.`}
+          />
+        )}
+
+        {/* Carry-forward */}
+        <ActionRow
+          status={done.has("carry_forward") ? "done" : "info"}
+          title="Pension carry-forward"
+          detail={`Unused annual allowance from the last 3 tax years can be carried into this year — total allowed up to £60,000. Worth checking if you under-contributed in 2023/24, 2024/25, or 2025/26.`}
+          onToggle={() => toggle("carry_forward")}
+        />
+
+        {/* ── OTHER INCOME REDUCERS ───────────────────────────────────── */}
+        <SectionLabel>Also reduces your adjusted income</SectionLabel>
+
+        <ActionRow
+          status={done.has("gift_aid") ? "done" : "info"}
+          title="Gift Aid donations"
+          detail="Charitable donations via Gift Aid reduce your adjusted net income — same mechanism as pension. A £500 donation costs £500 but reduces your taxable income by £500, saving you £200–£300 in tax depending on your rate."
+          onToggle={() => toggle("gift_aid")}
+        />
+
+        <ActionRow
+          status={done.has("salary_sacrifice") ? "done" : "info"}
+          title="Salary sacrifice benefits"
+          detail="Cycle to work (up to ~£1,000), electric car via salary sacrifice, and employer childcare vouchers all reduce your gross pay before income tax — they count toward bringing you under £100,000."
+          onToggle={() => toggle("salary_sacrifice")}
+        />
+
+        {/* ── ALLOWANCES ─────────────────────────────────────────────── */}
+        <SectionLabel>Protect your allowances</SectionLabel>
+
+        <ActionRow
+          status={done.has("isa") ? "done" : "action"}
+          title={`ISA — £20,000 allowance · ${ty.daysLeft} days left`}
+          detail="Unused ISA allowance cannot be carried forward. Growth and withdrawals are completely tax-free — most useful for sheltering dividend income and capital gains that would otherwise be taxed at your marginal rate."
+          highlight={ty.daysLeft < 90}
+          onToggle={() => toggle("isa")}
+        />
+
+        <ActionRow
+          status={done.has("eis_seis") ? "done" : "info"}
+          title="EIS / SEIS investments"
+          detail="Investing in qualifying early-stage startups gives 30–50% upfront income tax relief. As a startup founder, you can't claim on your own company, but your investors can claim EIS/SEIS — worth making sure your company is eligible so you can attract investment more easily."
+          onToggle={() => toggle("eis_seis")}
+        />
+
+        {/* ── MUST-DOS ───────────────────────────────────────────────── */}
+        <SectionLabel>Admin — mandatory</SectionLabel>
+
+        <ActionRow
+          status={done.has("self_assessment") ? "done" : "action"}
+          title="Register for self-assessment"
+          detail="Mandatory if your income exceeds £100,000. HMRC may not contact you automatically. If you haven't filed before, register at gov.uk — penalties start from day one of missing the January deadline."
+          onToggle={() => toggle("self_assessment")}
+        />
+
+        <ActionRow
+          status={done.has("tax_code") ? "done" : "action"}
+          title="Check your tax code"
+          detail="Your employer's payroll uses a tax code set by HMRC, which may not reflect pension contributions, other income, or expenses. Log into your Personal Tax Account at gov.uk to verify your code is correct — an wrong code can mean overpaying or underpaying all year."
+          onToggle={() => toggle("tax_code")}
+        />
+
+        {/* Child benefit */}
+        {hasChildBenefit && income > 60_000 && (
+          <>
+            <SectionLabel>Child benefit</SectionLabel>
+            <ActionRow
+              status={adjustedIncome <= 60_000 ? "done" : "action"}
+              title="High income child benefit charge"
+              detail={
+                adjustedIncome <= 60_000
+                  ? "Your pension contributions bring your adjusted income below £60,000 — no charge applies."
+                  : `Your adjusted income is £${fmt(adjustedIncome)}, above £60,000. You'll repay some or all child benefit via self-assessment. Contributing an extra £${fmt(Math.max(0, adjustedIncome - 60_000))} to pension this year eliminates the charge entirely.`
+              }
+            />
+          </>
+        )}
+
+        {/* ── KEY DATES ──────────────────────────────────────────────── */}
+        <SectionLabel>Key dates</SectionLabel>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+          <KeyDate
+            date={`5 Apr ${ty.nextYear}`}
+            label="End of tax year"
+            sublabel="Last day to top up ISA, make extra pension contributions, and use annual reliefs"
+          />
+          <KeyDate
+            date={`31 Jul ${ty.nextYear}`}
+            label="Second payment on account"
+            sublabel="Half your 2025/26 tax bill — due even if you haven't filed yet"
+          />
+          <KeyDate
+            date={`31 Jan ${ty.nextYear + 1}`}
+            label="Self-assessment deadline"
+            sublabel="Online return + any remaining tax + first payment on account for next year"
+          />
+        </div>
+
+        <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center px-4 pb-2 mt-2">
+          Estimates only. Speak to a qualified financial adviser or accountant for personalised advice.
+        </p>
+
+    </div>
+  );
+
+  if (embedded) {
+    return sections;
+  }
+
+  return (
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="mx-4 mt-4">
+        {header}
+      </div>
+      <div className="px-4 pt-4">
+        {sections}
+      </div>
+      <TaxChat />
+    </div>
+  );
+}

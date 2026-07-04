@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.subscription import Tier, require_tier
 from app.db.collections import investment_accounts_col, investment_holdings_col
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement
 
@@ -15,7 +16,7 @@ router = APIRouter(tags=["investments"])
 
 
 @router.get("/investment/accounts")
-async def get_investment_accounts(user: dict = Depends(current_user)):
+async def get_investment_accounts(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
     uid  = user["email"]
     accs = await investment_accounts_col.find({"user_id": uid}).sort("updated_at", -1).to_list(None)
     return [
@@ -39,6 +40,7 @@ async def investment_upload(
     file: UploadFile,
     password: str = Form(default=""),
     user: dict = Depends(current_user),
+    _sub=Depends(require_tier(Tier.PREMIUM)),
 ):
     uid      = user["email"]
     content  = await file.read()
@@ -124,7 +126,7 @@ async def investment_upload(
 
 
 @router.get("/investment/accounts/{account_id}/holdings")
-async def get_investment_holdings(account_id: str, user: dict = Depends(current_user)):
+async def get_investment_holdings(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
@@ -143,7 +145,7 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
 
 
 @router.delete("/investment/accounts/{account_id}")
-async def delete_investment_account(account_id: str, user: dict = Depends(current_user)):
+async def delete_investment_account(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
@@ -154,7 +156,7 @@ async def delete_investment_account(account_id: str, user: dict = Depends(curren
 
 
 @router.post("/investment/accounts/{account_id}/refresh")
-async def refresh_investment_prices(account_id: str, user: dict = Depends(current_user)):
+async def refresh_investment_prices(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:

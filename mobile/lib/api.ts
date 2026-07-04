@@ -55,9 +55,6 @@ async function del<T>(path: string): Promise<T> {
 // ── API ───────────────────────────────────────────────────────────────────────
 
 export const api = {
-  pinLogin: (pin: string) =>
-    post<{ session_token: string; ok: boolean }>("/auth/pin", { pin }),
-
   validateSession: async (): Promise<{ valid: boolean; name: string; email: string }> => {
     const headers = await authHeaders();
     const res = await fetch(`${API_BASE}/auth/session/validate`, {

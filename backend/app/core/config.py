@@ -24,7 +24,6 @@ SESSION_MAX_AGE     = 7 * 24 * 3600
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
-DASHBOARD_PIN       = os.getenv("DASHBOARD_PIN", "8048")
 BOT_SECRET          = os.getenv("BOT_SECRET", "")
 GOOGLE_CLIENT_ID    = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -41,11 +40,19 @@ else:
 serializer = URLSafeTimedSerializer(SESSION_SECRET)
 
 # ── TrueLayer ─────────────────────────────────────────────────────────────────
-TRUELAYER_CLIENT_ID     = os.getenv("TRUELAYER_CLIENT_ID")
-TRUELAYER_CLIENT_SECRET = os.getenv("TRUELAYER_CLIENT_SECRET")
-TRUELAYER_AUTH_URL      = "https://auth.truelayer.com"
-TRUELAYER_API_URL       = "https://api.truelayer.com"
-TRUELAYER_REDIRECT_URI  = os.getenv("TRUELAYER_REDIRECT_URI", "http://localhost:8000/auth/truelayer/callback")
+TRUELAYER_CLIENT_ID      = os.getenv("TRUELAYER_CLIENT_ID")
+TRUELAYER_CLIENT_SECRET  = os.getenv("TRUELAYER_CLIENT_SECRET")
+_webhook_secret_file = _BACKEND_DIR / ".webhook_secret"
+if _ws := os.getenv("TRUELAYER_WEBHOOK_SECRET"):
+    TRUELAYER_WEBHOOK_SECRET = _ws
+elif _webhook_secret_file.exists():
+    TRUELAYER_WEBHOOK_SECRET = _webhook_secret_file.read_text().strip()
+else:
+    TRUELAYER_WEBHOOK_SECRET = secrets.token_urlsafe(32)
+    _webhook_secret_file.write_text(TRUELAYER_WEBHOOK_SECRET)
+TRUELAYER_AUTH_URL       = "https://auth.truelayer.com"
+TRUELAYER_API_URL        = "https://api.truelayer.com"
+TRUELAYER_REDIRECT_URI   = os.getenv("TRUELAYER_REDIRECT_URI", "http://localhost:8000/auth/truelayer/callback")
 
 # ── VAPID / Web Push ──────────────────────────────────────────────────────────
 VAPID_SUBJECT   = os.getenv("VAPID_SUBJECT", "mailto:admin@wealthdashboard.app")

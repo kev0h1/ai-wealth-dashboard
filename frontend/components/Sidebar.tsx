@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, Target, TrendingDown, Wallet } from "lucide-react";
+import { Home, PieChart, Settings, Target, Lightbulb, Wallet } from "lucide-react";
 
 const TABS = [
   { href: "/", label: "Home", Icon: Home },
   { href: "/spend", label: "Spend", Icon: PieChart },
   { href: "/budget", label: "Budget", Icon: Target },
-  { href: "/debt", label: "Debt", Icon: TrendingDown },
+  { href: "/insights", label: "Insights", Icon: Lightbulb },
   { href: "/settings", label: "Settings", Icon: Settings },
 ];
 

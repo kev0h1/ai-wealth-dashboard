@@ -12,10 +12,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, APP_URL
+from app.core.subscription import Tier, require_tier
 from app.db.collections import (
     savings_insights_col, savings_labels_col,
     transactions_col, yapily_transactions_col,
     mono_transactions_col, statement_transactions_col,
+    preferences_col,
 )
 
 router = APIRouter(tags=["savings_insights"])
@@ -162,7 +164,7 @@ _ALL_TRIGGERS: set[str] = {t for cfg in INSIGHT_CATEGORIES.values() for t in cfg
 
 
 async def _detect_insight_categories(user_id: str) -> list[str]:
-    cutoff    = datetime.now() - timedelta(days=90)
+    cutoff    = datetime.utcnow() - timedelta(days=90)
     pipelines = [
         transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
         yapily_transactions_col.find({"user_id": user_id, "date": {"$gte": cutoff}}, {"merchant_name": 1, "description": 1, "category": 1}).to_list(None),
@@ -194,7 +196,7 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
     cfg = INSIGHT_CATEGORIES.get(category_key)
     if not cfg:
         return []
-    cutoff = datetime.now() - timedelta(days=90)
+    cutoff = datetime.utcnow() - timedelta(days=90)
 
     label       = await savings_labels_col.find_one({"user_id": user_id, "category": category_key})
     labelled_key = label["merchant_key"] if label else None
@@ -229,6 +231,7 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
 
 async def _generate_savings_insight_content(category_key: str, user_context: Optional[dict] = None) -> Optional[dict]:
     cfg          = INSIGHT_CATEGORIES[category_key]
+    today_label  = datetime.utcnow().strftime("%B %Y")
     web_snippets: list[str] = []
 
     if TAVILY_API_KEY:
@@ -236,7 +239,7 @@ async def _generate_savings_insight_content(category_key: str, user_context: Opt
             try:
                 r = await client.post(
                     "https://api.tavily.com/search",
-                    json={"api_key": TAVILY_API_KEY, "query": cfg["query"],
+                    json={"api_key": TAVILY_API_KEY, "query": f"{cfg['query']} {today_label}",
                           "search_depth": "basic", "max_results": 3, "include_answer": True},
                 )
                 if r.status_code == 200:
@@ -257,10 +260,11 @@ async def _generate_savings_insight_content(category_key: str, user_context: Opt
     if user_context:
         ctx_lines = "\n".join(f"- {k.replace('_', ' ').title()}: {v}" for k, v in user_context.items() if v)
         prompt    = (
-            f"Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"Today is {today_label}. Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
             f"The user's current {cfg['label'].lower()} situation:\n{ctx_lines}\n\n"
             "Write a HIGHLY PERSONALISED savings insight. Reference their specific rate, provider, amount or end date where relevant. "
-            "Give concrete next steps they should take right now.\n"
+            "Give concrete next steps they should take right now. "
+            "Never present a past month or year as the current one; if the search results are dated, omit the date rather than repeating it.\n"
             "JSON: title (max 8 words, specific to their situation), "
             "body (2–3 sentences, direct advice referencing their details), "
             "savings_estimate (calculate from their numbers if possible, else null)\n\n"
@@ -268,10 +272,11 @@ async def _generate_savings_insight_content(category_key: str, user_context: Opt
         )
     else:
         prompt = (
-            f"Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"Today is {today_label}. Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
             "Write a concise savings insight card in JSON with three fields:\n"
             "- title: max 8 words, punchy, present tense\n"
-            "- body: 1–2 sentences, specific deal or tip, no filler\n"
+            "- body: 1–2 sentences, specific deal or tip, no filler. "
+            "Never present a past month or year as the current one; if the search results are dated, omit the date.\n"
             "- savings_estimate: e.g. 'Up to £200/yr' or 'Save 30%' if clearly stated, else null\n\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
@@ -316,7 +321,7 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
     body_text      = content["body"]
     savings_estimate = content.get("savings_estimate")
     content_hash   = hashlib.md5(f"{title}{body_text}".encode()).hexdigest()
-    now            = datetime.now()
+    now            = datetime.utcnow()
     existing       = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
     is_new         = not existing or existing.get("content_hash") != content_hash
     base_update: dict = {
@@ -324,12 +329,18 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         "triggered_by": triggered_by, "refreshed_at": now,
         "content_hash": content_hash, "is_new": is_new,
     }
+    if is_new:
+        # Fresh content → restore spotlight eligibility regardless of previous retire/snooze state
+        base_update["spotlight_retired"] = False
     if user_context is not None:
         base_update["user_context"] = user_context
     if existing:
         if not existing.get("pinned"):
             base_update["expires_at"] = now + timedelta(days=30)
-        await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": base_update})
+        op: dict = {"$set": base_update}
+        if is_new:
+            op["$unset"] = {"spotlight_snoozed_until": ""}
+        await savings_insights_col.update_one({"_id": existing["_id"]}, op)
     else:
         insight_id = f"{category_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
         await savings_insights_col.insert_one({
@@ -351,7 +362,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             continue
         existing = await savings_insights_col.find_one({"user_id": user_id, "category": cat_key})
         if existing and existing.get("refreshed_at"):
-            age_days = (datetime.now() - existing["refreshed_at"]).days
+            age_days = (datetime.utcnow() - existing["refreshed_at"]).days
             if age_days < 7:
                 continue
         stored_context = existing.get("user_context") if existing else None
@@ -364,7 +375,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
         body           = content["body"]
         savings_estimate = content.get("savings_estimate")
         content_hash   = hashlib.md5(f"{title}{body}".encode()).hexdigest()
-        now            = datetime.now()
+        now            = datetime.utcnow()
         is_new         = not existing or existing.get("content_hash") != content_hash
 
         if existing:
@@ -373,9 +384,14 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 "triggered_by": triggered_by, "refreshed_at": now,
                 "content_hash": content_hash, "is_new": is_new,
             }
+            if is_new:
+                update["spotlight_retired"] = False
             if not existing.get("pinned"):
                 update["expires_at"] = now + timedelta(days=30)
-            await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": update})
+            op: dict = {"$set": update}
+            if is_new:
+                op["$unset"] = {"spotlight_snoozed_until": ""}
+            await savings_insights_col.update_one({"_id": existing["_id"]}, op)
         else:
             insight_id = f"{cat_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
             await savings_insights_col.insert_one({
@@ -388,8 +404,42 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             })
 
 
+def _serialize_insight(d: dict) -> dict:
+    return {
+        "id":              d.get("insight_id", str(d["_id"])),
+        "category":        d["category"],
+        "icon":            d.get("icon", "💡"),
+        "label":           d.get("label", d["category"].replace("_", " ").title()),
+        "title":           d.get("title", ""),
+        "body":            d.get("body", ""),
+        "savings_estimate": d.get("savings_estimate"),
+        "pinned":          d.get("pinned", False),
+        "is_new":          d.get("is_new", False),
+        # Stored naive-UTC; the Z suffix makes browsers parse it as UTC, not local
+        "refreshed_at":    d["refreshed_at"].isoformat() + "Z" if d.get("refreshed_at") else None,
+        "triggered_by":    d.get("triggered_by", []),
+        "user_context":    d.get("user_context"),
+        "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
+    }
+
+
+def _spotlight_snoozed(d: dict) -> bool:
+    until = d.get("spotlight_snoozed_until")
+    return bool(until and until > datetime.utcnow())
+
+
+def _spotlight_candidates(docs: list[dict]) -> list[dict]:
+    """Insights eligible for the home spotlight, ranked pinned-first then freshest."""
+    cands = [d for d in docs if not d.get("spotlight_retired") and not _spotlight_snoozed(d)]
+    cands.sort(
+        key=lambda d: (bool(d.get("pinned")), d.get("refreshed_at") or datetime.min),
+        reverse=True,
+    )
+    return cands
+
+
 @router.get("/savings-insights")
-async def get_savings_insights(user: dict = Depends(current_user)):
+async def get_savings_insights(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
     uid  = user["email"]
     docs = await savings_insights_col.find({"user_id": uid}).sort([("pinned", -1), ("refreshed_at", -1)]).to_list(None)
 
@@ -400,22 +450,69 @@ async def get_savings_insights(user: dict = Depends(current_user)):
             if triggered_by:
                 await savings_insights_col.update_one({"_id": d["_id"]}, {"$set": {"triggered_by": triggered_by}})
                 d["triggered_by"] = triggered_by
-        results.append({
-            "id":              d.get("insight_id", str(d["_id"])),
-            "category":        d["category"],
-            "icon":            d.get("icon", "💡"),
-            "label":           d.get("label", d["category"].replace("_", " ").title()),
-            "title":           d.get("title", ""),
-            "body":            d.get("body", ""),
-            "savings_estimate": d.get("savings_estimate"),
-            "pinned":          d.get("pinned", False),
-            "is_new":          d.get("is_new", False),
-            "refreshed_at":    d["refreshed_at"].isoformat() if d.get("refreshed_at") else None,
-            "triggered_by":    d.get("triggered_by", []),
-            "user_context":    d.get("user_context"),
-            "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
-        })
+        results.append(_serialize_insight(d))
     return results
+
+
+@router.get("/savings-insights/spotlight")
+async def get_spotlight_insight(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+    """The single insight to feature on the home screen, or null.
+
+    Applies supersession: if the insight shown last time has been replaced by a
+    different top insight, the old one is retired permanently so it never returns.
+    """
+    uid  = user["email"]
+    docs = await savings_insights_col.find({"user_id": uid}).to_list(None)
+    cands = _spotlight_candidates(docs)
+    if not cands:
+        return None
+    top    = cands[0]
+    top_id = top.get("insight_id", str(top["_id"]))
+
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    last  = prefs.get("spotlight_last_shown")
+    if last and last != top_id:
+        prev = next((d for d in docs if d.get("insight_id") == last), None)
+        if prev is not None and not prev.get("spotlight_retired"):
+            await savings_insights_col.update_one(
+                {"_id": prev["_id"]},
+                {"$set": {"spotlight_retired": True}, "$unset": {"spotlight_snoozed_until": ""}},
+            )
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$set": {"user_id": uid, "spotlight_last_shown": top_id}},
+        upsert=True,
+    )
+    return _serialize_insight(top)
+
+
+@router.post("/savings-insights/{insight_id}/dismiss")
+async def dismiss_spotlight_insight(insight_id: str, user: dict = Depends(current_user)):
+    """Dismiss an insight from the home spotlight.
+
+    If another insight can take its place it is superseded → retired permanently.
+    If it is the last eligible insight it is snoozed for 7 days instead.
+    """
+    uid = user["email"]
+    doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
+    if not doc:
+        raise HTTPException(404, "Insight not found")
+
+    docs      = await savings_insights_col.find({"user_id": uid}).to_list(None)
+    remaining = [d for d in _spotlight_candidates(docs) if d.get("insight_id") != insight_id]
+
+    if remaining:
+        await savings_insights_col.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"spotlight_retired": True}, "$unset": {"spotlight_snoozed_until": ""}},
+        )
+        return {"status": "retired"}
+
+    await savings_insights_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"spotlight_snoozed_until": datetime.utcnow() + timedelta(days=7)}},
+    )
+    return {"status": "snoozed"}
 
 
 @router.get("/savings-insights/workflows")
@@ -448,7 +545,7 @@ async def toggle_pin_insight(insight_id: str, user: dict = Depends(current_user)
         raise HTTPException(404, "Insight not found")
     new_pinned = not doc.get("pinned", False)
     update: dict = {"pinned": new_pinned}
-    update["expires_at"] = None if new_pinned else datetime.now() + timedelta(days=30)
+    update["expires_at"] = None if new_pinned else datetime.utcnow() + timedelta(days=30)
     await savings_insights_col.update_one({"_id": doc["_id"]}, {"$set": update})
     return {"pinned": new_pinned}
 
@@ -463,7 +560,7 @@ async def trigger_refresh_insights(background_tasks: BackgroundTasks, user: dict
 @router.get("/savings-insights/unknown-bills")
 async def get_unknown_bills(user: dict = Depends(current_user)):
     uid    = user["email"]
-    cutoff = datetime.now() - timedelta(days=90)
+    cutoff = datetime.utcnow() - timedelta(days=90)
 
     labelled_keys = {
         lbl["merchant_key"]
@@ -516,7 +613,7 @@ async def label_bill(body: dict, background_tasks: BackgroundTasks, user: dict =
 
     await savings_labels_col.update_one(
         {"user_id": uid, "merchant_key": merchant_key},
-        {"$set": {"user_id": uid, "merchant_key": merchant_key, "category": category, "updated_at": datetime.now()}},
+        {"$set": {"user_id": uid, "merchant_key": merchant_key, "category": category, "updated_at": datetime.utcnow()}},
         upsert=True,
     )
     if category in INSIGHT_CATEGORIES:

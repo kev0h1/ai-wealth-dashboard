@@ -4,15 +4,189 @@ import type {
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
+  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign,
+  SubscriptionInfo,
 } from "@wealth/shared";
 export type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
+  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign,
+  SubscriptionInfo,
 } from "@wealth/shared";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+
+export type NotificationPrefs = {
+  transactions: boolean;
+  budget_alerts: boolean;
+  goal_milestones: boolean;
+  insights: boolean;
+};
+
+export type CashflowWeek = {
+  label: string;
+  projected_income: number;
+  projected_spend: number;
+  projected_bills: number;
+};
+
+export type UpcomingBill = {
+  name: string;
+  amount: number;
+  expected_date: string;
+  days_away: number;
+  account_id?: string | null;
+  account_name?: string | null;
+  account_balance?: number | null;
+};
+
+export type CashflowData = {
+  weekly_projection: CashflowWeek[];
+  upcoming_bills: UpcomingBill[];
+  upcoming_income: UpcomingBill[];
+  avg_daily_spend: number;
+  available_balance: number;
+};
+
+export type TransportMode = {
+  name: string;
+  total: number;
+  count: number;
+  pct: number;
+  colour: string;
+  monthly: number;
+};
+
+export type TransportTx = {
+  name: string;
+  amount: number;
+  date: string;
+  mode: string;
+};
+
+export type TransportSummary = {
+  period_days: number;
+  total_spend: number;
+  weekly_avg: number;
+  monthly_avg: number;
+  modes: TransportMode[];
+  car_total: number;
+  car_monthly: number;
+  rideshare_total: number;
+  rideshare_monthly: number;
+  pt_total: number;
+  pt_monthly: number;
+  office_days: number;
+  wfh_days: number;
+  weekdays_in_period: number;
+  weekly_commute_cost: number;
+  annual_commute_projection: number;
+  top_transactions: TransportTx[];
+};
+
+export type ValueDelivered = {
+  insights_acted_on: number;
+  total_monthly_saving: number;
+  breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
+};
+
+export type MoneyBasic = {
+  id: string;
+  topic: string;
+  icon: string;
+  title: string;
+  body: string;
+  takeaway?: string;
+  tax_year: string;
+};
+
+export type DebtPlanMilestone = {
+  id: string;
+  type: "payment" | "action";
+  text: string;
+  target_balance: number | null;
+  done: boolean;
+  done_at: string | null;
+  /* Live tracking for spend-cap action steps, derived from transactions */
+  live_category?: string;
+  live_target?: number;
+  live_spend?: number;
+};
+
+export type DebtPlan = {
+  target_months: number | null;
+  debt_at_creation: number | null;
+  created_at: string | null;
+  milestones: DebtPlanMilestone[];
+  done_count: number;
+  total_count: number;
+  current_debt: number;
+};
+
+export type SuggestedPlan = {
+  mode?: "add" | "replace";
+  kind?: "debt" | "savings";
+  target_months?: number;
+  target_amount?: number;
+  milestones: { type: string; text: string; target_balance?: number }[];
+};
+
+export type SavingsAccountOption = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+  selected: boolean;
+  manual: boolean;
+};
+
+export type SavingsInsights = {
+  configured: boolean;
+  accounts: SavingsAccountOption[];
+  current_savings: number;
+  target_amount: number;
+  target_type: "months" | "amount" | null;
+  target_months: number | null;
+  pct_funded: number;
+  months_funded: number;
+  monthly_income: number;
+  monthly_spending: number;
+  monthly_surplus: number;
+  months_to_target: number;
+  funded_date: string | null;
+  has_data: boolean;
+};
+
+export type SavingsGoalInput = {
+  target_type: "months" | "amount";
+  target_months?: number;
+  target_amount?: number;
+  account_ids: string[];
+};
+
+export type SavingsPlanMilestone = {
+  id: string;
+  type: "savings" | "action";
+  text: string;
+  target_balance: number | null;
+  done: boolean;
+  done_at: string | null;
+  live_category?: string;
+  live_target?: number;
+  live_spend?: number;
+};
+
+export type SavingsPlan = {
+  target_amount: number | null;
+  savings_at_creation: number | null;
+  created_at: string | null;
+  milestones: SavingsPlanMilestone[];
+  done_count: number;
+  total_count: number;
+  current_savings: number;
+};
 
 export function authHeaders(): HeadersInit {
   const token = getToken();
@@ -35,13 +209,150 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
+export type UserProfile = {
+  full_name: string;
+  name_tokens: string[];
+  onboarding_complete: boolean;
+  postcode: string | null;
+  lat: number | null;
+  lng: number | null;
+};
+
+export type FuelStation = {
+  node_id: string;
+  brand: string | null;
+  name: string | null;
+  postcode: string | null;
+  city: string | null;
+  lat: number;
+  lng: number;
+  distance_km: number;
+  ppl: number;
+  updated: string | null;
+  is_supermarket: boolean;
+};
+
+export type FuelNearby = {
+  grade: string;
+  grade_label: string;
+  anchor: { lat: number; lng: number };
+  radius_km: number;
+  paid_ppl: number | null;
+  count: number;
+  cheapest_ppl: number | null;
+  median_ppl: number | null;
+  savings_ppl: number | null;
+  snapshot_fetched_at: string | null;
+  stations: FuelStation[];
+};
+
+export type BasketItem = {
+  name: string;
+  qty: number;
+  unit_price: number | null;
+  line_price: number | null;
+  category: string;
+};
+
+export type Basket = {
+  id: string;
+  shop: string | null;
+  purchased_at: string | null;
+  currency: string;
+  total: number | null;
+  item_count: number;
+  items: BasketItem[];
+  created_at: string | null;
+};
+
+export type ItemTrend = {
+  key: string;
+  name: string;
+  latest: number;
+  previous: number;
+  pct_change: number;
+  currency: string;
+  store: string | null;
+  date: string | null;
+};
+
+export type StorePrice = {
+  key: string;
+  name: string;
+  cheapest_store: string;
+  cheapest_price: number;
+  dearest_store: string;
+  dearest_price: number;
+  saving: number;
+  currency: string;
+};
+
+export type BasketInsights = {
+  receipt_count: number;
+  item_trends: ItemTrend[];
+  store_prices: StorePrice[];
+  headline: string | null;
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
+  getProfile: () => get<UserProfile>("/profile"),
+  updateProfile: async (full_name: string, postcode?: string, complete = true): Promise<UserProfile> => {
+    const body: Record<string, unknown> = { full_name, complete };
+    if (postcode !== undefined) body.postcode = postcode;
+    const res = await fetch(`${API_BASE}/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Failed to save");
+    return data as UserProfile;
+  },
+  fuelNearby: (opts: { grade: string; paid?: number; lat?: number; lng?: number; radiusKm?: number }) => {
+    const p = new URLSearchParams({ grade: opts.grade });
+    if (opts.paid !== undefined) p.set("paid", String(opts.paid));
+    if (opts.lat !== undefined) p.set("lat", String(opts.lat));
+    if (opts.lng !== undefined) p.set("lng", String(opts.lng));
+    if (opts.radiusKm !== undefined) p.set("radius_km", String(opts.radiusKm));
+    return get<FuelNearby>(`/fuel/nearby?${p.toString()}`);
+  },
+  scanReceipt: async (image: string): Promise<Basket> => {
+    const res = await fetch(`${API_BASE}/baskets/scan-receipt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ image }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Couldn't scan that receipt");
+    return data as Basket;
+  },
+  listBaskets: () => get<Basket[]>("/baskets"),
+  basketInsights: () => get<BasketInsights>("/baskets/insights"),
+  getBasket: (id: string) => get<Basket>(`/baskets/${encodeURIComponent(id)}`),
+  deleteBasket: (id: string) =>
+    fetch(`${API_BASE}/baskets/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
   accounts: () => get<Account[]>("/accounts"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
   transactions: (accountId: string) =>
     get<Transaction[]>(`/accounts/${accountId}/transactions`),
   kpis: () => get<KPIs>("/kpis"),
+  cashflow: () => get<CashflowData>("/cashflow"),
+  valueDelivered: () => get<ValueDelivered>("/value-delivered"),
+  transportSummary: () => get<TransportSummary>("/transport/summary"),
+  oldestTransaction: () => get<{ date: string | null }>("/transactions/oldest"),
+  deleteUserAccount: async (): Promise<{ deleted: boolean }> => {
+    const res = await fetch(`${API_BASE}/account`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ confirm: "DELETE" }),
+    });
+    if (!res.ok) throw new Error("Delete failed");
+    return res.json();
+  },
   insights: () => get<Insight[]>("/insights"),
   truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
   connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
@@ -76,10 +387,118 @@ export const api = {
     recommendations: { category: string; monthly_spend: number; cut_25pct_saves: number; cut_50pct_saves: number }[];
     recent_discretionary: { id: string; description: string; amount: number; date: string; category: string }[];
   }>("/debt/insights"),
-  debtChat: (messages: { role: string; content: string }[], session_id?: string) =>
-    post<{ reply: string; session_id?: string }>("/debt/chat", { messages, session_id }),
-  getPreferences: () => get<{ hide_net_worth: boolean; dark_mode?: boolean }>("/preferences"),
-  updatePreferences: (body: Partial<{ hide_net_worth: boolean; dark_mode: boolean; pay_period_config: unknown }>) =>
+  debtChat: (messages: { role: string; content: string }[], session_id?: string, page_context?: string) =>
+    post<{ reply: string; session_id?: string; suggested_plan?: SuggestedPlan | null }>("/debt/chat", { messages, session_id, page_context }),
+  taxChat: (messages: { role: string; content: string }[]) =>
+    post<{ reply: string }>("/chat/tax", { messages }),
+  getDebtPlan: () => get<{ plan: DebtPlan | null }>("/debt/plan"),
+  saveDebtPlan: (plan: SuggestedPlan) =>
+    fetch(`${API_BASE}/debt/plan`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(plan),
+    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
+  addDebtPlanMilestones: (plan: SuggestedPlan) =>
+    fetch(`${API_BASE}/debt/plan/milestones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(plan),
+    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null; added: number }>,
+  toggleDebtPlanStep: (stepId: string, done: boolean) =>
+    fetch(`${API_BASE}/debt/plan/step/${encodeURIComponent(stepId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ done }),
+    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
+  deleteDebtPlanStep: (stepId: string) =>
+    fetch(`${API_BASE}/debt/plan/step/${encodeURIComponent(stepId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
+  deleteDebtPlan: () =>
+    fetch(`${API_BASE}/debt/plan`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
+  savingsInsights: () => get<SavingsInsights>("/savings/insights"),
+  saveSavingsGoal: (goal: SavingsGoalInput) =>
+    fetch(`${API_BASE}/savings/goal`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(goal),
+    }).then(r => r.json()) as Promise<SavingsInsights>,
+  deleteSavingsGoal: () =>
+    fetch(`${API_BASE}/savings/goal`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ configured: boolean }>,
+  addSavingsManualAccount: (body: { name: string; balance: number }) =>
+    fetch(`${API_BASE}/savings/manual-account`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then(r => r.json()) as Promise<SavingsInsights>,
+  updateSavingsManualAccount: (id: string, body: { name?: string; balance?: number }) =>
+    fetch(`${API_BASE}/savings/manual-account/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then(r => r.json()) as Promise<SavingsInsights>,
+  deleteSavingsManualAccount: (id: string) =>
+    fetch(`${API_BASE}/savings/manual-account/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<SavingsInsights>,
+  getSavingsPlan: () => get<{ plan: SavingsPlan | null }>("/savings/plan"),
+  saveSavingsPlan: (plan: SuggestedPlan) =>
+    fetch(`${API_BASE}/savings/plan`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(plan),
+    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+  addSavingsPlanMilestones: (plan: SuggestedPlan) =>
+    fetch(`${API_BASE}/savings/plan/milestones`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(plan),
+    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null; added: number }>,
+  toggleSavingsPlanStep: (stepId: string, done: boolean) =>
+    fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ done }),
+    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+  deleteSavingsPlanStep: (stepId: string) =>
+    fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+  deleteSavingsPlan: () =>
+    fetch(`${API_BASE}/savings/plan`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+  getPreferences: () => get<{
+    hide_net_worth: boolean;
+    dark_mode?: boolean;
+    notification_prefs?: NotificationPrefs;
+    income_bracket?: string;
+    income_value?: number;
+    pension_annual?: number;
+    has_child_benefit?: boolean;
+    home_pinned_accounts?: string[];
+  }>("/preferences"),
+  updatePreferences: (body: Partial<{
+    hide_net_worth: boolean;
+    dark_mode: boolean;
+    pay_period_config: unknown;
+    notification_prefs: NotificationPrefs;
+    income_bracket: string;
+    income_value: number;
+    pension_annual: number;
+    has_child_benefit: boolean;
+    home_pinned_accounts: string[];
+  }>) =>
     fetch(`${API_BASE}/preferences`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -109,6 +528,59 @@ export const api = {
   syncHistory: () => post<{ message: string; total_accounts: number }>("/accounts/sync-history"),
   deleteAccount: (accountId: string) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  // Offline (manually-tracked) accounts
+  manualAccounts: () => get<ManualAccount[]>("/manual-accounts"),
+  createManualAccount: (body: { name: string; balance: number; account_type: ManualAccountType }) =>
+    post<ManualAccount>("/manual-accounts", body),
+  updateManualAccount: (id: string, body: { name?: string; balance?: number; account_type?: ManualAccountType }) =>
+    fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then(r => r.json()) as Promise<ManualAccount>,
+  deleteManualAccount: (id: string) =>
+    fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  // Offline-account ledger (hand-added + rule-posted entries)
+  manualTransactions: (accountId: string) =>
+    get<Transaction[]>(`/manual-accounts/${encodeURIComponent(accountId)}/transactions`),
+  addManualTransaction: (accountId: string, body: { description: string; amount: number; transaction_type: "credit" | "debit"; date?: string }) =>
+    post<Transaction>(`/manual-accounts/${encodeURIComponent(accountId)}/transactions`, body),
+  updateManualTransaction: (accountId: string, txId: string, body: Partial<{ description: string; amount: number; transaction_type: "credit" | "debit"; date: string }>) =>
+    fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(accountId)}/transactions/${encodeURIComponent(txId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then(r => r.json()) as Promise<Transaction>,
+  deleteManualTransaction: (accountId: string, txId: string) =>
+    fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(accountId)}/transactions/${encodeURIComponent(txId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ deleted: string }>,
+
+  // Transaction-mirror rules
+  manualAccountRules: () => get<ManualAccountRule[]>("/manual-account-rules"),
+  createManualAccountRule: (body: {
+    name: string; target_account_id: string;
+    match_type: RuleMatchType; match_value: string; sign: RuleSign;
+  }) => post<ManualAccountRule>("/manual-account-rules", body),
+  updateManualAccountRule: (id: string, body: Partial<{
+    name: string; match_type: RuleMatchType; match_value: string; sign: RuleSign; active: boolean;
+  }>) =>
+    fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then(r => r.json()) as Promise<ManualAccountRule>,
+  deleteManualAccountRule: (id: string) =>
+    fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
     }).then(r => r.json()) as Promise<{ deleted: string }>,
@@ -269,7 +741,13 @@ export const api = {
     }).then(r => r.json()) as Promise<{ updated: string; planned: boolean }>,
   deleteRule: (id: string) =>
     fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ deleted: string }>,
+  getDailyMoneyBasic: () => get<MoneyBasic>("/money-basics/daily"),
+  getMoneyBasics: (topic?: string) =>
+    get<{ items: MoneyBasic[]; tax_year: string }>(`/money-basics${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
   getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
+  getSpotlightInsight: () => get<SavingsInsight | null>("/savings-insights/spotlight"),
+  dismissSpotlightInsight: (id: string) =>
+    post<{ status: string }>(`/savings-insights/${encodeURIComponent(id)}/dismiss`, {}),
   pinSavingsInsight: (id: string) =>
     fetch(`${API_BASE}/savings-insights/${encodeURIComponent(id)}/pin`, {
       method: "PATCH",
@@ -320,6 +798,8 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ endpoint }),
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
+  getSubscription: () => get<SubscriptionInfo>("/subscription"),
 
   debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
     burndown: {

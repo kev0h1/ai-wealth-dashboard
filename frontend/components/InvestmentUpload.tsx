@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Upload, X, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 
 interface InvestmentUploadProps {
   onSuccess: () => void;
@@ -10,6 +11,7 @@ interface InvestmentUploadProps {
 }
 
 export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploadProps) {
+  useLockBodyScroll();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);

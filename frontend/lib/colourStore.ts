@@ -33,6 +33,11 @@ export function clearColour(cat: string): void {
   } catch {}
 }
 
+export function clearAllColours(): void {
+  if (typeof window === "undefined") return;
+  try { localStorage.removeItem(KEY); } catch {}
+}
+
 export function isCustomColour(cat: string): boolean {
   if (typeof window === "undefined") return false;
   try {

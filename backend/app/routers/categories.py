@@ -8,6 +8,7 @@ import httpx
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
+from app.core.subscription import Tier, require_tier
 from app.db.collections import user_categories_col, user_rules_col
 from app.services.categorisation import apply_rules_bulk
 
@@ -15,7 +16,7 @@ router = APIRouter(tags=["categories"])
 
 BUILTIN_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping",
-    "Bills", "Subscriptions", "Health", "Travel", "Software",
+    "Bills", "Subscriptions", "Health", "Beauty", "Travel", "Software",
     "Savings", "Debt", "Transfer", "Income", "Cash", "Charity", "Other",
 ]
 
@@ -32,7 +33,7 @@ async def get_categories(user: dict = Depends(current_user)):
 
 
 @router.post("/categories")
-async def add_category(body: dict, user: dict = Depends(current_user)):
+async def add_category(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
     name = body.get("name", "").strip()
     if not name or len(name) > 40:
         raise HTTPException(400, "Invalid category name")
@@ -71,7 +72,7 @@ async def get_rules(user: dict = Depends(current_user)):
 
 
 @router.post("/rules/parse")
-async def parse_rule(body: dict, user: dict = Depends(current_user)):
+async def parse_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "No text provided")
@@ -115,7 +116,7 @@ async def parse_rule(body: dict, user: dict = Depends(current_user)):
 
 
 @router.post("/rules")
-async def add_rule(body: dict, user: dict = Depends(current_user)):
+async def add_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
     uid         = user["email"]
     description = (body.get("description") or "").strip()
     pattern     = (body.get("pattern") or "").strip()

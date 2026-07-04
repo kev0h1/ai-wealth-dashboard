@@ -21,12 +21,13 @@ function providerKey(provider: string) {
 }
 
 interface Props {
+  grid?: boolean;
   account: InvestmentAccount;
   onClick?: () => void;
   hidden?: boolean;
 }
 
-export default function InvestmentMiniCard({ account, onClick, hidden }: Props) {
+export default function InvestmentMiniCard({ account, onClick, hidden, grid }: Props) {
   const meta = PROVIDER_META[providerKey(account.provider)] ?? { bg: "linear-gradient(135deg,#3730a3,#4f46e5)" };
   const value = account.total_value;
   const valueStr = `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -34,7 +35,7 @@ export default function InvestmentMiniCard({ account, onClick, hidden }: Props) 
   return (
     <button
       onClick={onClick}
-      className="flex-shrink-0 w-44 rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-md overflow-hidden relative"
+      className={`${grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-md overflow-hidden relative`}
       style={{ background: meta.bg, color: "#fff" }}
     >
       {/* Top row: icon + account type chip */}

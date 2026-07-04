@@ -52,7 +52,7 @@ export default function KPICards({ kpis, loading }: { kpis: KPIs | null; loading
       color: "bg-emerald-500/20",
     },
     {
-      label: "Runway",
+      label: "Cash runway",
       value: kpis ? `${kpis.runway}mo` : "—",
       icon: <Clock className="w-4 h-4 text-amber-300" />,
       color: "bg-amber-500/20",

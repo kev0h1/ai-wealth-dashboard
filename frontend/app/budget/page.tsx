@@ -1,12 +1,9 @@
 import { Suspense } from "react";
-import { Viewport } from "next";
 import BudgetPage from "./BudgetPage";
-
-export const viewport: Viewport = { themeColor: "#059669" };
 
 export default function Page() {
   return (
-    <Suspense fallback={<div className="min-h-dvh" style={{ background: "linear-gradient(135deg,#059669 0%,#047857 100%)" }} />}>
+    <Suspense fallback={<div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />}>
       <BudgetPage />
     </Suspense>
   );

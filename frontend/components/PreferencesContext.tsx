@@ -41,7 +41,11 @@ const Ctx = createContext<PrefsCtx>({
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [hideNetWorth, setHideNetWorthState] = useState(false);
-  const [darkMode, setDarkModeState] = useState(false);
+  const [darkMode, setDarkModeState] = useState(() => {
+    // Match the pre-paint inline script in layout.tsx so hydration doesn't undo it
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("wd_dark") === "1"; } catch { return false; }
+  });
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
   const [region, setRegionState] = useState<Region>("UK");
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
@@ -50,7 +54,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     api.getPreferences().then(p => {
       setHideNetWorthState(p.hide_net_worth);
-      if (p.dark_mode !== undefined) setDarkModeState(p.dark_mode);
+      if (p.dark_mode !== undefined) {
+        setDarkModeState(p.dark_mode);
+        try { localStorage.setItem("wd_dark", p.dark_mode ? "1" : "0"); } catch {}
+      }
       if ((p as any).pay_period_config) setPayPeriodConfigState((p as any).pay_period_config as PayPeriodConfig);
       if ((p as any).region) setRegionState((p as any).region as Region);
       if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
@@ -73,6 +80,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   const setDarkMode = useCallback((v: boolean) => {
     setDarkModeState(v);
+    try { localStorage.setItem("wd_dark", v ? "1" : "0"); } catch {}
     api.updatePreferences({ dark_mode: v }).catch(() => {});
   }, []);
 

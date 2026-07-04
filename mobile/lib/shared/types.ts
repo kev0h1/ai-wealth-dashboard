@@ -5,6 +5,7 @@ export interface Account {
   id: string;
   name: string;
   type: string;
+  subtype?: string;
   balance: number;
   currency: string;
   provider: string;
@@ -12,6 +13,7 @@ export interface Account {
   status: string;
   account_number?: string;
   sort_code?: string;
+  manual?: boolean;
 }
 
 export interface Transaction {

@@ -106,24 +106,37 @@ export default function TutorialOverlay() {
 
   return (
     <div className="fixed inset-0 z-[60]" style={{ pointerEvents: "auto" }}>
-      {/* Dark overlay with spotlight cutout */}
+      {/* Dark overlay with rounded spotlight cutout */}
       {hasSpotlight ? (
         <>
-          {/* Four dark panels around the spotlight */}
-          <div className="absolute inset-0 bg-black/60" style={{ clipPath: `polygon(0 0, 100% 0, 100% ${rect!.top}px, 0 ${rect!.top}px)` }} onClick={end} />
-          <div className="absolute inset-0 bg-black/60" style={{ clipPath: `polygon(0 ${rect!.top + rect!.height}px, 100% ${rect!.top + rect!.height}px, 100% 100%, 0 100%)` }} onClick={end} />
-          <div className="absolute inset-0 bg-black/60" style={{ clipPath: `polygon(0 ${rect!.top}px, ${rect!.left}px ${rect!.top}px, ${rect!.left}px ${rect!.top + rect!.height}px, 0 ${rect!.top + rect!.height}px)` }} onClick={end} />
-          <div className="absolute inset-0 bg-black/60" style={{ clipPath: `polygon(${rect!.left + rect!.width}px ${rect!.top}px, 100% ${rect!.top}px, 100% ${rect!.top + rect!.height}px, ${rect!.left + rect!.width}px ${rect!.top + rect!.height}px)` }} onClick={end} />
-          {/* Spotlight ring */}
-          <div
-            className="absolute rounded-2xl"
-            style={{
-              top: rect!.top, left: rect!.left,
-              width: rect!.width, height: rect!.height,
-              boxShadow: "0 0 0 3px rgba(255,255,255,0.5)",
-              pointerEvents: "none",
-            }}
-          />
+          <svg
+            className="absolute inset-0 w-full h-full"
+            style={{ pointerEvents: "auto" }}
+            onClick={end}
+          >
+            <defs>
+              <mask id="tutorial-spotlight-mask">
+                <rect width="100%" height="100%" fill="white" />
+                <rect
+                  x={rect!.left} y={rect!.top}
+                  width={rect!.width} height={rect!.height}
+                  rx="14" ry="14"
+                  fill="black"
+                />
+              </mask>
+            </defs>
+            <rect width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#tutorial-spotlight-mask)" />
+            {/* Rounded spotlight ring */}
+            <rect
+              x={rect!.left} y={rect!.top}
+              width={rect!.width} height={rect!.height}
+              rx="14" ry="14"
+              fill="none"
+              stroke="rgba(255,255,255,0.5)"
+              strokeWidth="3"
+              style={{ pointerEvents: "none" }}
+            />
+          </svg>
         </>
       ) : (
         <div className="absolute inset-0 bg-black/60" onClick={end} />

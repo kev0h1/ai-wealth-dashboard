@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2 } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { useColours } from "@/components/ColourProvider";
@@ -9,13 +9,12 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
-import TutorialTrigger from "@/components/TutorialTrigger";
 import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, ReferenceDot,
 } from "recharts";
 
-interface CCAccount {
+export interface CCAccount {
   account_id: string;
   name: string;
   provider: string;
@@ -24,7 +23,7 @@ interface CCAccount {
   monthly_interest: number;
 }
 
-interface DebtInsights {
+export interface DebtInsights {
   total_debt: number;
   accounts: CCAccount[];
   monthly_income: number;
@@ -45,16 +44,16 @@ interface ChatMessage {
   content: string;
 }
 
-function fmt(n: number, sym = "£") {
+export function fmt(n: number, sym = "£") {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-function fmt2(n: number, sym = "£") {
+export function fmt2(n: number, sym = "£") {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 
-function debtFreeDate(months: number): string {
+export function debtFreeDate(months: number): string {
   if (!isFinite(months) || months > 600) return "a very long time";
   const d = new Date();
   d.setMonth(d.getMonth() + Math.ceil(months));
@@ -75,7 +74,7 @@ function Ring({ pct, size = 64, stroke = 6 }: { pct: number; size?: number; stro
   );
 }
 
-function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: {
+export function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: {
   insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number;
   onOpenChat: (prompt?: string) => void;
 }) {
@@ -135,7 +134,7 @@ function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: 
   );
 }
 
-function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: { insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number }) {
+export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: { insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number }) {
   const deficit = Math.abs(insights.monthly_surplus);
   const paymentNeeded = insights.total_debt > 0 ? insights.total_debt / targetMonths : 0;
   const maxBar = Math.max(insights.monthly_income, insights.monthly_spending);
@@ -196,7 +195,7 @@ const QUICK_PROMPTS = [
   "Am I making progress?",
 ];
 
-type BurndownData = {
+export type BurndownData = {
   burndown: { month: string; actual: number | null; target: number | null; projected: number | null }[];
   current_debt: number;
   target_months: number;
@@ -217,7 +216,7 @@ export default function DebtPage() {
   const sym = region === "Kenya" ? "KES " : "£";
   const [insights, setInsights] = useState<DebtInsights | null>(null);
   const [burndown, setBurndown] = useState<BurndownData | null>(null);
-  const [strategy, setStrategy] = useState<"avalanche" | "snowball">("avalanche");
+  const [strategy, setStrategy] = useState<"avalanche" | "snowball" | "costliest">("avalanche");
   const [burndownMode, setBurndownMode] = useState<"time" | "amount">("time");
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -360,7 +359,6 @@ export default function DebtPage() {
             {user && <p className="text-sm opacity-80 mt-0.5">Hi {firstName},</p>}
           </div>
           <div className="flex items-center gap-2">
-            <TutorialTrigger />
             <TrendingDown className="w-7 h-7 opacity-60" />
           </div>
         </div>
@@ -416,6 +414,7 @@ export default function DebtPage() {
                 onStrategyChange={setStrategy}
                 hideValues={hideNetWorth}
                 sym={sym}
+                monthlySurplus={insights?.monthly_surplus}
               />
             )}
 
@@ -516,6 +515,7 @@ export default function DebtPage() {
                 totalDebt={insights.total_debt}
                 hideNetWorth={hideNetWorth}
                 sym={sym}
+                strategy={strategy}
                 onRateChange={() => {
                   api.debtInsights().then(setInsights).catch(() => {});
                   const bdn = burndownRef.current;
@@ -748,34 +748,74 @@ function AprInput({ accountId, initialApr, onSaved }: { accountId: string; initi
   );
 }
 
-function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRateChange }: {
+export function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRateChange, collapsible = false, strategy }: {
   accounts: CCAccount[];
   totalDebt: number;
   hideNetWorth: boolean;
   sym: string;
   onRateChange: () => void;
+  collapsible?: boolean;
+  /** When set, cards are listed in payoff order for that strategy */
+  strategy?: "avalanche" | "snowball" | "costliest";
 }) {
+  const [open, setOpen] = useState(!collapsible);
   const totalMonthlyInterest = accounts.reduce((s, a) => s + (a.monthly_interest ?? 0), 0);
+
+  const ordered = strategy
+    ? [...accounts].sort((a, b) => {
+        if (strategy === "snowball") return Math.abs(a.balance) - Math.abs(b.balance);
+        if (strategy === "costliest") return (b.monthly_interest ?? 0) - (a.monthly_interest ?? 0);
+        return (b.apr ?? 0) - (a.apr ?? 0); // avalanche
+      })
+    : accounts;
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Credit Cards</p>
-        {totalMonthlyInterest > 0 && (
-          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-            ~{sym}{totalMonthlyInterest.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo interest
-          </span>
-        )}
-      </div>
-      {accounts.map((acc) => {
+      <button
+        type="button"
+        onClick={() => collapsible && setOpen(v => !v)}
+        className={`w-full px-4 pt-3 pb-2 flex items-center justify-between ${collapsible ? "cursor-pointer" : "cursor-default"}`}
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Credit Cards</span>
+          {collapsible && (
+            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
+              {accounts.length} card{accounts.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </span>
+        <span className="flex items-center gap-2">
+          {totalMonthlyInterest > 0 && (
+            <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              ~{sym}{totalMonthlyInterest.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo interest
+            </span>
+          )}
+          {collapsible && (
+            <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+          )}
+        </span>
+      </button>
+      {open && strategy && ordered.length > 1 && (
+        <p className="px-4 pb-1 text-[10px] text-slate-400 dark:text-slate-500">
+          Listed in payoff order for {strategy === "avalanche" ? "Avalanche" : strategy === "snowball" ? "Snowball" : "Costliest"}
+        </p>
+      )}
+      {open && ordered.map((acc, idx) => {
         const owed = Math.abs(acc.balance);
         const pct = totalDebt > 0 ? (owed / totalDebt) * 100 : 0;
         return (
           <div key={acc.account_id} className="px-4 py-3 border-t border-slate-50 dark:border-slate-700">
             <div className="flex items-center justify-between mb-1">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{acc.provider}</p>
+              <div className="min-w-0 flex-1 flex items-center gap-2">
+                {strategy && ordered.length > 1 && (
+                  <span className="min-w-[18px] h-[18px] rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-300 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                    {idx + 1}
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{acc.provider}</p>
+                </div>
               </div>
               <div className="flex flex-col items-end ml-3 gap-0.5">
                 <p className="text-sm font-bold text-rose-500">{hideNetWorth ? "••••" : fmt2(owed, sym)}</p>
@@ -802,9 +842,68 @@ function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRateChange 
 
 // ── Debt Burndown Chart ───────────────────────────────────────────────────────
 
-const TARGET_OPTIONS = [6, 12, 18, 24, 36];
+function TargetMonthsSlider({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
+  // Local until explicitly applied — a stray tap on the track must never
+  // silently change the plan target
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+  const dirty = local !== value;
 
-function calcMonthsFromPayment(debt: number, payment: number, weightedAprPct: number): number {
+  const target = new Date();
+  target.setMonth(target.getMonth() + local);
+  const dateLabel = target.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+          {local < 12 ? `${local} months` : `${Math.floor(local / 12)}y ${local % 12 ? `${local % 12}m` : ""}`.trim()}
+        </span>
+        <span className="text-xs text-slate-500 dark:text-slate-400">debt-free {dateLabel}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setLocal(v => Math.max(3, v - 1))}
+          className="w-8 h-8 flex-shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-base font-bold active:scale-95 transition-transform"
+          aria-label="One month sooner"
+        >−</button>
+        <input
+          type="range"
+          min={3}
+          max={60}
+          step={1}
+          value={local}
+          onChange={e => setLocal(Number(e.target.value))}
+          className="w-full accent-indigo-600"
+          style={{ touchAction: "pan-y" }}
+        />
+        <button
+          onClick={() => setLocal(v => Math.min(60, v + 1))}
+          className="w-8 h-8 flex-shrink-0 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-base font-bold active:scale-95 transition-transform"
+          aria-label="One month later"
+        >+</button>
+      </div>
+      {dirty && (
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={() => setLocal(value)}
+            className="flex-1 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onCommit(local)}
+            className="flex-1 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 active:scale-[0.98] transition-transform"
+          >
+            Set target
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function calcMonthsFromPayment(debt: number, payment: number, weightedAprPct: number): number {
   if (!payment || payment <= 0 || debt <= 0) return 120;
   const r = weightedAprPct / 12 / 100;
   if (r > 0 && payment > r * debt) {
@@ -819,9 +918,10 @@ function fmtMonth(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
 }
 
-function DebtBurndownCard({
+export function DebtBurndownCard({
   data, mode, onModeChange, targetMonths, onTargetChange, monthlyPayment, onMonthlyPaymentChange,
   effectiveTargetMonths, trackingStart, onTrackingStartChange, strategy, onStrategyChange, hideValues, sym,
+  collapsibleSettings = false, settingsExtra, monthlySurplus,
 }: {
   data: BurndownData;
   mode: "time" | "amount";
@@ -833,11 +933,15 @@ function DebtBurndownCard({
   effectiveTargetMonths: number;
   trackingStart: string;
   onTrackingStartChange: (s: string) => void;
-  strategy: "avalanche" | "snowball";
-  onStrategyChange: (s: "avalanche" | "snowball") => void;
+  strategy: "avalanche" | "snowball" | "costliest";
+  onStrategyChange: (s: "avalanche" | "snowball" | "costliest") => void;
   hideValues: boolean;
   sym: string;
+  collapsibleSettings?: boolean;
+  settingsExtra?: React.ReactNode;
+  monthlySurplus?: number;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const today = new Date().toISOString().slice(0, 7);
   const todayIdx = data.burndown.findIndex(p => p.month === today);
 
@@ -879,6 +983,13 @@ function DebtBurndownCard({
           {" · "}
           <span className="text-indigo-500 font-medium">{hideValues ? "••••" : `${sym}${data.monthly_payment_needed.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`}</span>
         </p>
+        {/* A target the user's cashflow can't fund is a wish, not a plan — say so */}
+        {monthlySurplus !== undefined && monthlySurplus > 0 && data.monthly_payment_needed > monthlySurplus && !hideValues && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 leading-snug">
+            This needs {sym}{Math.round(data.monthly_payment_needed - monthlySurplus).toLocaleString("en-GB")}/mo more than
+            your current {sym}{Math.round(monthlySurplus).toLocaleString("en-GB")} surplus — fund it with spending cuts, or pick a later date.
+          </p>
+        )}
       </div>
 
       {/* Legend row */}
@@ -1031,10 +1142,33 @@ function DebtBurndownCard({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+
+        {/* When the plan has drifted well off target, shaming isn't a strategy —
+            offer a one-tap restart from today's balance */}
+        {!isOnTrack && annotationGap !== null && annotationGap > 500 && (
+          <button
+            onClick={() => onTrackingStartChange(new Date().toISOString().slice(0, 7))}
+            className="mx-3 mb-2 mt-1 w-[calc(100%-24px)] py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700 active:scale-[0.98] transition-transform"
+          >
+            Plan drifted? Re-baseline from today&apos;s balance
+          </button>
+        )}
       </div>
 
+      {collapsibleSettings && (
+        <button
+          onClick={() => setSettingsOpen(v => !v)}
+          className="w-full px-4 py-2.5 flex items-center justify-between border-t border-slate-50 dark:border-slate-700 text-left"
+        >
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <SlidersHorizontal size={13} /> Adjust plan
+          </span>
+          <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`} />
+        </button>
+      )}
+
       {/* Settings */}
-      <div className="px-4 pb-4 pt-2 border-t border-slate-50 dark:border-slate-700 space-y-4">
+      <div className={`px-4 pb-4 pt-2 border-t border-slate-50 dark:border-slate-700 space-y-4 ${collapsibleSettings ? (settingsOpen ? "border-t-0 pt-0" : "hidden") : ""}`}>
 
         {/* Tracking start */}
         <div>
@@ -1074,21 +1208,7 @@ function DebtBurndownCard({
           </div>
 
           {mode === "time" ? (
-            <div className="flex gap-2 flex-wrap">
-              {TARGET_OPTIONS.map(mo => (
-                <button
-                  key={mo}
-                  onClick={() => onTargetChange(mo)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                    targetMonths === mo
-                      ? "bg-indigo-600 text-white"
-                      : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"
-                  }`}
-                >
-                  {mo < 12 ? `${mo}mo` : `${mo / 12}yr${mo > 12 ? "s" : ""}`}
-                </button>
-              ))}
-            </div>
+            <TargetMonthsSlider value={targetMonths} onCommit={onTargetChange} />
           ) : (
             <div className="flex items-center gap-3">
               <div className="relative flex-1">
@@ -1113,23 +1233,40 @@ function DebtBurndownCard({
             <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">Projected strategy</p>
             <p className="text-[9px] text-slate-400 dark:text-slate-500">affects projected line only — target is fixed</p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => onStrategyChange("avalanche")}
-              className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left ${strategy === "avalanche" ? "bg-indigo-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"}`}
-            >
-              <span className="block font-bold">Avalanche</span>
-              <span className="text-[10px] opacity-70">Highest APR first · saves most interest</span>
-            </button>
-            <button
-              onClick={() => onStrategyChange("snowball")}
-              className={`flex-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left ${strategy === "snowball" ? "bg-indigo-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"}`}
-            >
-              <span className="block font-bold">Snowball</span>
-              <span className="text-[10px] opacity-70">Smallest balance first · builds momentum</span>
-            </button>
+          <div className="flex gap-1.5">
+            {([
+              { key: "avalanche" as const, label: "Avalanche", desc: "Highest APR first" },
+              { key: "snowball" as const, label: "Snowball", desc: "Smallest balance first" },
+              { key: "costliest" as const, label: "Costliest", desc: `Biggest ${sym}/mo interest first` },
+            ]).map(s => (
+              <button
+                key={s.key}
+                onClick={() => onStrategyChange(s.key)}
+                className={`flex-1 px-2 py-2 rounded-xl text-xs font-semibold transition-all text-left ${strategy === s.key ? "bg-indigo-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"}`}
+              >
+                <span className="block font-bold">{s.label}</span>
+                <span className="text-[9px] opacity-70 leading-tight block">{s.desc}</span>
+              </button>
+            ))}
           </div>
+          {!data.has_rates && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 leading-snug">
+              Strategies only differ through interest — add APRs to your cards below and the
+              projections (and interest costs) will diverge.
+            </p>
+          )}
+          {data.has_rates && (
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">
+              Projected interest with this strategy:{" "}
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {hideValues ? "••••" : `${sym}${data.total_interest_projected.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+              </span>
+              {" "}— switch to compare.
+            </p>
+          )}
         </div>
+
+        {settingsExtra}
       </div>
     </div>
   );

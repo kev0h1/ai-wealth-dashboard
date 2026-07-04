@@ -11,6 +11,7 @@ import {
   loadColours,
   persistColour,
   clearColour,
+  clearAllColours,
 } from "@/lib/colourStore";
 import { CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR } from "@/lib/categories";
 
@@ -18,12 +19,14 @@ interface ColourContextValue {
   colours: Record<string, string>;
   setColour: (cat: string, hex: string) => void;
   resetColour: (cat: string) => void;
+  resetAllColours: () => void;
 }
 
 const ColourContext = createContext<ColourContextValue>({
   colours: { ...CATEGORY_COLOURS },
   setColour: () => {},
   resetColour: () => {},
+  resetAllColours: () => {},
 });
 
 export function useColours() {
@@ -52,8 +55,13 @@ export function ColourProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const resetAllColours = useCallback(() => {
+    clearAllColours();
+    setColours({ ...CATEGORY_COLOURS });
+  }, []);
+
   return (
-    <ColourContext.Provider value={{ colours, setColour, resetColour }}>
+    <ColourContext.Provider value={{ colours, setColour, resetColour, resetAllColours }}>
       {children}
     </ColourContext.Provider>
   );

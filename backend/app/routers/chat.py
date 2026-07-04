@@ -1,5 +1,6 @@
 """Debt chat endpoints."""
 import asyncio
+import json
 import uuid as uuid_lib
 from datetime import datetime, timedelta
 
@@ -8,13 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
+from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import (
     chat_sessions_col, episodic_memory_col,
     transactions_col, yapily_transactions_col,
-    accounts_col,
+    accounts_col, debt_plans_col,
+    savings_goals_col, savings_plans_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.memory import extract_episodic_memory
+from app.routers.savings import _current_savings, _target_amount
 
 router = APIRouter(tags=["chat"])
 
@@ -57,6 +61,7 @@ async def debt_chat(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "No messages or AI not configured")
 
     uid      = user["email"]
+    await check_ai_chat_limit(uid)
     name     = user.get("name", "").split()[0] or "there"
     region   = await get_user_region(uid)
     currency = "KES " if region == "Kenya" else "£"
@@ -109,7 +114,76 @@ async def debt_chat(body: dict, user: dict = Depends(current_user)):
     cats_text  = "\n".join(f"  - {k}: {currency}{v:.2f}/mo" for k, v in sorted(monthly_cat.items(), key=lambda x: -x[1]) if k not in _NON_DISC and v > 0)
     debt_line  = f"- Total credit card debt: {currency}{total_debt:.2f} across {len(cc_accounts)} card(s)\n{cards_text}" if total_debt > 0 else "- No credit card debt"
 
-    system = f"""You are a friendly, practical personal finance advisor helping {name} manage their finances.
+    is_savings = total_debt <= 0
+
+    if is_savings:
+        goal            = await savings_goals_col.find_one({"_id": uid})
+        current_savings = await _current_savings(uid, goal)
+        target_amount   = _target_amount(goal, monthly_spending)
+        months_funded   = round(current_savings / monthly_spending, 1) if monthly_spending > 0 else 0
+        gap_to_target   = max(0.0, round(target_amount - current_savings, 2))
+        months_to_target = (
+            __import__("math").ceil(gap_to_target / monthly_surplus)
+            if monthly_surplus > 0 and gap_to_target > 0 else 0
+        )
+        plan_doc = await savings_plans_col.find_one({"_id": uid})
+    else:
+        plan_doc = await debt_plans_col.find_one({"_id": uid})
+
+    has_plan = bool(plan_doc and plan_doc.get("milestones"))
+    if has_plan:
+        existing_lines = "\n".join(f"  - {m.get('text', '')}" for m in plan_doc["milestones"])
+        kind_label     = "safety-net savings" if is_savings else "debt-free"
+        plan_section   = f"\n\nThe user already has a saved {kind_label} plan with these goals:\n{existing_lines}"
+    else:
+        kind_label     = "safety-net savings" if is_savings else "debt-free"
+        plan_section   = f"\n\nThe user does not have a saved {kind_label} plan yet."
+
+    if is_savings:
+        target_desc = f"{currency}{target_amount:,.2f}" if target_amount > 0 else "an emergency fund of 3-6 months of essential expenses"
+        funded_line = (
+            f"- At current surplus, fully funded in: {months_to_target} months" if months_to_target else ""
+        )
+        system = f"""You are Penny, {name}'s friendly and practical personal finance advisor. You are helping them build a savings safety net.
+
+Their current financial situation:
+- No credit card debt 🎉
+- Current safety-net savings: {currency}{current_savings:,.2f}
+- Target safety net: {target_desc}{f"  ({months_funded} months of expenses saved so far)" if monthly_spending > 0 else ""}
+- Average monthly income (last 3 months): {currency}{monthly_income:.2f}
+- Average monthly spending (last 3 months): {currency}{monthly_spending:.2f}
+- Monthly surplus available to save: {currency}{monthly_surplus:.2f}
+{funded_line}
+
+Monthly spending breakdown:
+{cats_text}{memory_section}{plan_section}
+
+Help them set and reach a realistic emergency-fund or savings target. Be specific to their numbers. Keep it brief — 2-3 sentences max, lead with the direct answer, no preamble or encouragement. Use plain English.
+
+Format replies in markdown: **bold** key numbers, use bullet points (-) only for lists of 3+ items. No headings.
+
+When the user wants to build or change a trackable SAVINGS plan (not for general questions), end your reply with a JSON block in this exact format (the app parses it so the user can save it):
+
+```plan
+{{
+  "mode": "replace",
+  "target_amount": {round(target_amount, 2) if target_amount > 0 else 0},
+  "milestones": [
+    {{"type": "savings", "text": "Build a {currency}500 starter buffer", "target_balance": 500}},
+    {{"type": "action", "text": "Set up a {currency}200 standing order on payday"}}
+  ]
+}}
+```
+
+Rules for the plan block:
+- "mode" is "replace" to build a whole new plan, or "add" to append goals to their existing plan.
+- If they have NO saved plan, use "replace" with 4-6 milestones ordered from the soonest starter buffer up to the full target.
+- If they DO have a saved plan and want to add or adjust a goal, confer with them first to rationalise it against their numbers, then use "add" with ONLY the new goal(s) — never repeat goals already in their plan.
+- Only use "replace" on an existing plan if they explicitly want to start over.
+- Use "savings" type for balance targets (always include a numeric "target_balance" that steps UP toward the goal) and "action" type for habits/behaviour changes (no target_balance).
+- Keep each "text" short and specific to their numbers. Only emit the block once you and the user have settled on the goal(s)."""
+    else:
+        system = f"""You are Penny, {name}'s friendly and practical personal finance advisor. You are helping them manage their finances.
 
 Their current financial situation:
 {debt_line}
@@ -121,9 +195,45 @@ Their current financial situation:
 {f"- Monthly shortfall to 12-month goal: {currency}{gap:.2f}" if total_debt > 0 else ""}
 
 Monthly spending breakdown:
-{cats_text}{memory_section}
+{cats_text}{memory_section}{plan_section}
 
-Be specific to their numbers. Be encouraging but realistic. Give concrete, actionable advice. Keep responses concise (2-4 short paragraphs max). Use plain English, no jargon."""
+Be specific to their numbers. Keep it brief — 2-3 sentences max, lead with the direct answer, no preamble or encouragement. Use plain English.
+
+Format replies in markdown: **bold** key numbers, use bullet points (-) only for lists of 3+ items. No headings.
+
+When the user wants to build or change a trackable debt-free PLAN (not for general questions), end your reply with a JSON block in this exact format (the app parses it so the user can save it):
+
+```plan
+{{
+  "mode": "replace",
+  "target_months": 12,
+  "milestones": [
+    {{"type": "payment", "text": "Get your total balance below {currency}2,000", "target_balance": 2000}},
+    {{"type": "action", "text": "Cancel unused subscriptions to free up {currency}25/month"}}
+  ]
+}}
+```
+
+Rules for the plan block:
+- "mode" is "replace" to build a whole new plan, or "add" to append goals to their existing plan.
+- If they have NO saved plan, use "replace" with 4-6 milestones ordered from soonest to debt-free.
+- If they DO have a saved plan and want to add or adjust a specific goal, confer with them first to rationalise it against their numbers, then use "add" with ONLY the new goal(s) — never repeat goals already in their plan.
+- Only use "replace" on an existing plan if they explicitly want to start over.
+- Use "payment" type for balance targets (always include a numeric "target_balance" that steps down toward 0) and "action" type for behaviour changes (no target_balance).
+- Keep each "text" short and specific to their numbers. Only emit the block once you and the user have settled on the goal(s)."""
+
+    # Situational awareness: tell the model which screen the user is on, so
+    # "why is this so high?" resolves to what they're actually looking at.
+    _PAGE_CONTEXTS = {
+        "debt":      "the Debt tab: their debt burndown chart, payoff plan and credit cards",
+        "savings":   "the Savings tab: their safety-net progress and ways-to-save insights",
+        "transport": "the Mobility tab: their transport spending breakdown (car, rideshare, fuel, public transport)",
+        "home":      "the Home dashboard: net worth, cash, runway and upcoming bills",
+        "budget":    "the Budget page: category budgets for the current pay period",
+        "spend":     "the Spend page: their transactions for the current pay period",
+    }
+    if page_desc := _PAGE_CONTEXTS.get(body.get("page_context") or ""):
+        system += f"\n\nRight now the user is looking at {page_desc}. If they refer to 'this' or ask about what's on screen, assume they mean that."
 
     full_messages = history + messages
 
@@ -131,13 +241,31 @@ Be specific to their numbers. Be encouraging but realistic. Give concrete, actio
         r = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
-            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 600,
+            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 350,
                   "messages": [{"role": "system", "content": system}] + full_messages},
         )
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")
 
     reply = r.json()["choices"][0]["message"]["content"]
+    await increment_ai_chat_usage(uid)
+
+    suggested_plan = None
+    try:
+        start = reply.find("```plan")
+        if start != -1:
+            end      = reply.find("```", start + 7)
+            json_str = reply[start + 7:end].strip()
+            parsed   = json.loads(json_str)
+            if isinstance(parsed, dict) and isinstance(parsed.get("milestones"), list) and parsed["milestones"]:
+                mode = parsed.get("mode")
+                if mode not in ("add", "replace"):
+                    mode = "add" if has_plan else "replace"
+                parsed["mode"] = mode
+                parsed["kind"] = "savings" if is_savings else "debt"
+                suggested_plan = parsed
+    except Exception:
+        pass
 
     if session_id:
         new_msgs = messages + [{"role": "assistant", "content": reply}]
@@ -147,4 +275,72 @@ Be specific to their numbers. Be encouraging but realistic. Give concrete, actio
         )
         asyncio.create_task(extract_episodic_memory(uid, full_messages + [{"role": "assistant", "content": reply}]))
 
-    return {"reply": reply, "session_id": session_id}
+    return {"reply": reply, "session_id": session_id, "suggested_plan": suggested_plan}
+
+
+@router.post("/chat/tax")
+async def tax_chat(body: dict, user: dict = Depends(current_user)):
+    messages = body.get("messages", [])
+    if not messages or not OPENROUTER_API_KEY:
+        raise HTTPException(400, "No messages or AI not configured")
+
+    uid  = user["email"]
+    await check_ai_chat_limit(uid)
+    name = user.get("name", "").split()[0] or "there"
+
+    from app.db.collections import preferences_col
+    prefs          = await preferences_col.find_one({"user_id": uid}) or {}
+    income         = float(prefs.get("income_value", 0))
+    pension_annual = float(prefs.get("pension_annual", 0))
+    bracket        = prefs.get("income_bracket", "")
+    has_cb         = prefs.get("has_child_benefit", False)
+
+    adjusted = income - pension_annual
+    over     = max(0.0, adjusted - 100_000)
+    taper_end = 125_140
+
+    if adjusted >= taper_end:
+        allowance_line = "Personal allowance fully withdrawn (adjusted income ≥ £125,140)"
+    elif over > 0:
+        lost   = int(over / 2)
+        needed = int(over)
+        allowance_line = f"Personal allowance: £{12570 - lost:,} remaining — needs £{needed:,} more pension to restore in full"
+    else:
+        allowance_line = "Full personal allowance intact (£12,570)"
+
+    income_line = f"£{income:,.0f}" if income else f"bracket {bracket} (exact income not entered)"
+
+    system = f"""You are Penny, {name}'s personal finance advisor, currently acting as their UK tax adviser. Be direct — 2-3 sentences max per reply, no preamble, no encouragement. Lead with the answer.
+
+{name}'s situation (tax year 2026/27):
+- Income: {income_line}
+- Pension contributions this year: £{pension_annual:,.0f}
+- Adjusted net income: £{adjusted:,.0f}
+- {allowance_line}
+- Receiving Child Benefit: {"Yes — high income charge applies" if has_cb else "No"}
+
+UK tax facts:
+- Personal allowance tapers above £100,000, lost entirely at £125,140
+- Effective marginal rate in taper band: 60% (40% income tax + 20% from lost allowance)
+- Annual pension allowance: £60,000; unused allowance from last 3 years can be carried forward
+- Salary sacrifice (pension, cycle to work, EV) reduces gross pay before tax
+- Gift Aid donations reduce adjusted net income — same mechanism as pension
+- ISA allowance: £20,000/year, can't carry forward
+- EIS: 30% income tax relief; SEIS: 50% — qualifying startup investors can claim
+- Self-assessment is mandatory above £100,000
+- Child benefit high income charge starts at £60,000 adjusted income
+
+Answer in 2-3 sentences. Bold key numbers. No bullet lists unless listing 3+ items."""
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
+            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
+                  "messages": [{"role": "system", "content": system}] + messages},
+        )
+    if r.status_code != 200:
+        raise HTTPException(500, "AI unavailable")
+
+    await increment_ai_chat_usage(uid)
+    return {"reply": r.json()["choices"][0]["message"]["content"]}

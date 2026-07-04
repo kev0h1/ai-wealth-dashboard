@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Upload, X, CheckCircle, FileText, Eye, EyeOff, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { usePreferences } from "@/components/PreferencesContext";
 
 interface StatementUploadProps {
@@ -11,6 +12,7 @@ interface StatementUploadProps {
 }
 
 export default function StatementUpload({ onSuccess, onClose }: StatementUploadProps) {
+  useLockBodyScroll();
   const { region } = usePreferences();
   const fileRef = useRef<HTMLInputElement>(null);
   const [password, setPassword] = useState("");

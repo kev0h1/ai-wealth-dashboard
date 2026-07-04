@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Pin } from "lucide-react";
 import { Account } from "@/lib/api";
 
 interface AccountMiniCardProps {
@@ -9,6 +9,10 @@ interface AccountMiniCardProps {
   onClick?: () => void;
   onReconnect?: () => void;
   fullWidth?: boolean;
+  /** Two-column grid cell: full width of the cell, compact content */
+  grid?: boolean;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   hidden?: boolean;
 }
 
@@ -51,9 +55,11 @@ export const BANK_META: Record<string, BankMeta> = {
   IMBANK:       { label: "I&M Bank",     bg: "linear-gradient(135deg,#b22222,#7b0000)",  initials: "I&M", initialsSize: "9px" },
 };
 
-function typeLabel(type: string) {
-  if (type.toLowerCase().includes("credit")) return "Credit";
-  if (type.toLowerCase().includes("saving")) return "Savings";
+function typeLabel(account: Account) {
+  const type = account.type.toLowerCase();
+  const sub = (account.subtype ?? "").toLowerCase();
+  if (type.includes("credit") || sub.includes("credit")) return "Credit";
+  if (sub.includes("saving")) return "Savings";
   return "Current";
 }
 
@@ -92,7 +98,7 @@ export function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw:
   );
 }
 
-export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, hidden }: AccountMiniCardProps) {
+export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin }: AccountMiniCardProps) {
   const key = (account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_");
   const meta = BANK_META[key];
   const isCredit = account.type.toLowerCase().includes("credit");
@@ -103,7 +109,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
   return (
     <button
       onClick={onClick}
-      className={`${fullWidth ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-md overflow-hidden relative ${!meta ? "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" : ""}`}
+      className={`${fullWidth || grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-md overflow-hidden relative ${!meta ? "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" : ""}`}
       style={meta ? { background: meta.bg, color: "#fff" } : undefined}
     >
       {/* Top: badge + type chip */}
@@ -115,7 +121,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
             ? { background: "rgba(255,255,255,0.2)", color: "#fff" }
             : { background: isCredit ? "#fee2e2" : "#e0e7ff", color: isCredit ? "#b91c1c" : "#4338ca" }}
         >
-          {typeLabel(account.type)}
+          {typeLabel(account)}
         </span>
       </div>
 
@@ -154,14 +160,28 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
 
       <div className="absolute -bottom-5 -right-5 w-20 h-20 rounded-full opacity-10 bg-white pointer-events-none" />
 
-      {/* Reconnect button */}
-      {onReconnect && (
+      {/* Pin-to-Home toggle — bottom-right, yields to the expired pill */}
+      {onTogglePin && account.status !== "expired" && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+          title={pinned ? "Unpin from Home" : "Pin to Home"}
+          className={`absolute bottom-3 right-3 flex items-center justify-center w-7 h-7 rounded-lg transition-all active:scale-95 ${
+            pinned ? "bg-white text-indigo-700" : "bg-white/15 hover:bg-white/30 text-white/80"
+          }`}
+        >
+          <Pin size={12} className={pinned ? "fill-current" : ""} />
+        </button>
+      )}
+
+      {/* Reconnect — only when the connection actually needs it; healthy
+          accounts reconnect from the detail view */}
+      {onReconnect && account.status === "expired" && (
         <button
           onClick={(e) => { e.stopPropagation(); onReconnect(); }}
           title="Reconnect this bank"
           className={`
             absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-all active:scale-95
-            ${fullWidth ? "bottom-3 right-3" : "top-2 right-2"}
+            ${fullWidth || grid ? "bottom-3 right-3" : "top-2 right-2"}
             ${account.status === "expired"
               ? "ring-1 ring-amber-400/60 bg-amber-500/40 hover:bg-amber-500/60 text-white"
               : "bg-white/15 hover:bg-white/30 text-white"

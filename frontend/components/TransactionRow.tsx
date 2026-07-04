@@ -12,24 +12,6 @@ interface TransactionRowProps {
   showAccount?: boolean;
 }
 
-const CATEGORY_EMOJI: Record<string, string> = {
-  Groceries: "🛒",
-  "Eating Out": "🍽️",
-  Transport: "🚌",
-  Entertainment: "🎬",
-  Shopping: "🛍️",
-  Bills: "📄",
-  Subscriptions: "📱",
-  Health: "💊",
-  Travel: "✈️",
-  Software: "💻",
-  Savings: "💰",
-  Debt: "💳",
-  Transfer: "↔️",
-  Income: "💵",
-  Other: "📦",
-};
-
 // Map merchant name keywords to known domains for favicon lookup
 const MERCHANT_DOMAINS: Array<[RegExp, string]> = [
   [/tesco/i, "tesco.com"],
@@ -106,23 +88,24 @@ function getMerchantDomain(name: string): string | null {
   return null;
 }
 
+function initialFor(name: string): string {
+  const m = name.match(/[a-z0-9]/i);
+  return m ? m[0].toUpperCase() : "•";
+}
+
 function MerchantIcon({ transaction, colour }: { transaction: Transaction; colour: string }) {
   const [imgFailed, setImgFailed] = useState(false);
   const name = transaction.merchant_name || transaction.description || "";
   const domain = !imgFailed ? getMerchantDomain(name) : null;
-  const emoji = CATEGORY_EMOJI[transaction.category ?? "Other"] ?? "📦";
 
   if (domain) {
     return (
-      <div
-        className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
-        style={{ background: "#f1f5f9" }}
-      >
+      <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden bg-white dark:bg-slate-700">
         <img
-          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
+          src={`https://logo.clearbit.com/${domain}?size=128`}
           alt={name}
           onError={() => setImgFailed(true)}
-          className="w-6 h-6 object-contain"
+          className="w-7 h-7 object-contain"
         />
       </div>
     );
@@ -130,10 +113,10 @@ function MerchantIcon({ transaction, colour }: { transaction: Transaction; colou
 
   return (
     <div
-      className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-lg"
-      style={{ background: colour + "22" }}
+      className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white"
+      style={{ background: colour }}
     >
-      {emoji}
+      {initialFor(name)}
     </div>
   );
 }

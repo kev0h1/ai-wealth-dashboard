@@ -8,6 +8,7 @@ class Account(BaseModel):
     id: str
     name: str
     type: str
+    subtype: Optional[str] = None
     balance: float
     currency: str = "GBP"
     provider: str
@@ -16,6 +17,7 @@ class Account(BaseModel):
     account_number: Optional[str] = None
     sort_code: Optional[str] = None
     connection_id: Optional[str] = None
+    manual: bool = False
 
 
 class Transaction(BaseModel):

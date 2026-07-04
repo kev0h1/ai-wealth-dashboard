@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 
 from app.core.auth import current_user
 from app.core.config import YAPILY_APP_UUID, YAPILY_BASE_URL, APP_URL
+from app.core.subscription import check_connection_limit
 from app.db.collections import yapily_consents_col, yapily_accounts_col, yapily_transactions_col
 from app.services.yapily_sync import sync_yapily_consent, yapily_headers
 import httpx
@@ -41,6 +42,7 @@ async def yapily_create_requisition(body: dict, user: dict = Depends(current_use
     if not institution_id:
         raise HTTPException(400, "institution_id required")
     uid = user["email"]
+    await check_connection_limit(uid)
     if not YAPILY_APP_UUID:
         raise HTTPException(503, "Yapily not configured")
     callback  = f"{APP_URL}/auth/yapily/callback"
