@@ -2,7 +2,12 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import MONGO_URI
 
-_mongo = AsyncIOMotorClient(MONGO_URI)
+# Cap the pool per process. The web and worker run as separate Railway
+# services, each opening its own client; on Atlas M0 (500-connection cap)
+# two processes at maxPoolSize=20 stay well inside the limit with headroom
+# for a future replica. serverSelectionTimeoutMS fails fast if Atlas is
+# unreachable instead of hanging a request for the default 30s.
+_mongo = AsyncIOMotorClient(MONGO_URI, maxPoolSize=20, serverSelectionTimeoutMS=8000)
 db     = _mongo["wealth"]
 
 # TrueLayer
@@ -74,6 +79,9 @@ cashflow_cache_col      = db["cashflow_cache"]
 
 # Webhook event log (TrueLayer webhooks → queue → processed)
 webhook_events_col      = db["webhook_events"]
+
+# User-level permanently removed TrueLayer account IDs (survives reconnects)
+excluded_accounts_col   = db["excluded_accounts"]
 
 # Distributed locks (startup migrations etc.)
 locks_col               = db["locks"]

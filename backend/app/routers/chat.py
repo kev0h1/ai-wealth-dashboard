@@ -14,7 +14,7 @@ from app.db.collections import (
     chat_sessions_col, episodic_memory_col,
     transactions_col, yapily_transactions_col,
     accounts_col, debt_plans_col,
-    savings_goals_col, savings_plans_col,
+    savings_goals_col, savings_plans_col, savings_insights_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.memory import extract_episodic_memory
@@ -77,6 +77,20 @@ async def debt_chat(body: dict, user: dict = Depends(current_user)):
     memory_section = ""
     if memory_facts:
         memory_section = "\n\nWhat you know about this user from previous conversations:\n" + "\n".join(f"- {f}" for f in memory_facts)
+
+    # Contract/bill details the user entered via insight workflows — Penny and
+    # the workflows share one brain
+    ctx_docs = await savings_insights_col.find(
+        {"user_id": uid, "user_context": {"$exists": True, "$ne": None}},
+        {"category": 1, "user_context": 1},
+    ).to_list(None)
+    ctx_lines = []
+    for d in ctx_docs:
+        details = ", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in (d.get("user_context") or {}).items() if v)
+        if details:
+            ctx_lines.append(f"- {d['category'].replace('_', ' ').title()}: {details}")
+    if ctx_lines:
+        memory_section += "\n\nContract & bill details the user has provided (treat as current facts):\n" + "\n".join(ctx_lines)
 
     cutoff = datetime.now() - timedelta(days=90)
 
@@ -221,6 +235,19 @@ Rules for the plan block:
 - Only use "replace" on an existing plan if they explicitly want to start over.
 - Use "payment" type for balance targets (always include a numeric "target_balance" that steps down toward 0) and "action" type for behaviour changes (no target_balance).
 - Keep each "text" short and specific to their numbers. Only emit the block once you and the user have settled on the goal(s)."""
+
+    # Every chat sees every headline goal, so "how am I doing?" works anywhere
+    try:
+        from app.routers.goals import goals_summary, goals_context_text
+        system += goals_context_text(await goals_summary(uid, region))
+    except Exception:
+        pass
+
+    system += """
+
+The app already tracks everything automatically from their connected banks — spending by category, budgets, upcoming bills, and plan milestones (which auto-complete from transactions and balances). NEVER suggest tracking anything outside the app: no notebooks, phone notes, spreadsheets, or manual logs of any kind. When they commit to a change, anchor it to an in-app tracker instead — a category budget on the Budget page, a goal in their debt-free or savings plan, or the live category view on the Spend page — and tell them the app will track it from here.
+
+Work towards a close: end with a concrete recommendation or a confirmation of what's now in place, not a question. Ask a question only when you cannot proceed without the answer — never as a sign-off."""
 
     # Situational awareness: tell the model which screen the user is on, so
     # "why is this so high?" resolves to what they're actually looking at.

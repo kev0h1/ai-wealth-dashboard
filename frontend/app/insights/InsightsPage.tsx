@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, ArrowRight, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, Fuel, MapPin, Receipt, Camera, Image as ImageIcon, TrendingUp, Store } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, ArrowRight, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, Fuel, MapPin, Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, DebtPlan, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby, Basket, BasketInsights } from "@/lib/api";
+import { useSheetA11y } from "@/lib/useSheetA11y";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import AdviceDisclaimer from "@/components/AdviceDisclaimer";
@@ -12,6 +14,7 @@ import MoneyBasicCard from "@/components/MoneyBasicCard";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import {
   DebtGrowingCard, CreditCardsCard, DebtBurndownCard,
   calcMonthsFromPayment, debtFreeDate, fmt,
@@ -21,18 +24,20 @@ import TransportInsights from "@/components/TransportInsights";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxChat from "@/components/TaxChat";
+import SegmentedControl from "@/components/SegmentedControl";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
-  energy:        [{ label: "uSwitch", url: "https://www.uswitch.com/gas-electricity/" }, { label: "MoneySavingExpert", url: "https://www.moneysavingexpert.com/utilities/cheap-energy/" }],
+  // All URLs verified live 5 Jul 2026 — re-check when touching this map
+  energy:        [{ label: "uSwitch", url: "https://www.uswitch.com/gas-electricity/" }, { label: "MSE Utilities", url: "https://www.moneysavingexpert.com/utilities/" }],
   mortgage:      [{ label: "Habito", url: "https://www.habito.com" }, { label: "MSE Mortgages", url: "https://www.moneysavingexpert.com/mortgages/best-buys/" }],
-  car_finance:   [{ label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/car-finance/" }, { label: "MSE Car Finance", url: "https://www.moneysavingexpert.com/loans/car-finance/" }],
-  car_insurance: [{ label: "Compare the Market", url: "https://www.comparethemarket.com/car-insurance/" }, { label: "Confused.com", url: "https://www.confused.com/car-insurance" }],
+  car_finance:   [{ label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/car-finance/" }, { label: "MSE Car Finance", url: "https://www.moneysavingexpert.com/car-finance/" }],
+  car_insurance: [{ label: "Compare the Market", url: "https://www.comparethemarket.com/car-insurance/" }, { label: "GoCompare", url: "https://www.gocompare.com/car-insurance/" }],
   broadband:     [{ label: "uSwitch", url: "https://www.uswitch.com/broadband/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/broadband/" }],
   mobile:        [{ label: "uSwitch", url: "https://www.uswitch.com/mobiles/" }, { label: "MoneySuperMarket", url: "https://www.moneysupermarket.com/mobile-phones/" }],
-  groceries:     [{ label: "Trolley.co.uk", url: "https://trolley.co.uk" }, { label: "MySupermarket", url: "https://www.mysupermarket.co.uk" }],
-  eating_out:    [{ label: "Vouchercloud", url: "https://www.vouchercloud.com/restaurants" }, { label: "Tastecard", url: "https://www.tastecard.co.uk" }],
-  gym:           [{ label: "PayAsUGym", url: "https://www.payasugym.com" }, { label: "ClassPass UK", url: "https://classpass.com/uk" }],
-  subscriptions: [{ label: "MSE Subscriptions", url: "https://www.moneysavingexpert.com/family/cancel-subscriptions/" }, { label: "Which?", url: "https://www.which.co.uk" }],
+  groceries:     [{ label: "Trolley.co.uk", url: "https://trolley.co.uk" }, { label: "MSE Supermarket Tips", url: "https://www.moneysavingexpert.com/shopping/cheap-supermarket-shopping/" }],
+  eating_out:    [{ label: "VoucherCodes", url: "https://www.vouchercodes.co.uk/restaurants" }, { label: "Tastecard", url: "https://www.tastecard.co.uk" }],
+  gym:           [{ label: "Hussle", url: "https://www.hussle.com" }, { label: "ClassPass UK", url: "https://classpass.com/uk" }],
+  subscriptions: [{ label: "MSE Deals", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
 
 const CATEGORY_COLOURS: Record<string, { bg: string; text: string }> = {
@@ -110,14 +115,15 @@ function UnknownBillsPanel({
       <button
         className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left bg-amber-50 dark:bg-amber-900/20"
         onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
       >
         <div className="flex items-center gap-2.5">
           <span className="text-base">🔍</span>
           <div>
-            <p className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Help us personalise your insights
             </p>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {bills.length} recurring bill{bills.length > 1 ? "s" : ""} we couldn't identify
             </p>
           </div>
@@ -139,7 +145,7 @@ function UnknownBillsPanel({
                   <p className="text-[14px] font-medium text-slate-800 dark:text-slate-200 truncate">
                     {bill.display_name}
                   </p>
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500">
+                  <p className="text-[12px] text-slate-500 dark:text-slate-400">
                     £{bill.monthly_amount.toFixed(2)}/mo · {bill.occurrences} payments
                   </p>
                 </div>
@@ -161,7 +167,7 @@ function UnknownBillsPanel({
                         className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 active:scale-95 transition-all disabled:opacity-40"
                       >
                         <span className="text-xl leading-none">{opt.icon}</span>
-                        <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
+                        <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
                           {opt.label}
                         </span>
                       </button>
@@ -172,7 +178,7 @@ function UnknownBillsPanel({
                       className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-95 transition-all disabled:opacity-40"
                     >
                       <span className="text-xl leading-none">✕</span>
-                      <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
                         Skip
                       </span>
                     </button>
@@ -260,12 +266,13 @@ function LabelledBillsPanel({
       <button
         className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left"
         onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
       >
         <div className="flex items-center gap-2.5">
           <span className="text-base">🏷️</span>
           <div>
-            <p className="text-[14px] font-semibold text-slate-800 dark:text-slate-200">Your labelled bills</p>
-            <p className="text-[12px] text-slate-400">{labels.length} bill{labels.length !== 1 ? "s" : ""} categorised</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Your labelled bills</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{labels.length} bill{labels.length !== 1 ? "s" : ""} categorised</p>
           </div>
         </div>
         <ChevronDown size={16} className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
@@ -285,7 +292,7 @@ function LabelledBillsPanel({
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-sm">{lbl.icon}</span>
-                      <span className={`text-[12px] ${lbl.is_skip ? "text-slate-400 dark:text-slate-500 italic" : "text-slate-500 dark:text-slate-400"}`}>
+                      <span className={`text-[12px] text-slate-500 dark:text-slate-400 ${lbl.is_skip ? "italic" : ""}`}>
                         {lbl.is_skip ? "Skipped" : lbl.label}
                       </span>
                     </div>
@@ -314,7 +321,7 @@ function LabelledBillsPanel({
                             }`}
                         >
                           <span className="text-xl leading-none">{opt.icon}</span>
-                          <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
+                          <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
                             {opt.label}
                           </span>
                         </button>
@@ -329,7 +336,7 @@ function LabelledBillsPanel({
                           }`}
                       >
                         <span className="text-xl leading-none">✕</span>
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
                           Skip
                         </span>
                       </button>
@@ -367,8 +374,17 @@ function WorkflowDrawer({
   onSaved: () => void;
 }) {
   useLockBodyScroll();
+  const titleId = useId();
+  const stepLabelId = useId();
+  const drawerRef = useSheetA11y<HTMLDivElement>(onClose);
   const initial: Record<string, string> = {};
   for (const s of workflow.steps) initial[s.id] = insight.user_context?.[s.id] ?? "";
+  // Don't ask what the app already knows: the triggering merchant answers
+  // "which gym?" (and friends) before the user types anything
+  const topTrigger = insight.triggered_by?.[0];
+  if (topTrigger && !initial["gym_name"] && workflow.steps.some(st => st.id === "gym_name")) {
+    initial["gym_name"] = topTrigger.display_name;
+  }
   const [values, setValues] = useState<Record<string, string>>(initial);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -392,15 +408,15 @@ function WorkflowDrawer({
     }
   }
 
-  function renderInput(s: WorkflowStep) {
+  function renderInput(s: WorkflowStep, labelId?: string) {
     if (s.type === "select" && s.options) {
       return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" role="group" aria-labelledby={labelId}>
           {s.options.map(opt => (
             <button
               key={opt}
               onClick={() => set(s.id, opt)}
-              className={`w-full text-left px-4 py-3 rounded-xl border text-[14px] transition-all
+              className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all
                 ${values[s.id] === opt
                   ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium"
                   : "border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300"
@@ -415,7 +431,7 @@ function WorkflowDrawer({
     return (
       <div className="relative">
         {s.type === "currency" && (
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[15px] font-medium">£</span>
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-base font-medium">£</span>
         )}
         <input
           type={s.type === "text" ? "text" : "number"}
@@ -423,10 +439,11 @@ function WorkflowDrawer({
           value={values[s.id]}
           onChange={e => set(s.id, e.target.value)}
           placeholder={s.placeholder ?? ""}
-          className={`w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-[15px] text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${s.type === "currency" ? "pl-8" : ""}`}
+          aria-labelledby={labelId}
+          className={`w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-base text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${s.type === "currency" ? "pl-8" : ""}`}
         />
         {s.unit && (
-          <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[13px]">{s.unit}</span>
+          <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{s.unit}</span>
         )}
       </div>
     );
@@ -435,6 +452,10 @@ function WorkflowDrawer({
   return (
     <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="bg-white dark:bg-slate-900 rounded-t-3xl max-h-[90dvh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
@@ -451,7 +472,7 @@ function WorkflowDrawer({
               <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide">
                 {insight.icon} {insight.label}
               </p>
-              <h2 className="text-[18px] font-bold text-slate-900 dark:text-slate-100 mt-0.5">
+              <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-0.5">
                 {done ? "Personalising your insight…" : workflow.cta}
               </h2>
             </div>
@@ -464,11 +485,20 @@ function WorkflowDrawer({
             <div className="flex flex-col items-center gap-3 py-8">
               <CheckCircle2 size={48} className="text-emerald-500" />
               <p className="text-[14px] text-slate-500 dark:text-slate-400 text-center">
-                Saved! We're generating a personalised insight for you.
+                Saved — Penny is crunching your numbers.<br />
+                Your personalised advice appears on this card in a moment.
               </p>
             </div>
           ) : (
             <>
+              {/* What we already see — grounds the questions in their own data */}
+              {topTrigger && (
+                <div className="mb-4 px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/25 text-[12px] text-indigo-700 dark:text-indigo-300">
+                  We can already see <span className="font-semibold">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
+                  <span className="font-semibold">{topTrigger.display_name}</span> — {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
+                </div>
+              )}
+
               {/* Progress */}
               <div className="flex gap-1.5 mb-5">
                 {workflow.steps.map((_, i) => (
@@ -481,13 +511,13 @@ function WorkflowDrawer({
 
               {/* Current step */}
               <div className="flex flex-col gap-3 pb-4">
-                <p className="text-[13px] text-slate-500 dark:text-slate-400">
+                <p className="text-sm text-slate-500 dark:text-slate-400">
                   Step {step + 1} of {totalSteps}
                 </p>
-                <p className="text-[16px] font-semibold text-slate-800 dark:text-slate-200">
+                <p id={stepLabelId} className="text-base font-semibold text-slate-800 dark:text-slate-200">
                   {currentStep.label}
                 </p>
-                {renderInput(currentStep)}
+                {renderInput(currentStep, stepLabelId)}
               </div>
             </>
           )}
@@ -593,10 +623,21 @@ function InsightCard({
           </div>
 
           {/* Title + body */}
+          {/* Closure: the loop actually closed — celebrate, stop advising */}
+          {insight.verified_savings ? (
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-snug">
+                <span className="font-bold">You did it</span> — payments to {insight.verified_merchant} have stopped.
+                That&apos;s ~£{insight.verified_savings.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo staying in your pocket.
+              </p>
+            </div>
+          ) : null}
+
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
             {insight.title}
           </p>
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             {insight.body}
           </p>
 
@@ -607,7 +648,7 @@ function InsightCard({
                 {insight.savings_estimate}
               </span>
             ) : <span />}
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">{timeAgo(insight.refreshed_at)}</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">{timeAgo(insight.refreshed_at)}</span>
           </div>
 
           {/* Comparison / deal links */}
@@ -632,7 +673,7 @@ function InsightCard({
           {workflow && (
             <button
               onClick={() => setShowWorkflow(true)}
-              className="w-full mt-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-[13px] font-semibold flex items-center justify-center gap-2 transition-all"
+              className="w-full mt-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all"
             >
               <SlidersHorizontal size={14} />
               {insight.user_context ? "Update your details" : workflow.cta}
@@ -646,8 +687,9 @@ function InsightCard({
             <button
               onClick={() => setShowTriggers(v => !v)}
               className="w-full px-4 py-2.5 flex items-center justify-between text-left"
+              aria-expanded={showTriggers}
             >
-              <span className="text-[12px] text-slate-400 dark:text-slate-500">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 Based on {insight.triggered_by.length} transaction{insight.triggered_by.length > 1 ? "s" : ""}
               </span>
               <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${showTriggers ? "rotate-180" : ""}`} />
@@ -657,7 +699,7 @@ function InsightCard({
                 {insight.triggered_by.map(t => (
                   <div key={t.merchant_key} className="flex items-center justify-between text-[12px]">
                     <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{t.display_name}</span>
-                    <span className="text-slate-400 dark:text-slate-500">£{t.monthly_amount.toFixed(2)}/mo · {t.occurrences}×</span>
+                    <span className="text-slate-500 dark:text-slate-400">£{t.monthly_amount.toFixed(2)}/mo · {t.occurrences}×</span>
                   </div>
                 ))}
               </div>
@@ -715,7 +757,7 @@ function fileToScaledDataUrl(file: File, maxDim = 1600, quality = 0.8): Promise<
   });
 }
 
-function GroceryBasketCard() {
+export function GroceryBasketCard() {
   const cameraRef = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const [baskets, setBaskets] = useState<Basket[]>([]);
@@ -726,6 +768,9 @@ function GroceryBasketCard() {
   const [showAll, setShowAll] = useState(false);
   const [showTrends, setShowTrends] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const { pinned: pinnedCards, toggle: toggleCard } = useHomePinnedCards();
+  const isGroceriesPinned = pinnedCards.includes("groceries");
 
   const loadInsights = () => api.basketInsights().then(setInsights).catch(() => {});
 
@@ -734,14 +779,11 @@ function GroceryBasketCard() {
     loadInsights();
   }, []);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
+  async function scanFile(file: File | Blob) {
     setError(null);
     setLoading(true);
     try {
-      const dataUrl = await fileToScaledDataUrl(file);
+      const dataUrl = await fileToScaledDataUrl(file as File);
       const basket = await api.scanReceipt(dataUrl);
       setBaskets((prev) => [basket, ...prev]);
       setExpanded(basket.id);
@@ -751,6 +793,36 @@ function GroceryBasketCard() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await scanFile(file);
+  }
+
+  // Inside the app shell, use the native camera via the message bridge — the
+  // WebView's file-input camera is unreliable across Android versions.
+  function takePhoto() {
+    const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
+    if (!rn) { cameraRef.current?.click(); return; }
+    const id = Math.random().toString(36).slice(2);
+    const onResult = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.id !== id) return;
+      window.removeEventListener("native-camera", onResult);
+      if (detail.error === "cancelled") return;
+      if (detail.error || !detail.base64) { cameraRef.current?.click(); return; } // fall back to the input route
+      const bytes = atob(detail.base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      scanFile(new Blob([arr], { type: detail.mime || "image/jpeg" }));
+    };
+    window.addEventListener("native-camera", onResult);
+    rn.postMessage(JSON.stringify({ type: "camera:request", id }));
+    // Safety: stop listening if the shell never answers (old app build)
+    setTimeout(() => window.removeEventListener("native-camera", onResult), 60_000);
   }
 
   async function remove(id: string) {
@@ -765,35 +837,46 @@ function GroceryBasketCard() {
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
-      <button
-        onClick={() => setCardOpen((v) => !v)}
-        className="w-full flex items-center gap-2 text-left"
-      >
-        <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
-          <Receipt size={16} className="text-violet-600 dark:text-violet-300" />
-        </div>
-        <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Groceries</p>
-        {insights && insights.receipt_count > 0 && (
-          <span className="text-[11px] text-slate-400">
-            {insights.receipt_count} receipt{insights.receipt_count === 1 ? "" : "s"}
-          </span>
-        )}
-        <ChevronDown
-          size={18}
-          className={`text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
-        />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setCardOpen((v) => !v)}
+          aria-expanded={cardOpen}
+          className="flex-1 flex items-center gap-2 text-left min-w-0"
+        >
+          <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
+            <Receipt size={16} className="text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Groceries</p>
+          {insights && insights.receipt_count > 0 && (
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              {insights.receipt_count} receipt{insights.receipt_count === 1 ? "" : "s"}
+            </span>
+          )}
+          <ChevronDown
+            size={18}
+            className={`text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
+          />
+        </button>
+        <button
+          onClick={() => toggleCard("groceries")}
+          title={isGroceriesPinned ? "Unpin from Home" : "Pin to Home"}
+          aria-label={isGroceriesPinned ? "Unpin from Home" : "Pin to Home"}
+          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${isGroceriesPinned ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-500" : "text-slate-300 dark:text-slate-600 hover:text-indigo-400"}`}
+        >
+          <Pin size={13} className={isGroceriesPinned ? "fill-indigo-400" : ""} />
+        </button>
+      </div>
 
       {!cardOpen ? (
         <div
           className={`flex items-center gap-2 mt-2 px-3 py-2 rounded-xl ${
-            insights?.headline ? "bg-violet-50 dark:bg-violet-900/30" : "bg-slate-50 dark:bg-slate-900/60"
+            insights?.headline ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-slate-50 dark:bg-slate-900/60"
           }`}
         >
           {insights?.headline ? (
             <>
-              <TrendingUp size={15} className="text-violet-600 dark:text-violet-300 flex-shrink-0" />
-              <span className="text-[12px] font-medium text-violet-800 dark:text-violet-200 flex-1 min-w-0 truncate">{insights.headline}</span>
+              <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+              <span className="text-[12px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate">{insights.headline}</span>
             </>
           ) : (
             <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
@@ -805,21 +888,21 @@ function GroceryBasketCard() {
       {insights?.headline ? (
         <button
           onClick={() => hasTrends && setShowTrends((v) => !v)}
-          className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-violet-50 dark:bg-violet-900/30 text-left"
+          className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-left"
         >
-          <TrendingUp size={15} className="text-violet-600 dark:text-violet-300 flex-shrink-0" />
-          <span className="text-[12px] font-medium text-violet-800 dark:text-violet-200 flex-1 min-w-0">
+          <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+          <span className="text-[12px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
             {insights.headline}
           </span>
           {hasTrends && (
             <ChevronDown
               size={14}
-              className={`text-violet-400 flex-shrink-0 transition-transform ${showTrends ? "rotate-180" : ""}`}
+              className={`text-emerald-600 dark:text-emerald-400 flex-shrink-0 transition-transform ${showTrends ? "rotate-180" : ""}`}
             />
           )}
         </button>
       ) : (
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 mb-4 leading-relaxed">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 mb-4 leading-relaxed">
           Snap a receipt and we&apos;ll itemise it, then track how prices change over
           time and which shop is cheapest for what you buy.
         </p>
@@ -841,22 +924,22 @@ function GroceryBasketCard() {
         onChange={onFile}
       />
       {loading ? (
-        <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 text-sm font-semibold text-white opacity-60">
+        <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-sm font-semibold text-white opacity-60">
           <Camera size={16} />
           Reading receipt…
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={() => cameraRef.current?.click()}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-sm font-semibold text-white transition-all active:scale-95"
+            onClick={takePhoto}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold text-white transition-all active:scale-95"
           >
             <Camera size={16} />
             Take photo
           </button>
           <button
             onClick={() => uploadRef.current?.click()}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-violet-400/60 dark:border-violet-400/40 bg-violet-500/10 hover:bg-violet-500/20 text-sm font-semibold text-violet-700 dark:text-violet-200 transition-all active:scale-95"
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-400/60 dark:border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-sm font-semibold text-emerald-700 dark:text-emerald-200 transition-all active:scale-95"
           >
             <ImageIcon size={16} />
             Upload
@@ -870,7 +953,7 @@ function GroceryBasketCard() {
         <div className="mt-4 space-y-3">
           {insights.store_prices.length > 0 && (
             <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
                 <Store size={12} /> Cheaper elsewhere
               </p>
               <ul className="space-y-1.5">
@@ -878,7 +961,7 @@ function GroceryBasketCard() {
                   <li key={s.key} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">{s.name}</p>
-                      <p className="text-[10px] text-slate-400 truncate">
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         {money(s.cheapest_price, s.currency)} at {s.cheapest_store} · {money(s.dearest_price, s.currency)} at {s.dearest_store}
                       </p>
                     </div>
@@ -892,7 +975,7 @@ function GroceryBasketCard() {
           )}
           {insights.item_trends.length > 0 && (
             <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
                 <TrendingUp size={12} /> Price changes
               </p>
               <ul className="space-y-1.5">
@@ -902,7 +985,7 @@ function GroceryBasketCard() {
                     <li key={t.key} className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">{t.name}</p>
-                        <p className="text-[10px] text-slate-400 truncate">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                           {money(t.previous, t.currency)} → {money(t.latest, t.currency)}{t.store ? ` · ${t.store}` : ""}
                         </p>
                       </div>
@@ -934,21 +1017,25 @@ function GroceryBasketCard() {
                       className={`text-slate-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
                     />
                     <div className="min-w-0">
-                      <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
                         {b.shop || "Receipt"}
-                        <span className="ml-1.5 text-[11px] font-normal text-slate-400">
+                        <span className="ml-1.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
                           {b.item_count} item{b.item_count === 1 ? "" : "s"}
                         </span>
                       </p>
-                      <p className="text-[11px] text-slate-400">{b.purchased_at || "Date unknown"}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {b.purchased_at
+                          ? <>{b.purchased_at}{b.date_estimated && <span className="italic"> · estimated</span>}</>
+                          : "Date unknown"}
+                      </p>
                     </div>
                   </button>
-                  <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">
                     {money(b.total, b.currency)}
                   </span>
                   <button
-                    onClick={() => remove(b.id)}
-                    className="p-1.5 text-slate-300 hover:text-rose-500 flex-shrink-0"
+                    onClick={() => setPendingDeleteId(b.id)}
+                    className="p-2.5 text-slate-300 hover:text-rose-500 flex-shrink-0"
                     aria-label="Delete receipt"
                   >
                     <Trash2 size={14} />
@@ -960,10 +1047,10 @@ function GroceryBasketCard() {
                       <li key={i} className="flex items-center justify-between gap-2 pt-1.5">
                         <div className="min-w-0">
                           <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">
-                            {it.qty > 1 && <span className="text-slate-400">{it.qty}× </span>}
+                            {it.qty > 1 && <span className="text-slate-500 dark:text-slate-400">{it.qty}× </span>}
                             {it.name}
                           </p>
-                          <p className="text-[10px] text-slate-400">{it.category}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.category}</p>
                         </div>
                         <span className="text-[12px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0">
                           {money(it.line_price ?? it.unit_price, b.currency)}
@@ -981,13 +1068,22 @@ function GroceryBasketCard() {
       {baskets.length > 3 && (
         <button
           onClick={() => setShowAll((v) => !v)}
-          className="mt-2 text-[12px] font-semibold text-violet-600 dark:text-violet-300"
+          className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
         >
           {showAll ? "Show less" : `See all ${baskets.length} receipts`}
         </button>
       )}
       </>
       )}
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        destructive
+        title="Delete receipt?"
+        message="Remove this scanned receipt? This can't be undone."
+        confirmLabel="Delete"
+        onConfirm={() => { const id = pendingDeleteId!; setPendingDeleteId(null); remove(id); }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }
@@ -1015,6 +1111,10 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
       setInsights(data);
       setError(null);
       setLocked(false);
+      // Seeing the list clears the tab badge; per-card "New" chips keep their
+      // own lifecycle (they fade when content stops changing)
+      api.markInsightsViewed().catch(() => {});
+      try { localStorage.removeItem("wd_insight_badge"); } catch {}
     } catch (err) {
       if (err instanceof Error && err.message.startsWith("402")) {
         setLocked(true);
@@ -1101,13 +1201,13 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           title/description and keep only the Refresh control. */}
       {embedded ? (
         <div className="px-1 flex items-center justify-between gap-3">
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
             Personalised ways to spend less. Start with the top one.
           </p>
           <button
             onClick={handleRefresh}
             disabled={refreshing || refreshQueued}
-            className="flex items-center gap-1.5 text-[13px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
+            className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
           >
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
             {refreshQueued ? "Searching…" : "Refresh"}
@@ -1120,13 +1220,13 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
             <button
               onClick={handleRefresh}
               disabled={refreshing || refreshQueued}
-              className="flex items-center gap-1.5 text-[13px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
+              className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
             >
               <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
               {refreshQueued ? "Searching…" : "Refresh"}
             </button>
           </div>
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
             Personalised ways to spend less. Start with the top one — pin the ones you want to act on.
           </p>
         </div>
@@ -1148,22 +1248,22 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
       {!loading && locked && (
         <div className="rounded-2xl overflow-hidden border border-indigo-100 dark:border-indigo-900">
-          <div className="bg-gradient-to-br from-indigo-500 to-violet-600 px-5 py-6 text-white">
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-indigo-200 mb-1">Pro feature</p>
-            <p className="text-[18px] font-bold leading-snug">Personalised savings insights</p>
-            <p className="text-[13px] text-indigo-100/90 mt-1.5 leading-relaxed">
+          <div className="bg-indigo-600 px-5 py-6 text-white">
+            <p className="text-sm font-semibold uppercase tracking-wide text-indigo-200 mb-1">Pro feature</p>
+            <p className="text-lg font-bold leading-snug">Personalised savings insights</p>
+            <p className="text-sm text-indigo-100/90 mt-1.5 leading-relaxed">
               Upgrade to Pro to unlock AI-powered recommendations on your bills, subscriptions, energy, insurance, and more.
             </p>
           </div>
           <div className="bg-white dark:bg-slate-800 px-5 py-4 space-y-2.5">
             {["Bill optimisation (energy, broadband, insurance)", "Subscription spend analysis", "Grocery price intelligence", "Fuel savings near you"].map(f => (
-              <div key={f} className="flex items-center gap-2.5 text-[13px] text-slate-700 dark:text-slate-300">
+              <div key={f} className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300">
                 <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0 text-[10px] text-indigo-600 dark:text-indigo-300 font-bold">✓</span>
                 {f}
               </div>
             ))}
             <div className="pt-2">
-              <p className="text-[12px] text-slate-400 dark:text-slate-500 text-center">From £5.99/month · Cancel anytime</p>
+              <p className="text-[12px] text-slate-500 dark:text-slate-400 text-center">From £5.99/month · Cancel anytime</p>
             </div>
           </div>
         </div>
@@ -1180,7 +1280,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           <span className="text-5xl">💡</span>
           <div>
             <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300">No insights yet</p>
-            <p className="text-[13px] text-slate-400 mt-1">Tap Refresh to search for savings based on your transactions</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Tap Refresh to search for savings based on your transactions</p>
           </div>
           <button
             onClick={handleRefresh}
@@ -1195,7 +1295,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
       {refreshQueued && (
         <div className="bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl p-4 flex items-center gap-3">
           <RefreshCw size={16} className="text-indigo-500 animate-spin flex-shrink-0" />
-          <p className="text-[13px] text-indigo-700 dark:text-indigo-300">
+          <p className="text-sm text-indigo-700 dark:text-indigo-300">
             Searching for the latest deals… Results appear in ~20 seconds.
           </p>
         </div>
@@ -1203,7 +1303,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
       {pinned.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2 px-1">
+          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">
             Pinned
           </p>
           <div className="space-y-3">
@@ -1215,7 +1315,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
       {unpinned.length > 0 && (
         <div>
           {pinned.length > 0 && (
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2 px-1">
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">
               For You
             </p>
           )}
@@ -1225,7 +1325,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           {unpinned.length > VISIBLE_UNPINNED && (
             <button
               onClick={() => setShowAll(s => !s)}
-              className="w-full mt-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[13px] font-semibold text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-all"
+              className="w-full mt-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-all"
             >
               {showAll ? "Show fewer" : `Show ${hiddenCount} more way${hiddenCount === 1 ? "" : "s"} to save`}
             </button>
@@ -1287,9 +1387,9 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }:
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
-      <button className="w-full text-left px-4 py-3" onClick={() => setOpen(!open)}>
+      <button className="w-full text-left px-4 py-3" onClick={() => setOpen(!open)} aria-expanded={open}>
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Where should your next {sym}100 go?
           </p>
           <ChevronRight size={14} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
@@ -1308,12 +1408,12 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }:
             <div key={s.title} className="flex items-start gap-2">
               <span className="mt-0.5 w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-600 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">{i + 2}</span>
               <div>
-                <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">{s.title}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{s.title}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">{s.why}</p>
               </div>
             </div>
           ))}
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 pt-1">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
             One order, all tabs — buffer first, then the most expensive debt, then tax-advantaged saving.
           </p>
         </div>
@@ -1364,7 +1464,7 @@ function PlanCard({
           </div>
           <div className="flex-1">
             <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
-            <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Writing down a few concrete steps makes debt easier to clear. Build a short, trackable plan with your advisor.
             </p>
           </div>
@@ -1392,7 +1492,7 @@ function PlanCard({
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your debt-free plan"}
           </p>
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {allDone
               ? "Every milestone done — incredible work."
               : `${plan.done_count} of ${plan.total_count} done${nextIdx >= 0 ? " — keep going!" : ""}`}
@@ -1420,11 +1520,11 @@ function PlanCard({
                   ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: accent }} />
                   : <Circle className="w-5 h-5 flex-shrink-0 mt-0.5 text-slate-300 dark:text-slate-600" />}
                 <span className="flex-1 min-w-0">
-                  <span className={`block text-[13px] leading-snug ${m.done ? "text-slate-400 dark:text-slate-500 line-through" : "text-slate-700 dark:text-slate-200"}`}>
+                  <span className={`block text-sm leading-snug ${m.done ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"}`}>
                     {m.text}
                   </span>
                   {auto && m.target_balance != null && (
-                    <span className="block text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                       Auto-tracked · target {hideValues ? "••••" : fmt(m.target_balance, sym)}
                     </span>
                   )}
@@ -1444,7 +1544,7 @@ function PlanCard({
               <button
                 onClick={() => onDeleteStep(m.id)}
                 aria-label="Remove goal"
-                className="flex-shrink-0 mt-1.5 p-1.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="flex-shrink-0 mt-1.5 p-2.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
               >
                 <X size={14} />
               </button>
@@ -1454,10 +1554,10 @@ function PlanCard({
       </div>
 
       <div className="px-4 pb-3 pt-1 flex items-center justify-between border-t border-slate-50 dark:border-slate-700/60">
-        <button onClick={() => onOpenChat("I want to add a goal to my plan. Help me make it realistic, then add it.")} className="text-[12px] font-medium pt-2" style={{ color: accent }}>
+        <button onClick={() => onOpenChat("I want to add a goal to my plan. Help me make it realistic, then add it.")} className="text-xs font-medium pt-2" style={{ color: accent }}>
           Add a goal
         </button>
-        <button onClick={onDelete} className="text-[12px] text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-2">
+        <button onClick={onDelete} className="text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-2">
           <Trash2 size={12} /> Delete
         </button>
       </div>
@@ -1480,23 +1580,23 @@ function ReadyToGrowCard({ onOpenChat }: { onOpenChat: (p: string) => void }) {
   }, []);
 
   return (
-    <div className="rounded-2xl shadow-sm overflow-hidden text-white" style={{ background: "linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)" }}>
+    <div className="rounded-2xl shadow-sm overflow-hidden bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
       <div className="p-5">
         <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={16} className="opacity-90" />
-          <span className="text-[11px] font-semibold uppercase tracking-wide opacity-90">Next step</span>
+          <Sparkles size={16} className="text-emerald-600 dark:text-emerald-400" />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Next step</span>
         </div>
-        <p className="text-[17px] font-bold leading-snug">Your safety net is funded — ready to grow?</p>
-        <p className="text-[13px] opacity-90 leading-relaxed mt-1.5">
+        <p className="text-[17px] font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
+        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mt-1.5">
           With your cushion in place and no expensive debt, the next stage is putting spare money to work — tax-free, using your UK allowances.
         </p>
 
         {topics.length > 0 && (
           <div className="mt-3.5 space-y-1.5">
             {topics.map((t) => (
-              <div key={t.id} className="flex items-center gap-2.5 bg-white/10 rounded-xl px-3 py-2">
+              <div key={t.id} className="flex items-center gap-2.5 bg-emerald-100/70 dark:bg-emerald-900/50 rounded-xl px-3 py-2">
                 <span className="text-base leading-none">{t.icon}</span>
-                <p className="text-[13px] font-medium leading-snug">{t.title}</p>
+                <p className="text-sm font-medium leading-snug text-slate-800 dark:text-slate-200">{t.title}</p>
               </div>
             ))}
           </div>
@@ -1504,11 +1604,11 @@ function ReadyToGrowCard({ onOpenChat }: { onOpenChat: (p: string) => void }) {
 
         <button
           onClick={() => onOpenChat("I've built my emergency fund and I'm debt-free. How should I start investing and using ISAs to grow my money in the UK?")}
-          className="w-full mt-4 bg-white text-blue-700 rounded-xl py-2.5 text-[14px] font-semibold active:scale-[0.99] transition-transform"
+          className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2.5 text-[14px] font-semibold active:scale-[0.99] transition-all"
         >
           Explore growing your money
         </button>
-        <p className="text-[11px] opacity-75 mt-2.5 text-center">General information, not financial advice.</p>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2.5 text-center">General information, not financial advice.</p>
       </div>
     </div>
   );
@@ -1606,7 +1706,7 @@ function SafetyNetCard({
           </div>
           <div className="flex-1">
             <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Build your safety net</p>
-            <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
             </p>
           </div>
@@ -1616,14 +1716,14 @@ function SafetyNetCard({
         <div className="flex gap-2">
           {([["3", "3 months"], ["6", "6 months"], ["custom", "Custom"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTargetChoice(v)}
-              className={`flex-1 py-2 rounded-xl text-[13px] font-semibold border transition-colors ${
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
                 targetChoice === v ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
               {label}
             </button>
           ))}
         </div>
         {targetChoice !== "custom" && data.monthly_spending > 0 && (
-          <p className="text-[12px] text-slate-400 mt-1.5">
+          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1.5">
             ≈ {hideValues ? "••••" : fmt((targetChoice === "6" ? 6 : 3) * data.monthly_spending, sym)} based on your spending
           </p>
         )}
@@ -1636,14 +1736,14 @@ function SafetyNetCard({
           </div>
         )}
 
-        <button type="button" onClick={() => setAcctsOpen(o => !o)} className="w-full flex items-center justify-between mt-4 mb-2">
+        <button type="button" onClick={() => setAcctsOpen(o => !o)} aria-expanded={acctsOpen} className="w-full flex items-center justify-between mt-4 mb-2">
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
           </span>
           <ChevronDown size={16} className={`text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
         </button>
         {!acctsOpen && selected.length === 0 && (
-          <p className="text-[12px] text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
+          <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
         )}
         {acctsOpen && (<>
         <div className="space-y-1.5">
@@ -1656,22 +1756,22 @@ function SafetyNetCard({
                   style={on ? { borderColor: "#059669", background: "#05966910" } : undefined}>
                   {on ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 flex-shrink-0" />}
                   <span className="flex-1 min-w-0">
-                    <span className="block text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
-                    <span className="block text-[11px] text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
+                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
                   </span>
-                  <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">{hideValues ? "••••" : fmt(a.balance, sym)}</span>
+                  <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{hideValues ? "••••" : fmt(a.balance, sym)}</span>
                 </button>
                 {a.manual && (
                   <>
-                    <button onClick={() => openEditManual(a)} aria-label="Edit account" className="flex-shrink-0 p-1.5 text-slate-400 hover:text-emerald-600 transition-colors"><Pencil size={14} /></button>
-                    <button onClick={() => removeManual(a.account_id)} aria-label="Remove account" className="flex-shrink-0 p-1.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14} /></button>
+                    <button onClick={() => openEditManual(a)} aria-label="Edit account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-emerald-600 transition-colors"><Pencil size={14} /></button>
+                    <button onClick={() => removeManual(a.account_id)} aria-label="Remove account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14} /></button>
                   </>
                 )}
               </div>
             );
           })}
           {data.accounts.length === 0 && !showManualForm && (
-            <p className="text-[13px] text-slate-400">No connected accounts. Add an offline account to track savings you hold elsewhere.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">No connected accounts. Add an offline account to track savings you hold elsewhere.</p>
           )}
         </div>
 
@@ -1685,15 +1785,15 @@ function SafetyNetCard({
                 className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
             </div>
             <div className="flex gap-2 pt-0.5">
-              <button onClick={() => { setShowManualForm(false); setManualEditId(null); }} className="px-3 py-2 rounded-lg text-[13px] font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">Cancel</button>
+              <button onClick={() => { setShowManualForm(false); setManualEditId(null); }} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">Cancel</button>
               <button onClick={saveManual} disabled={!manualName.trim() || !manualBalance || isNaN(Number(manualBalance)) || Number(manualBalance) < 0 || savingManual}
-                className="flex-1 py-2 rounded-lg text-white text-[13px] font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
+                className="flex-1 py-2 rounded-lg text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
                 {savingManual ? "Saving…" : manualEditId ? "Save changes" : "Add account"}
               </button>
             </div>
           </div>
         ) : (
-          <button onClick={openAddManual} className="mt-2 flex items-center gap-1 text-[13px] font-medium text-emerald-600">
+          <button onClick={openAddManual} className="mt-2 flex items-center gap-1 text-sm font-medium text-emerald-600">
             <Plus size={14} /> Add an offline account
           </button>
         )}
@@ -1725,7 +1825,7 @@ function SafetyNetCard({
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
             {funded ? "Safety net funded 🎉" : "Your safety net"}
           </p>
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {unsizedGoal ? (
               <>{hideValues ? "••••" : fmt(data.current_savings, sym)} saved</>
             ) : (
@@ -1741,18 +1841,18 @@ function SafetyNetCard({
 
       <div className="px-4 pb-4 space-y-2">
         {unsizedGoal && (
-          <p className="text-[13px] text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             A {data.target_months ?? 6}-month goal is sized from your spending, but there isn&rsquo;t enough spending history yet to set the amount. Tap <span className="font-semibold text-emerald-600">Edit</span> to choose a specific {sym.trim() || sym} target.
           </p>
         )}
         {!unsizedGoal && data.months_funded > 0 && (
-          <p className="text-[13px] text-slate-600 dark:text-slate-300">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
             Your safety net alone covers <span className="font-semibold">{data.months_funded.toFixed(1)} months</span> of spending
             — separate from the cash runway on your home screen, which counts all your cash.
           </p>
         )}
         {!funded && data.monthly_surplus > 0 && data.funded_date && data.months_to_target < 999 && (
-          <p className="text-[13px] text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             {debtTotal > 0 ? (
               <>
                 If your whole surplus of {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo went here, fully funded by{" "}
@@ -1768,12 +1868,12 @@ function SafetyNetCard({
           </p>
         )}
         {!funded && data.monthly_surplus <= 0 && (
-          <p className="text-[13px] text-amber-600 dark:text-amber-400">
+          <p className="text-sm text-amber-600 dark:text-amber-400">
             You&rsquo;re spending about as much as you earn, so your safety net isn&rsquo;t growing yet. Trimming spending will start building it.
           </p>
         )}
         {funded && (
-          <p className="text-[13px] text-emerald-600 dark:text-emerald-400">
+          <p className="text-sm text-emerald-600 dark:text-emerald-400">
             You&rsquo;ve hit your target — consider investing surplus beyond this cushion.
           </p>
         )}
@@ -1805,7 +1905,7 @@ function SavingsPlanCard({
           </div>
           <div className="flex-1">
             <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Make a savings plan that sticks</p>
-            <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Breaking your goal into small milestones makes it easier to stay on track. Build a short, trackable plan with your advisor.
             </p>
           </div>
@@ -1833,7 +1933,7 @@ function SavingsPlanCard({
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your savings plan"}
           </p>
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {allDone ? "Every milestone done — incredible work." : `${plan.done_count} of ${plan.total_count} done${nextIdx >= 0 ? " — keep going!" : ""}`}
           </p>
         </div>
@@ -1851,11 +1951,11 @@ function SavingsPlanCard({
                   ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: accent }} />
                   : <Circle className="w-5 h-5 flex-shrink-0 mt-0.5 text-slate-300 dark:text-slate-600" />}
                 <span className="flex-1 min-w-0">
-                  <span className={`block text-[13px] leading-snug ${m.done ? "text-slate-400 dark:text-slate-500 line-through" : "text-slate-700 dark:text-slate-200"}`}>
+                  <span className={`block text-sm leading-snug ${m.done ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"}`}>
                     {m.text}
                   </span>
                   {auto && m.target_balance != null && (
-                    <span className="block text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                    <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                       Auto-tracked · target {hideValues ? "••••" : fmt(m.target_balance, sym)}
                     </span>
                   )}
@@ -1873,7 +1973,7 @@ function SavingsPlanCard({
                 </span>
               </button>
               <button onClick={() => onDeleteStep(m.id)} aria-label="Remove goal"
-                className="flex-shrink-0 mt-1.5 p-1.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                className="flex-shrink-0 mt-1.5 p-2.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
                 <X size={14} />
               </button>
             </div>
@@ -1882,10 +1982,10 @@ function SavingsPlanCard({
       </div>
 
       <div className="px-4 pb-3 pt-1 flex items-center justify-between border-t border-slate-50 dark:border-slate-700/60">
-        <button onClick={() => onOpenChat("I want to add a milestone to my savings plan. Help me make it realistic, then add it.")} className="text-[12px] font-medium pt-2" style={{ color: accent }}>
+        <button onClick={() => onOpenChat("I want to add a milestone to my savings plan. Help me make it realistic, then add it.")} className="text-xs font-medium pt-2" style={{ color: accent }}>
           Add a milestone
         </button>
-        <button onClick={onDelete} className="text-[12px] text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-2">
+        <button onClick={onDelete} className="text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-2">
           <Trash2 size={12} /> Delete
         </button>
       </div>
@@ -1910,6 +2010,10 @@ export default function InsightsPage() {
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [tab, setTab] = useState<"plan" | "savings" | "transport" | "tax">("plan");
   const [incomeBracket, setIncomeBracket] = useState("");
+  const [taxIncomeValue, setTaxIncomeValue] = useState(0);
+  const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
+  const [taxHasChildBenefit, setTaxHasChildBenefit] = useState(false);
+  const [taxPrefsLoaded, setTaxPrefsLoaded] = useState(false);
   const [hasTransport, setHasTransport] = useState(true);
   const [plan, setPlan] = useState<DebtPlan | null>(null);
   const [savings, setSavings] = useState<SavingsInsights | null>(null);
@@ -1920,6 +2024,28 @@ export default function InsightsPage() {
   const burndownRef = useRef<BurndownData | null>(null);
   const initialTabSet = useRef(false);
   const savingsSectionRef = useRef<HTMLDivElement>(null);
+
+  // Desktop shows every section at once (no tabs), so render mode must be
+  // decided in JS — CSS-hiding a duplicate tree would double every fetch.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // Defer secondary desktop sections (Mobility + Tax) so their data fetches
+  // don't compete with the critical debt/savings data on first paint.
+  // Mobile is unaffected — it only mounts one tab at a time already.
+  const [secondaryReady, setSecondaryReady] = useState(false);
+  useEffect(() => {
+    const w = window as any;
+    const ric = w.requestIdleCallback || ((cb: () => void) => setTimeout(cb, 200));
+    const id = ric(() => setSecondaryReady(true));
+    return () => (w.cancelIdleCallback || clearTimeout)(id);
+  }, []);
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
@@ -2016,8 +2142,20 @@ export default function InsightsPage() {
   useEffect(() => {
     api.getPreferences()
       .then(p => {
-        setIncomeBracket(p.income_bracket ?? "");
-        try { localStorage.setItem("wd_bracket", p.income_bracket ?? ""); } catch {}
+        const bracket = p.income_bracket ?? "";
+        setIncomeBracket(bracket);
+        try { localStorage.setItem("wd_bracket", bracket); } catch {}
+        // Capture tax-related fields so embedded TaxPage can skip its own fetch.
+        const iv = (p as any).income_value ?? 0;
+        setTaxIncomeValue(
+          iv > 0 ? iv
+            : bracket === "100k_125k" ? 110_000
+            : bracket === "125k_plus"  ? 130_000
+            : 0
+        );
+        setTaxPensionAnnual((p as any).pension_annual ?? 0);
+        setTaxHasChildBenefit((p as any).has_child_benefit ?? false);
+        setTaxPrefsLoaded(true);
       })
       .catch(() => {});
     // Mobility only earns a tab when there's meaningful transport spend to analyse
@@ -2070,6 +2208,9 @@ export default function InsightsPage() {
   const hasDebt = (insights?.total_debt ?? 0) > 0;
   // The Debt tab only exists when there's debt; otherwise the page is Savings-only.
   const onDebtTab = hasDebt && tab === "plan";
+  // Desktop has no tabs — the hero always reflects the primary pillar.
+  const heroMode = isDesktop ? (hasDebt ? "plan" : "savings") : tab;
+  const heroDebt = hasDebt && heroMode === "plan";
 
   const taxYear = (() => {
     const now = new Date();
@@ -2094,7 +2235,7 @@ export default function InsightsPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28 max-w-[430px] mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — compact, one primary stat max. Neutral while loading so the
           Savings copy never flashes before flipping to Debt. */}
       {loading ? (
@@ -2106,7 +2247,7 @@ export default function InsightsPage() {
         className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
         data-tutorial-id="tutorial-debt-header"
       >
-        {tab === "transport" ? (
+        {heroMode === "transport" ? (
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Transport & mobility</h1>
@@ -2116,7 +2257,7 @@ export default function InsightsPage() {
               <MapPin className="w-5 h-5 text-violet-600 dark:text-violet-400" />
             </div>
           </div>
-        ) : tab === "tax" ? (
+        ) : heroMode === "tax" ? (
           <>
             <div className="flex items-center justify-between">
               <div>
@@ -2131,12 +2272,12 @@ export default function InsightsPage() {
               <div className="h-full bg-violet-500 rounded-full" style={{ width: `${taxYear.pct}%` }} />
             </div>
             <div className="flex justify-between mt-1">
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">6 Apr</span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">{taxYear.daysLeft} days left</span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500">5 Apr</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">6 Apr</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">{taxYear.daysLeft} days left</span>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
             </div>
           </>
-        ) : onDebtTab ? (
+        ) : heroDebt ? (
           <>
             <div className="flex items-center justify-between">
               <div>
@@ -2149,7 +2290,7 @@ export default function InsightsPage() {
             </div>
             {insights ? (
               <div className="mt-3">
-                <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">{hasDebt ? "Total outstanding" : "Credit-card debt"}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{hasDebt ? "Total outstanding" : "Credit-card debt"}</p>
                 <p className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400">
                   {hideNetWorth ? "••••" : hasDebt ? fmt(insights.total_debt, sym) : fmt(0, sym)}
                 </p>
@@ -2172,12 +2313,12 @@ export default function InsightsPage() {
               <div className="mt-3">
                 {(insights.monthly_surplus ?? 0) > 0 ? (
                   <>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Monthly surplus</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Monthly surplus</p>
                     <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{hideNetWorth ? "••••" : fmt(insights.monthly_surplus, sym)}</p>
                   </>
                 ) : savings?.configured ? (
                   <>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mb-0.5">Safety net funded</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Safety net funded</p>
                     <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{hideNetWorth ? "••••" : `${Math.round(savings.pct_funded ?? 0)}%`}</p>
                   </>
                 ) : null}
@@ -2194,7 +2335,7 @@ export default function InsightsPage() {
         ) : !insights ? (
           <>
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
-              <p className="text-slate-400 dark:text-slate-500 text-sm">Could not load your money summary</p>
+              <p className="text-slate-500 dark:text-slate-400 text-sm">Could not load your money summary</p>
             </div>
             <SavingsInsightsSection />
           </>
@@ -2208,22 +2349,19 @@ export default function InsightsPage() {
                 ...(hasTransport ? ["transport" as const] : []),
                 ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? ["tax" as const] : []),
               ];
-              if (tabs.length < 2) return null;
+              if (tabs.length < 2 || isDesktop) return null;
               return (
-                <div className="flex gap-1 rounded-full bg-slate-200/70 dark:bg-slate-800 p-1">
-                  {tabs.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTab(t)}
-                      className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        tab === t ? "text-white shadow-sm" : "text-slate-500 dark:text-slate-400"
-                      }`}
-                      style={tab === t ? { background: t === "transport" || t === "tax" ? "#7c3aed" : accent } : undefined}
-                    >
-                      {t === "plan" ? "Debt" : t === "savings" ? "Savings" : t === "transport" ? "Mobility" : "Tax"}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  ariaLabel="Insights sections"
+                  value={tab}
+                  onChange={(t) => setTab(t as typeof tab)}
+                  options={[
+                    ...(hasDebt ? [{ value: "plan", label: "Debt", accent: "#b91c1c" }] : []),
+                    { value: "savings", label: "Savings", accent: "#059669" },
+                    ...(hasTransport ? [{ value: "transport", label: "Mobility", accent: "#7c3aed" }] : []),
+                    ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? [{ value: "tax", label: "Tax", accent: "#7c3aed" }] : []),
+                  ]}
+                />
               );
             })()}
 
@@ -2239,11 +2377,10 @@ export default function InsightsPage() {
               />
             )}
 
-            {tab === "tax" ? (
-              <TaxPage embedded />
-            ) : tab === "transport" ? (
-              <TransportInsights />
-            ) : onDebtTab ? (
+            {(() => {
+              const showTaxSection = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
+
+              const debtBlock = (
                 <>
                   {burndown && burndown.burndown.length > 0 && (
                     <DebtBurndownCard
@@ -2279,7 +2416,7 @@ export default function InsightsPage() {
                   <PlanCard
                     plan={plan}
                     sym={sym}
-                    accent={accent}
+                    accent="#b91c1c"
                     hideValues={hideNetWorth}
                     onToggleStep={togglePlanStep}
                     onDeleteStep={deletePlanStep}
@@ -2291,53 +2428,150 @@ export default function InsightsPage() {
                     <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} sym={sym} targetMonths={effectiveTargetMonths} />
                   )}
                 </>
-            ) : (
-              <>
-                <SafetyNetCard
-                  data={savings}
-                  sym={sym}
-                  hideValues={hideNetWorth}
-                  onSaved={refreshSavings}
-                  debtTotal={insights.total_debt ?? 0}
-                />
+              );
 
-                {savings?.configured && (
-                  <SavingsPlanCard
-                    plan={savingsPlan}
+              const savingsBlock = (
+                <>
+                  <SafetyNetCard
+                    data={savings}
                     sym={sym}
-                    accent={accent}
                     hideValues={hideNetWorth}
-                    onToggleStep={toggleSavingsStep}
-                    onDeleteStep={deleteSavingsStep}
-                    onOpenChat={(p) => chatRef.current?.open(p)}
-                    onDelete={deleteSavingsPlanFn}
+                    onSaved={refreshSavings}
+                    debtTotal={insights.total_debt ?? 0}
                   />
-                )}
 
-                {!hasDebt && (savings?.pct_funded ?? 0) >= 100 && (
-                  <ReadyToGrowCard onOpenChat={(p) => chatRef.current?.open(p)} />
-                )}
+                  {savings?.configured && (
+                    <SavingsPlanCard
+                      plan={savingsPlan}
+                      sym={sym}
+                      accent="#059669"
+                      hideValues={hideNetWorth}
+                      onToggleStep={toggleSavingsStep}
+                      onDeleteStep={deleteSavingsStep}
+                      onOpenChat={(p) => chatRef.current?.open(p)}
+                      onDelete={deleteSavingsPlanFn}
+                    />
+                  )}
 
-                {/* ── Ways to save hub ── */}
-                <div ref={savingsSectionRef} className="px-1 pt-3 border-t border-slate-200/70 dark:border-slate-700/60">
-                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Ways to save</h2>
-                </div>
+                  {!hasDebt && (savings?.pct_funded ?? 0) >= 100 && (
+                    <ReadyToGrowCard onOpenChat={(p) => chatRef.current?.open(p)} />
+                  )}
 
-                <SavingsInsightsSection embedded />
+                  {/* ── Ways to save hub ── */}
+                  <div ref={savingsSectionRef} className="px-1 pt-3 border-t border-slate-200/70 dark:border-slate-700/60">
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Ways to save</h2>
+                  </div>
 
-                {isPro && <GroceryBasketCard />}
+                  <SavingsInsightsSection embedded />
 
-                <MoneyBasicCard className="" />
-              </>
-            )}
+                  {isPro && <GroceryBasketCard />}
+
+                  <MoneyBasicCard className="" />
+                </>
+              );
+
+              // Desktop: no tabs — every applicable pillar is visible at once.
+              // Two independent stacked columns (not a row-based grid): grid rows
+              // size to their tallest cell, which left a dead gap under Debt
+              // whenever Savings ran longer. Independent columns flow continuously.
+              if (isDesktop) {
+                const columnTitle = (label: string, colour: string) => (
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colour }} />
+                    <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</h2>
+                  </div>
+                );
+                const debtSec = hasDebt ? (
+                  <div key="debt" className="space-y-3">{columnTitle("Debt", "#ef4444")}{debtBlock}</div>
+                ) : null;
+                const savingsSec = (
+                  <div key="savings" className="space-y-3">{columnTitle("Savings", "#10b981")}{savingsBlock}</div>
+                );
+                // Placeholder shown while secondary sections wait for idle/first-paint.
+                const secondaryPlaceholder = (
+                  <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
+                );
+                const mobilitySec = hasTransport ? (
+                  <div key="mobility" className="space-y-3">
+                    {columnTitle("Mobility", "#7c3aed")}
+                    {secondaryReady ? <TransportInsights /> : secondaryPlaceholder}
+                  </div>
+                ) : null;
+                const taxSec = showTaxSection ? (
+                  <div key="tax" className="space-y-3">
+                    {columnTitle("Tax efficiency", "#7c3aed")}
+                    {secondaryReady ? (
+                      <TaxPage
+                        embedded
+                        prefsLoaded={taxPrefsLoaded}
+                        incomeValue={taxIncomeValue}
+                        incomeBracket={incomeBracket}
+                        pensionAnnual={taxPensionAnnual}
+                        hasChildBenefit={taxHasChildBenefit}
+                      />
+                    ) : secondaryPlaceholder}
+                  </div>
+                ) : null;
+
+                const leftCol: ReactNode[] = [];
+                const rightCol: ReactNode[] = [];
+                if (debtSec) {
+                  leftCol.push(debtSec);
+                  if (mobilitySec) leftCol.push(mobilitySec);
+                  rightCol.push(savingsSec);
+                  if (taxSec) rightCol.push(taxSec);
+                } else {
+                  leftCol.push(savingsSec);
+                  if (mobilitySec) rightCol.push(mobilitySec);
+                  if (taxSec) rightCol.push(taxSec);
+                }
+
+                if (rightCol.length === 0) {
+                  return <div className="max-w-2xl mx-auto space-y-6">{leftCol}</div>;
+                }
+                return (
+                  <div className="flex gap-4 items-start">
+                    <div className="flex-1 min-w-0 space-y-6">{leftCol}</div>
+                    <div className="flex-1 min-w-0 space-y-6">{rightCol}</div>
+                  </div>
+                );
+              }
+
+              return tab === "tax" ? (
+                <TaxPage
+                  embedded
+                  prefsLoaded={taxPrefsLoaded}
+                  incomeValue={taxIncomeValue}
+                  incomeBracket={incomeBracket}
+                  pensionAnnual={taxPensionAnnual}
+                  hasChildBenefit={taxHasChildBenefit}
+                />
+              ) : tab === "transport" ? (
+                <TransportInsights />
+              ) : onDebtTab ? (
+                debtBlock
+              ) : (
+                savingsBlock
+              );
+            })()}
 
             <AdviceDisclaimer className="pt-1" />
           </>
         )}
       </div>
 
-      <MoneyAdvisorChat ref={chatRef} insights={insights} sym={sym} firstName={firstName} onPlanSaved={refreshPlan} hidden={tab === "tax"} page={tab === "plan" ? "debt" : tab} />
-      {tab === "tax" && <TaxChat />}
+      {/* Desktop shows all sections at once, so Penny is the single chat FAB
+          (two overlapping floating buttons would collide bottom-right). */}
+      <MoneyAdvisorChat
+        ref={chatRef}
+        insights={insights}
+        sym={sym}
+        firstName={firstName}
+        onPlanSaved={refreshPlan}
+        hidden={!isDesktop && tab === "tax"}
+        page={isDesktop ? (hasDebt ? "debt" : "savings") : (tab === "plan" ? "debt" : tab)}
+      />
+      {!isDesktop && tab === "tax" && <TaxChat />}
       <BottomNav />
     </div>
   );

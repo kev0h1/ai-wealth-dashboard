@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import re
+from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -328,19 +329,15 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         "title": title, "body": body_text, "savings_estimate": savings_estimate,
         "triggered_by": triggered_by, "refreshed_at": now,
         "content_hash": content_hash, "is_new": is_new,
+        "deadline_at": _parse_deadline(user_context),
+        "deadline_flagged": False,  # fresh context resets the one-shot deadline alert
     }
-    if is_new:
-        # Fresh content → restore spotlight eligibility regardless of previous retire/snooze state
-        base_update["spotlight_retired"] = False
     if user_context is not None:
         base_update["user_context"] = user_context
     if existing:
         if not existing.get("pinned"):
             base_update["expires_at"] = now + timedelta(days=30)
-        op: dict = {"$set": base_update}
-        if is_new:
-            op["$unset"] = {"spotlight_snoozed_until": ""}
-        await savings_insights_col.update_one({"_id": existing["_id"]}, op)
+        await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": base_update})
     else:
         insight_id = f"{category_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
         await savings_insights_col.insert_one({
@@ -365,12 +362,35 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             age_days = (datetime.utcnow() - existing["refreshed_at"]).days
             if age_days < 7:
                 continue
+
+        # Triggers are cheap — compute first and only pay for search + LLM
+        # when something material changed. Rephrasing on a timer is what made
+        # the badge cry wolf.
+        triggered_by = await _find_triggered_transactions(user_id, cat_key)
+
+        # Closure: if the triggering spend ceased, mark the win and retire the
+        # card from advice duty — it flips to "done, saving £X/mo"
+        if existing:
+            verified = await _check_verified_saving(user_id, existing)
+            if verified:
+                await savings_insights_col.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {**verified, "spotlight_retired": True, "is_new": False}},
+                )
+                continue
+
+        reason = _regen_reason(existing, triggered_by, datetime.utcnow())
+        if reason is None:
+            await savings_insights_col.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"triggered_by": triggered_by, "is_new": False}},
+            )
+            continue
+
         stored_context = existing.get("user_context") if existing else None
         content        = await _generate_savings_insight_content(cat_key, stored_context)
         if not content or not content.get("body"):
             continue
-
-        triggered_by   = await _find_triggered_transactions(user_id, cat_key)
         title          = content["title"]
         body           = content["body"]
         savings_estimate = content.get("savings_estimate")
@@ -383,15 +403,12 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 "title": title, "body": body, "savings_estimate": savings_estimate,
                 "triggered_by": triggered_by, "refreshed_at": now,
                 "content_hash": content_hash, "is_new": is_new,
+                "deadline_at": _parse_deadline(stored_context),
+                "deadline_flagged": reason == "deadline_window" or bool(existing.get("deadline_flagged")),
             }
-            if is_new:
-                update["spotlight_retired"] = False
             if not existing.get("pinned"):
                 update["expires_at"] = now + timedelta(days=30)
-            op: dict = {"$set": update}
-            if is_new:
-                op["$unset"] = {"spotlight_snoozed_until": ""}
-            await savings_insights_col.update_one({"_id": existing["_id"]}, op)
+            await savings_insights_col.update_one({"_id": existing["_id"]}, {"$set": update})
         else:
             insight_id = f"{cat_key}-{hashlib.md5(user_id.encode()).hexdigest()[:8]}"
             await savings_insights_col.insert_one({
@@ -417,10 +434,123 @@ def _serialize_insight(d: dict) -> dict:
         "is_new":          d.get("is_new", False),
         # Stored naive-UTC; the Z suffix makes browsers parse it as UTC, not local
         "refreshed_at":    d["refreshed_at"].isoformat() + "Z" if d.get("refreshed_at") else None,
+        "return_reason":   d.get("_return_reason"),
+        "verified_savings": d.get("verified_savings"),
+        "verified_merchant": d.get("verified_merchant"),
+        "deadline_at":     d["deadline_at"].isoformat() + "Z" if d.get("deadline_at") else None,
         "triggered_by":    d.get("triggered_by", []),
         "user_context":    d.get("user_context"),
         "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
     }
+
+
+_DEADLINE_KEYS = ("deal_end", "contract_end", "renewal_date")
+_MONTHS_MAP = {m: i + 1 for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+
+def _parse_deadline(context: dict | None) -> Optional[datetime]:
+    """Extract a hard end date from user-provided context text like
+    'March 2027', 'Oct 26', '2027-03'. Rolling/unsure/blank → None."""
+    if not context:
+        return None
+    for key in _DEADLINE_KEYS:
+        raw = str(context.get(key) or "").strip().lower()
+        if not raw or "roll" in raw or "not sure" in raw:
+            continue
+        m = re.search(r"(20\d{2})[-/](\d{1,2})", raw)  # 2027-03 / 2027/3
+        if m:
+            year, month = int(m.group(1)), int(m.group(2))
+        else:
+            m = re.search(r"([a-z]{3,9})\s*'?(\d{2,4})", raw)  # march 2027 / oct 26
+            if not m or m.group(1)[:3] not in _MONTHS_MAP:
+                continue
+            month = _MONTHS_MAP[m.group(1)[:3]]
+            year  = int(m.group(2))
+            if year < 100:
+                year += 2000
+        if not (1 <= month <= 12 and 2020 <= year <= 2100):
+            continue
+        return datetime(year, month, monthrange(year, month)[1])
+    return None
+
+
+def _material_change_reason(d: dict) -> Optional[str]:
+    """Why a dismissed insight has earned its way back, or None if it hasn't."""
+    from app.routers.analytics import _parse_saving_amount
+
+    deadline = d.get("deadline_at")
+    if deadline and datetime.utcnow() < deadline <= datetime.utcnow() + timedelta(days=60):
+        return f"Your deal ends around {deadline.strftime('%b %Y')}"
+
+    old = d.get("estimate_at_dismissal")
+    new = _parse_saving_amount(d.get("savings_estimate"))
+    if old and new and abs(new - old) >= max(10.0, 0.2 * old):
+        direction = "up" if new > old else "down"
+        return f"Estimated saving {direction}: ~£{old:,.0f}/mo → ~£{new:,.0f}/mo"
+
+    dismissed = d.get("spotlight_dismissed_at")
+    if dismissed is None or dismissed < datetime.utcnow() - timedelta(days=30):
+        return ""  # cooldown expired — eligible again, no callout needed
+    return None
+
+
+async def _check_verified_saving(user_id: str, existing: dict) -> Optional[dict]:
+    """Has the user actually acted on this insight? If the merchant that
+    triggered it had payments in the 45-90 day window but NONE in the last 45
+    days, the spend genuinely ceased — that's a verified saving, not an estimate."""
+    if existing.get("verified_at"):
+        return None  # already verified
+    prev = existing.get("triggered_by") or []
+    if not prev:
+        return None
+    top = prev[0]
+    key, amt = top.get("merchant_key"), float(top.get("monthly_amount") or 0)
+    if not key or amt < 5:
+        return None
+    now = datetime.utcnow()
+    recent, before = 0, 0
+    for col in [transactions_col, yapily_transactions_col, statement_transactions_col, mono_transactions_col]:
+        try:
+            txns = await col.find(
+                {"user_id": user_id, "transaction_type": "debit", "date": {"$gte": now - timedelta(days=90)}},
+                {"merchant_name": 1, "description": 1, "date": 1},
+            ).to_list(None)
+        except Exception:
+            continue
+        for t in txns:
+            k = (t.get("merchant_name") or t.get("description", "")[:30]).strip()
+            if k != key:
+                continue
+            if t["date"] >= now - timedelta(days=45):
+                recent += 1
+            else:
+                before += 1
+    if before > 0 and recent == 0:
+        return {"verified_savings": round(amt, 2), "verified_merchant": top.get("display_name", key),
+                "verified_at": now}
+    return None
+
+
+def _regen_reason(existing: dict | None, triggered_by: list[dict], now: datetime) -> Optional[str]:
+    """Event-driven regeneration: return why content should be rebuilt, or None.
+
+    Material events: no insight yet, 30-day TTL, trigger spend moved ≥20%/£10,
+    or a user-entered deadline entered the 60-day window (once)."""
+    if not existing or not existing.get("refreshed_at"):
+        return "first_generation"
+    if (now - existing["refreshed_at"]).days >= 30:
+        return "ttl"
+    old_total = sum(t.get("monthly_amount", 0) for t in existing.get("triggered_by") or [])
+    new_total = sum(t.get("monthly_amount", 0) for t in triggered_by)
+    if old_total > 0 and abs(new_total - old_total) >= max(10.0, 0.2 * old_total):
+        return "spend_changed"
+    if old_total == 0 and new_total > 0:
+        return "spend_appeared"
+    deadline = existing.get("deadline_at")
+    if deadline and now < deadline <= now + timedelta(days=60) and not existing.get("deadline_flagged"):
+        return "deadline_window"
+    return None
 
 
 def _spotlight_snoozed(d: dict) -> bool:
@@ -429,10 +559,26 @@ def _spotlight_snoozed(d: dict) -> bool:
 
 
 def _spotlight_candidates(docs: list[dict]) -> list[dict]:
-    """Insights eligible for the home spotlight, ranked pinned-first then freshest."""
-    cands = [d for d in docs if not d.get("spotlight_retired") and not _spotlight_snoozed(d)]
+    """Insights eligible for the home spotlight, ranked pinned-first then freshest.
+
+    Dismissal is durable: a retired insight only returns after a 30-day
+    cooldown, or earlier when something material changed (estimate moved
+    ≥20%/£10, or a user-provided deadline is inside 60 days) — and then it
+    carries the reason so the card can say why it's back."""
+    cands = []
+    for d in docs:
+        if _spotlight_snoozed(d):
+            continue
+        if not d.get("spotlight_retired"):
+            d["_return_reason"] = None
+            cands.append(d)
+            continue
+        reason = _material_change_reason(d)
+        if reason is not None:
+            d["_return_reason"] = reason or None
+            cands.append(d)
     cands.sort(
-        key=lambda d: (bool(d.get("pinned")), d.get("refreshed_at") or datetime.min),
+        key=lambda d: (bool(d.get("pinned")), bool(d.get("_return_reason")), d.get("refreshed_at") or datetime.min),
         reverse=True,
     )
     return cands
@@ -474,9 +620,14 @@ async def get_spotlight_insight(user: dict = Depends(current_user), _sub=Depends
     if last and last != top_id:
         prev = next((d for d in docs if d.get("insight_id") == last), None)
         if prev is not None and not prev.get("spotlight_retired"):
+            from app.routers.analytics import _parse_saving_amount
             await savings_insights_col.update_one(
                 {"_id": prev["_id"]},
-                {"$set": {"spotlight_retired": True}, "$unset": {"spotlight_snoozed_until": ""}},
+                {"$set": {
+                    "spotlight_retired": True,
+                    "spotlight_dismissed_at": datetime.utcnow(),
+                    "estimate_at_dismissal": _parse_saving_amount(prev.get("savings_estimate")) or None,
+                }, "$unset": {"spotlight_snoozed_until": ""}},
             )
     await preferences_col.update_one(
         {"user_id": uid},
@@ -490,29 +641,46 @@ async def get_spotlight_insight(user: dict = Depends(current_user), _sub=Depends
 async def dismiss_spotlight_insight(insight_id: str, user: dict = Depends(current_user)):
     """Dismiss an insight from the home spotlight.
 
-    If another insight can take its place it is superseded → retired permanently.
-    If it is the last eligible insight it is snoozed for 7 days instead.
-    """
+    Durable: 30-day cooldown regardless of content regeneration. Snapshots the
+    current estimate so a material change can earn an early return."""
     uid = user["email"]
     doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
     if not doc:
         raise HTTPException(404, "Insight not found")
 
-    docs      = await savings_insights_col.find({"user_id": uid}).to_list(None)
-    remaining = [d for d in _spotlight_candidates(docs) if d.get("insight_id") != insight_id]
-
-    if remaining:
-        await savings_insights_col.update_one(
-            {"_id": doc["_id"]},
-            {"$set": {"spotlight_retired": True}, "$unset": {"spotlight_snoozed_until": ""}},
-        )
-        return {"status": "retired"}
-
+    from app.routers.analytics import _parse_saving_amount
     await savings_insights_col.update_one(
         {"_id": doc["_id"]},
-        {"$set": {"spotlight_snoozed_until": datetime.utcnow() + timedelta(days=7)}},
+        {"$set": {
+            "spotlight_retired": True,
+            "spotlight_dismissed_at": datetime.utcnow(),
+            "estimate_at_dismissal": _parse_saving_amount(doc.get("savings_estimate")) or None,
+        }, "$unset": {"spotlight_snoozed_until": ""}},
     )
-    return {"status": "snoozed"}
+    return {"status": "retired"}
+
+
+@router.get("/savings-insights/new-count")
+async def new_insight_count(user: dict = Depends(current_user)):
+    """Badge count: new-content insights the user hasn't looked at since they
+    refreshed. Viewing the list clears it (mark-viewed); the per-card "New"
+    chip keeps its own lifecycle."""
+    n = await savings_insights_col.count_documents({
+        "user_id": user["email"],
+        "is_new": True,
+        "$expr": {"$gt": ["$refreshed_at", {"$ifNull": ["$viewed_at", datetime(1970, 1, 1)]}]},
+    })
+    return {"count": n}
+
+
+@router.post("/savings-insights/mark-viewed")
+async def mark_insights_viewed(user: dict = Depends(current_user)):
+    """The user opened the insights list — everything current counts as seen."""
+    await savings_insights_col.update_many(
+        {"user_id": user["email"]},
+        {"$set": {"viewed_at": datetime.utcnow()}},
+    )
+    return {"ok": True}
 
 
 @router.get("/savings-insights/workflows")
@@ -532,7 +700,10 @@ async def save_insight_context(
     if not doc:
         raise HTTPException(404, "Insight not found")
     context = body.get("context", {})
-    await savings_insights_col.update_one({"_id": doc["_id"]}, {"$set": {"user_context": context}})
+    await savings_insights_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"user_context": context, "deadline_at": _parse_deadline(context)}},
+    )
     background_tasks.add_task(_refresh_single_insight, uid, doc["category"], context)
     return {"message": "Saved, regenerating insight"}
 

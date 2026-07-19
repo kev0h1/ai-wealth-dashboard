@@ -89,6 +89,13 @@ export interface SavingsInsight {
   }[];
   user_context: Record<string, string> | null;
   has_workflow: boolean;
+  /** Why a dismissed insight came back to the spotlight (null = normal show) */
+  return_reason?: string | null;
+  /** Parsed contract/deal end date from user context */
+  deadline_at?: string | null;
+  /** Set when the triggering spend actually ceased — a real saving, not an estimate */
+  verified_savings?: number | null;
+  verified_merchant?: string | null;
 }
 
 export interface WorkflowStep {

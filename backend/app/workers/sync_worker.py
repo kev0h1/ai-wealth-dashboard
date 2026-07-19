@@ -7,7 +7,7 @@ from arq.connections import RedisSettings
 from app.core.config import REDIS_URL
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col, mono_connections_col,
-    webhook_events_col,
+    webhook_events_col, expo_push_tokens_col, push_subscriptions_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
@@ -42,18 +42,20 @@ async def task_sync_mono(ctx, connection_id: str, user_id: str):
 
 
 async def task_reconcile_truelayer(ctx):
-    """Catch any connections that missed a webhook in the last 12 hours.
+    """Keep every connection fresh and catch missed webhooks.
 
-    Runs twice daily (8am + 8pm). Culls superseded connections, re-syncs any
-    TrueLayer connection whose last sync is stale, then retries failed
-    webhook events.
+    Runs every 4 hours (took over scheduled syncing when the Discord bot was
+    retired). Culls superseded connections, re-syncs any TrueLayer connection
+    whose last sync is stale, then retries failed webhook events.
 
     NB: Mongo returns naive UTC datetimes, so all comparisons here use naive
     utcnow — mixing in tz-aware datetimes raises TypeError.
     """
     arq: ArqRedis = ctx["redis"]
     now = datetime.utcnow()
-    stale_cutoff = now - timedelta(hours=12)
+    # Just under the cron interval, so every connection refreshes each cycle.
+    # (This cron replaced the Discord bot's 4-hourly sync-all loop.)
+    stale_cutoff = now - timedelta(hours=3, minutes=30)
     enqueued = 0
 
     await cull_orphaned_connections()
@@ -112,10 +114,33 @@ async def task_reconcile_truelayer(ctx):
     return {"reconciled": enqueued, "at": now.isoformat()}
 
 
+async def task_period_digests(ctx):
+    """Fresh-start digest: one push per user on the first day of their pay
+    period. send_period_digest itself checks the boundary, the user's
+    notification pref, and de-duplicates per period — this cron just fans out
+    over everyone with a push target."""
+    uids = set(await expo_push_tokens_col.distinct("user_id"))
+    uids |= set(await push_subscriptions_col.distinct("user_id"))
+    sent = 0
+    for uid in uids:
+        try:
+            from app.services.notifications import send_period_digest
+            await send_period_digest(uid)
+            sent += 1
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("period digest failed for %s: %s", uid, e)
+    return {"checked": len(uids)}
+
+
 class WorkerSettings:
-    functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono, task_reconcile_truelayer]
+    functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
+                 task_reconcile_truelayer, task_period_digests]
     cron_jobs = [
-        cron(task_reconcile_truelayer, hour={8, 20}, minute=0, run_at_startup=False),
+        cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
+        # 07:00 UTC = start-of-morning UK; the task is a no-op except on each
+        # user's period boundary
+        cron(task_period_digests, hour=7, minute=0, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

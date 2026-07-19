@@ -1,0 +1,26 @@
+# Never bake these into the image.
+# --- Secrets (supplied as Railway env vars, must NOT ship in the image) ---
+.env
+.env.*
+.session_secret
+.token_key
+.webhook_secret
+.vapid_private_key
+
+# --- Local runtime / caches (ephemeral, regenerated) ---
+.venv/
+__pycache__/
+*.pyc
+.logo_cache/
+fuel_cache/
+backups/
+bot_state.json
+store.json
+
+# --- Dev / VCS / tests ---
+.git/
+.gitignore
+tests/
+*.md
+spike_*.py
+fuel_finder_collector.py

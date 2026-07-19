@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Wallet, Sparkles, ChevronRight, Check, Building2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Wallet, Sparkles, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import BankPickerSheet from "@/components/BankPickerSheet";
 
@@ -10,7 +10,7 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "profile" | "payday" | "bank";
+type Step = "welcome" | "profile" | "payday" | "bank" | "secure";
 
 const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "Last Friday of month",  sub: "Typical UK monthly salary",         value: { type: "last_friday" } },
@@ -22,7 +22,7 @@ const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "I'll set this later",   sub: "",                                   value: null },
 ];
 
-const STEP_DOTS: Step[] = ["profile", "payday", "bank"];
+const STEP_DOTS: Step[] = ["profile", "payday", "bank", "secure"];
 
 // Defined outside Onboarding so its identity is stable across renders —
 // an inner component would remount on every state change and steal focus.
@@ -60,6 +60,32 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [bankAdded, setBankAdded] = useState(false);
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  const [bioSupported, setBioSupported] = useState(false);
+
+  useEffect(() => {
+    const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
+    if (!rn) return;
+    const id = Math.random().toString(36).slice(2);
+    const onResult = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (!d || d.id !== id) return;
+      window.removeEventListener("native-biometrics", onResult);
+      setBioSupported(!!d.supported);
+    };
+    window.addEventListener("native-biometrics", onResult);
+    rn.postMessage(JSON.stringify({ type: "biometrics:get", id }));
+    return () => window.removeEventListener("native-biometrics", onResult);
+  }, []);
+
+  function setBiometrics(enabled: boolean) {
+    const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
+    rn?.postMessage(JSON.stringify({ type: "biometrics:set", enabled }));
+  }
+
+  function bankDoneNext() {
+    if (bioSupported) setStep("secure");
+    else finish();
+  }
 
   const dotIndex = STEP_DOTS.indexOf(step);
 
@@ -257,6 +283,37 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     );
   }
 
+  // ── secure (app shell with biometrics only) ─────────────────────────────────
+  if (step === "secure") {
+    return (
+      <Shell dotIndex={dotIndex}>
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 bg-indigo-50 dark:bg-indigo-900/30">
+            <ShieldCheck size={28} className="text-indigo-500" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Protect your dashboard</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+            Your finances live here. Require your fingerprint or face every time
+            the app opens — you can change this any time in Settings.
+          </p>
+        </div>
+
+        <button
+          onClick={() => { setBiometrics(true); finish(); }}
+          className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-[0.98] mb-3"
+        >
+          Enable biometric unlock
+        </button>
+        <button
+          onClick={() => { setBiometrics(false); finish(); }}
+          className="w-full py-2.5 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+        >
+          Maybe later
+        </button>
+      </Shell>
+    );
+  }
+
   // ── bank ───────────────────────────────────────────────────────────────────
   return (
     <Shell dotIndex={dotIndex}>
@@ -294,7 +351,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       )}
 
       <button
-        onClick={() => bankAdded ? finish() : setShowSheet(true)}
+        onClick={() => bankAdded ? bankDoneNext() : setShowSheet(true)}
         className={`w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-[0.98] mb-3 ${
           bankAdded
             ? "bg-emerald-500 hover:bg-emerald-600"
@@ -306,7 +363,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
 
       {!bankAdded && (
         <button
-          onClick={finish}
+          onClick={bankDoneNext}
           className="w-full py-2.5 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
         >
           Skip for now — I&apos;ll add banks later

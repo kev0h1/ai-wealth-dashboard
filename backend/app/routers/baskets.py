@@ -29,27 +29,41 @@ ITEM_CATEGORIES = [
 ]
 
 _PROMPT = (
-    "You are extracting structured data from a photo of a grocery shopping receipt.\n"
+    "You are transcribing a photo of a grocery shopping receipt. Every item you "
+    "output must be text you can actually see printed on the receipt.\n\n"
+    "CRITICAL — read before extracting anything:\n"
+    "Never invent, guess, infer, or complete a 'typical' or 'plausible' shopping "
+    "basket for this type of store. Do not add an item because it seems like the "
+    "kind of thing this shop would sell, or to round out a category. Every single "
+    "item in your output must correspond to a specific line of printed text you "
+    "can point to on the receipt. If the photo is blurry, cropped, glared-out, or "
+    "you are not confident you are reading actual printed text, it is CORRECT and "
+    "EXPECTED to return fewer items — including zero — rather than fabricate ones. "
+    "Returning an empty items array is a completely normal, successful outcome for "
+    "an unclear photo. Fabricating even one plausible-looking item that isn't "
+    "really printed on the receipt is a serious failure, worse than returning "
+    "nothing.\n\n"
     "Return ONLY a JSON object, no prose, with this exact shape:\n"
     "{\n"
-    '  "shop": string|null,            // store/brand name, e.g. "Tesco"\n'
+    '  "shop": string|null,            // store/brand name, e.g. "Tesco" — only if legible\n'
     '  "purchased_at": string|null,    // ISO date YYYY-MM-DD if present\n'
     '  "currency": string,             // ISO code, default "GBP"\n'
-    '  "total": number|null,           // grand total paid\n'
+    '  "total": number|null,           // grand total paid, only if legible\n'
     '  "items": [\n'
     '    {\n'
-    '      "name": string,             // cleaned product name, expand obvious abbreviations\n'
+    '      "name": string,             // product name as printed; expand obvious abbreviations only\n'
     '      "qty": number,              // quantity, default 1\n'
-    '      "unit_price": number|null,  // price per unit\n'
-    '      "line_price": number|null,  // total for this line\n'
+    '      "unit_price": number|null,  // price per unit, only if legible\n'
+    '      "line_price": number|null,  // total for this line, only if legible\n'
     f'      "category": string         // one of: {", ".join(ITEM_CATEGORIES)}\n'
     '    }\n'
     '  ]\n'
     "}\n"
-    "Rules: exclude non-product lines (subtotals, savings, card/cash, change, "
-    "loyalty points, store address). Numbers must be plain numerics with no "
-    "currency symbols. If a value is unreadable use null. If this is not a "
-    'receipt, return {"shop": null, "items": []}.'
+    "Other rules: exclude non-product lines (subtotals, savings, card/cash, "
+    "change, loyalty points, store address). Numbers must be plain numerics with "
+    "no currency symbols. If a value on an otherwise-legible item is unreadable, "
+    "use null for that field — but only include the item at all if its name is "
+    'genuinely visible. If this is not a receipt, return {"shop": null, "items": []}.'
 )
 
 
@@ -93,6 +107,7 @@ def _serialize(doc: dict) -> dict:
         "id": doc["_id"],
         "shop": doc.get("shop"),
         "purchased_at": doc.get("purchased_at"),
+        "date_estimated": doc.get("date_estimated", False),
         "currency": doc.get("currency", "GBP"),
         "total": doc.get("total"),
         "item_count": doc.get("item_count", 0),
@@ -111,13 +126,13 @@ async def _extract_receipt(image_uri: str) -> dict:
                 "model": VISION_MODEL,
                 "max_tokens": 2000,
                 "temperature": 0,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": _PROMPT},
+                "messages": [
+                    {"role": "system", "content": _PROMPT},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "Extract this receipt."},
                         {"type": "image_url", "image_url": {"url": image_uri}},
-                    ],
-                }],
+                    ]},
+                ],
             },
         )
     data = r.json()
@@ -149,11 +164,19 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
     if not items:
         raise HTTPException(422, "No items found — make sure the whole receipt is in shot.")
 
+    # No legible date on the receipt: fall back to the scan date, flagged as
+    # estimated so the UI can say so instead of showing "Date unknown".
+    purchased_at   = parsed.get("purchased_at") or None
+    date_estimated = purchased_at is None
+    if date_estimated:
+        purchased_at = datetime.now().strftime("%Y-%m-%d")
+
     doc = {
         "_id": uuid.uuid4().hex,
         "user_id": user["email"],
         "shop": (parsed.get("shop") or None),
-        "purchased_at": (parsed.get("purchased_at") or None),
+        "purchased_at": purchased_at,
+        "date_estimated": date_estimated,
         "currency": (parsed.get("currency") or "GBP"),
         "total": _num(parsed.get("total")),
         "item_count": len(items),

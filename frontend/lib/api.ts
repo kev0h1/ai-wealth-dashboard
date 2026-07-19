@@ -18,11 +18,39 @@ export type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
+export const logoUrl = (domain: string) => `${API_BASE}/logo/${encodeURIComponent(domain)}`;
+
+export interface PagedTransactions {
+  items: Transaction[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+export interface AccountCategorySummary {
+  name: string;
+  total: number;
+  count: number;
+  pct: number;
+}
+
 export type NotificationPrefs = {
   transactions: boolean;
   budget_alerts: boolean;
   goal_milestones: boolean;
   insights: boolean;
+  period_digest: boolean;
+  bill_alerts: boolean;
+};
+
+export type GoalSummary = {
+  pillar: "debt" | "savings" | "budget";
+  label: string;
+  detail: string;
+  pct: number;
+  done: boolean;
+  at_risk?: boolean;
+  url: string;
 };
 
 export type CashflowWeek = {
@@ -39,7 +67,9 @@ export type UpcomingBill = {
   days_away: number;
   account_id?: string | null;
   account_name?: string | null;
+  account_bank?: string | null;
   account_balance?: number | null;
+  category?: string | null;
 };
 
 export type CashflowData = {
@@ -89,6 +119,7 @@ export type TransportSummary = {
 export type ValueDelivered = {
   insights_acted_on: number;
   total_monthly_saving: number;
+  verified_monthly_saving?: number;
   breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
 };
 
@@ -193,10 +224,27 @@ export function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+// A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)
+// otherwise hangs indefinitely and pages spin forever waiting on Promise.all.
+// Abort stalled GETs and retry once — GETs are safe to repeat.
+async function get<T>(path: string, attempt = 0): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: authHeaders(),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === "AbortError";
+    const networkErr = e instanceof TypeError; // fetch network failure
+    if ((aborted || networkErr) && attempt < 1) return get<T>(path, attempt + 1);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function post<T>(path: string, body?: unknown): Promise<T> {
@@ -258,6 +306,7 @@ export type Basket = {
   id: string;
   shop: string | null;
   purchased_at: string | null;
+  date_estimated?: boolean;
   currency: string;
   total: number | null;
   item_count: number;
@@ -337,13 +386,31 @@ export const api = {
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
   accounts: () => get<Account[]>("/accounts"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
-  transactions: (accountId: string) =>
-    get<Transaction[]>(`/accounts/${accountId}/transactions`),
+  transactions: (accountId: string, opts?: {
+    page?: number; pageSize?: number; q?: string; category?: string; days?: number;
+    txnType?: "debit" | "credit";
+  }) => {
+    const p = new URLSearchParams();
+    if (opts?.page) p.set("page", String(opts.page));
+    if (opts?.pageSize) p.set("page_size", String(opts.pageSize));
+    if (opts?.q) p.set("q", opts.q);
+    if (opts?.category) p.set("category", opts.category);
+    if (opts?.days) p.set("days", String(opts.days));
+    if (opts?.txnType) p.set("txn_type", opts.txnType);
+    const qs = p.toString();
+    return get<PagedTransactions>(`/accounts/${accountId}/transactions${qs ? `?${qs}` : ""}`);
+  },
+  accountCategories: (accountId: string) =>
+    get<AccountCategorySummary[]>(`/accounts/${accountId}/categories`),
   kpis: () => get<KPIs>("/kpis"),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   transportSummary: () => get<TransportSummary>("/transport/summary"),
   oldestTransaction: () => get<{ date: string | null }>("/transactions/oldest"),
+  goalsSummary: () => get<{ goals: GoalSummary[] }>("/goals/summary"),
+  allTransactions: (days = 365) => get<Transaction[]>(`/transactions?days=${days}`),
+  dismissRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/dismiss-recurring", { key }),
+  restoreRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/restore-recurring", { key }),
   deleteUserAccount: async (): Promise<{ deleted: boolean }> => {
     const res = await fetch(`${API_BASE}/account`, {
       method: "DELETE",
@@ -487,6 +554,11 @@ export const api = {
     pension_annual?: number;
     has_child_benefit?: boolean;
     home_pinned_accounts?: string[];
+    home_pinned_cards?: string[];
+    recurring_categories?: string[];
+    dismissed_recurring?: string[];
+    spend_widgets?: string[] | null;
+    home_pinned_widget?: string | null;
   }>("/preferences"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
@@ -498,6 +570,10 @@ export const api = {
     pension_annual: number;
     has_child_benefit: boolean;
     home_pinned_accounts: string[];
+    home_pinned_cards: string[];
+    recurring_categories: string[];
+    spend_widgets: string[];
+    home_pinned_widget: string | null;
   }>) =>
     fetch(`${API_BASE}/preferences`, {
       method: "PATCH",
@@ -745,6 +821,9 @@ export const api = {
   getMoneyBasics: (topic?: string) =>
     get<{ items: MoneyBasic[]; tax_year: string }>(`/money-basics${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
   getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
+  newInsightCount: () => get<{ count: number }>("/savings-insights/new-count"),
+  markInsightsViewed: () => post<{ ok: boolean }>("/savings-insights/mark-viewed", {}),
+  atRiskCount: () => get<{ count: number }>("/cashflow/at-risk-count"),
   getSpotlightInsight: () => get<SavingsInsight | null>("/savings-insights/spotlight"),
   dismissSpotlightInsight: (id: string) =>
     post<{ status: string }>(`/savings-insights/${encodeURIComponent(id)}/dismiss`, {}),

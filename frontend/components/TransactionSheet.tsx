@@ -8,7 +8,10 @@ import { BankBadge, BANK_META } from "@/components/AccountMiniCard";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
+import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
+import { formatCurrency } from "@/lib/currency";
 import CustomSelect from "@/components/CustomSelect";
 
 type Scope = "single" | "all" | "future";
@@ -36,10 +39,18 @@ export default function TransactionSheet({
   const [savedCount, setSavedCount] = useState<number | null>(null);
 
   const { colours } = useColours();
+  const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories } = useCategories();
   const isCredit = transaction.transaction_type === "credit";
   const colour = colours[category] ?? CATEGORY_COLOURS.Other;
-  const name = transaction.merchant_name || transaction.description;
+  const CategoryIcon = getCategoryIcon(category, iconOverrides);
+  const name = transaction.merchant_name || transaction.description || "(no description)";
+
+  // A transaction with no matchable identity can't sensibly drive "all/future
+  // from" — the backend would have nothing real to match on
+  const hasMatchKey = Boolean(
+    (transaction.merchant_name ?? "").trim() || (transaction.description ?? "").trim().length >= 3
+  );
 
   const matchLabel = transaction.merchant_name
     ? `"${transaction.merchant_name}"`
@@ -108,11 +119,13 @@ export default function TransactionSheet({
 
   const saved = savedCount !== null;
 
-  const SCOPES: { value: Scope; label: string; Icon: React.ElementType }[] = [
-    { value: "single", label: "Just this one", Icon: User },
-    { value: "all", label: `All from ${matchLabel}`, Icon: Users },
-    { value: "future", label: `Future from ${matchLabel}`, Icon: CalendarArrowUp },
-  ];
+  const SCOPES: { value: Scope; label: string; Icon: React.ElementType }[] = hasMatchKey
+    ? [
+        { value: "single", label: "Just this one", Icon: User },
+        { value: "all", label: `All from ${matchLabel}`, Icon: Users },
+        { value: "future", label: `Future from ${matchLabel}`, Icon: CalendarArrowUp },
+      ]
+    : [{ value: "single", label: "Just this one", Icon: User }];
 
   const allChecked = similar !== null && similar.length > 0 && selected.size === similar.length;
 
@@ -149,11 +162,8 @@ export default function TransactionSheet({
           >
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Amount</p>
             <p className={`text-xl font-bold ${isCredit ? "text-emerald-500" : "text-red-500"}`}>
-              {isCredit ? "+" : "-"}£
-              {Math.abs(transaction.amount).toLocaleString("en-GB", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
+              {isCredit ? "+" : "-"}
+              {formatCurrency(transaction.amount, transaction.currency)}
             </p>
           </div>
           <div className="flex-1">
@@ -180,8 +190,11 @@ export default function TransactionSheet({
           </div>
 
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
-            <span className="text-sm font-semibold px-3 py-1 rounded-full text-white" style={{ backgroundColor: colour }}>
+            <span
+              className="flex items-center gap-1.5 text-sm font-semibold pl-2.5 pr-3 py-1 rounded-full text-white"
+              style={{ backgroundColor: colour }}
+            >
+              <CategoryIcon size={14} className="text-white flex-shrink-0" />
               {category}
             </span>
           </div>
@@ -275,7 +288,7 @@ export default function TransactionSheet({
                         <span className="block text-[10px] text-slate-400 dark:text-slate-500">{formatDate(tx.date)}</span>
                       </span>
                       <span className={`text-xs font-semibold flex-shrink-0 ${tx.transaction_type === "credit" ? "text-emerald-500" : "text-red-500"}`}>
-                        {tx.transaction_type === "credit" ? "+" : "-"}£{Math.abs(tx.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {tx.transaction_type === "credit" ? "+" : "-"}{formatCurrency(tx.amount, tx.currency)}
                       </span>
                     </button>
                   );

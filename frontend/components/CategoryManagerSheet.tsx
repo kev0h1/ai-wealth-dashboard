@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { RotateCcw, Plus, Trash2, Loader2, Check, AlertCircle, X } from "lucide-react";
+import { RotateCcw, Plus, Trash2, Loader2, Check, AlertCircle, X, ChevronDown } from "lucide-react";
 import { CATEGORIES, CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR } from "@/lib/categories";
+import { ICON_LIBRARY, suggestIcon, getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
 import { api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetA11y } from "@/lib/useSheetA11y";
 
 interface Rule {
   id: string;
@@ -88,6 +91,63 @@ function ColourPicker({ colour, onChange, onClose }: {
   );
 }
 
+function IconPicker({ current, colour, onSelect, onClose }: {
+  current: string; colour: string; onSelect: (key: string) => void; onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div
+        className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 mx-4 w-full max-w-[320px] max-h-[70vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Choose icon</p>
+        <div className="grid grid-cols-6 gap-2">
+          {Object.entries(ICON_LIBRARY).map(([key, Icon]) => (
+            <button
+              key={key}
+              onClick={() => { onSelect(key); onClose(); }}
+              className={`w-11 h-11 rounded-xl flex items-center justify-center active:scale-90 transition-transform ${
+                key === current ? "ring-2 ring-indigo-500" : ""
+              }`}
+              style={{ backgroundColor: `${colour}26` }}
+            >
+              <Icon size={17} style={{ color: colour }} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Tinted icon chip on a custom-category row — tap to change the icon
+function IconChip({ cat, colour }: { cat: string; colour: string }) {
+  const { icons, setIcon } = useCategoryIcons();
+  const [open, setOpen] = useState(false);
+  const Icon = getCategoryIcon(cat, icons);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title={`Change icon for ${cat}`}
+        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
+        style={{ backgroundColor: `${colour}26` }}
+      >
+        <Icon size={14} style={{ color: colour }} />
+      </button>
+      {open && (
+        <IconPicker
+          current={icons[cat] ?? suggestIcon(cat)}
+          colour={colour}
+          onSelect={(key) => setIcon(cat, key)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function ColourDot({ cat, colour, onChange, onReset, isModified }: {
   cat: string; colour: string; onChange: (hex: string) => void;
   onReset: () => void; isModified: boolean;
@@ -96,17 +156,23 @@ function ColourDot({ cat, colour, onChange, onReset, isModified }: {
 
   return (
     <div className="relative flex-shrink-0">
+      {/* w-8 h-8 hit area satisfies 44px-ish target when padded by the row;
+          the visual dot stays w-4 h-4 centred inside */}
       <button
         onClick={() => setOpen(true)}
         title={`Change colour for ${cat}`}
-        className="w-4 h-4 rounded-full shadow-sm ring-2 ring-white dark:ring-slate-700 active:scale-90 transition-transform"
-        style={{ backgroundColor: colour }}
-      />
+        className="w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+      >
+        <span
+          className="w-4 h-4 rounded-full shadow-sm ring-2 ring-white dark:ring-slate-700 block"
+          style={{ backgroundColor: colour }}
+        />
+      </button>
       {isModified && (
         <button
           onClick={(e) => { e.stopPropagation(); onReset(); }}
           title="Reset to default"
-          className="absolute -top-1 -right-1 w-3 h-3 bg-slate-400 rounded-full flex items-center justify-center"
+          className="absolute top-0 right-0 w-3 h-3 bg-slate-400 rounded-full flex items-center justify-center"
         >
           <RotateCcw size={6} color="#fff" />
         </button>
@@ -123,6 +189,35 @@ function ColourDot({ cat, colour, onChange, onReset, isModified }: {
 }
 
 export default function CategoryManagerSheet({ onClose }: { onClose: () => void }) {
+  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  // Upcoming-payments forecasting config (lives here with the other
+  // category/rule controls; the forecaster reads it from preferences)
+  const RECURRING_CATEGORY_OPTIONS = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt", "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping", "Travel", "Beauty", "Charity", "Other"];
+  const [recurringCats, setRecurringCats] = useState<string[]>(["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]);
+  const [dismissedRecurring, setDismissedRecurring] = useState<string[]>([]);
+  useEffect(() => {
+    api.getPreferences().then(p => {
+      if (p.recurring_categories) setRecurringCats(p.recurring_categories);
+      if (p.dismissed_recurring) setDismissedRecurring(p.dismissed_recurring);
+    }).catch(() => {});
+  }, []);
+  function toggleRecurringCat(cat: string) {
+    setRecurringCats(prev => {
+      const next = prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat];
+      api.updatePreferences({ recurring_categories: next }).catch(() => {});
+      return next;
+    });
+  }
+  function restoreDismissed(key: string) {
+    setDismissedRecurring(prev => prev.filter(k => k !== key));
+    api.restoreRecurring(key).catch(() => {});
+  }
+
+  // Colour customisation and dismissed predictions are occasional-use —
+  // collapsed by default so the sheet leads with the frequent controls
+  const [coloursOpen, setColoursOpen] = useState(false);
+  const [dismissedOpen, setDismissedOpen] = useState(false);
+
   useLockBodyScroll();
   const { colours, setColour, resetColour, resetAllColours } = useColours();
   const [confirmReset, setConfirmReset] = useState(false);
@@ -131,6 +226,12 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
   const [newCatName, setNewCatName] = useState("");
   const [addingCat, setAddingCat] = useState(false);
   const [catError, setCatError] = useState("");
+  // Icon for the category being added: user's explicit pick, else live-inferred
+  // from the name ("Pet food" → paw print)
+  const { setIcon: setCategoryIcon } = useCategoryIcons();
+  const [newCatIcon, setNewCatIcon] = useState<string | null>(null);
+  const [newCatPickerOpen, setNewCatPickerOpen] = useState(false);
+  const newCatIconKey = newCatIcon ?? suggestIcon(newCatName);
 
   const [rules, setRules] = useState<Rule[]>([]);
   const [ruleText, setRuleText] = useState("");
@@ -149,7 +250,9 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
     setAddingCat(true); setCatError("");
     try {
       await addCategory(name);
+      if (newCatIconKey !== "Tag") setCategoryIcon(name, newCatIconKey);
       setNewCatName("");
+      setNewCatIcon(null);
     } catch (e: unknown) {
       setCatError(e instanceof Error ? e.message : "Failed to add category");
     } finally {
@@ -189,12 +292,18 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-[#f0f2f7] dark:bg-[#0f172a] rounded-t-3xl z-[70] overflow-y-auto max-h-[88vh]">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Spend settings"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-[#f0f2f7] dark:bg-[#0f172a] rounded-t-3xl z-[70] overflow-y-auto max-h-[88vh]"
+      >
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
         </div>
         <div className="flex items-center justify-between px-5 pt-2 pb-4">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Manage categories</h2>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Spend settings</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700">
             <X size={16} color="#64748b" />
           </button>
@@ -204,36 +313,43 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
 
           {/* ── Categories ── */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+            <button
+              onClick={() => setColoursOpen(v => !v)}
+              className="w-full text-left px-4 py-3 border-b border-slate-100 dark:border-slate-700"
+            >
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Categories</p>
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                  Categories
+                  <ChevronDown size={13} className={`transition-transform ${coloursOpen ? "rotate-180" : ""}`} />
+                </p>
                 {confirmReset ? (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 dark:text-slate-400">Reset all colours?</span>
                     <button
-                      onClick={() => { resetAllColours(); setConfirmReset(false); }}
+                      onClick={(e) => { e.stopPropagation(); resetAllColours(); setConfirmReset(false); }}
                       className="text-xs font-semibold text-rose-500 px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-900/20"
                     >Yes</button>
                     <button
-                      onClick={() => setConfirmReset(false)}
-                      className="text-xs text-slate-400 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700"
+                      onClick={(e) => { e.stopPropagation(); setConfirmReset(false); }}
+                      className="text-xs text-slate-600 dark:text-slate-300 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-700"
                     >No</button>
                   </div>
                 ) : (
                   <button
-                    onClick={() => setConfirmReset(true)}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0"
+                    onClick={(e) => { e.stopPropagation(); setConfirmReset(true); }}
+                    className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0"
                   >
                     <RotateCcw size={11} /> Reset defaults
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Tap a colour dot to customise it</p>
-            </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Tap a colour dot to customise it</p>
+            </button>
 
+            {coloursOpen && (<>
             {/* Built-in grid */}
             <div className="px-4 pt-3 pb-3">
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Default</p>
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Default</p>
               <div className="grid grid-cols-2 gap-1.5">
                 {[...CATEGORIES].map((cat) => {
                   const colour = colours[cat] ?? CATEGORY_COLOURS[cat];
@@ -258,9 +374,9 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
 
             {/* Custom categories */}
             <div className="px-4 pb-3 border-t border-slate-50 dark:border-slate-700/50 pt-3">
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Mine</p>
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Mine</p>
               {customCategories.length === 0 && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">No custom categories yet</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">No custom categories yet</p>
               )}
               {customCategories.map((cat) => {
                 const colour = colours[cat] ?? DEFAULT_CUSTOM_COLOUR;
@@ -273,6 +389,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                         onChange={(hex) => setColour(cat, hex)}
                         onReset={() => resetColour(cat)}
                       />
+                      <IconChip cat={cat} colour={colour} />
                       <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{cat}</span>
                     </div>
                     <button onClick={() => deleteCategory(cat)} className="w-7 h-7 flex items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20">
@@ -282,7 +399,29 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                 );
               })}
               <div className="flex items-center gap-2 mt-2">
+                {(() => {
+                  const NewIcon = ICON_LIBRARY[newCatIconKey] ?? ICON_LIBRARY.Tag;
+                  return (
+                    <button
+                      onClick={() => setNewCatPickerOpen(true)}
+                      title="Choose an icon"
+                      className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
+                      style={{ backgroundColor: `${DEFAULT_CUSTOM_COLOUR}26` }}
+                    >
+                      <NewIcon size={16} style={{ color: DEFAULT_CUSTOM_COLOUR }} />
+                    </button>
+                  );
+                })()}
+                {newCatPickerOpen && (
+                  <IconPicker
+                    current={newCatIconKey}
+                    colour={DEFAULT_CUSTOM_COLOUR}
+                    onSelect={setNewCatIcon}
+                    onClose={() => setNewCatPickerOpen(false)}
+                  />
+                )}
                 <input
+                  aria-label="New category name"
                   className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
                   placeholder="Add a category…"
                   value={newCatName}
@@ -300,17 +439,19 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
               </div>
               {catError && <p className="mt-1 text-xs text-red-500">{catError}</p>}
             </div>
+            </>)}
           </div>
 
           {/* ── Categorisation Rules ── */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Categorisation Rules</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Automatically categorise transactions by keyword</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Automatically categorise transactions by keyword</p>
             </div>
 
             <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700/50">
               <textarea
+                aria-label="Rule description"
                 className="w-full text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
                 placeholder={`e.g. "Always put Greggs as Eating Out" or "Mark Amazon as Shopping"`}
                 rows={2}
@@ -320,7 +461,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
 
               {pending && (
                 <div className="mt-2 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800">
-                  <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-1">Preview</p>
+                  <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide mb-1">Preview</p>
                   <div className="flex items-center gap-2 flex-wrap">
                     <code className="text-xs font-mono text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 px-2 py-0.5 rounded">{pending.pattern}</code>
                     <span className="text-slate-400 text-xs">→</span>
@@ -371,17 +512,17 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
             </div>
 
             {rules.length === 0 ? (
-              <p className="px-4 py-3 text-xs text-slate-400 dark:text-slate-500">No rules yet — add one above</p>
+              <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">No rules yet — add one above</p>
             ) : (
               rules.map((rule) => (
                 <div key={rule.id} className="flex items-start gap-3 px-4 py-3 border-t border-slate-50 dark:border-slate-700/50">
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-slate-700 dark:text-slate-200 leading-snug">{rule.description}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <code className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{rule.pattern}</code>
-                      <span className="text-slate-300 dark:text-slate-600 text-[10px]">→</span>
+                      <code className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{rule.pattern}</code>
+                      <span className="text-slate-300 dark:text-slate-600 text-[11px]">→</span>
                       <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colours[rule.category] ?? CATEGORY_COLOURS[rule.category] ?? DEFAULT_CUSTOM_COLOUR }} />
-                      <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">{rule.category}</span>
+                      <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{rule.category}</span>
                     </div>
                   </div>
                   <button onClick={() => {
@@ -391,6 +532,60 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                   </button>
                 </div>
               ))
+            )}
+          </div>
+
+          {/* ── Upcoming payments — which categories the forecaster trusts ── */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Upcoming payments</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Categories where regular payments come from — used to predict what&apos;s due</p>
+            </div>
+            <div className="px-4 py-3.5 flex flex-wrap gap-2">
+              {RECURRING_CATEGORY_OPTIONS.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => toggleRecurringCat(cat)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors ${
+                    recurringCats.includes(cat)
+                      ? "bg-indigo-600 border-indigo-600 text-white"
+                      : "bg-slate-50 dark:bg-slate-700 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+            <p className="px-4 pb-3.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Payments in other categories still appear once they show a clear pattern — same amount, regular schedule, three or more times.
+            </p>
+            {dismissedRecurring.length > 0 && (
+              <div className="border-t border-slate-100 dark:border-slate-700 px-4 py-3.5">
+                <button
+                  onClick={() => setDismissedOpen(v => !v)}
+                  className="w-full flex items-center justify-between text-left mb-1"
+                >
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Dismissed predictions ({dismissedRecurring.length})
+                  </p>
+                  <ChevronDown size={13} className={`text-slate-400 transition-transform ${dismissedOpen ? "rotate-180" : ""}`} />
+                </button>
+                {dismissedOpen && (
+                <div className="space-y-1.5">
+                  {dismissedRecurring.map(key => (
+                    <div key={key} className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-600 dark:text-slate-300 truncate">{key}</p>
+                      <button
+                        onClick={() => restoreDismissed(key)}
+                        className="flex-shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400"
+                      >
+                        Restore
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                )}
+              </div>
             )}
           </div>
 

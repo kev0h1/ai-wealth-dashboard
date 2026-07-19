@@ -109,14 +109,14 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
   return (
     <button
       onClick={onClick}
-      className={`${fullWidth || grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-md overflow-hidden relative ${!meta ? "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700" : ""}`}
+      className={`${fullWidth || grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-sm overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${!meta ? "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500" : ""}`}
       style={meta ? { background: meta.bg, color: "#fff" } : undefined}
     >
       {/* Top: badge + type chip */}
       <div className="flex items-start justify-between mb-3">
         <BankBadge meta={meta} providerRaw={account.provider ?? "?"} />
         <span
-          className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5"
+          className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5"
           style={meta
             ? { background: "rgba(255,255,255,0.2)", color: "#fff" }
             : { background: isCredit ? "#fee2e2" : "#e0e7ff", color: isCredit ? "#b91c1c" : "#4338ca" }}
@@ -158,7 +158,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         </p>
       )}
 
-      <div className="absolute -bottom-5 -right-5 w-20 h-20 rounded-full opacity-10 bg-white pointer-events-none" />
+      <div aria-hidden="true" className="absolute -bottom-5 -right-5 w-20 h-20 rounded-full opacity-10 bg-white pointer-events-none" />
 
       {/* Pin-to-Home toggle — bottom-right, yields to the expired pill */}
       {onTogglePin && account.status !== "expired" && (

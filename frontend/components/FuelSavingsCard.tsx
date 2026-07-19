@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Fuel, ChevronDown, MapPin } from "lucide-react";
+import { Fuel, ChevronDown, MapPin, Pin } from "lucide-react";
 import { api, FuelNearby } from "@/lib/api";
+import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 
 const FUEL_GRADES: { key: string; short: string }[] = [
   { key: "E10",         short: "Petrol"  },
@@ -12,6 +13,8 @@ const FUEL_GRADES: { key: string; short: string }[] = [
 ];
 
 export default function FuelSavingsCard() {
+  const { pinned, toggle } = useHomePinnedCards();
+  const isPinned = pinned.includes("fuel");
   const [grade, setGrade] = useState("E10");
   const [result, setResult] = useState<FuelNearby | null>(null);
   const [loading, setLoading] = useState(false);
@@ -94,19 +97,30 @@ export default function FuelSavingsCard() {
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 text-left"
-      >
-        <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
-          <Fuel size={16} className="text-amber-600 dark:text-amber-300" />
-        </div>
-        <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Fuel prices nearby</p>
-        <ChevronDown
-          size={18}
-          className={`text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
-        />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex-1 flex items-center gap-2 text-left min-w-0"
+        >
+          <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center flex-shrink-0">
+            <Fuel size={16} className="text-amber-600 dark:text-amber-300" />
+          </div>
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Fuel prices nearby</p>
+          <ChevronDown
+            size={18}
+            className={`text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+          />
+        </button>
+        <button
+          onClick={() => toggle("fuel")}
+          title={isPinned ? "Unpin from Home" : "Pin to Home"}
+          aria-label={isPinned ? "Unpin from Home" : "Pin to Home"}
+          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${isPinned ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-500" : "text-slate-300 dark:text-slate-600 hover:text-indigo-400"}`}
+        >
+          <Pin size={13} className={isPinned ? "fill-indigo-400" : ""} />
+        </button>
+      </div>
 
       {!expanded ? (
         <div
@@ -127,7 +141,7 @@ export default function FuelSavingsCard() {
         </div>
       ) : (
         <>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-3 mb-4 leading-relaxed">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 mb-4 leading-relaxed">
             Pick your fuel type and we&apos;ll find the cheapest stations near you.
           </p>
 
@@ -136,7 +150,8 @@ export default function FuelSavingsCard() {
               <button
                 key={g.key}
                 onClick={() => selectGrade(g.key)}
-                className={`py-1.5 rounded-lg text-[12px] font-semibold transition-all ${
+                aria-pressed={grade === g.key}
+                className={`py-2 rounded-lg text-[12px] font-semibold transition-all ${
                   grade === g.key ? "bg-amber-500 text-white shadow-sm" : "text-slate-500 dark:text-slate-400"
                 }`}
               >
@@ -145,7 +160,7 @@ export default function FuelSavingsCard() {
             ))}
           </div>
 
-          {loading && !stations && <p className="text-xs text-slate-400 mb-2">Finding cheaper fuel nearby…</p>}
+          {loading && !stations && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Finding cheaper fuel nearby…</p>}
           {error && <p className="text-xs text-rose-500 mb-2">{error}</p>}
 
           {needsLocation && !stations && (
@@ -153,7 +168,7 @@ export default function FuelSavingsCard() {
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">We need your location to find nearby stations.</p>
               <button
                 onClick={() => getDeviceLocation(grade)}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 text-white text-[13px] font-semibold active:scale-95"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 text-white text-sm font-semibold active:scale-95"
               >
                 <MapPin size={14} /> Use my current location
               </button>
@@ -168,7 +183,7 @@ export default function FuelSavingsCard() {
 
           {stations && (
             <>
-              <p className="text-[13px] text-slate-600 dark:text-slate-300 mb-3">
+              <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">
                 Cheapest {stations.grade_label.toLowerCase()} nearby is{" "}
                 <span className="font-bold">{stations.cheapest_ppl}p/l</span>.
               </p>
@@ -176,13 +191,13 @@ export default function FuelSavingsCard() {
                 {stations.stations.map((s, i) => (
                   <li key={s.node_id} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-medium text-slate-800 dark:text-slate-200 truncate">
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
                         {s.brand || s.name || "Station"}
-                        {i === 0 && <span className="ml-1.5 text-[10px] font-semibold text-amber-600">CHEAPEST</span>}
+                        {i === 0 && <span className="ml-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">CHEAPEST</span>}
                       </p>
-                      <p className="text-[11px] text-slate-400">{s.distance_km} km · {s.postcode || s.city}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{s.distance_km} km · {s.postcode || s.city}</p>
                     </div>
-                    <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">{s.ppl}p</span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">{s.ppl}p</span>
                   </li>
                 ))}
               </ul>

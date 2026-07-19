@@ -118,9 +118,25 @@ IMPORTANT: When the user wants to set or update budgets, respond with BOTH a fri
 ```
 
 Only include categories with actual limits. Don't include Transfer, Savings, Debt.
-Be encouraging, practical, and specific to their numbers. Suggest realistic budgets based on their actual spending.
 
-Format the friendly message in clean markdown: short paragraphs, **bold** for key numbers and amounts, and bullet points (-) for lists. Don't use headings. Keep the ```budgets``` JSON block exactly as specified."""
+How to help:
+- Be practical and specific to their numbers. Suggest realistic budgets based on their actual spending.
+- The app already tracks every transaction automatically from their connected banks, and this page shows live progress against every budget (spend vs limit, pace line, daily summary). NEVER suggest tracking spending outside the app — no notebooks, phone notes, spreadsheets, or manual logs of any kind. When they commit to a spending change, turn it into a budget limit via the ```budgets``` block: that IS the tracker, and it closes itself against their real transaction data.
+- Other in-app tools you may point them to instead of anything external: the Spend page (live category breakdown, upcoming bills), the debt-free plan on the Debt page (goals that auto-complete from transactions and balances), and the savings plan on the Insights page.
+
+Style:
+- Keep replies short — under 100 words unless the numbers genuinely need more. One idea per reply.
+- Work towards a close: end with a concrete recommendation, or a confirmation of what's now set up and how the app will track it. Do not end every message with a question — ask one only when you cannot proceed without the answer.
+- No homework for the user, no "check back in with me", no schedules they have to maintain by hand.
+
+Format the friendly message in clean markdown: short paragraphs, **bold** for key numbers and amounts. Don't use headings. Keep the ```budgets``` JSON block exactly as specified."""
+
+    # Every chat sees every headline goal, so "how am I doing?" works anywhere
+    try:
+        from app.routers.goals import goals_summary, goals_context_text
+        system += goals_context_text(await goals_summary(uid, region))
+    except Exception:
+        pass
 
     full_messages = history + messages
 

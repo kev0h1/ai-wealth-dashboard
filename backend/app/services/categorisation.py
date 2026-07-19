@@ -104,6 +104,32 @@ def _name_token_hits(description: str, name_tokens: list[str]) -> int:
     return hits
 
 
+def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
+    """Does this text carry the user's own name? Two full token matches, or one
+    full token plus a single-letter initial ('K M Maingi' → maingi + K)."""
+    full_hits = _name_token_hits(text, name_tokens)
+    if full_hits >= 2:
+        return True
+    if full_hits == 0:
+        return False
+    initials = {t[0] for t in name_tokens if t}
+    words = re.split(r"[^a-zA-Z]+", text.lower())
+    initial_hits = sum(1 for w in words if len(w) == 1 and w in initials)
+    return initial_hits >= 1
+
+
+def is_own_transfer(text: str, identity: dict) -> bool:
+    """True when a payment is corroborated as moving between the user's own
+    accounts: their own account/sort-code digits, or their own name.
+    With no identity data at all we can't judge — treat as own (legacy)."""
+    if not identity["name_tokens"] and not identity["own_ids"]:
+        return True
+    digits = set(re.findall(r"\d{6,}", text))
+    if any(oid in digits for oid in identity["own_ids"]):
+        return True
+    return name_matches_owner(text, identity["name_tokens"])
+
+
 def classify_ft(description: str, amount: float, identity: dict) -> Optional[str]:
     """Classify a TrueLayer 'FT' (funds transfer) transaction.
     Returns a category, or None if the description isn't an FT line."""
@@ -117,7 +143,7 @@ def classify_ft(description: str, amount: float, identity: dict) -> Optional[str
     # meaningful once we know the user's name. Until then, leave it be.
     if not identity["name_tokens"]:
         return None
-    if _name_token_hits(desc, identity["name_tokens"]) >= 2:
+    if name_matches_owner(desc, identity["name_tokens"]):
         return "Transfer"
     return "Income" if amount > 0 else "Other"
 
@@ -128,22 +154,35 @@ _CHANNEL_CODES = {
     "FP", "FPI", "FPO", "BP", "TFR", "DD", "SO",
 }
 
+# Bank-statement date fragments: '29MAY', '29 MAY', 'ON 05 JUN 26'. They change
+# every billing cycle, so any key or match that includes one can never learn.
+_MONTHS = r'(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)'
+DATE_FRAGMENT_RE = re.compile(r'\b(?:ON\s+)?\d{1,2}\s*' + _MONTHS + r'(?:\s*\d{2,4})?\b', re.I)
+# For prefix-anchored similar-matching: an optional leading date on stored rows
+LEADING_DATE_RE = r'(?:(?:ON\s+)?\d{1,2}\s*' + _MONTHS + r'(?:\s*\d{2,4})?\s+)?'
+
+
+def strip_date_fragments(text: str) -> str:
+    """Remove date fragments anywhere in the text (leading, trailing, embedded)."""
+    return re.sub(r'\s{2,}', ' ', DATE_FRAGMENT_RE.sub(' ', text or '')).strip()
+
 
 def normalise_merchant(merchant: str, description: str = "") -> str:
     """Reduce a merchant/description to a stable lowercase key for cache lookup.
 
-    Prefers a real merchant name; otherwise strips the Barclays-style template
-    noise from the description (trailing date fragments, reference numbers, and
-    channel codes) so 'TESCO 1234 ON 05 JUN CLP' and 'TESCO 5678 ON 11 JUL CLP'
-    collapse to the same key.
+    Prefers a real merchant name; otherwise strips the statement template noise
+    (date fragments anywhere, reference numbers, channel codes) so
+    '29APR A/C 76526682' and '29MAY A/C 76526682' collapse to the same key.
     """
     base = (merchant or "").strip()
     if not base:
-        base = (description or "").strip()
-        # Drop trailing "ON 05 JUN ..." / "05 JUN ..." date fragments and anything after.
-        base = re.sub(r'\s+(?:ON\s+)?\d{1,2}\s*[A-Z]{3}\b.*$', '', base, flags=re.I)
-        # Drop long reference / card numbers.
-        base = re.sub(r'\s+\d{4,}\b', ' ', base)
+        base = strip_date_fragments((description or "").strip())
+        # Drop long reference/card numbers — but only when enough alphabetic
+        # identity remains. For keys like 'A/C 76526682' the number IS the
+        # stable identity and must be kept.
+        without_numbers = re.sub(r'\s+\d{4,}\b', ' ', base)
+        if len(re.sub(r'[^a-zA-Z]', '', without_numbers)) >= 4:
+            base = without_numbers
         # Peel off one or more trailing known channel codes.
         while True:
             m = re.search(r'\s+([A-Za-z]{2,4})\s*$', base)

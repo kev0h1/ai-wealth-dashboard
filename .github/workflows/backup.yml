@@ -1,0 +1,53 @@
+name: Nightly Mongo backup to R2
+
+# M0 has no automated backups and Railway disk is ephemeral, so a GitHub-hosted
+# runner dumps the Atlas database and pushes it to Cloudflare R2 (S3-compatible).
+# Requires repo secrets: BACKUP_MONGO_URI, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+# R2_ENDPOINT (e.g. https://<account>.r2.cloudflarestorage.com), R2_BUCKET.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"      # 03:00 UTC daily
+  workflow_dispatch: {}       # allow manual runs from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install MongoDB database tools
+        run: |
+          wget -q https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.deb
+          sudo dpkg -i mongodb-database-tools-*.deb
+
+      - name: Dump database (gzip archive)
+        run: |
+          STAMP=$(date -u +%Y%m%d-%H%M%S)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          mongodump --uri="${{ secrets.BACKUP_MONGO_URI }}" \
+            --db=wealth --gzip --archive="wealth-$STAMP.gz"
+
+      - name: Upload to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3 cp "wealth-${STAMP}.gz" \
+            "s3://${{ secrets.R2_BUCKET }}/mongo/wealth-${STAMP}.gz" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+
+      - name: Prune backups older than 30 days
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          CUTOFF=$(date -u -d '30 days ago' +%Y-%m-%d)
+          aws s3 ls "s3://${{ secrets.R2_BUCKET }}/mongo/" \
+            --endpoint-url "${{ secrets.R2_ENDPOINT }}" | awk '{print $4}' | while read -r f; do
+              [ -z "$f" ] && continue
+              d=$(echo "$f" | grep -oE '[0-9]{8}' | head -1)
+              [ -z "$d" ] && continue
+              fd=$(date -u -d "${d:0:4}-${d:4:2}-${d:6:2}" +%Y-%m-%d 2>/dev/null) || continue
+              if [[ "$fd" < "$CUTOFF" ]]; then
+                aws s3 rm "s3://${{ secrets.R2_BUCKET }}/mongo/$f" --endpoint-url "${{ secrets.R2_ENDPOINT }}"
+              fi
+            done

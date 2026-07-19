@@ -1,8 +1,55 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, Settings, Target, Lightbulb } from "lucide-react";
+import { api } from "@/lib/api";
+
+// Ambient awareness: a quiet count of new insights on the tab icon.
+// Cached 5 minutes so navigating between pages doesn't hammer the API.
+// State badge (not seen-clearable): bills due in 7 days their account can't cover
+function useAtRiskCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("wd_spend_badge");
+      if (cached) {
+        const { n, at } = JSON.parse(cached);
+        setCount(n);
+        if (Date.now() - at < 5 * 60_000) return;
+      }
+    } catch {}
+    api.atRiskCount()
+      .then(({ count: n }) => {
+        setCount(n);
+        try { localStorage.setItem("wd_spend_badge", JSON.stringify({ n, at: Date.now() })); } catch {}
+      })
+      .catch(() => {});
+  }, []);
+  return count;
+}
+
+function useNewInsightCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("wd_insight_badge");
+      if (cached) {
+        const { n, at } = JSON.parse(cached);
+        setCount(n);
+        if (Date.now() - at < 5 * 60_000) return;
+      }
+    } catch {}
+    api.newInsightCount()
+      .then(({ count: n }) => {
+        setCount(n);
+        try { localStorage.setItem("wd_insight_badge", JSON.stringify({ n, at: Date.now() })); } catch {}
+      })
+      .catch(() => {});
+  }, []);
+  return count;
+}
 
 const tabs = [
   { href: "/", label: "Home", Icon: Home },
@@ -14,6 +61,8 @@ const tabs = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const newInsights = useNewInsightCount();
+  const atRisk = useAtRiskCount();
 
   return (
     <nav
@@ -39,12 +88,23 @@ export default function BottomNav() {
                   aria-hidden="true"
                 />
               )}
-              <Icon
-                size={22}
-                strokeWidth={active ? 2.5 : 1.8}
-                color={active ? "#4f46e5" : "#94a3b8"}
-                className="relative"
-              />
+              <span className="relative">
+                <Icon
+                  size={22}
+                  strokeWidth={active ? 2.5 : 1.8}
+                  color={active ? "#4f46e5" : "#94a3b8"}
+                />
+                {href === "/insights" && newInsights > 0 && (
+                  <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-violet-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    {newInsights}
+                  </span>
+                )}
+                {href === "/spend" && atRisk > 0 && (
+                  <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    {atRisk}
+                  </span>
+                )}
+              </span>
               <span
                 className={`relative text-[11px] font-medium leading-none`}
                 style={{ color: active ? "#4f46e5" : "#94a3b8" }}

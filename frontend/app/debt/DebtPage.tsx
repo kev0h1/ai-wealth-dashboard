@@ -918,6 +918,19 @@ function fmtMonth(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
 }
 
+function useIsDark() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const update = () => setDark(el.classList.contains("dark"));
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(el, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+
 export function DebtBurndownCard({
   data, mode, onModeChange, targetMonths, onTargetChange, monthlyPayment, onMonthlyPaymentChange,
   effectiveTargetMonths, trackingStart, onTrackingStartChange, strategy, onStrategyChange, hideValues, sym,
@@ -942,6 +955,8 @@ export function DebtBurndownCard({
   monthlySurplus?: number;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isDark = useIsDark();
+  const tickFill = isDark ? "#94a3b8" : "#64748b";
   const today = new Date().toISOString().slice(0, 7);
   const todayIdx = data.burndown.findIndex(p => p.month === today);
 
@@ -1048,14 +1063,14 @@ export function DebtBurndownCard({
             <ComposedChart data={chartData} margin={{ top: 36, right: 8, bottom: 0, left: 0 }}>
               <XAxis
                 dataKey="month"
-                tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 300 }}
+                tick={{ fontSize: 10, fill: tickFill, fontWeight: 300 }}
                 tickLine={false}
                 axisLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
                 tickFormatter={yFmt}
-                tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 300 }}
+                tick={{ fontSize: 10, fill: tickFill, fontWeight: 300 }}
                 tickLine={false}
                 axisLine={false}
                 width={44}
@@ -1083,9 +1098,9 @@ export function DebtBurndownCard({
               {todayIdx >= 0 && (
                 <ReferenceLine
                   x={chartData[todayIdx]?.month}
-                  stroke="#94a3b8"
+                  stroke={tickFill}
                   strokeDasharray="4 4"
-                  label={{ value: "Today", position: "insideBottomRight", fontSize: 9, fill: "#94a3b8" }}
+                  label={{ value: "Today", position: "insideBottomRight", fontSize: 9, fill: tickFill }}
                 />
               )}
               <defs>

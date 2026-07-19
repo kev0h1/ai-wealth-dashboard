@@ -36,6 +36,11 @@ async def get_preferences(user: dict = Depends(current_user)):
         "pension_annual":     doc.get("pension_annual", 0),
         "has_child_benefit":  doc.get("has_child_benefit", False),
         "home_pinned_accounts": doc.get("home_pinned_accounts", []),
+        "home_pinned_cards":  doc.get("home_pinned_cards", []),
+        "spend_widgets":      doc.get("spend_widgets"),
+        "home_pinned_widget": doc.get("home_pinned_widget"),
+        "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"],
+        "dismissed_recurring":  doc.get("dismissed_recurring", []),
     }
     if "debt_tracking_start" in doc:
         result["debt_tracking_start"] = doc["debt_tracking_start"]

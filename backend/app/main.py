@@ -11,6 +11,7 @@ from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
     chat_sessions_col, episodic_memory_col, user_categories_col,
     budgets_col, mono_connections_col, mono_accounts_col, mono_transactions_col,
+    statement_transactions_col, mpesa_transactions_col,
     savings_insights_col, savings_labels_col,
     subscriptions_col, subscription_usage_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
@@ -24,6 +25,7 @@ from app.routers import (
     analytics, budget, debt, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
+    goals, logos,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -52,7 +54,7 @@ for router in [
     challenges.router, savings_insights.router, savings.router, admin.router,
     manual_accounts.router, profile.router, money_basics.router,
     fuel.router, baskets.router, subscription_router.router, transport.router,
-    webhooks.router,
+    webhooks.router, goals.router, logos.router,
 ]:
     app.include_router(router)
 
@@ -67,6 +69,16 @@ async def _create_indexes():
     await transactions_col.create_index("account_id")
     await transactions_col.create_index("date")
     await transactions_col.create_index("user_id")
+    # Compound indexes for the paginated per-account list (filter + sort in one)
+    # and the cross-account queries (user_id + date range).
+    await transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
+    await transactions_col.create_index([("user_id", 1), ("date", -1)])
+    await yapily_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
+    await yapily_transactions_col.create_index([("user_id", 1), ("date", -1)])
+    await statement_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
+    await statement_transactions_col.create_index([("user_id", 1), ("date", -1)])
+    await mpesa_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
+    await mono_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
     await accounts_col.create_index("connection_id")
     await accounts_col.create_index("user_id")
     await connections_col.create_index("user_id")

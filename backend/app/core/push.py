@@ -88,4 +88,4 @@ async def notify_new_transactions(user_id: str, new_txns: list) -> None:
         body  = " · ".join(p for p in parts if p)
         if len(new_txns) > 2:
             body += f" +{len(new_txns) - 2} more"
-    await send_push_to_user(user_id, title, body)
+    await send_push_to_user(user_id, title, body, "/spend?view=list")

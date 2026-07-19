@@ -16,19 +16,18 @@ from app.db.collections import (
 from app.services.categorisation import (
     RAW_TRUELAYER_CATEGORIES, VALID_CATEGORIES,
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
-    normalise_merchant, cache_merchant,
+    normalise_merchant, cache_merchant, strip_date_fragments, LEADING_DATE_RE,
 )
 
 router = APIRouter(tags=["transactions"])
 
 
 def _description_stem(desc: str) -> str:
-    s = desc.strip()
+    # Dates anywhere in the description change every cycle — never part of identity
+    s = strip_date_fragments(desc.strip())
     s = re.sub(r'\s+[A-Z]{2,4}\s*$', '', s).strip()
-    s = re.sub(r'\s+(?:ON\s+)?\d{1,2}\s+[A-Z]{3}\b.*$', '', s, flags=re.I).strip()
-    s = re.sub(r'\s+\d{2}[A-Z]{3}\b.*$', '', s, flags=re.I).strip()
     s = re.sub(r'\s+\d{6,}\s*$', '', s).strip()
-    return s or desc
+    return s or strip_date_fragments(desc) or desc
 
 
 def _doc_to_tx(d) -> Transaction:
@@ -53,39 +52,122 @@ async def oldest_transaction(user: dict = Depends(current_user)):
     return {"date": oldest.strftime("%Y-%m-%d") if oldest else None}
 
 
-@router.get("/accounts/{account_id}/transactions", response_model=List[Transaction])
-async def get_transactions(account_id: str, days: int = 90, user: dict = Depends(current_user)):
-    uid    = user["email"]
-    cutoff = datetime.now() - timedelta(days=days)
-
+async def _txn_source(account_id: str, uid: str):
+    """Which collection holds this account's transactions."""
     if account_id.startswith("mono-"):
-        docs = await mono_transactions_col.find(
-            {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
-        ).sort("date", -1).to_list(None)
-        return [_doc_to_tx(d) for d in docs]
-
+        return mono_transactions_col
     if account_id.startswith("mpesa-"):
-        docs = await mpesa_transactions_col.find(
-            {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
-        ).sort("date", -1).to_list(None)
-        return [_doc_to_tx(d) for d in docs]
-
+        return mpesa_transactions_col
     if account_id.startswith("statement-"):
-        docs = await statement_transactions_col.find(
-            {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
-        ).sort("date", -1).to_list(None)
-        return [_doc_to_tx(d) for d in docs]
+        return statement_transactions_col
+    if await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid}, {"_id": 1}):
+        return yapily_transactions_col
+    return transactions_col
 
-    yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if yapily_acc:
-        docs = await yapily_transactions_col.find(
-            {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
-        ).sort("date", -1).to_list(None)
-        return [_doc_to_tx(d) for d in docs]
 
-    docs = await transactions_col.find(
-        {"account_id": account_id, "user_id": uid, "date": {"$gte": cutoff}}
-    ).sort("date", -1).to_list(None)
+def _category_clause(cat: str) -> dict:
+    """Match on the effective category (custom_category overrides category)."""
+    no_custom = {"custom_category": {"$in": [None, ""]}}
+    if cat == "Other":
+        return {"$or": [
+            {"custom_category": "Other"},
+            {**no_custom, "category": {"$in": [None, "", "Other"]}},
+        ]}
+    return {"$or": [{"custom_category": cat}, {**no_custom, "category": cat}]}
+
+
+@router.get("/accounts/{account_id}/transactions")
+async def get_transactions(
+    account_id: str,
+    page: int = 1,
+    page_size: int = 20,
+    q: Optional[str] = None,
+    category: Optional[str] = None,
+    days: Optional[int] = None,
+    txn_type: Optional[str] = None,
+    user: dict = Depends(current_user),
+):
+    """Paginated, searchable transaction list for one account.
+
+    Pagination, search and category filtering are server-side so the payload
+    stays constant no matter how much history accumulates."""
+    uid       = user["email"]
+    col       = await _txn_source(account_id, uid)
+    page      = max(1, page)
+    page_size = max(1, min(page_size, 100))
+
+    base: dict = {"account_id": account_id, "user_id": uid}
+    if days:
+        base["date"] = {"$gte": datetime.now() - timedelta(days=days)}
+    if txn_type in ("debit", "credit"):
+        base["transaction_type"] = txn_type
+    clauses = [base]
+    if q and q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        clauses.append({"$or": [
+            {"description": rx}, {"merchant_name": rx},
+            {"category": rx}, {"custom_category": rx},
+        ]})
+    if category:
+        clauses.append(_category_clause(category))
+    query = clauses[0] if len(clauses) == 1 else {"$and": clauses}
+
+    total = await col.count_documents(query)
+    docs  = await (
+        col.find(query).sort("date", -1)
+        .skip((page - 1) * page_size).limit(page_size)
+        .to_list(page_size)
+    )
+    return {
+        "items": [_doc_to_tx(d) for d in docs],
+        "total": total,
+        "page":  page,
+        "pages": max(1, -(-total // page_size)),
+    }
+
+
+@router.get("/accounts/{account_id}/categories")
+async def get_account_categories(account_id: str, days: int = 90, user: dict = Depends(current_user)):
+    """Spend-by-category rollup for one account (debits only), aggregated in
+    Mongo so the client never needs the full transaction set."""
+    uid    = user["email"]
+    col    = await _txn_source(account_id, uid)
+    cutoff = datetime.now() - timedelta(days=days)
+    effective = {"$switch": {"branches": [
+        {"case": {"$gt": ["$custom_category", ""]}, "then": "$custom_category"},
+        {"case": {"$gt": ["$category", ""]}, "then": "$category"},
+    ], "default": "Other"}}
+    rows = await col.aggregate([
+        {"$match": {"account_id": account_id, "user_id": uid,
+                    "transaction_type": "debit", "date": {"$gte": cutoff}}},
+        {"$group": {"_id": effective,
+                    "total": {"$sum": {"$abs": "$amount"}},
+                    "count": {"$sum": 1}}},
+        {"$sort": {"total": -1}},
+    ]).to_list(None)
+    total_spend = sum(r["total"] for r in rows)
+    return [
+        {"name": r["_id"], "total": round(r["total"], 2), "count": r["count"],
+         "pct": (r["total"] / total_spend * 100) if total_spend > 0 else 0.0}
+        for r in rows
+    ]
+
+
+@router.get("/transactions", response_model=List[Transaction])
+async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
+    """Every transaction across all sources in one round-trip.
+
+    Replaces the N+1 pattern where pages fetched per-account (23 calls for a
+    23-account user) and filtered client-side."""
+    uid    = user["email"]
+    cutoff = datetime.now() - timedelta(days=min(days, 730))
+    docs: list = []
+    for col in (transactions_col, yapily_transactions_col,
+                statement_transactions_col, mono_transactions_col, mpesa_transactions_col):
+        docs += await col.find(
+            {"user_id": uid, "date": {"$gte": cutoff}}
+        ).to_list(None)
+    docs.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
     return [_doc_to_tx(d) for d in docs]
 
 
@@ -108,7 +190,13 @@ async def similar_transactions(transaction_id: str, scope: str = "all", user: di
         match["merchant_name"] = merchant
     else:
         stem = _description_stem(description)
-        match["description"] = re.compile(r'^\s*' + re.escape(stem), re.IGNORECASE)
+        # "Similar to nothing" is an empty set, not everything — a blank stem
+        # would otherwise regex-match every transaction the user has
+        if len(stem.strip()) < 3:
+            return []
+        # Stored rows may carry a leading date fragment ('29MAY A/C …') —
+        # allow it so the same bill matches across months
+        match["description"] = re.compile(r'^\s*' + LEADING_DATE_RE + re.escape(stem), re.IGNORECASE)
     if scope == "future":
         match["date"] = {"$gte": ref["date"]}
 
@@ -144,7 +232,15 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
         ).to_list(None)
         for d in touched:
             key = normalise_merchant(d.get("merchant_name") or "", d.get("description") or "")
-            await cache_merchant(key, category, "user")
+            if len(key.strip()) >= 3:  # a blank key would "learn" a match-anything entry
+                await cache_merchant(key, category, "user")
+
+    # Category changes move money in/out of the Transfer exclusion and the
+    # trusted recurring categories — refresh the upcoming-payments cache in the
+    # background (same in-process fire-and-forget pattern the manual sync uses)
+    from app.routers.analytics import compute_and_cache_cashflow
+    import asyncio as _asyncio
+    _asyncio.create_task(compute_and_cache_cashflow(user["email"], clear_ai_cache=False))
 
     return {"updated": transaction_id, "custom_category": category, "bulk_count": bulk_count}
 

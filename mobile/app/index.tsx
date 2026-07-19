@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from "react";
-import { StyleSheet, BackHandler, View, ActivityIndicator, StatusBar, Platform, Linking } from "react-native";
+import { StyleSheet, BackHandler, View, Text, TouchableOpacity, ActivityIndicator, StatusBar, Platform, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView, WebViewMessageEvent, WebViewNavigation } from "react-native-webview";
 import {
@@ -7,6 +7,9 @@ import {
   isSuccessResponse,
 } from "@react-native-google-signin/google-signin";
 import * as WebBrowser from "expo-web-browser";
+import * as LocalAuthentication from "expo-local-authentication";
+import * as SecureStore from "expo-secure-store";
+import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -103,9 +106,32 @@ export default function App() {
   const webViewRef = useRef<WebView>(null);
   const loggingIn = useRef(false);
   const pushRegisteredFor = useRef<string | null>(null);
+  const firstLoadDone = useRef(false);
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sourceUri, setSourceUri] = useState(DASHBOARD_URL);
+  // null = checking, false = locked, true = go
+  const [unlocked, setUnlocked] = useState<boolean | null>(null);
+
+  const tryUnlock = useCallback(async () => {
+    try {
+      const pref = await SecureStore.getItemAsync("biometric_lock");
+      if (pref === "0") { setUnlocked(true); return; } // user turned the lock off
+      const [hasHardware, enrolled] = await Promise.all([
+        LocalAuthentication.hasHardwareAsync(),
+        LocalAuthentication.isEnrolledAsync(),
+      ]);
+      if (!hasHardware || !enrolled) { setUnlocked(true); return; } // no biometrics set up — don't lock the user out
+      const res = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Unlock your dashboard",
+      });
+      setUnlocked(res.success ? true : false);
+    } catch {
+      setUnlocked(true); // never brick the app on an auth-layer error
+    }
+  }, []);
+
+  useEffect(() => { tryUnlock(); }, [tryUnlock]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -116,15 +142,42 @@ export default function App() {
   }, []);
 
   // Tapping a push notification opens the app to the notification's target URL.
+  // If a page is already loaded, navigate in-place (a source-prop change is
+  // ignored when the string is identical, e.g. two transaction pushes in a row);
+  // otherwise point the WebView's initial load at the target.
+  const openPushUrl = useCallback((url: unknown) => {
+    if (typeof url !== "string" || !url) return;
+    const full = url.startsWith("http") ? url : `${DASHBOARD_URL}${url}`;
+    if (webViewRef.current && firstLoadDone.current) {
+      webViewRef.current.injectJavaScript(`window.location.assign(${JSON.stringify(full)}); true;`);
+    } else {
+      setLoading(true);
+      setSourceUri(full);
+    }
+  }, []);
+
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const url = response.notification.request.content.data?.url;
-      if (typeof url === "string" && url) {
-        setSourceUri(url.startsWith("http") ? url : `${DASHBOARD_URL}${url}`);
-      }
+      openPushUrl(response.notification.request.content.data?.url);
+      Notifications.clearLastNotificationResponseAsync().catch(() => {});
     });
     return () => sub.remove();
-  }, []);
+  }, [openPushUrl]);
+
+  // The listener above never fires for the tap that launched the app from a
+  // killed state — that response has to be fetched (and cleared, so a later
+  // normal launch doesn't replay it).
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        const url = response?.notification.request.content.data?.url;
+        if (url) {
+          openPushUrl(url);
+          Notifications.clearLastNotificationResponseAsync().catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [openPushUrl]);
 
   // Reload the WebView with the session token so the website stores it and
   // logs itself in.
@@ -138,6 +191,9 @@ export default function App() {
       const msg = JSON.parse(e.nativeEvent.data);
       if (msg.type === "update") setDarkMode(!!msg.dark);
       else if (msg.type === "geo:request") handleGeoRequest(msg.id, msg.options);
+      else if (msg.type === "camera:request") handleCameraRequest(msg.id);
+      else if (msg.type === "biometrics:get") handleBiometricsGet(msg.id);
+      else if (msg.type === "biometrics:set") SecureStore.setItemAsync("biometric_lock", msg.enabled ? "1" : "0").catch(() => {});
       else if (msg.type === "auth" && msg.token) registerForPush(msg.token);
       else if (msg.type === "open_external" && msg.url) {
         // Use an in-app Chrome Custom Tab (Android) / SFSafariViewController (iOS)
@@ -147,6 +203,40 @@ export default function App() {
         });
       }
     } catch {}
+  }
+
+  // Web Settings asks whether the biometric lock is available and enabled
+  async function handleBiometricsGet(id: string) {
+    let supported = false;
+    let enabled = true;
+    try {
+      const [hasHardware, enrolled] = await Promise.all([
+        LocalAuthentication.hasHardwareAsync(),
+        LocalAuthentication.isEnrolledAsync(),
+      ]);
+      supported = hasHardware && enrolled;
+      enabled = (await SecureStore.getItemAsync("biometric_lock")) !== "0";
+    } catch {}
+    const js = `window.dispatchEvent(new CustomEvent('native-biometrics', { detail: ${JSON.stringify({ id, supported, enabled })} })); true;`;
+    webViewRef.current?.injectJavaScript(js);
+  }
+
+  // Native camera for receipt capture — the WebView file-input camera route is
+  // unreliable across Android WebView versions; this always works.
+  async function handleCameraRequest(id: string) {
+    const send = (payload: object) => {
+      const js = `window.dispatchEvent(new CustomEvent('native-camera', { detail: ${JSON.stringify({ id, ...payload })} })); true;`;
+      webViewRef.current?.injectJavaScript(js);
+    };
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { send({ error: "permission" }); return; }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.7, base64: true });
+      if (result.canceled || !result.assets?.[0]?.base64) { send({ error: "cancelled" }); return; }
+      send({ base64: result.assets[0].base64, mime: result.assets[0].mimeType ?? "image/jpeg" });
+    } catch {
+      send({ error: "failed" });
+    }
   }
 
   // Once the WebView reports a logged-in session token, register this device's
@@ -292,6 +382,37 @@ export default function App() {
   const navColor = darkMode ? BG_DARK : "#ffffff";
   const barStyle = darkMode ? "light-content" : "dark-content";
 
+  // Biometric gate: the dashboard is full financial data — require Face/
+  // fingerprint before rendering anything (devices without biometrics pass
+  // straight through)
+  if (unlocked !== true) {
+    return (
+      <>
+        <StatusBar backgroundColor={bgColor} barStyle={barStyle} translucent={false} />
+        <SafeAreaView style={[styles.container, { backgroundColor: bgColor, alignItems: "center", justifyContent: "center" }]}>
+          {unlocked === null ? (
+            <ActivityIndicator size="large" color="#4f46e5" />
+          ) : (
+            <View style={{ alignItems: "center", gap: 16, paddingHorizontal: 32 }}>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: darkMode ? "#e2e8f0" : "#0f172a" }}>
+                Dashboard locked
+              </Text>
+              <Text style={{ fontSize: 13, textAlign: "center", color: darkMode ? "#94a3b8" : "#64748b" }}>
+                Unlock with your fingerprint or face to see your finances.
+              </Text>
+              <TouchableOpacity
+                onPress={tryUnlock}
+                style={{ backgroundColor: "#4f46e5", paddingHorizontal: 28, paddingVertical: 12, borderRadius: 14 }}
+              >
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Unlock</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </SafeAreaView>
+      </>
+    );
+  }
+
   return (
     <>
       <StatusBar backgroundColor={bgColor} barStyle={barStyle} translucent={false} />
@@ -308,7 +429,7 @@ export default function App() {
           injectedJavaScriptBeforeContentLoaded={Platform.OS === "ios" ? GEO_POLYFILL_JS : undefined}
           injectedJavaScript={POST_LOAD_JS}
           onMessage={onMessage}
-          onLoadEnd={() => setLoading(false)}
+          onLoadEnd={() => { firstLoadDone.current = true; setLoading(false); }}
           allowsInlineMediaPlayback
           onShouldStartLoadWithRequest={onShouldStart}
         />

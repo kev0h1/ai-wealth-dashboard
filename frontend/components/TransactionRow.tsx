@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Transaction } from "@/lib/api";
+import { Transaction, logoUrl } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { formatDate } from "@/lib/payPeriod";
+import { formatCurrency } from "@/lib/currency";
 
 interface TransactionRowProps {
   transaction: Transaction;
@@ -102,7 +103,7 @@ function MerchantIcon({ transaction, colour }: { transaction: Transaction; colou
     return (
       <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden bg-white dark:bg-slate-700">
         <img
-          src={`https://logo.clearbit.com/${domain}?size=128`}
+          src={logoUrl(domain)}
           alt={name}
           onError={() => setImgFailed(true)}
           className="w-7 h-7 object-contain"
@@ -147,7 +148,7 @@ export default function TransactionRow({
         <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
           {displayName(transaction)}
         </p>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           {formatDate(transaction.date)}
           {transaction.category ? ` · ${transaction.category}` : ""}
         </p>
@@ -159,11 +160,8 @@ export default function TransactionRow({
           isCredit ? "text-emerald-500" : "text-slate-800 dark:text-slate-100"
         }`}
       >
-        {isCredit ? "+" : "-"}£
-        {Math.abs(amount).toLocaleString("en-GB", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}
+        {isCredit ? "+" : "-"}
+        {formatCurrency(amount, transaction.currency)}
       </span>
     </button>
   );

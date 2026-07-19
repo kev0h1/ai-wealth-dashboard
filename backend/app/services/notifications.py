@@ -24,6 +24,8 @@ NOTIF_DEFAULTS = {
     "budget_alerts":   True,
     "goal_milestones": True,
     "insights":        True,
+    "period_digest":   True,
+    "bill_alerts":     True,
 }
 
 # Outflows that aren't real consumption — never counted against a budget.
@@ -49,6 +51,7 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
         ("budget_alerts", _maybe_budget_exceeded(user_id, region)),
         ("goal_milestones", _maybe_goal_funded(user_id, region)),
         ("insights", _maybe_new_insights(user_id)),
+        ("bill_alerts", _maybe_bill_shortfall(user_id, region)),
     ):
         try:
             await coro
@@ -169,4 +172,120 @@ async def _maybe_new_insights(user_id: str) -> None:
         await send_push_to_user(user_id, title, top.title, "/insights")
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"seen_insights": current_ids}}, upsert=True,
+    )
+
+
+async def _maybe_bill_shortfall(user_id: str, region: str) -> None:
+    if not await notif_pref(user_id, "bill_alerts"):
+        return
+
+    from app.db.collections import cashflow_cache_col
+    from app.routers.analytics import _build_cashflow_response
+
+    cached = await cashflow_cache_col.find_one({"_id": user_id})
+    if not cached:
+        return
+    resp = _build_cashflow_response(cached)
+    upcoming_bills = resp.get("upcoming_bills") or []
+
+    at_risk = [
+        b for b in upcoming_bills
+        if b["days_away"] <= 7
+        and b.get("account_balance") is not None
+        and b["account_balance"] >= 0
+        and b["amount"] > b["account_balance"]
+    ]
+    if not at_risk:
+        return
+
+    prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
+    pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
+    start, _end = get_pay_period_for_date(_date.today(), pay_config)
+    period_key = start.isoformat()
+
+    state = await _state(user_id)
+    already: list[str] = (state.get("bill_shortfall") or {}).get(period_key, [])
+
+    sym = "KES " if region == "Kenya" else "£"
+    newly: list[str] = []
+    for b in at_risk:
+        name = b["name"]
+        if name in already:
+            continue
+        days = b["days_away"]
+        if days == 0:
+            timing = "today"
+        elif days == 1:
+            timing = "tomorrow"
+        else:
+            timing = f"in {days}d"
+        account_label = b.get("account_bank") or "your account"
+        body = (
+            f"{name} ({sym}{b['amount']:,.2f}) is due {timing}"
+            f" — {account_label} only has {sym}{b['account_balance']:,.2f}."
+        )
+        await send_push_to_user(user_id, "Bill may not clear", body, "/spend?view=upcoming")
+        newly.append(name)
+
+    if not newly:
+        return
+    await notification_state_col.update_one(
+        {"_id": user_id},
+        {"$set": {f"bill_shortfall.{period_key}": already + newly}},
+        upsert=True,
+    )
+
+
+async def send_period_digest(user_id: str) -> None:
+    """Fresh-start digest on the first day of a new pay period.
+
+    One push: how last period went against the budget, plus the standing
+    headline goals. This is the primary re-encounter moment for goals —
+    the scoreboard comes to the user instead of living on a page they
+    have to remember to visit.
+    """
+    if not await notif_pref(user_id, "period_digest"):
+        return
+    prefs = await preferences_col.find_one({"user_id": user_id}) or {}
+    pay_config = prefs.get("pay_period_config", {"type": "calendar_month"})
+    today = _date.today()
+    start, _end = get_pay_period_for_date(today, pay_config)
+    if start != today:
+        return  # not a period boundary
+    state = await _state(user_id)
+    if state.get("last_digest_period") == start.isoformat():
+        return  # already sent for this period
+
+    region = prefs.get("region", "UK")
+    sym = "KES " if region == "Kenya" else "£"
+    from app.routers.goals import goals_summary, budget_period_spend
+    from app.services.pay_period import prev_pay_period
+
+    parts: list[str] = []
+
+    # How last period went against the budget (the fresh-start hook)
+    budget_doc = await budgets_col.find_one({"user_id": user_id, "region": region})
+    limits = {b["category"]: b["monthly_limit"]
+              for b in (budget_doc or {}).get("budgets") or [] if b.get("monthly_limit")}
+    if limits and region != "Kenya":
+        prev_start, prev_end = prev_pay_period(start, pay_config)
+        spend = await budget_period_spend(user_id, prev_start, prev_end)
+        spent = sum(max(0.0, spend.get(c, 0.0)) for c in limits)
+        total = sum(limits.values())
+        verdict = "under" if spent <= total else "over"
+        parts.append(f"Last period: {sym}{spent:,.0f} of {sym}{total:,.0f} budgeted ({verdict})")
+
+    # Standing goals (skip budget — covered above with last period's numbers)
+    for g in await goals_summary(user_id, region):
+        if g["pillar"] != "budget":
+            parts.append(f"{g['label']}: {g['detail']}")
+
+    if not parts:
+        return
+    body = " · ".join(parts)
+    if len(body) > 175:
+        body = body[:172] + "…"
+    await send_push_to_user(user_id, "New pay period — fresh start", body, "/")
+    await notification_state_col.update_one(
+        {"_id": user_id}, {"$set": {"last_digest_period": start.isoformat()}}, upsert=True,
     )

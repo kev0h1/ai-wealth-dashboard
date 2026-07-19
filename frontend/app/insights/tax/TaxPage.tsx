@@ -65,7 +65,7 @@ function useDone() {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mt-2 mb-1">
+    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-1 mt-2 mb-1">
       {children}
     </p>
   );
@@ -84,11 +84,8 @@ function ActionRow({
   highlight?: boolean;
   onToggle?: () => void;
 }) {
-  return (
-    <div
-      className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex gap-3 ${onToggle ? "cursor-pointer active:scale-[0.98] transition-transform" : ""} ${highlight ? "ring-1 ring-amber-300 dark:ring-amber-600" : ""}`}
-      onClick={onToggle}
-    >
+  const inner = (
+    <>
       <div className="flex-shrink-0 mt-0.5">
         {status === "done" ? (
           <CheckCircle2 size={18} className="text-emerald-500" />
@@ -99,16 +96,36 @@ function ActionRow({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={`text-[13px] font-semibold leading-snug ${status === "done" ? "text-slate-400 dark:text-slate-500 line-through" : "text-slate-800 dark:text-slate-100"}`}>
+        <p className={`text-sm font-semibold leading-snug ${status === "done" ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"}`}>
           {title}
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{detail}</p>
         {onToggle && (
-          <p className="text-[11px] font-medium mt-2 text-slate-400 dark:text-slate-500">
+          <p className="text-[11px] font-medium mt-2 text-slate-500 dark:text-slate-400">
             {status === "done" ? "Tap to unmark" : "Tap to mark done"}
           </p>
         )}
       </div>
+    </>
+  );
+
+  const sharedClass = `bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex gap-3 ${highlight ? "ring-1 ring-amber-300 dark:ring-amber-600" : ""}`;
+
+  if (onToggle) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`w-full text-left active:scale-[0.98] transition-transform ${sharedClass}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div className={sharedClass}>
+      {inner}
     </div>
   );
 }
@@ -120,25 +137,69 @@ function KeyDate({ date, label, sublabel }: { date: string; label: string; subla
         <Calendar size={13} className="text-violet-600 dark:text-violet-400" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">{label}</p>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{sublabel}</p>
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{sublabel}</p>
       </div>
       <p className="text-xs font-medium text-slate-500 dark:text-slate-400 flex-shrink-0 pt-0.5">{date}</p>
     </div>
   );
 }
 
-export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
+interface TaxPageProps {
+  embedded?: boolean;
+  /** When embedded and the parent has already fetched prefs, pass these to skip
+   *  a redundant getPreferences() call. The fetch is omitted when prefsLoaded=true. */
+  prefsLoaded?: boolean;
+  incomeValue?: number;
+  incomeBracket?: string;
+  pensionAnnual?: number;
+  hasChildBenefit?: boolean;
+}
+
+export default function TaxPage({
+  embedded = false,
+  prefsLoaded = false,
+  incomeValue: incomeValueProp,
+  incomeBracket: incomeBracketProp,
+  pensionAnnual: pensionAnnualProp,
+  hasChildBenefit: hasChildBenefitProp,
+}: TaxPageProps) {
   const router = useRouter();
   const { done, toggle } = useDone();
-  const [loading, setLoading] = useState(true);
 
-  const [income, setIncome] = useState(0);
-  const [pensionAnnual, setPensionAnnual] = useState(0);
-  const [hasChildBenefit, setHasChildBenefit] = useState(false);
-  const [bracket, setBracket] = useState("");
+  // When the parent supplies prefs (embedded path), initialise state directly
+  // from props and mark loading=false immediately — no extra fetch needed.
+  const skipFetch = embedded && prefsLoaded;
+  const [loading, setLoading] = useState(!skipFetch);
+
+  const [income, setIncome] = useState(() => {
+    if (skipFetch) return incomeValueProp ?? 0;
+    return 0;
+  });
+  const [pensionAnnual, setPensionAnnual] = useState(() => {
+    if (skipFetch) return pensionAnnualProp ?? 0;
+    return 0;
+  });
+  const [hasChildBenefit, setHasChildBenefit] = useState(() => {
+    if (skipFetch) return hasChildBenefitProp ?? false;
+    return false;
+  });
+  const [bracket, setBracket] = useState(() => {
+    if (skipFetch) return incomeBracketProp ?? "";
+    return "";
+  });
 
   useEffect(() => {
+    // When the parent already fetched prefs, keep state in sync if props change
+    // (e.g. user updates settings while on the page) but don't fire a fetch.
+    if (skipFetch) {
+      setBracket(incomeBracketProp ?? "");
+      setPensionAnnual(pensionAnnualProp ?? 0);
+      setHasChildBenefit(hasChildBenefitProp ?? false);
+      setIncome(incomeValueProp ?? 0);
+      return;
+    }
+    // Standalone route: fetch prefs ourselves.
     api.getPreferences().then(p => {
       setBracket(p.income_bracket ?? "");
       setPensionAnnual(p.pension_annual ?? 0);
@@ -151,7 +212,8 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
         setIncome(130_000);
       }
     }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skipFetch, incomeValueProp, incomeBracketProp, pensionAnnualProp, hasChildBenefitProp]);
 
   const ty = getTaxYear();
 
@@ -179,7 +241,7 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
           </button>
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
             <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Set your income first</p>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
             <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-violet-600 text-white text-sm font-semibold rounded-xl">
               Go to Settings
             </button>
@@ -224,9 +286,9 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
         <div className="h-full bg-white/80 rounded-full" style={{ width: `${ty.progressPct}%` }} />
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-violet-200">6 Apr</span>
-        <span className="text-[10px] text-violet-200">{ty.daysLeft} days left</span>
-        <span className="text-[10px] text-violet-200">5 Apr</span>
+        <span className="text-[11px] text-violet-200">6 Apr</span>
+        <span className="text-[11px] text-violet-200">{ty.daysLeft} days left</span>
+        <span className="text-[11px] text-violet-200">5 Apr</span>
       </div>
     </div>
   );
@@ -242,7 +304,7 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
             <div className="flex items-start gap-3">
               <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                   Contribute £{fmt(pensionNeededTotal)} more before 5 Apr
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
@@ -252,19 +314,19 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
                 </p>
                 <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 grid grid-cols-3 gap-2 text-center">
                   <div>
-                    <p className="text-[11px] text-slate-400">Extra needed</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Extra needed</p>
                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(pensionNeededTotal)}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-slate-400">Tax saved</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Tax saved</p>
                     <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">£{fmt(taxSaving)}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-slate-400">Costs you</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Costs you</p>
                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(effectiveCost)}</p>
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
                   Based on the income and pension figures you set in Settings. Update them there if your situation changes.
                 </p>
               </div>
@@ -374,7 +436,7 @@ export default function TaxPage({ embedded = false }: { embedded?: boolean }) {
           />
         </div>
 
-        <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center px-4 pb-2 mt-2">
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center px-4 pb-2 mt-2">
           Estimates only. Speak to a qualified financial adviser or accountant for personalised advice.
         </p>
 

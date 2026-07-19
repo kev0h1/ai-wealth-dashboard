@@ -19,7 +19,7 @@ export default function Sidebar() {
     <aside className="hidden lg:flex fixed top-0 left-0 h-full w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 z-40">
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-6 border-b border-slate-100 dark:border-slate-800">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center flex-shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
           <Wallet size={18} color="#fff" strokeWidth={2} />
         </div>
         <div>
@@ -56,10 +56,6 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-4 py-4 border-t border-slate-100 dark:border-slate-800">
-        <p className="text-[10px] text-slate-300 dark:text-slate-600 text-center tracking-wide uppercase">AI Wealth Dashboard</p>
-      </div>
     </aside>
   );
 }

@@ -12,7 +12,6 @@ backend/.session_secret
 backend/.vapid_private_key
 backend/.webhook_secret
 backend/.token_key
-backend/bot_state.json
 backend/store.json
 
 # Python cache
@@ -27,4 +26,7 @@ backend/__pycache__/
 
 # cached fuel-price snapshots (collected via UK egress)
 backend/fuel_cache/
+
+# cached merchant logo PNGs (proxied from Clearbit)
+backend/.logo_cache/
 backups/

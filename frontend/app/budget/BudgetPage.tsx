@@ -1,8 +1,24 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
+
+function useIsDark() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const update = () => setDark(el.classList.contains("dark"));
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(el, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
 import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, ChevronDown, Flag, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
-import { BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import SwipeToDelete from "@/components/SwipeToDelete";
+import { BRAND, BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { ComposedChart, Area, Line, BarChart, Bar, Cell, Tooltip, ResponsiveContainer, XAxis, YAxis, ReferenceLine, ReferenceDot } from "recharts";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -10,6 +26,11 @@ import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
 import { usePreferences } from "@/components/PreferencesContext";
 import { CATEGORY_COLOURS } from "@/lib/categories";
+import { isHomeCurrency } from "@/lib/currency";
+import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
+import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { useSheetA11y } from "@/lib/useSheetA11y";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import ChatMarkdown from "@/components/ChatMarkdown";
@@ -50,9 +71,19 @@ function interpolateCurve(curve: number[], elapsedFraction: number): number {
 
 const SKIP = new Set(["Transfer", "Savings", "Debt", "Income"]);
 
+// Rendered only while the chat panel is open — freezes the page behind it
+function ChatScrollLock() {
+  useLockBodyScroll();
+  return null;
+}
+
 export default function BudgetPage() {
+  const isDark = useIsDark();
+  const tickFill = isDark ? "#94a3b8" : "#64748b";
+  const axisStroke = isDark ? "#334155" : "#e2e8f0";
   const { user } = useAuth();
   const { colours } = useColours();
+  const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories } = useCategories();
   const { region, hideNetWorth, payPeriodConfig } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
@@ -60,15 +91,19 @@ export default function BudgetPage() {
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [paceProfile, setPaceProfile] = useState<Record<string, number[]>>({});
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions();
   const [periodStart, setPeriodStart] = useState<Date>(() => getPayPeriodWithConfig(new Date(), { type: "calendar_month" })[0]);
   const [oldestTxDate, setOldestTxDate] = useState<Date | null>(null);
   const [periodEnd, setPeriodEnd] = useState<Date>(() => getPayPeriodWithConfig(new Date(), { type: "calendar_month" })[1]);
+  // Budgets are home-currency only — foreign-currency imports must not count
   const allPeriodTxns = useMemo(
-    () => filterPeriod(allTransactions, periodStart, periodEnd),
-    [allTransactions, periodStart, periodEnd]
+    () => filterPeriod(allTransactions, periodStart, periodEnd)
+      .filter(tx => isHomeCurrency(tx.currency, region)),
+    [allTransactions, periodStart, periodEnd, region]
   );
   const [loading, setLoading] = useState(true);
+  // Page is ready once both budgets/profile and transactions are loaded.
+  const pageLoading = loading || txLoading;
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDaily, setShowDaily] = useState(false);
@@ -78,6 +113,10 @@ export default function BudgetPage() {
   const [addLimit, setAddLimit] = useState("");
   const [addError, setAddError] = useState("");
 
+  // Inline limit edit state
+  const [editingCat, setEditingCat] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -85,29 +124,30 @@ export default function BudgetPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
   const chatInitialised = useRef(false);
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
+  // Undo-delete state (optimistic remove + 6 s undo window)
+  const [undoBudget, setUndoBudget] = useState<Budget | null>(null);
+  const [undoNonce, setUndoNonce] = useState(0);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // a11y: dialog contract for chat panel — Escape closes, Tab traps, focus restores on close
+  const chatPanelRef = useSheetA11y<HTMLDivElement>(() => setChatOpen(false));
+  // After hook focuses first focusable (a header button), redirect focus to the chat input
+  useEffect(() => {
+    if (!chatOpen) return;
+    const t = setTimeout(() => chatInputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [chatOpen]);
 
   const load = useCallback(async () => {
     try {
-      const [{ budgets: b }, accs, profile] = await Promise.all([
+      const [{ budgets: b }, profile] = await Promise.all([
         api.getBudgets(),
-        api.accounts().catch(() => []),
         api.budgetPaceProfile().catch(() => ({ curves: {}, sample_points: 20, periods_analysed: 0 })),
       ]);
       setPaceProfile(profile.curves);
       setBudgets(b);
-
-      const allTxns: Transaction[] = [];
-      await Promise.all(accs.map(async acc => {
-        try {
-          const txns = await api.transactions(acc.id);
-          allTxns.push(...txns);
-        } catch {}
-      }));
-
-      setAllTransactions(allTxns);
     } catch {}
     finally { setLoading(false); }
   }, []);
@@ -131,17 +171,20 @@ export default function BudgetPage() {
     const spendMap: Record<string, number> = {};
     const txnMap: Record<string, Transaction[]> = {};
     for (const tx of allPeriodTxns) {
-      if (tx.transaction_type !== "debit") continue;
       const cat = tx.category || "Other";
       if (SKIP.has(cat)) continue;
+      // Credits in a budget category are refunds — they net against the spend
+      const isCredit = tx.transaction_type === "credit";
+      if (tx.transaction_type !== "debit" && !isCredit) continue;
       txnMap[cat] = txnMap[cat] ?? [];
       txnMap[cat].push(tx);
       if (!tx.planned) {
-        spendMap[cat] = (spendMap[cat] ?? 0) + Math.abs(tx.amount);
+        spendMap[cat] = (spendMap[cat] ?? 0) + (isCredit ? -Math.abs(tx.amount) : Math.abs(tx.amount));
       }
     }
     for (const cat of Object.keys(txnMap)) {
       txnMap[cat].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      if (spendMap[cat] !== undefined) spendMap[cat] = Math.max(0, spendMap[cat]);
     }
     return { spending: spendMap, categoryTxns: txnMap };
   }, [allPeriodTxns]);
@@ -162,6 +205,7 @@ export default function BudgetPage() {
     await api.setTransactionPlanned(txId, newPlanned).catch(() => {
       setAllTransactions(prev => prev.map(tx => tx.id === txId ? { ...tx, planned: currentPlanned } : tx));
     });
+    invalidateTransactionsCache();
   }
 
   // Chat session init
@@ -213,35 +257,6 @@ export default function BudgetPage() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
 
-  function handleChartTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-  }
-
-  function handleChartTouchEnd(e: React.TouchEvent) {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    const dy = e.changedTouches[0].clientY - touchStartY.current;
-    touchStartX.current = null;
-    touchStartY.current = null;
-    // Ignore swipes while the chat panel is open
-    if (chatOpen) return;
-    // Only respond to clearly horizontal swipes (dx dominates, at least 50px)
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
-    if (dx > 0) {
-      // Swipe right → previous period, stopping at the oldest transaction
-      if (!canGoPrev) return;
-      const [s, en] = prevPeriodWithConfig(periodStart, payPeriodConfig);
-      setPeriodStart(s); setPeriodEnd(en);
-    } else {
-      // Swipe left → next period, guarded at current period
-      const [cs] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-      if (periodStart >= cs) return;
-      const [s, en] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
-      setPeriodStart(s); setPeriodEnd(en);
-    }
-  }
-
   async function handleAddBudget() {
     const cat = addCat.trim();
     const limit = parseFloat(addLimit);
@@ -256,12 +271,46 @@ export default function BudgetPage() {
     await api.setBudgets(next).catch(() => {});
     setAddCat("");
     setAddLimit("");
+    setShowAddForm(false);
   }
 
-  async function handleRemove(cat: string) {
-    const next = budgets.filter(b => b.category !== cat);
+  async function handleUpdateLimit(cat: string, value: string) {
+    const limit = parseFloat(value);
+    if (!limit || limit <= 0) { setEditingCat(null); setEditValue(""); return; }
+    const next = budgets.map(b => b.category === cat ? { ...b, monthly_limit: limit } : b);
     setBudgets(next);
     await api.setBudgets(next).catch(() => {});
+    setEditingCat(null);
+    setEditValue("");
+  }
+
+  // Clean up undo timer on unmount
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current); }, []);
+
+  function requestDelete(cat: string) {
+    const target = budgets.find(b => b.category === cat);
+    if (!target) return;
+    // Optimistic remove
+    const next = budgets.filter(b => b.category !== cat);
+    setBudgets(next);
+    api.setBudgets(next).catch(() => {});
+    // Close any open edit / expand state for this category
+    if (editingCat === cat) { setEditingCat(null); setEditValue(""); }
+    if (expandedCat === cat) setExpandedCat(null);
+    // Stash for undo
+    setUndoBudget(target);
+    setUndoNonce(n => n + 1);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setUndoBudget(null), 6000);
+  }
+
+  function undoDelete() {
+    if (!undoBudget) return;
+    if (undoTimer.current) { clearTimeout(undoTimer.current); undoTimer.current = null; }
+    const restored = [...budgets, undoBudget];
+    setBudgets(restored);
+    api.setBudgets(restored).catch(() => {});
+    setUndoBudget(null);
   }
 
   async function applyBudgets(suggested: Budget[]) {
@@ -274,7 +323,10 @@ export default function BudgetPage() {
     return text.replace(/```budgets[\s\S]*?```/g, "").trim();
   }
 
-  const availableCats = allCategories.filter(c => !SKIP.has(c));
+  // Only offer categories that don't already have a budget — editing an
+  // existing one happens inline on its card, not through the add form.
+  const budgetedCats = new Set(budgets.map(b => b.category));
+  const availableCats = allCategories.filter(c => !SKIP.has(c) && !budgetedCats.has(c));
 
   const totalBudget = budgets.reduce((s, b) => s + b.monthly_limit, 0);
   const totalSpent = budgets.reduce((s, b) => s + (spending[b.category] ?? 0), 0);
@@ -384,50 +436,75 @@ export default function BudgetPage() {
     ? [0, 0.25, 0.5, 0.75, 1].map(f => paceChartData[Math.round(f * (paceChartData.length - 1))]?.label).filter(Boolean) as string[]
     : [];
 
+  // Is the displayed period the current pay period?
+  const isCurrentPeriod = periodStart.getTime() === getPayPeriodWithConfig(new Date(), payPeriodConfig)[0].getTime();
+
+  function goPrev() {
+    if (!canGoPrev) return;
+    const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
+    setPeriodStart(s);
+    setPeriodEnd(e);
+  }
+
+  function goNext() {
+    const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
+    const [cs] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    if (s.getTime() <= cs.getTime()) {
+      setPeriodStart(s);
+      setPeriodEnd(e);
+    }
+  }
+
+  const periodSwipe = usePeriodSwipe({ onPrev: goPrev, onNext: goNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
+
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
-      onTouchStart={handleChartTouchStart} onTouchEnd={handleChartTouchEnd}>
-      {/* Header — neutral surface, colour lives in the accents */}
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Budgets</h1>
-          </div>
-          <button
-            data-tutorial-id="tutorial-budget-form"
-            onClick={() => setShowAddForm(v => !v)}
-            aria-expanded={showAddForm}
-            className="flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 text-xs font-semibold active:scale-95 transition-all"
-          >
-            <Plus size={14} className={`transition-transform ${showAddForm ? "rotate-45" : ""}`} /> Budget
-          </button>
-        </div>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      {/* (a) Plain page title */}
+      <div className="px-4 pt-6 pb-2">
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Budgets</h1>
+      </div>
 
-        {/* Pay period stepper */}
-        <div className="flex items-center justify-between mt-4">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pay Period</span>
-          <div className="flex items-center gap-1">
+      {/* (b) Period-nav card — mirrors SpendPage structure */}
+      <div className="px-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+          <div className="flex items-center justify-between">
             <button
-              onClick={() => { if (!canGoPrev) return; const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig); setPeriodStart(s); setPeriodEnd(e); }}
+              onClick={goPrev}
               disabled={!canGoPrev}
-              className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-95 transition-all disabled:opacity-30"
-            ><ChevronLeft size={13} className="text-slate-500 dark:text-slate-300" /></button>
-            <span className="text-xs font-medium min-w-[100px] text-center text-slate-700 dark:text-slate-200">{formatPeriod(periodStart, periodEnd)}</span>
+              aria-label="Previous period"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors disabled:opacity-30"
+            >
+              <ChevronLeft size={16} color="#64748b" />
+            </button>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {formatPeriod(periodStart, periodEnd)}
+              </p>
+              {isCurrentPeriod && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Current period</p>
+              )}
+            </div>
             <button
-              onClick={() => { const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig); const [cs] = getPayPeriodWithConfig(new Date(), payPeriodConfig); if (s.getTime() <= cs.getTime()) { setPeriodStart(s); setPeriodEnd(e); } }}
-              disabled={periodStart >= getPayPeriodWithConfig(new Date(), payPeriodConfig)[0]}
-              className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:scale-95 transition-all disabled:opacity-30"
-            ><ChevronRight size={13} className="text-slate-500 dark:text-slate-300" /></button>
+              onClick={goNext}
+              disabled={isCurrentPeriod}
+              aria-label="Next period"
+              className="w-11 h-11 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors disabled:opacity-30"
+            >
+              <ChevronRight size={16} color="#64748b" />
+            </button>
           </div>
         </div>
+      </div>
 
-        {!loading && budgets.length > 0 && (
-          <div className="mt-4">
+      {/* (c) Overall-spend summary card */}
+      {!pageLoading && budgets.length > 0 && (
+        <div className="px-4 pt-3">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
             <div className="flex justify-between text-xs mb-1.5">
               <span className="text-slate-500 dark:text-slate-400">
                 {hideNetWorth ? "••••" : fmt(totalSpent, sym)} spent
-                {totalPlanned > 0 && <span className="ml-1 text-slate-400 dark:text-slate-500">· {hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</span>}
-                {overBudgetCount > 0 && <span className="ml-1 text-red-500">· {overBudgetCount} over</span>}
+                {totalPlanned > 0 && <span className="ml-1 text-slate-500 dark:text-slate-400">· {hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</span>}
+                {overBudgetCount > 0 && <span className="ml-1 text-red-600">· {overBudgetCount} over</span>}
               </span>
               <span className="font-semibold text-slate-700 dark:text-slate-200">{hideNetWorth ? "••••" : fmt(totalBudget, sym)} total</span>
             </div>
@@ -437,51 +514,22 @@ export default function BudgetPage() {
                 style={{ width: `${overallPct}%`, backgroundColor: overBudgetCount > 0 ? "#ef4444" : "#10b981" }}
               />
             </div>
-            <div className="flex justify-between mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+            <div className="flex justify-between mt-1 text-[11px] text-slate-500 dark:text-slate-400">
               <span>{Math.round(overallPct)}% used this pay period</span>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="px-4 pt-4 space-y-3">
-        {loading ? (
+      <div className="px-4 pt-4">
+        {pageLoading ? (
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : (
-          <>
-            {/* ── Add budget form (revealed from the header) ────────────── */}
-            {(showAddForm || budgets.length === 0) && (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add / Update Budget</p>
-              <div className="flex gap-2 mb-2">
-                <CustomSelect
-                  value={addCat}
-                  onChange={v => { setAddCat(v); setAddError(""); }}
-                  placeholder="Category…"
-                  options={availableCats.map(c => ({ value: c, label: c }))}
-                  className="flex-1"
-                />
-                <div className="relative flex-shrink-0">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 whitespace-nowrap">{sym}</span>
-                  <input
-                    type="number" min="1" placeholder="Limit" value={addLimit}
-                    onChange={e => setAddLimit(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") handleAddBudget(); }}
-                    className={`text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl pr-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 ${sym.length > 2 ? "w-32 pl-11" : "w-28 pl-7"}`}
-                  />
-                </div>
-                <button
-                  data-tutorial-id="tutorial-budget-add"
-                  onClick={handleAddBudget}
-                  className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center active:scale-90 transition-transform"
-                >
-                  <Plus size={16} color="#fff" />
-                </button>
-              </div>
-              {addError && <p className="text-xs text-red-500">{addError}</p>}
-            </div>
-            )}
-
+          // Mobile: the two columns below stack in DOM order (unchanged from before).
+          // Desktop: chart + daily summary sit left, budget list sits right, so wide
+          // screens use horizontal space instead of one very tall stretched column.
+          <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start">
+          <div className="space-y-3 lg:col-span-3">
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
             {paceChartData.length > 1 && budgets.length > 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
@@ -489,15 +537,15 @@ export default function BudgetPage() {
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Spend Pacing Curve</p>
                 </div>
                 <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
-                  <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="w-5 h-[2px] bg-indigo-500 inline-block rounded" />
                     Actual Spending
                   </span>
-                  <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
                     Target Pacing
                   </span>
-                  <span className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#fb7185" strokeWidth="1.5"/></svg>
                     Budget Limit
                   </span>
@@ -514,10 +562,10 @@ export default function BudgetPage() {
                       }}
                     >
                       <div className={`rounded-xl px-2.5 py-1.5 text-center border whitespace-nowrap shadow-sm ${overallAheadOfPace ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'}`}>
-                        <p className={`text-[10px] font-bold leading-tight ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                        <p className={`text-[11px] font-bold leading-tight ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                           {overallAheadOfPace ? "Ahead of Pace" : "Above Pace"}
                         </p>
-                        <p className={`text-[9px] ${overallAheadOfPace ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                        <p className={`text-[11px] ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                           {hideNetWorth ? "••••" : fmt2(overallPaceGap, sym)} · {daysLeft > 0 ? `${daysLeft}d left` : "Period ended"}
                         </p>
                       </div>
@@ -536,13 +584,13 @@ export default function BudgetPage() {
                     </defs>
                     <XAxis
                       dataKey="label"
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
+                      tick={{ fontSize: 9, fill: tickFill }}
                       tickLine={false}
-                      axisLine={{ stroke: '#e2e8f0' }}
+                      axisLine={{ stroke: axisStroke }}
                       ticks={chartTicks}
                     />
                     <YAxis
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
+                      tick={{ fontSize: 9, fill: tickFill }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(v: number) => v === 0 ? '' : v >= 1000 ? `${sym}${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${sym}${Math.round(v)}`}
@@ -550,7 +598,7 @@ export default function BudgetPage() {
                       domain={[0, Math.max(totalBudget, totalSpent + 1) * 1.12]}
                     />
                     <Tooltip
-                      cursor={{ stroke: '#94a3b8', strokeWidth: 1, strokeDasharray: '3 3' }}
+                      cursor={{ stroke: tickFill, strokeWidth: 1, strokeDasharray: '3 3' }}
                       content={(props: any) => {  // eslint-disable-line @typescript-eslint/no-explicit-any
                         const { active, payload, label } = props;
                         if (!active || !payload?.length) return null;
@@ -564,7 +612,7 @@ export default function BudgetPage() {
                             {actual != null && <p className="text-indigo-600 dark:text-indigo-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
                             {pace != null && <p className="text-slate-500 dark:text-slate-400">Target: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
                             {actual != null && pace != null && (
-                              <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-500'}`}>
+                              <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-500'}`}>
                                 {ahead
                                   ? `${hideNetWorth ? '••••' : fmt2(pace - actual, sym)} ahead`
                                   : `${hideNetWorth ? '••••' : fmt2(actual - pace, sym)} above pace`}
@@ -611,7 +659,7 @@ export default function BudgetPage() {
                     <BarChart data={pastDays} margin={{ top: 4, right: 8, bottom: 0, left: 4 }}>
                       <XAxis
                         dataKey="label"
-                        tick={{ fontSize: 8, fill: '#94a3b8' }}
+                        tick={{ fontSize: 8, fill: tickFill }}
                         tickLine={false}
                         axisLine={false}
                         interval={Math.max(0, Math.floor(pastDays.length / 6) - 1)}
@@ -632,13 +680,13 @@ export default function BudgetPage() {
                             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs pointer-events-none space-y-0.5">
                               <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1">{label}</p>
                               {fixedSpend > 0.01 && (
-                                <p className="text-slate-400 dark:text-slate-500">Bills: {hideNetWorth ? '••••' : fmt2(fixedSpend, sym)}</p>
+                                <p className="text-slate-500 dark:text-slate-400">Bills: {hideNetWorth ? '••••' : fmt2(fixedSpend, sym)}</p>
                               )}
                               <p className={varSpend > 0 ? (abovePace ? 'text-orange-600 dark:text-orange-400' : 'text-indigo-600 dark:text-indigo-400') : 'text-slate-400'}>
                                 Variable: {hideNetWorth ? '••••' : fmt2(varSpend, sym)}
                               </p>
                               {varExpected > 0.01 && (
-                                <p className="text-slate-400 dark:text-slate-500">
+                                <p className="text-slate-500 dark:text-slate-400">
                                   expected {hideNetWorth ? '••••' : fmt2(varExpected, sym)}/day · {abovePace ? `${fmt2(varSpend - varExpected, sym)} over` : `${fmt2(varExpected - varSpend, sym)} under`}
                                 </p>
                               )}
@@ -659,15 +707,15 @@ export default function BudgetPage() {
                     </BarChart>
                   </ResponsiveContainer>
                   <div className="flex items-center gap-4 mt-1.5">
-                    <span className="flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500">
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <svg width="16" height="6"><line x1="0" y1="3" x2="16" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 2"/></svg>
                       Variable daily budget
                     </span>
-                    <span className="flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500">
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <span className="w-2.5 h-2.5 rounded-sm bg-orange-400 inline-block opacity-80" />
                       Variable over
                     </span>
-                    <span className="flex items-center gap-1.5 text-[9px] text-slate-400 dark:text-slate-500">
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <span className="w-2.5 h-2.5 rounded-sm bg-indigo-500 inline-block opacity-75" />
                       Variable under
                     </span>
@@ -677,149 +725,317 @@ export default function BudgetPage() {
                 </div>
               );
             })()}
+          </div>
 
+          <div className="space-y-3 lg:col-span-2">
             {/* Budget cards */}
             {budgets.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
-                <p className="text-slate-600 dark:text-slate-300 text-sm font-medium mb-1">No budgets set yet</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">Budgets roll over each pay period automatically once set.</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">Add a category above or tap the chat button to let AI suggest budgets based on your spending.</p>
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                <div className="px-4 pt-2.5 pb-1">
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                    <Flag size={9} className="inline mb-0.5 text-blue-400 mr-0.5" />Flag a transaction as planned if you budgeted for it separately — it won&apos;t count towards the total.
-                  </p>
+              <>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+                  <p className="text-slate-600 dark:text-slate-300 text-sm font-medium mb-1">No budgets set yet</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Budgets roll over each pay period automatically once set.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Add a category below or tap the chat button to let AI suggest budgets based on your spending.</p>
                 </div>
-                {budgets.map((b, i) => {
-                  const spent = spending[b.category] ?? 0;
-                  const pct = Math.min(100, (spent / b.monthly_limit) * 100);
-                  const over = spent > b.monthly_limit;
-                  const colour = colours[b.category] ?? CATEGORY_COLOURS[b.category] ?? CATEGORY_COLOURS.Other;
-                  const txns = categoryTxns[b.category] ?? [];
-                  const isExpanded = expandedCat === b.category;
-                  const curve = paceProfile[b.category];
-                  const expectedFraction = curve ? interpolateCurve(curve, elapsedFraction) : elapsedFraction;
-                  const markerPct = expectedFraction * 100;
-                  const expectedSpend = expectedFraction * b.monthly_limit;
-                  const paceGap = expectedSpend - spent; // positive = spending less than pace (good)
-                  const aheadOfPace = !over && paceGap >= 0;
+                {/* Empty state: show add form directly */}
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add a budget</p>
+                  <div className="flex gap-2 mb-2">
+                    <CustomSelect
+                      value={addCat}
+                      onChange={v => { setAddCat(v); setAddError(""); }}
+                      placeholder="Category…"
+                      options={availableCats.map(c => ({ value: c, label: c }))}
+                      className="flex-1"
+                      ariaLabel="Budget category"
+                    />
+                    <div className="relative flex-shrink-0">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 whitespace-nowrap">{sym}</span>
+                      <input
+                        type="number" min="1" placeholder="Limit" value={addLimit}
+                        onChange={e => setAddLimit(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleAddBudget(); }}
+                        aria-label="Monthly limit"
+                        className={`text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl pr-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 ${sym.length > 2 ? "w-32 pl-11" : "w-28 pl-7"}`}
+                      />
+                    </div>
+                    <button
+                      data-tutorial-id="tutorial-budget-add"
+                      onClick={handleAddBudget}
+                      className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center active:scale-90 transition-transform"
+                      aria-label="Add budget"
+                    >
+                      <Plus size={16} color="#fff" />
+                    </button>
+                  </div>
+                  {addError && <p className="text-xs text-red-500">{addError}</p>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-4 pt-2.5 pb-1">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <Flag size={9} className="inline mb-0.5 text-blue-400 mr-0.5" />Flag a transaction as planned if you budgeted for it separately — it won&apos;t count towards the total.
+                    </p>
+                  </div>
+                  {budgets.map((b, i) => {
+                    const spent = spending[b.category] ?? 0;
+                    const pct = Math.min(100, (spent / b.monthly_limit) * 100);
+                    const over = spent > b.monthly_limit;
+                    const colour = colours[b.category] ?? CATEGORY_COLOURS[b.category] ?? CATEGORY_COLOURS.Other;
+                    const txns = categoryTxns[b.category] ?? [];
+                    const isExpanded = expandedCat === b.category;
+                    const curve = paceProfile[b.category];
+                    const expectedFraction = curve ? interpolateCurve(curve, elapsedFraction) : elapsedFraction;
+                    const markerPct = expectedFraction * 100;
+                    const expectedSpend = expectedFraction * b.monthly_limit;
+                    const paceGap = expectedSpend - spent; // positive = spending less than pace (good)
+                    const aheadOfPace = !over && paceGap >= 0;
+                    const isEditingThis = editingCat === b.category;
 
-                  return (
-                    <div key={b.category} className={i > 0 ? "border-t border-slate-50 dark:border-slate-700" : ""}>
-                      {/* Row — tappable to expand */}
-                      <button
-                        onClick={() => setExpandedCat(isExpanded ? null : b.category)}
-                        className="w-full px-4 py-3 text-left"
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
+                    return (
+                      <SwipeToDelete key={b.category} onDelete={() => requestDelete(b.category)} label="Delete">
+                      <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}`}>
+                        {/* Expand button — covers icon+name area + progress bar + pace labels.
+                            Right padding reserves space for the absolute-positioned control cluster. */}
+                        <button
+                          onClick={() => setExpandedCat(isExpanded ? null : b.category)}
+                          className="w-full px-4 pt-3 pb-3 text-left"
+                          aria-expanded={isExpanded}
+                          aria-controls={`budget-txns-${b.category}`}
+                        >
+                          {/* Only the name row clears the floating control cluster —
+                              the bar + pace labels below span full width */}
+                          <div className="flex items-center gap-2.5 min-w-0 mb-1.5 pr-28">
+                            {(() => {
+                              const Icon = getCategoryIcon(b.category, iconOverrides);
+                              return (
+                                <span
+                                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                  style={{ backgroundColor: `${colour}26` }}
+                                >
+                                  <Icon size={15} style={{ color: colour }} />
+                                </span>
+                              );
+                            })()}
                             <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{b.category}</span>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                            <span className={`text-xs font-semibold ${over ? "text-red-500" : "text-slate-600 dark:text-slate-300"}`}>
-                              {hideNetWorth ? "••••" : fmt2(spent, sym)} / {hideNetWorth ? "••••" : fmt(b.monthly_limit, "")}
+                          <div className="relative h-2">
+                            {/* Track + spending bar */}
+                            <div className="absolute inset-0 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${pct}%`, backgroundColor: over ? "#f87171" : aheadOfPace ? colour : "#f59e0b" }}
+                              />
+                            </div>
+                            {/* Pace marker — where you should be at this point in the period */}
+                            {elapsedFraction < 1 && markerPct > 1 && markerPct < 99 && (
+                              <div
+                                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-slate-400 dark:bg-slate-500 rounded-full"
+                                style={{ left: `${markerPct}%` }}
+                              />
+                            )}
+                          </div>
+                          <div className="flex justify-between mt-1">
+                            <span className={`text-[11px] font-medium ${over ? "text-red-600" : elapsedFraction < 0.05 ? "text-slate-500 dark:text-slate-400" : aheadOfPace ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-500"}`}>
+                              {hideNetWorth ? "••••" : over
+                                ? `${fmt2(spent - b.monthly_limit, sym)} over budget`
+                                : elapsedFraction < 0.05
+                                ? "Period just started"
+                                : elapsedFraction >= 1
+                                ? (aheadOfPace ? `${fmt2(paceGap, sym)} under budget` : `${fmt2(Math.abs(paceGap), sym)} over budget`)
+                                : aheadOfPace
+                                ? `${fmt2(paceGap, sym)} ahead of pace`
+                                : `${fmt2(Math.abs(paceGap), sym)} above pace`
+                              }
                             </span>
+                            <span className={`text-[11px] font-medium ${over ? "text-red-600" : "text-slate-500 dark:text-slate-400"}`}>
+                              {hideNetWorth ? "••••" : over
+                                ? `${fmt2(spent - b.monthly_limit, sym)} over`
+                                : `${fmt2(b.monthly_limit - spent, sym)} left`
+                              }
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Absolutely-positioned control cluster — NOT nested inside the expand button */}
+                        <div className="absolute top-3 right-4 flex items-center gap-1.5">
+                          {/* Amount / inline-edit trigger */}
+                          {isEditingThis ? (
+                            <div className="flex items-center gap-1">
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{sym}</span>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="1"
+                                  value={editValue}
+                                  onChange={e => setEditValue(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") { handleUpdateLimit(b.category, editValue); }
+                                    if (e.key === "Escape") { setEditingCat(null); setEditValue(""); }
+                                  }}
+                                  onBlur={() => handleUpdateLimit(b.category, editValue)}
+                                  aria-label={`Edit ${b.category} budget limit`}
+                                  autoFocus
+                                  className={`text-xs bg-white dark:bg-slate-700 dark:text-slate-100 border border-indigo-400 dark:border-indigo-500 rounded-lg py-1 pr-2 outline-none focus:ring-2 focus:ring-indigo-500 ${sym.length > 2 ? "w-24 pl-10" : "w-20 pl-6"}`}
+                                />
+                              </div>
+                              <button
+                                onClick={() => { setEditingCat(null); setEditValue(""); }}
+                                className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600"
+                                aria-label="Cancel edit"
+                              >
+                                <X size={11} color="#94a3b8" />
+                              </button>
+                            </div>
+                          ) : (
                             <button
-                              onClick={e => { e.stopPropagation(); handleRemove(b.category); }}
-                              className="w-6 h-6 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600"
-                              aria-label={`Remove ${b.category} budget`}
+                              onClick={() => { setEditingCat(b.category); setEditValue(String(b.monthly_limit)); }}
+                              className={`text-xs font-semibold tabular-nums ${over ? "text-red-600" : "text-slate-600 dark:text-slate-300"}`}
+                              aria-label={`Edit ${b.category} budget limit`}
                             >
-                              <Trash2 size={11} color="#94a3b8" />
+                              <span>{hideNetWorth ? "••••" : fmt2(spent, sym)}</span>
+                              <span className="mx-0.5 text-slate-400">/</span>
+                              <span className="underline decoration-dotted underline-offset-2">
+                                {hideNetWorth ? "••••" : fmt(b.monthly_limit, "")}
+                              </span>
                             </button>
+                          )}
+                          {/* Chevron expand toggle */}
+                          <button
+                            onClick={() => setExpandedCat(isExpanded ? null : b.category)}
+                            className="w-9 h-9 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700"
+                            aria-label={isExpanded ? `Collapse ${b.category}` : `Expand ${b.category}`}
+                            aria-expanded={isExpanded}
+                            aria-controls={`budget-txns-${b.category}`}
+                          >
                             <ChevronDown
                               size={14}
                               color="#94a3b8"
                               className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                             />
-                          </div>
+                          </button>
                         </div>
-                        <div className="relative h-2">
-                          {/* Track + spending bar */}
-                          <div className="absolute inset-0 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{ width: `${pct}%`, backgroundColor: over ? "#f87171" : aheadOfPace ? colour : "#f59e0b" }}
-                            />
-                          </div>
-                          {/* Pace marker — where you should be at this point in the period */}
-                          {elapsedFraction < 1 && markerPct > 1 && markerPct < 99 && (
-                            <div
-                              className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-slate-400 dark:bg-slate-500 rounded-full"
-                              style={{ left: `${markerPct}%` }}
-                            />
-                          )}
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span className={`text-[10px] font-medium ${over ? "text-red-500" : elapsedFraction < 0.05 ? "text-slate-400 dark:text-slate-500" : aheadOfPace ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500"}`}>
-                            {hideNetWorth ? "••••" : over
-                              ? `${fmt2(spent - b.monthly_limit, sym)} over budget`
-                              : elapsedFraction < 0.05
-                              ? "Period just started"
-                              : elapsedFraction >= 1
-                              ? (aheadOfPace ? `${fmt2(paceGap, sym)} under budget` : `${fmt2(Math.abs(paceGap), sym)} over budget`)
-                              : aheadOfPace
-                              ? `${fmt2(paceGap, sym)} ahead of pace`
-                              : `${fmt2(Math.abs(paceGap), sym)} above pace`
-                            }
-                          </span>
-                          <span className={`text-[10px] font-medium ${over ? "text-red-500" : "text-slate-500 dark:text-slate-400"}`}>
-                            {hideNetWorth ? "••••" : over
-                              ? `${fmt2(spent - b.monthly_limit, sym)} over`
-                              : `${fmt2(b.monthly_limit - spent, sym)} left`
-                            }
-                          </span>
-                        </div>
-                      </button>
 
-                      {/* Expanded: linked goal + transactions */}
-                      {isExpanded && (
-                        <div className="border-t border-slate-50 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-700/20">
-                          {/* Transaction list */}
-                          {txns.length === 0 ? (
-                            <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">No transactions this period</p>
-                          ) : (
-                            <div className="max-h-56 overflow-y-auto">
-                              {txns.map(tx => (
-                                <div key={tx.id} className="flex items-center justify-between px-4 py-2 border-b border-slate-100/60 dark:border-slate-700/40 last:border-0">
-                                  <div className="min-w-0 flex-1">
-                                    <p className={`text-xs font-medium truncate ${tx.planned ? "text-slate-400 dark:text-slate-500 line-through" : "text-slate-700 dark:text-slate-200"}`}>
-                                      {tx.merchant_name || tx.description}
-                                    </p>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{formatDate(tx.date)}</p>
+                        {/* Expanded: transactions */}
+                        {isExpanded && (
+                          <div id={`budget-txns-${b.category}`} className="border-t border-slate-50 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-700/20">
+                            {txns.length === 0 ? (
+                              <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-4">No transactions this period</p>
+                            ) : (
+                              <div className="max-h-56 overflow-y-auto">
+                                {txns.map(tx => (
+                                  <div key={tx.id} className="flex items-center justify-between px-4 py-2 border-b border-slate-100/60 dark:border-slate-700/40 last:border-0">
+                                    <div className="min-w-0 flex-1">
+                                      <p className={`text-xs font-medium truncate ${tx.planned ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"}`}>
+                                        {tx.merchant_name || tx.description}
+                                      </p>
+                                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatDate(tx.date)}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                                      <span className={`text-xs font-semibold ${
+                                        tx.planned ? "text-slate-400 line-through"
+                                        : tx.transaction_type === "credit" ? "text-emerald-500"
+                                        : "text-red-600"
+                                      }`}>
+                                        {hideNetWorth ? "••••" : `${tx.transaction_type === "credit" ? "+" : "-"}${fmt2(Math.abs(tx.amount), sym)}`}
+                                      </span>
+                                      {tx.transaction_type === "credit" ? (
+                                        // Refund — nets against the category; "planned" doesn't apply
+                                        <span className="w-7 h-7 flex-shrink-0" />
+                                      ) : (
+                                        <button
+                                          onClick={() => handleTransactionPlanned(tx.id, !!tx.planned)}
+                                          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${
+                                            tx.planned
+                                              ? "bg-blue-100 dark:bg-blue-900/40 text-blue-500"
+                                              : "bg-slate-100 dark:bg-slate-700 text-blue-300 dark:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-400"
+                                          }`}
+                                          aria-label={`${tx.planned ? "Unmark" : "Mark"} ${tx.merchant_name || tx.description} as planned`}
+                                        >
+                                          <Flag size={12} className={tx.planned ? "fill-blue-400 text-blue-500" : ""} />
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                                    <span className={`text-xs font-semibold ${tx.planned ? "text-slate-400 line-through" : "text-red-500"}`}>
-                                      {hideNetWorth ? "••••" : `-${fmt2(Math.abs(tx.amount), sym)}`}
-                                    </span>
-                                    <button
-                                      onClick={() => handleTransactionPlanned(tx.id, !!tx.planned)}
-                                      className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${
-                                        tx.planned
-                                          ? "bg-blue-100 dark:bg-blue-900/40 text-blue-500"
-                                          : "bg-slate-100 dark:bg-slate-700 text-slate-300 dark:text-slate-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-400"
-                                      }`}
-                                      aria-label="Toggle planned"
-                                    >
-                                      <Flag size={12} className={tx.planned ? "fill-blue-400 text-blue-500" : ""} />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                            )}
+                            {/* Visible fallback delete — discoverable on all devices,
+                                required by impeccable "gestures need a visible fallback" */}
+                            <div className="px-4 pt-1 pb-3">
+                              <button
+                                onClick={() => requestDelete(b.category)}
+                                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                aria-label={`Remove ${b.category} budget`}
+                              >
+                                <Trash2 size={14} />
+                                Remove this budget
+                              </button>
                             </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
+                      </SwipeToDelete>
+                    );
+                  })}
+                </div>
+
+                {/* Add-row / add-form — below the cards list.
+                    Hidden entirely once every category already has a budget. */}
+                {!showAddForm ? (availableCats.length > 0 ? (
+                  <button
+                    data-tutorial-id="tutorial-budget-form"
+                    onClick={() => setShowAddForm(true)}
+                    className="w-full flex items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-slate-300 dark:border-slate-600 text-sm font-semibold text-slate-500 dark:text-slate-400 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400 active:scale-[0.99] transition-all"
+                  >
+                    <Plus size={15} /> Add a budget
+                  </button>
+                ) : null) : (
+                  <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add a budget</p>
+                    <div className="flex gap-2 mb-2">
+                      <CustomSelect
+                        value={addCat}
+                        onChange={v => { setAddCat(v); setAddError(""); }}
+                        placeholder="Category…"
+                        options={availableCats.map(c => ({ value: c, label: c }))}
+                        className="flex-1"
+                        ariaLabel="Budget category"
+                      />
+                      <div className="relative flex-shrink-0">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 whitespace-nowrap">{sym}</span>
+                        <input
+                          type="number" min="1" placeholder="Limit" value={addLimit}
+                          onChange={e => setAddLimit(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") handleAddBudget(); }}
+                          aria-label="Monthly limit"
+                          className={`text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 border border-slate-200 dark:border-slate-600 rounded-xl pr-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 ${sym.length > 2 ? "w-32 pl-11" : "w-28 pl-7"}`}
+                        />
+                      </div>
+                      <button
+                        data-tutorial-id="tutorial-budget-add"
+                        onClick={handleAddBudget}
+                        className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center active:scale-90 transition-transform"
+                        aria-label="Add budget"
+                      >
+                        <Plus size={16} color="#fff" />
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
+                    {addError && <p className="text-xs text-red-500 mb-2">{addError}</p>}
+                    <button
+                      onClick={() => { setShowAddForm(false); setAddCat(""); setAddLimit(""); setAddError(""); }}
+                      className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
             )}
-
-
-          </>
+          </div>
+          </div>
         )}
       </div>
 
@@ -836,7 +1052,13 @@ export default function BudgetPage() {
 
       {/* AI Chat panel */}
       {chatOpen && (
+        <>
+        <ChatScrollLock />
         <div
+          ref={chatPanelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Budget chat with Penny"
           className="fixed z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
           style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "480px" }}
         >
@@ -848,7 +1070,7 @@ export default function BudgetPage() {
               </div>
               <div>
                 <p className="text-sm font-bold">Penny</p>
-                <p className="text-[10px] opacity-70">Budget help · Powered by Claude</p>
+                <p className="text-[11px] opacity-70">Budget help · Powered by Claude</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -862,12 +1084,16 @@ export default function BudgetPage() {
                   } catch {}
                 }}
                 aria-label="New chat"
-                className="opacity-70 hover:opacity-100 transition-opacity"
+                className="w-9 h-9 flex items-center justify-center rounded-full opacity-70 hover:opacity-100 transition-opacity"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
-              <button onClick={() => setChatOpen(false)} aria-label="Close">
-                <X className="w-5 h-5 opacity-80 hover:opacity-100" />
+              <button
+                onClick={() => setChatOpen(false)}
+                aria-label="Close"
+                className="w-9 h-9 flex items-center justify-center rounded-full opacity-80 hover:opacity-100 transition-opacity"
+              >
+                <X className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -875,11 +1101,14 @@ export default function BudgetPage() {
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
             {messages.map((msg, i) => (
               <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
-                <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-emerald-600 text-white rounded-br-sm"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm"
-                }`}>
+                <div
+                  className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "text-white rounded-br-sm"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm"
+                  }`}
+                  style={msg.role === "user" ? { background: BRAND } : undefined}
+                >
                   {msg.role === "assistant" ? <ChatMarkdown>{cleanReply(msg.content)}</ChatMarkdown> : cleanReply(msg.content)}
                 </div>
                 {msg.suggestedBudgets && msg.suggestedBudgets.length > 0 && (
@@ -906,7 +1135,8 @@ export default function BudgetPage() {
 
           <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-t border-slate-100 dark:border-slate-700">
             <input
-              className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-emerald-300"
+              ref={chatInputRef}
+              className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:ring-2 focus:ring-indigo-500"
               placeholder="Ask about your budget…"
               value={inputText}
               onChange={e => setInputText(e.target.value)}
@@ -917,11 +1147,34 @@ export default function BudgetPage() {
               onClick={sendMessage}
               disabled={!inputText.trim() || chatLoading}
               className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 text-white"
-              style={{ background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}
+              style={{ background: BRAND_GRADIENT }}
               aria-label="Send"
             >
               {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
+          </div>
+        </div>
+        </>
+      )}
+
+      {/* Undo snackbar — mirrors SpendPage undoDismiss pattern */}
+      {undoBudget && (
+        <div
+          key={undoNonce}
+          className="fixed left-4 right-4 z-[70] pointer-events-none"
+          style={{ bottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <div className="pointer-events-auto bg-slate-900/95 dark:bg-slate-100/95 backdrop-blur rounded-xl shadow-lg overflow-hidden">
+            <div className="flex items-center justify-between gap-3 pl-4 pr-2 min-h-[48px]">
+              <p className="text-sm font-medium text-white dark:text-slate-900">Budget removed</p>
+              <button
+                onClick={undoDelete}
+                className="text-sm font-bold text-indigo-300 dark:text-indigo-600 rounded-lg px-4 min-h-[44px] active:bg-white/10 dark:active:bg-slate-900/10"
+              >
+                Undo
+              </button>
+            </div>
+            <div className="h-[3px] bg-indigo-400/90" style={{ animation: "wdCountdown 6s linear forwards" }} />
           </div>
         </div>
       )}
@@ -953,7 +1206,7 @@ function ApplyBudgetCard({
   return (
     <div className="mt-1.5 max-w-[80%] bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-600 rounded-2xl rounded-tl-sm overflow-hidden shadow-sm">
       <div className="px-3 pt-2.5 pb-1.5 border-b border-slate-100 dark:border-slate-700">
-        <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Suggested Budget</p>
+        <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Suggested Budget</p>
       </div>
       <div className="px-3 py-1.5 space-y-1">
         {budgets.map(b => {
@@ -978,7 +1231,7 @@ function ApplyBudgetCard({
               ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"
               : "text-white"
           }`}
-          style={applied ? undefined : { background: "linear-gradient(135deg, #059669 0%, #047857 100%)" }}
+          style={applied ? undefined : { background: BRAND_GRADIENT }}
         >
           {applied ? "✓ Budget applied" : applying ? "Applying…" : "Apply this budget"}
         </button>

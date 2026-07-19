@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "co.uk.auriqltd.wealth"
+      "bundleIdentifier": "co.uk.auriqltd.wealth",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Take photos of receipts to track your grocery prices.",
+        "NSPhotoLibraryUsageDescription": "Choose receipt photos to track your grocery prices.",
+        "NSFaceIDUsageDescription": "Unlock your financial dashboard with Face ID."
+      }
     },
     "android": {
       "package": "co.uk.auriqltd.wealth",
@@ -49,6 +54,18 @@
         "expo-notifications",
         {
           "color": "#b91c1c"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock your financial dashboard with Face ID."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Take photos of receipts to track your grocery prices."
         }
       ]
     ],

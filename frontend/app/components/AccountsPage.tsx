@@ -2,12 +2,17 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign } from "@/lib/api";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary } from "@/lib/api";
 import AccountMiniCard, { BANK_META } from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
-import CategoryRow, { CategoryData } from "@/components/CategoryRow";
+import { CategoryData } from "@/components/CategoryRow";
+import CategorySheet from "@/components/CategorySheet";
+import { useColours } from "@/components/ColourProvider";
+import { useCategoryIcons } from "@/components/IconProvider";
+import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
@@ -46,6 +51,8 @@ export default function AccountsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { hideNetWorth, region } = usePreferences();
+  const { colours } = useColours();
+  const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [txnMap, setTxnMap] = useState<Record<string, Transaction[]>>({});
   const [loading, setLoading] = useState(true);
@@ -105,7 +112,44 @@ export default function AccountsPage() {
   const [manualTxError, setManualTxError] = useState<string | null>(null);
   const [detailSegment, setDetailSegment] = useState<"Transactions" | "Rules">("Transactions");
 
-  const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen;
+  // Custom confirm dialog (replaces native window.confirm)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean; message: string; resolve: (v: boolean) => void;
+  } | null>(null);
+
+  function showConfirm(message: string): Promise<boolean> {
+    return new Promise(resolve => {
+      setConfirmDialog({ open: true, message, resolve });
+    });
+  }
+
+  function handleConfirmClose(result: boolean) {
+    confirmDialog?.resolve(result);
+    setConfirmDialog(null);
+  }
+
+  // Transaction search (server-side for bank accounts, debounced)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  // Server-paginated transactions for the selected bank account
+  const [serverTxns, setServerTxns] = useState<Transaction[]>([]);
+  const [serverPages, setServerPages] = useState(1);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Server-aggregated category rollup + lazily-fetched per-category txns
+  const [catSummaries, setCatSummaries] = useState<AccountCategorySummary[] | null>(null);
+  const [catTxns, setCatTxns] = useState<Record<string, Transaction[]>>({});
+
+  // Swipe between transaction pages
+  const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen || !!confirmDialog?.open;
   useEffect(() => {
     if (anyModalOpen) {
       const prev = document.body.style.overflow;
@@ -147,24 +191,33 @@ export default function AccountsPage() {
           }
         } catch { /* ignore parse errors */ }
       }
-      const deepId = searchParams.get("id");
-      if (deepId) {
-        setSelectedAccountId(deepId);
-        setSegment("Transactions");
-        setPage(1);
-        const txns = await api.transactions(deepId).catch(() => [] as Transaction[]);
-        const sorted = txns.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setTxnMap(prev => ({ ...prev, [deepId]: sorted }));
-      }
     } catch {}
     finally {
       setLoading(false);
     }
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     loadAccounts();
   }, [loadAccounts]);
+
+  // Keep selectedAccountId in lockstep with the ?id= deep link. Deliberately
+  // separate from loadAccounts (which also runs after in-page mutations like
+  // deleting a transaction) — if this lived there, it would only ever *set*
+  // selectedAccountId and never clear it, so a stale detail view could stick
+  // around after Next.js reuses this route's cached component instance on a
+  // quick Home → Accounts → Home → Manage round trip.
+  useEffect(() => {
+    const deepId = searchParams.get("id");
+    if (deepId) {
+      setSelectedAccountId(deepId);
+      setSegment("Transactions");
+      setPage(1);
+      setLoadingTxns(deepId);
+    } else {
+      setSelectedAccountId(null);
+    }
+  }, [searchParams]);
 
   // When redirected back from TrueLayer, poll until accounts appear then clear the flag
   useEffect(() => {
@@ -181,11 +234,16 @@ export default function AccountsPage() {
   }, [isSyncing, router]);
 
   async function loadAccountTxns(accountId: string, force = false) {
+    const isManual = accounts.find(a => a.id === accountId)?.manual;
+    if (!isManual) {
+      // Bank accounts are server-paginated — nudge the fetch effect instead
+      setRefreshTick(t => t + 1);
+      return;
+    }
     if (txnMap[accountId] && !force) return;
     setLoadingTxns(accountId);
     try {
-      const isManual = accounts.find(a => a.id === accountId)?.manual;
-      const txns = isManual ? await api.manualTransactions(accountId) : await api.transactions(accountId);
+      const txns = await api.manualTransactions(accountId);
       const sorted = txns.sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
@@ -248,7 +306,66 @@ export default function AccountsPage() {
     setDetailSegment("Transactions");
     setPage(1);
     setExpandedCat(null);
-    await loadAccountTxns(acc.id);
+    setSearchQuery("");
+    setDebouncedQuery("");
+    setServerTxns([]);
+    setServerPages(1);
+    setCatSummaries(null);
+    setCatTxns({});
+    if (acc.manual) {
+      await loadAccountTxns(acc.id);
+    } else {
+      setLoadingTxns(acc.id); // fetch effect clears this after page 1 arrives
+    }
+  }
+
+  // Fetch the current page for the selected bank account whenever the page,
+  // search query or refresh tick changes. Manual accounts keep their full
+  // (tiny) client-side ledger.
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    const acc = accounts.find(a => a.id === selectedAccountId);
+    if (!acc || acc.manual) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.transactions(selectedAccountId, {
+          page, q: debouncedQuery || undefined,
+        });
+        if (cancelled) return;
+        setServerTxns(r.items);
+        setServerPages(r.pages);
+      } catch {}
+      finally {
+        if (!cancelled) setLoadingTxns(null);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, page, debouncedQuery, refreshTick, accounts]);
+
+  // Category rollup is fetched lazily, first time the Categories tab opens
+  useEffect(() => {
+    if (!selectedAccountId || segment !== "Categories" || catSummaries !== null) return;
+    const acc = accounts.find(a => a.id === selectedAccountId);
+    if (!acc || acc.manual) return;
+    api.accountCategories(selectedAccountId)
+      .then(setCatSummaries)
+      .catch(() => setCatSummaries([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, segment, catSummaries, accounts]);
+
+  async function openCategorySheet(name: string) {
+    setExpandedCat(name);
+    if (!catTxns[name] && selectedAccountId) {
+      try {
+        // Same 90-day debit-only window as the rollup, so counts and rows agree
+        const r = await api.transactions(selectedAccountId, {
+          category: name, pageSize: 100, days: 90, txnType: "debit",
+        });
+        setCatTxns(prev => ({ ...prev, [name]: r.items }));
+      } catch {}
+    }
   }
 
   function handleBack() {
@@ -257,9 +374,14 @@ export default function AccountsPage() {
       // keeping the in-app arrow and the system back gesture in sync
       window.history.back();
     } else {
-      // Deep-linked or post-delete: no pushed entry to consume
+      // Deep-linked or post-delete: no pushed entry to consume. Scrub the
+      // ?id= param too, so the URL matches what's on screen — otherwise a
+      // cached revisit of this route could reopen the same account.
       setSelectedAccountId(null);
       setSelectedTx(null);
+      if (searchParams.get("id")) {
+        router.replace("/accounts");
+      }
     }
   }
 
@@ -302,7 +424,7 @@ export default function AccountsPage() {
 
   async function handleDeleteAccount() {
     if (!selectedAccountId) return;
-    const confirmed = window.confirm("Remove this account and all its transactions?");
+    const confirmed = await showConfirm("Remove this account and all its transactions?");
     if (!confirmed) return;
     setDeletingAccount(true);
     try {
@@ -360,7 +482,7 @@ export default function AccountsPage() {
   }
 
   async function removeManual(id: string) {
-    if (!window.confirm("Remove this offline account?")) return;
+    if (!await showConfirm("Remove this offline account?")) return;
     try {
       await api.deleteManualAccount(id);
       setManualAccounts(prev => prev.filter(a => a.id !== id));
@@ -428,7 +550,7 @@ export default function AccountsPage() {
 
   async function removeManualTx(txId: string) {
     if (!selectedAccountId) return;
-    if (!window.confirm("Delete this entry?")) return;
+    if (!await showConfirm("Delete this entry?")) return;
     try {
       await api.deleteManualTransaction(selectedAccountId, txId);
       await loadAccountTxns(selectedAccountId, true);
@@ -490,7 +612,7 @@ export default function AccountsPage() {
   }
 
   async function removeRule(id: string) {
-    if (!window.confirm("Delete this rule? Its mirrored amounts will be reversed.")) return;
+    if (!await showConfirm("Delete this rule? Its mirrored amounts will be reversed.")) return;
     try {
       await api.deleteManualAccountRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
@@ -535,7 +657,7 @@ export default function AccountsPage() {
   }
 
   async function handleDeleteInvestment(id: string) {
-    if (!confirm("Remove this investment account and all its holdings?")) return;
+    if (!await showConfirm("Remove this investment account and all its holdings?")) return;
     setDeletingInvestment(id);
     try {
       await api.deleteInvestmentAccount(id);
@@ -565,50 +687,43 @@ export default function AccountsPage() {
   }, [accounts]);
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
-    setTxnMap((prev) => {
-      const next = { ...prev };
-      for (const [accId, list] of Object.entries(next)) {
-        next[accId] = list.map((t) => {
-          if (t.id === updated.id) return { ...t, category: updated.category };
-          if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };
-          return t;
-        });
-      }
-      return next;
-    });
+    const apply = (t: Transaction) =>
+      t.id === updated.id || additionalIds?.includes(t.id)
+        ? { ...t, category: updated.category }
+        : t;
+    setServerTxns(prev => prev.map(apply));
+    // Category totals shifted — drop the rollup so it refetches on next view
+    setCatSummaries(null);
+    setCatTxns({});
   }
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+  const isManualSelected = !!selectedAccount?.manual;
   const accountTxns = selectedAccountId ? (txnMap[selectedAccountId] ?? []) : [];
 
-  // Pagination
-  const totalPages = Math.ceil(accountTxns.length / PAGE_SIZE);
-  const pagedTxns = accountTxns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Manual accounts: tiny hand-entered ledgers, filtered and paged client-side.
+  // Bank accounts: server-paginated, search included in the query.
+  const filteredTxns = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return accountTxns;
+    return accountTxns.filter(tx =>
+      (tx.description ?? "").toLowerCase().includes(q) ||
+      (tx.merchant_name ?? "").toLowerCase().includes(q) ||
+      (tx.category ?? "").toLowerCase().includes(q)
+    );
+  }, [accountTxns, searchQuery]);
 
-  // Categories for selected account
-  const categories = useMemo((): CategoryData[] => {
-    const map: Record<string, { total: number; count: number; transactions: Transaction[] }> = {};
-    for (const tx of accountTxns) {
-      if (tx.transaction_type === "credit") continue;
-      const cat = tx.category || "Other";
-      if (!map[cat]) map[cat] = { total: 0, count: 0, transactions: [] };
-      map[cat].total += Math.abs(tx.amount);
-      map[cat].count += 1;
-      map[cat].transactions.push(tx);
-    }
-    const totalSpend = Object.values(map).reduce((s, v) => s + v.total, 0);
-    return Object.entries(map)
-      .map(([name, { total, count, transactions }]) => ({
-        name,
-        total,
-        count,
-        transactions: transactions.sort(
-          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-        ),
-        pct: totalSpend > 0 ? (total / totalSpend) * 100 : 0,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [accountTxns]);
+  const totalPages = isManualSelected
+    ? Math.ceil(filteredTxns.length / PAGE_SIZE)
+    : serverPages;
+  const pagedTxns = isManualSelected
+    ? filteredTxns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+    : serverTxns;
+
+  // Categories: server rollup + lazily-fetched transactions per category
+  const categories = useMemo((): CategoryData[] =>
+    (catSummaries ?? []).map(c => ({ ...c, transactions: catTxns[c.name] ?? [] })),
+  [catSummaries, catTxns]);
 
   // Rules added from within an offline account are scoped to it (no picker).
   const inManualDetail = !!accounts.find(a => a.id === selectedAccountId)?.manual;
@@ -616,6 +731,27 @@ export default function AccountsPage() {
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
+      {confirmDialog?.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-6">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-xs rounded-2xl p-6 shadow-2xl">
+            <p className="text-sm text-slate-100 leading-relaxed mb-6">{confirmDialog.message}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleConfirmClose(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-600 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleConfirmClose(true)}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-sm font-semibold text-white transition-colors"
+              >
+                {confirmDialog.message.trimStart().startsWith("Delete") ? "Delete" : "Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showMpesaUpload && (
         <StatementUpload
           onSuccess={handleStatementSuccess}
@@ -936,7 +1072,7 @@ export default function AccountsPage() {
               <button
                 onClick={async () => {
                   if (isManual) {
-                    if (!window.confirm("Remove this offline account?")) return;
+                    if (!await showConfirm("Remove this offline account?")) return;
                     await api.deleteManualAccount(selectedAccount.id);
                     setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
                     loadAccounts();
@@ -978,12 +1114,14 @@ export default function AccountsPage() {
         <div className="px-4 pt-4">
           {isManual ? (
             <SegmentedControl
+              ariaLabel="Account view"
               options={["Transactions", "Rules"]}
               value={detailSegment}
               onChange={(v) => setDetailSegment(v as typeof detailSegment)}
             />
           ) : (
             <SegmentedControl
+              ariaLabel="Account view"
               options={["Transactions", "Categories"]}
               value={segment}
               onChange={(v) => setSegment(v as typeof segment)}
@@ -992,6 +1130,28 @@ export default function AccountsPage() {
         </div>
 
         <div className="px-4 pt-4 space-y-2">
+          {/* Search bar — only shown when viewing transactions */}
+          {showTransactions && (
+            <div className="relative mb-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setPage(1); }}
+                placeholder="Search transactions…"
+                className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(""); setPage(1); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          )}
+
           {loadingTxns === selectedAccountId ? (
             <div className="flex items-center justify-center py-16">
               <Spinner size={32} />
@@ -1009,11 +1169,27 @@ export default function AccountsPage() {
                   </button>
                 </div>
               )}
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+              <div
+                className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
+                onTouchStart={e => {
+                  swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }}
+                onTouchEnd={e => {
+                  if (!swipeTouchStart.current || totalPages <= 1) return;
+                  const dx = e.changedTouches[0].clientX - swipeTouchStart.current.x;
+                  const dy = e.changedTouches[0].clientY - swipeTouchStart.current.y;
+                  swipeTouchStart.current = null;
+                  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+                  if (dx < 0 && page < totalPages) setPage(p => p + 1);
+                  if (dx > 0 && page > 1) setPage(p => p - 1);
+                }}
+              >
                 {pagedTxns.length === 0 ? (
                   <div className="py-8 text-center">
                     <p className="text-sm text-slate-400 dark:text-slate-500">
-                      {isManual ? "No transactions yet — add one or set up a rule." : "No transactions"}
+                      {searchQuery
+                        ? `No transactions matching "${searchQuery}"`
+                        : isManual ? "No transactions yet — add one or set up a rule." : "No transactions"}
                     </p>
                   </div>
                 ) : (
@@ -1108,26 +1284,66 @@ export default function AccountsPage() {
               )}
             </>
           ) : (
-            /* Categories view */
-            categories.length === 0 ? (
+            /* Categories view — same card grid as the Spend page */
+            catSummaries === null ? (
+              <div className="flex items-center justify-center py-16">
+                <Spinner size={32} />
+              </div>
+            ) : categories.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
                 <p className="text-sm text-slate-400 dark:text-slate-500">No spending data</p>
               </div>
             ) : (
-              categories.map((cat) => (
-                <CategoryRow
-                  key={cat.name}
-                  data={cat}
-                  expanded={expandedCat === cat.name}
-                  onToggle={() =>
-                    setExpandedCat(expandedCat === cat.name ? null : cat.name)
-                  }
-                  onTransactionClick={(tx) => setSelectedTx(tx)}
-                />
-              ))
+              <div className="grid grid-cols-2 gap-3">
+                {categories.map((cat) => {
+                  const colour = colours[cat.name] ?? CATEGORY_COLOURS[cat.name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                  const Icon = getCategoryIcon(cat.name, iconOverrides);
+                  return (
+                    <button
+                      key={cat.name}
+                      onClick={() => openCategorySheet(cat.name)}
+                      className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: `${colour}26` }}
+                        >
+                          <Icon size={16} style={{ color: colour }} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">{cat.name}</p>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{cat.count} txn{cat.count !== 1 ? "s" : ""}</p>
+                        </div>
+                      </div>
+                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
+                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )
           )}
         </div>
+
+        {/* Category sheet — opened from the category grid */}
+        {expandedCat && (() => {
+          const cat = categories.find(c => c.name === expandedCat);
+          return cat ? (
+            <CategorySheet
+              name={cat.name}
+              total={cat.total}
+              count={cat.count}
+              transactions={cat.transactions}
+              onClose={() => setExpandedCat(null)}
+              onTransactionClick={(tx) => { setExpandedCat(null); setSelectedTx(tx); }}
+            />
+          ) : null;
+        })()}
 
         {/* Transaction sheet */}
         {selectedTx && (

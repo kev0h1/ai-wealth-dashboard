@@ -5,6 +5,7 @@ import { MessageCircle, X, Send, Loader2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import { BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import { useSheetA11y } from "@/lib/useSheetA11y";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -23,6 +24,7 @@ export default function TaxChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const panelRef = useSheetA11y<HTMLDivElement>(() => setOpen(false));
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,6 +73,10 @@ export default function TaxChat() {
       {/* Floating card — same shape as MoneyAdvisorChat */}
       {open && (
         <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Tax chat with Penny"
           className="fixed z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
           style={{
             bottom: "calc(88px + env(safe-area-inset-bottom, 0px))",
@@ -88,7 +94,7 @@ export default function TaxChat() {
               </div>
               <div>
                 <p className="text-sm font-bold">Penny</p>
-                <p className="text-[10px] opacity-70">Tax questions · Powered by Claude</p>
+                <p className="text-[11px] opacity-70">Tax questions · Powered by Claude</p>
               </div>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close chat">
@@ -137,7 +143,7 @@ export default function TaxChat() {
           )}
 
           <div className="flex-shrink-0 px-3 pb-1">
-            <p className="text-[9px] leading-snug text-slate-400 dark:text-slate-500">
+            <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500">
               General information, not regulated financial advice.
             </p>
           </div>

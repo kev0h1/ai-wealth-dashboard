@@ -13,8 +13,8 @@ from app.core.config import (
 )
 from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
-from app.db.collections import connections_col, accounts_col, transactions_col
-from app.services.categorisation import rule_categorise
+from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
+from app.services.categorisation import rule_categorise, user_identity, is_own_transfer
 
 
 async def save_connection(connection_id: str, token_data: dict, user_id: Optional[str] = None):
@@ -56,7 +56,8 @@ async def get_valid_token(connection_id: str) -> Optional[str]:
     return None
 
 
-async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_card: bool = False) -> list:
+async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_card: bool = False,
+                               identity: dict | None = None) -> list:
     new_txns = []
     for txn in txns:
         merchant    = txn.get("merchant_name") or ""
@@ -70,7 +71,14 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             # (e.g. Monzo requests) get tagged TRANSFER by TrueLayer but are Income.
             category = rule_categorise(merchant, description) or "Income"
         elif raw_cat == "TRANSFER":
-            category = "Transfer"
+            # Same distrust for debits: TrueLayer tags any P2P faster payment
+            # TRANSFER, including money sent to other people. Only accept it
+            # when the description corroborates the user's own identity —
+            # otherwise it's real spend and must stay visible ("Other").
+            category = rule_categorise(merchant, description) or (
+                "Transfer" if identity is None or is_own_transfer(f"{merchant} {description}", identity)
+                else "Other"
+            )
         else:
             category = rule_categorise(merchant, description) or None
 
@@ -134,7 +142,15 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     if not user_id:
         user_id = (conn_doc or {}).get("user_id", "unknown")
     is_initial_sync = not (conn_doc or {}).get("last_synced")
-    excluded = set((conn_doc or {}).get("excluded_accounts") or [])
+    # Merge connection-level exclusions with the durable user-level list so
+    # accounts the user removed stay gone even after a reconnect.
+    conn_excluded  = set((conn_doc or {}).get("excluded_accounts") or [])
+    user_excluded  = {
+        d["account_id"] async for d in
+        excluded_accounts_col.find({"user_id": user_id}, {"account_id": 1})
+    } if user_id and user_id != "unknown" else set()
+    excluded = conn_excluded | user_excluded
+    identity = await user_identity(user_id) if user_id and user_id != "unknown" else None
     all_new_txns: list = []
 
     if from_date is None:
@@ -168,7 +184,16 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                 {"account_id": account_id}, sort=[("date", -1)], projection={"date": 1}
             )
             if latest and latest.get("date"):
-                return latest["date"].strftime("%Y-%m-%d")
+                # Re-fetch a rolling 7-day overlap, not just from the exact latest
+                # date. Monzo card payments (and pot round-ups) pend then settle a
+                # few days later carrying their ORIGINAL transaction date; without
+                # the overlap the incremental cursor skips them permanently. Upserts
+                # are keyed on transaction_id, so re-fetching is idempotent.
+                overlap_start = (latest["date"] - timedelta(days=7)).strftime("%Y-%m-%d")
+                # Never fetch a narrower window than the caller asked for — a
+                # sync-history run passes a 90-day from_date to backfill gaps, and
+                # that must win over the recent per-account cursor.
+                return min(overlap_start, from_date)
             return from_date
 
         async def _fetch_txns(url: str, sync_from: str):
@@ -210,7 +235,7 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                 else:
                     logger.warning("Balance fetch failed for account %s: HTTP %s", account_id, br.status_code)
                 if tr.status_code == 200:
-                    new = await _upsert_transactions(tr.json().get("results", []), account_id, user_id)
+                    new = await _upsert_transactions(tr.json().get("results", []), account_id, user_id, identity=identity)
                     all_new_txns.extend(new)
                 else:
                     logger.warning("Transaction fetch failed for account %s: HTTP %s", account_id, tr.status_code)
@@ -254,13 +279,18 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                 if cbr.status_code == 200:
                     res = cbr.json().get("results", [])
                     if res:
-                        balance    = -abs(res[0].get("current", 0.0))
+                        # TrueLayer's card "current" is positive when you owe the
+                        # provider, negative when you're in credit (overpaid).
+                        # Flip the sign (don't clamp with abs()) so an in-credit
+                        # card correctly shows as a positive balance/asset rather
+                        # than always looking like debt.
+                        balance    = -float(res[0].get("current", 0.0) or 0.0)
                         available  = res[0].get("available")
                         balance_ok = True
                 else:
                     logger.warning("Balance fetch failed for card %s: HTTP %s", card_id, cbr.status_code)
                 if ctr.status_code == 200:
-                    new = await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True)
+                    new = await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True, identity=identity)
                     all_new_txns.extend(new)
                 else:
                     logger.warning("Transaction fetch failed for card %s: HTTP %s", card_id, ctr.status_code)

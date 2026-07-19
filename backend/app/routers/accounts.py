@@ -13,6 +13,7 @@ from app.db.collections import (
     statement_accounts_col, statement_transactions_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     account_rates_col, manual_accounts_col, cashflow_cache_col,
+    excluded_accounts_col,
 )
 from app.services.region import get_user_region
 from app.services.truelayer_sync import sync_connection
@@ -239,9 +240,14 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         connection_id = tl_acc.get("connection_id")
         await transactions_col.delete_many({"account_id": account_id})
         await accounts_col.delete_one({"_id": account_id})
+        # Persist exclusion at the user level so reconnects don't resurrect it.
+        await excluded_accounts_col.update_one(
+            {"user_id": uid, "account_id": account_id},
+            {"$set": {"user_id": uid, "account_id": account_id, "excluded_at": datetime.now()}},
+            upsert=True,
+        )
         if connection_id:
-            # Record the deleted account ID on the connection so the sync
-            # skips it on future runs — prevents it coming back automatically.
+            # Also record on the connection for fast in-sync lookup.
             await connections_col.update_one(
                 {"_id": connection_id},
                 {"$addToSet": {"excluded_accounts": account_id}},

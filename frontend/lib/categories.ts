@@ -21,28 +21,31 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
-// CVD-safe qualitative palette (Paul Tol / Okabe–Ito), hue + luminance spaced so
-// adjacent categories stay distinct for colour-blind viewers and in greyscale.
-// Semantic anchors kept: Debt=red, Income=green, Savings=gold, Transfer=grey.
+// One tonal family: every colour sits at the same saturation/lightness band
+// (Tailwind's 400 row), so charts read as a blended set rather than fighting
+// tones. Hues stay semantic (food green, transport blue, debt red…).
+// Deliberate trade-off vs the previous CVD-optimised Tol palette: colour is
+// never the only channel here — every chart labels categories by name — and
+// users can override any colour in the category manager.
 export const CATEGORY_COLOURS: Record<string, string> = {
-  Groceries:     "#117733",  // green   — food (dark)
-  "Eating Out":  "#EE7733",  // orange  — warm food
-  Transport:     "#4477AA",  // blue    — movement
-  Entertainment: "#AA4499",  // purple  — fun
-  Shopping:      "#EE3377",  // magenta — retail
-  Bills:         "#882255",  // wine    — recurring
-  Subscriptions: "#66CCEE",  // cyan    — digital
-  Health:        "#44AA99",  // teal    — medical
-  Beauty:        "#F781BF",  // pink    — personal care
-  Travel:        "#332288",  // indigo  — far/adventure
-  Software:      "#999933",  // olive   — tech
-  Savings:       "#E69F00",  // gold    — wealth (semantic)
-  Debt:          "#EE3333",  // red     — liability (semantic)
-  Transfer:      "#BBBBBB",  // grey    — neutral
-  Income:        "#228833",  // green   — positive cash in (not shown in spend donut)
-  Cash:          "#DDCC77",  // sand    — physical money
-  Charity:       "#CC79A7",  // rose    — giving
-  Other:         "#8B6B5A",  // brown   — misc
+  Groceries:     "#34d399",  // emerald — food
+  "Eating Out":  "#fb923c",  // orange  — warm food
+  Transport:     "#60a5fa",  // blue    — movement
+  Entertainment: "#c084fc",  // purple  — fun
+  Shopping:      "#f472b6",  // pink    — retail
+  Bills:         "#fb7185",  // rose    — recurring
+  Subscriptions: "#22d3ee",  // cyan    — digital
+  Health:        "#2dd4bf",  // teal    — medical
+  Beauty:        "#e879f9",  // fuchsia — personal care
+  Travel:        "#818cf8",  // indigo  — far/adventure
+  Software:      "#a3e635",  // lime    — tech
+  Savings:       "#fbbf24",  // amber   — wealth (semantic)
+  Debt:          "#f87171",  // red     — liability (semantic)
+  Transfer:      "#cbd5e1",  // slate   — neutral
+  Income:        "#4ade80",  // green   — positive cash in (not shown in spend donut)
+  Cash:          "#facc15",  // yellow  — physical money
+  Charity:       "#f9a8d4",  // soft pink — giving
+  Other:         "#94a3b8",  // slate   — misc
 };
 
 export const DEFAULT_CUSTOM_COLOUR = "#6366f1";

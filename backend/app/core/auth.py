@@ -25,7 +25,7 @@ async def auth_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path
-    if path.startswith("/auth/") or path.startswith("/webhooks/"):
+    if path.startswith("/auth/") or path.startswith("/webhooks/") or path.startswith("/logo/"):
         if limited := check_rate_limit(request):
             return limited
         return await call_next(request)

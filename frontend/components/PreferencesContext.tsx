@@ -12,6 +12,9 @@ interface Prefs {
   region: Region;
   debtTargetMonths: number;
   debtTrackingStart: string;
+  spendWidgets: string[] | null;
+  homePinnedWidget: string | null;
+  rawPrefs: Record<string, any> | null;
 }
 interface PrefsCtx extends Prefs {
   setHideNetWorth: (v: boolean) => void;
@@ -20,6 +23,8 @@ interface PrefsCtx extends Prefs {
   setRegion: (r: Region) => void;
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
+  setSpendWidgets: (v: string[]) => void;
+  setHomePinnedWidget: (v: string | null) => void;
 }
 
 const todayYM = () => new Date().toISOString().slice(0, 7);
@@ -31,12 +36,17 @@ const Ctx = createContext<PrefsCtx>({
   region: "UK",
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
+  spendWidgets: null,
+  homePinnedWidget: null,
+  rawPrefs: null,
   setHideNetWorth: () => {},
   setDarkMode: () => {},
   setPayPeriodConfig: () => {},
   setRegion: () => {},
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
+  setSpendWidgets: () => {},
+  setHomePinnedWidget: () => {},
 });
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
@@ -50,6 +60,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [region, setRegionState] = useState<Region>("UK");
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
+  const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
+  const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
+  const [rawPrefs, setRawPrefs] = useState<Record<string, any> | null>(null);
 
   useEffect(() => {
     api.getPreferences().then(p => {
@@ -62,6 +75,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if ((p as any).region) setRegionState((p as any).region as Region);
       if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
       if ((p as any).debt_tracking_start) setDebtTrackingStartState((p as any).debt_tracking_start as string);
+      if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
+      if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
+      setRawPrefs(p as any);
     }).catch(() => {});
   }, []);
 
@@ -104,8 +120,21 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     api.updatePreferences({ debt_tracking_start: s } as any).catch(() => {});
   }, []);
 
+  const setSpendWidgets = useCallback((v: string[]) => {
+    setSpendWidgetsState(v);
+  }, []);
+
+  const setHomePinnedWidget = useCallback((v: string | null) => {
+    setHomePinnedWidgetState(v);
+  }, []);
+
   return (
-    <Ctx.Provider value={{ hideNetWorth, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart, setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart }}>
+    <Ctx.Provider value={{
+      hideNetWorth, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
+      spendWidgets, homePinnedWidget, rawPrefs,
+      setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
+      setSpendWidgets, setHomePinnedWidget,
+    }}>
       {children}
     </Ctx.Provider>
   );

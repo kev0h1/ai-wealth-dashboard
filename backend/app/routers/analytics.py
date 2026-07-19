@@ -9,7 +9,7 @@ from datetime import date as _date
 from typing import List
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
@@ -25,6 +25,24 @@ from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
+
+# Friendly display labels for upstream bank provider codes (uppercase keys).
+# Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
+_BANK_LABELS: dict[str, str] = {
+    "HSBC": "HSBC",
+    "TSB": "TSB",
+    "RBS": "RBS",
+    "AIB": "AIB",
+    "NATWEST": "NatWest",
+    "M&S": "M&S",
+}
+
+
+def _bank_label(provider: str | None) -> str | None:
+    """Return a display-friendly bank name from a raw provider code."""
+    if not provider:
+        return None
+    return _BANK_LABELS.get(provider.upper(), provider.title())
 
 router = APIRouter(tags=["analytics"])
 
@@ -80,7 +98,8 @@ async def get_kpis(user: dict = Depends(current_user)):
     accounts      = await accounts_col.find({"user_id": uid}).to_list(None)
     yapily_accs   = await yapily_accounts_col.find({"user_id": uid}).to_list(None)
     stmt_accs_all = await statement_accounts_col.find({"user_id": uid}).to_list(None)
-    stmt_accs     = [a for a in stmt_accs_all if a.get("currency", "GBP") == "GBP" or a.get("region", "UK") == "UK"]
+    # GBP net worth only — a KES statement upload must not be summed as £
+    stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
     inv_accs      = await investment_accounts_col.find({"user_id": uid}).to_list(None)
     investment_total = sum(a.get("total_value", 0) for a in inv_accs)
 
@@ -268,8 +287,10 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
     prompt = (
         "You are a UK personal finance assistant. The following are debit transactions from a user's bank account "
         "that have only appeared once in the last 90 days. Identify which are likely to be recurring monthly bills "
-        "(loans, mortgages, subscriptions, utilities, insurance, direct debits etc.) and estimate when the next "
-        "payment is due based on the last_seen date (assume monthly = 28–31 days later).\n\n"
+        "and estimate when the next payment is due based on the last_seen date (assume monthly = 28–31 days later).\n"
+        "Only classic fixed billers qualify: utilities, telecoms, insurance, subscriptions, rent/mortgage, "
+        "loan payments, gym memberships. NEVER travel, transport, parking, restaurants, retail, entertainment "
+        "or anything that looks like a one-off purchase — when unsure, leave it out.\n\n"
         f"Transactions:\n{json.dumps(items, indent=2)}\n\n"
         "Reply ONLY with a JSON array of objects for those you're confident are recurring monthly. "
         'Each object: {"key": "...", "next_expected_date": "YYYY-MM-DD"}. '
@@ -315,13 +336,17 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
             "next_date":    next_date,
             "occurrences":  1,
             "ai_predicted": True,
+            "category":     c.get("category"),
         })
 
     _ai_recurring_cache[user_id] = (datetime.now(), result)
     return result
 
 
-def _detect_recurring(txns: list, min_occurrences: int = 2) -> list[dict]:
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]
+
+
+def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
     for t in txns:
@@ -339,6 +364,27 @@ def _detect_recurring(txns: list, min_occurrences: int = 2) -> list[dict]:
         avg_interval = sum(intervals) / len(intervals)
         if avg_interval < 6 or avg_interval > 35:
             continue
+
+        # Majority category for the bucket — carried through so the UI can
+        # show the real category icon instead of a generic dot.
+        cats = [(t.get("custom_category") or t.get("category") or "Other") for t in items]
+        bucket_cat = max(set(cats), key=cats.count)
+
+        # Two-tier evidence: bill-like categories are trusted at 2 occurrences;
+        # everything else must prove a cadence — 3+ hits, regular intervals,
+        # stable amounts. (trusted_categories=None disables tiers, e.g. income.)
+        if trusted_categories is not None:
+            if bucket_cat not in trusted_categories:
+                if len(items) < 3:
+                    continue
+                tolerance = max(3.0, avg_interval * 0.2)
+                if any(abs(iv - avg_interval) > tolerance for iv in intervals):
+                    continue
+                amounts = sorted(abs(float(t.get("amount", 0))) for t in items)
+                median = amounts[len(amounts) // 2]
+                if median <= 0 or any(abs(a - median) > median * 0.3 for a in amounts):
+                    continue
+
         avg_amount = sum(abs(float(t.get("amount", 0))) for t in items) / len(items)
         last_date  = dates[-1]
         if 28 <= avg_interval <= 33:
@@ -361,6 +407,7 @@ def _detect_recurring(txns: list, min_occurrences: int = 2) -> list[dict]:
             "next_date":    next_date,
             "occurrences":  len(items),
             "account_id":   str(most_recent.get("account_id", "")) or None,
+            "category":     bucket_cat,
         })
     return results
 
@@ -383,11 +430,15 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     ).to_list(None)
 
     acct_docs = (
-        await accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1}).to_list(None)
-        + await yapily_accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1}).to_list(None)
+        await accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1, "provider": 1}).to_list(None)
+        + await yapily_accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1, "provider": 1}).to_list(None)
     )
     account_map: dict[str, dict] = {
-        str(a["_id"]): {"name": a.get("name", "Account"), "balance": round(float(a.get("balance", 0)), 2)}
+        str(a["_id"]): {
+            "name": a.get("name", "Account"),
+            "balance": round(float(a.get("balance", 0)), 2),
+            "provider": a.get("provider"),
+        }
         for a in acct_docs
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
     }
@@ -397,24 +448,35 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     credits = [t for t in raw if t.get("transaction_type") == "credit"
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
 
-    recurring_spend  = _detect_recurring(debits)
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
+    dismissed = set(prefs.get("dismissed_recurring") or [])
+
+    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted)
+    recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
     recurring_income = _detect_recurring(credits)
+    recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
 
     heuristic_keys = {r["key"] for r in recurring_spend}
     single_debits: dict[str, dict] = {}
     for t in debits:
+        # First-occurrence AI guessing is only allowed in trusted categories —
+        # a one-off restaurant or car park should never reach the model
+        cat = t.get("custom_category") or t.get("category") or "Other"
+        if cat not in trusted:
+            continue
         key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
-        if not key or key in heuristic_keys:
+        if not key or key in heuristic_keys or key in dismissed:
             continue
         if key in single_debits:
             single_debits[key]["count"] += 1
         else:
-            single_debits[key] = {"key": key, "avg_amount": abs(float(t.get("amount", 0))), "last_date": t["date"], "count": 1}
+            single_debits[key] = {"key": key, "avg_amount": abs(float(t.get("amount", 0))), "last_date": t["date"], "count": 1, "category": cat}
 
     ai_candidates = [v for v in single_debits.values() if v["count"] == 1 and v["avg_amount"] >= 10]
     ai_predictions = await _ai_recurring_predict(ai_candidates, uid)
     for pred in ai_predictions:
-        if pred["key"] not in heuristic_keys:
+        if pred["key"] not in heuristic_keys and pred["key"] not in dismissed:
             recurring_spend.append(pred)
 
     recurring_keys = {r["key"] for r in recurring_spend}
@@ -442,25 +504,31 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         return {
             "key":             r["key"],
             "avg_amount":      r["avg_amount"],
+            "avg_interval":    r.get("avg_interval"),
             "next_date":       r["next_date"].isoformat(),
             "account_id":      r.get("account_id"),
             "account_name":    acct["name"] if acct else None,
+            "account_bank":    acct.get("provider") if acct else None,
             "account_balance": acct["balance"] if acct else None,
+            "category":        r.get("category"),
         }
 
     return {
         "recurring_spend":  [_serialise_pattern(r) for r in recurring_spend],
-        "recurring_income": [{"key": r["key"], "avg_amount": r["avg_amount"], "next_date": r["next_date"].isoformat()} for r in recurring_income],
+        "recurring_income": [{"key": r["key"], "avg_amount": r["avg_amount"], "avg_interval": r.get("avg_interval"), "next_date": r["next_date"].isoformat(), "category": r.get("category")} for r in recurring_income],
         "avg_daily_spend":  round(avg_daily_spend, 2),
         "available_balance": available_balance,
     }
 
 
-async def compute_and_cache_cashflow(uid: str) -> None:
+async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> None:
     """Background task: compute cashflow patterns and store to cache. Called after every sync."""
     try:
-        # Clear the in-process AI cache so the next compute gets fresh predictions
-        _ai_recurring_cache.pop(uid, None)
+        # Clear the in-process AI cache so the next compute gets fresh predictions.
+        # Dismiss/restore skip this — they only change filters, so the cached
+        # AI predictions stay valid and the rebuild takes milliseconds.
+        if clear_ai_cache:
+            _ai_recurring_cache.pop(uid, None)
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         await cashflow_cache_col.update_one(
@@ -472,10 +540,60 @@ async def compute_and_cache_cashflow(uid: str) -> None:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
 
 
+@router.get("/cashflow/at-risk-count")
+async def at_risk_count(user: dict = Depends(current_user)):
+    """Bills due within 7 days that their account can't currently cover."""
+    cached = await cashflow_cache_col.find_one({"_id": user["email"]})
+    if not cached:
+        return {"count": 0}
+    resp = _build_cashflow_response(cached)
+    n = sum(
+        1 for b in resp["upcoming_bills"]
+        if b["days_away"] <= 7
+        and b.get("account_balance") is not None
+        and b["account_balance"] >= 0          # negative balance = credit card, not shortfall
+        and b["amount"] > b["account_balance"]
+    )
+    return {"count": n}
+
+
+@router.post("/cashflow/dismiss-recurring")
+async def dismiss_recurring(body: dict, user: dict = Depends(current_user)):
+    """'Not a bill': permanently exclude a merchant from upcoming-payment
+    prediction and rebuild the cashflow cache."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$addToSet": {"dismissed_recurring": key}, "$set": {"user_id": uid}},
+        upsert=True,
+    )
+    await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+    return {"ok": True}
+
+
+@router.post("/cashflow/restore-recurring")
+async def restore_recurring(body: dict, user: dict = Depends(current_user)):
+    """Undo a dismiss: allow the merchant back into predictions and rebuild."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    await preferences_col.update_one(
+        {"user_id": uid}, {"$pull": {"dismissed_recurring": key}}
+    )
+    await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+    return {"ok": True}
+
+
 def _build_cashflow_response(cached: dict) -> dict:
     """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost."""
-    today      = datetime.now()
-    window_end = today + timedelta(days=14)
+    today = datetime.now()
+    # 35 days covers any monthly pay period; the frontend clips to period end.
+    # Weekly-ish bills repeat within the window instead of showing once.
+    window_end = today + timedelta(days=35)
 
     spend_patterns  = cached.get("recurring_spend", [])
     income_patterns = cached.get("recurring_income", [])
@@ -483,29 +601,51 @@ def _build_cashflow_response(cached: dict) -> dict:
     def _parse_date(s: str) -> datetime:
         return datetime.fromisoformat(s)
 
+    def _occurrences(r: dict) -> list[datetime]:
+        interval = float(r.get("avg_interval") or 30)
+        d = _parse_date(r["next_date"])
+        out: list[datetime] = []
+        for _ in range(12):  # guard: at most 12 projections per pattern
+            if d.date() > window_end.date():
+                break
+            if d.date() >= today.date():
+                out.append(d)
+            if 28 <= interval <= 33:
+                # Monthly bills anchor to day-of-month (same rule as detection)
+                year  = d.year + (1 if d.month == 12 else 0)
+                month = 1 if d.month == 12 else d.month + 1
+                day   = min(d.day, monthrange(year, month)[1])
+                d = d.replace(year=year, month=month, day=day)
+            else:
+                d = d + timedelta(days=max(2, round(interval)))
+        return out
+
     upcoming_bills = sorted([
         {
             "name":            r["key"],
             "amount":          r["avg_amount"],
-            "expected_date":   r["next_date"][:10],
-            "days_away":       (_parse_date(r["next_date"]).date() - today.date()).days,
+            "expected_date":   occ.date().isoformat(),
+            "days_away":       (occ.date() - today.date()).days,
             "account_id":      r.get("account_id"),
             "account_name":    r.get("account_name"),
+            "account_bank":    _bank_label(r.get("account_bank")),
             "account_balance": r.get("account_balance"),
+            "category":        r.get("category"),
         }
         for r in spend_patterns
-        if today.date() <= _parse_date(r["next_date"]).date() <= window_end.date()
+        for occ in _occurrences(r)
     ], key=lambda x: (x["days_away"], -x["amount"]))
 
     upcoming_income = sorted([
         {
             "name":          r["key"],
             "amount":        r["avg_amount"],
-            "expected_date": r["next_date"][:10],
-            "days_away":     (_parse_date(r["next_date"]).date() - today.date()).days,
+            "expected_date": occ.date().isoformat(),
+            "days_away":     (occ.date() - today.date()).days,
+            "category":      r.get("category"),
         }
         for r in income_patterns
-        if today.date() <= _parse_date(r["next_date"]).date() <= window_end.date()
+        for occ in _occurrences(r)
     ], key=lambda x: x["days_away"])
 
     avg_daily = cached.get("avg_daily_spend", 0)
@@ -592,14 +732,28 @@ def _parse_saving_amount(estimate: str | None) -> float:
 async def get_value_delivered(user: dict = Depends(current_user)):
     """Return how much monthly saving the user has unlocked by acting on insights."""
     uid = user["email"]
-    insights = await savings_insights_col.find(
-        {"user_id": uid, "user_context": {"$exists": True, "$ne": None}},
-        {"savings_estimate": 1, "title": 1},
+    docs = await savings_insights_col.find(
+        {"user_id": uid},
+        {"savings_estimate": 1, "title": 1, "user_context": 1,
+         "verified_savings": 1, "verified_merchant": 1},
     ).to_list(None)
 
+    verified_monthly = 0.0
     total_monthly = 0.0
     breakdown = []
-    for doc in insights:
+    engaged = 0
+    for doc in docs:
+        if doc.get("verified_savings"):
+            verified_monthly += float(doc["verified_savings"])
+            breakdown.append({
+                "title":          f"Stopped paying {doc.get('verified_merchant', '')}".strip(),
+                "monthly_saving": float(doc["verified_savings"]),
+                "estimate_label": "verified",
+            })
+            continue
+        if not doc.get("user_context"):
+            continue
+        engaged += 1
         monthly = _parse_saving_amount(doc.get("savings_estimate"))
         if monthly > 0:
             total_monthly += monthly
@@ -610,7 +764,8 @@ async def get_value_delivered(user: dict = Depends(current_user)):
             })
 
     return {
-        "insights_acted_on":    len(insights),
-        "total_monthly_saving": round(total_monthly, 2),
-        "breakdown":            breakdown,
+        "insights_acted_on":       engaged,
+        "total_monthly_saving":    round(total_monthly, 2),
+        "verified_monthly_saving": round(verified_monthly, 2),
+        "breakdown":               breakdown,
     }

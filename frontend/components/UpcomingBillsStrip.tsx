@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { CalendarClock } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -8,22 +8,56 @@ import { useRouter } from "next/navigation";
 
 const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
+type Status = "loading" | "ready" | "failed";
+
 export default function UpcomingBillsStrip() {
   const { region } = usePreferences();
   const sym = SYM[region] ?? "£";
   const router = useRouter();
   const [data, setData] = useState<CashflowData | null>(null);
+  const [status, setStatus] = useState<Status>("loading");
 
-  useEffect(() => {
-    api.cashflow().then(setData).catch(() => {});
+  const fetch = useCallback(() => {
+    setStatus("loading");
+    api.cashflow()
+      .then(d => { setData(d); setStatus("ready"); })
+      .catch(() => setStatus("failed"));
   }, []);
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  if (status === "loading") {
+    return (
+      <div className="px-4 lg:px-0">
+        <div className="h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm animate-pulse" />
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="px-4 lg:px-0">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
+          <p className="text-sm text-slate-400 dark:text-slate-500 flex-1">Couldn&apos;t load upcoming bills</p>
+          <button
+            onClick={fetch}
+            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 active:opacity-70 transition-opacity"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!data) return null;
 
+  // The backend projects ~35 days for the Spend page; the Home strip stays
+  // a 14-day glance so the count doesn't balloon
   const all = [
     ...data.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
     ...data.upcoming_income.map(b => ({ ...b, type: "income" as const })),
-  ];
+  ].filter(b => b.days_away <= 14);
 
   if (all.length === 0) return null;
 
@@ -37,10 +71,10 @@ export default function UpcomingBillsStrip() {
   if (tomorrow.length) parts.push({ label: "tomorrow", count: tomorrow.length, urgent: true });
   if (later.length)    parts.push({ label: `in ${later[0].days_away}–${later[later.length-1].days_away}d`, count: later.length, urgent: false });
 
-  const totalBillAmount = data.upcoming_bills.reduce((s, b) => s + b.amount, 0);
+  const totalBillAmount = all.filter(b => b.type === "bill").reduce((s, b) => s + b.amount, 0);
 
   return (
-    <div className="px-4 mb-5 lg:px-0">
+    <div className="px-4 lg:px-0">
       <button
         className="w-full bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left"
         onClick={() => router.push("/spend?view=upcoming")}

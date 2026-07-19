@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
-import { RefreshCw, ChevronRight, AlertTriangle, ArrowUp, ArrowDown, TrendingUp } from "lucide-react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
+import { RefreshCw, ChevronRight, AlertTriangle, TrendingUp } from "lucide-react";
 import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
@@ -18,6 +18,14 @@ import TutorialTrigger from "@/components/TutorialTrigger";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
+import GoalsStrip from "@/components/GoalsStrip";
+import MoneyAdvisorChat from "@/components/MoneyAdvisorChat";
+import { PinnedWidgetCard } from "@/components/SpendTrends";
+import { useColours } from "@/components/ColourProvider";
+import { isHomeCurrency } from "@/lib/currency";
+import FuelSavingsCard from "@/components/FuelSavingsCard";
+import { GroceryBasketCard } from "@/app/insights/InsightsPage";
+import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 
 // Token is guaranteed by AuthProvider before this component mounts
 async function ensureAuth() {}
@@ -26,19 +34,25 @@ export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
-  const { hideNetWorth } = usePreferences();
+  const { hideNetWorth, payPeriodConfig, region } = usePreferences();
+  const { colours } = useColours();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [incomeBracket, setIncomeBracket] = useState("");
   const [adjustedIncome, setAdjustedIncome] = useState<number | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [pinnedWidget, setPinnedWidget] = useState<string | null>(null);
+  const { pinned: pinnedCards } = useHomePinnedCards();
 
   const loadData = useCallback(async () => {
+    setLoadError(false);
     try {
       await ensureAuth();
       const [accs, kpiData, invAccs] = await Promise.allSettled([
@@ -47,26 +61,22 @@ export default function HomePage() {
         api.getInvestmentAccounts(),
       ]);
 
+      // If both the accounts fetch and the kpis fetch failed, surface an error
+      // rather than showing a permanently blank page.
+      if (accs.status === "rejected" && kpiData.status === "rejected") {
+        setLoadError(true);
+        return;
+      }
+
       const loadedAccounts = accs.status === "fulfilled" ? accs.value : [];
       setAccounts(loadedAccounts);
       if (kpiData.status === "fulfilled") setKpis(kpiData.value);
       if (invAccs.status === "fulfilled") setInvestmentAccounts(invAccs.value);
 
       if (loadedAccounts.length > 0) {
-        const allTxns: Transaction[] = [];
-        await Promise.all(
-          loadedAccounts.map(async (acc) => {
-            try {
-              const txns = await api.transactions(acc.id);
-              allTxns.push(...txns);
-            } catch {}
-          })
-        );
-        setTransactions(
-          allTxns.sort(
-            (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-          )
-        );
+        // One bulk call (already server-sorted) instead of one per account
+        const allTxns = await api.allTransactions(90).catch(() => [] as Transaction[]);
+        setTransactions(allTxns);
       }
     } catch {}
     finally {
@@ -88,6 +98,7 @@ export default function HomePage() {
     api.getPreferences().then(p => {
       setIncomeBracket(p.income_bracket ?? "");
       setPinnedIds(p.home_pinned_accounts ?? []);
+      setPinnedWidget(p.home_pinned_widget ?? null);
       try { localStorage.setItem("wd_bracket", p.income_bracket ?? ""); } catch {}
       // Mirror the Tax page's adjusted-income computation so the two never disagree
       let inc = 0;
@@ -98,15 +109,26 @@ export default function HomePage() {
     }).catch(() => {});
   }, []);
 
+  const syncErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   async function handleSync() {
     setSyncing(true);
+    setSyncError(false);
+    if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
     try {
       await api.syncAll();
       await loadData();
-    } catch {} finally {
+    } catch {
+      setSyncError(true);
+      syncErrorTimerRef.current = setTimeout(() => setSyncError(false), 6000);
+    } finally {
       setSyncing(false);
     }
   }
+
+  useEffect(() => {
+    return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
+  }, []);
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     setTransactions((prev) =>
@@ -117,6 +139,13 @@ export default function HomePage() {
       })
     );
   }
+
+  // Spending totals are home-currency only; the recent list still shows
+  // foreign-currency transactions with their own symbol
+  const homeTxns = useMemo(
+    () => transactions.filter(t => isHomeCurrency(t.currency, region)),
+    [transactions, region]
+  );
 
   // Micro pot-shuffles (round-ups, penny transfers) aren't "activity" worth
   // a slot on the home screen
@@ -169,9 +198,9 @@ export default function HomePage() {
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
         {/* ── Left column: header, KPIs, accounts, donut ── */}
-        <div>
-          {/* Header */}
-          <div className="px-4 pt-6 pb-4 lg:px-0 lg:pt-0">
+        <div className="space-y-5">
+          {/* ── ZONE 1: State — greeting, net worth, value stat, reauth banners ── */}
+          <div className="px-4 pt-6 lg:px-0 lg:pt-0">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
@@ -186,7 +215,8 @@ export default function HomePage() {
                 <button
                   onClick={handleSync}
                   disabled={syncing}
-                  className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform"
+                  aria-label={syncing ? "Syncing…" : "Sync accounts"}
+                  className="w-11 h-11 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <RefreshCw
                     size={16}
@@ -196,13 +226,36 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
-            <NetWorthCard kpis={kpis} loading={loading} />
-            {!loading && <ValueDeliveredStat />}
+            {/* Sync failure notice — compact amber, auto-clears after 6s */}
+            {syncError && (
+              <div className="flex items-center gap-2 mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+                <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
+              </div>
+            )}
+            {loadError ? (
+              <div className="mt-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
+                  Couldn&apos;t load your data — check your connection.
+                </p>
+                <button
+                  onClick={() => { setLoading(true); setLoadError(false); loadData(); }}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : (
+              <>
+                <NetWorthCard kpis={kpis} loading={loading} />
+                {!loading && <ValueDeliveredStat />}
+              </>
+            )}
           </div>
 
-          {/* Reauth banners */}
+          {/* Reauth banners — still part of Zone 1 (state alerts) */}
           {expiredProviders.map(({ provider, provider_id }) => (
-            <div key={provider} className="mx-4 mt-3 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
+            <div key={provider} className="mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
               <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
@@ -217,16 +270,40 @@ export default function HomePage() {
             </div>
           ))}
 
-          {/* Spending pace — one-line "am I on track this period?" status */}
-          {!loading && transactions.length > 0 && (
-            <SpendingPace transactions={transactions} desktopFlat />
+          {/* ── ZONE 2: Signals — goals + upcoming bills ── */}
+          {/* Each strip self-manages its skeleton; render immediately so layout
+              is stable from the first paint rather than popping in after load. */}
+          {!loadError && <GoalsStrip />}
+          {!loadError && <UpcomingBillsStrip />}
+
+          {/* ── ZONE 3: Action — the single CTA spotlight ── */}
+          {!loadError && <HomeInsightSpotlight />}
+
+          {/* ── Below zones: demoted supporting content ── */}
+
+          {/* User-pinned insight cards (fuel prices, grocery baskets) */}
+          {!loading && pinnedCards.includes("fuel") && (
+            <div className="px-4 lg:px-0"><FuelSavingsCard /></div>
+          )}
+          {!loading && pinnedCards.includes("groceries") && (
+            <div className="px-4 lg:px-0"><GroceryBasketCard /></div>
           )}
 
-          {/* Upcoming bills — compact 4-item list, taps through to Spend */}
-          {!loading && <UpcomingBillsStrip />}
-
-          {/* AI savings spotlight — the single hero call-to-action */}
-          {!loading && <HomeInsightSpotlight />}
+          {/* Pinned chart widget — user-chosen from the Spend Trends tab */}
+          {!loading && pinnedWidget && homeTxns.length > 0 && (() => {
+            const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+            return (
+              <PinnedWidgetCard
+                id={pinnedWidget}
+                transactions={homeTxns}
+                periodStart={ps}
+                periodEnd={pe}
+                payPeriodConfig={payPeriodConfig}
+                colours={colours}
+                onOpen={() => router.push("/spend?view=trends")}
+              />
+            );
+          })()}
 
           {/* Tax efficiency card — shown only for £100k+ earners */}
           {!loading && (incomeBracket === "100k_125k" || incomeBracket === "125k_plus") && (
@@ -234,15 +311,15 @@ export default function HomePage() {
           )}
 
           {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
-          <div className="px-4 mb-5 lg:px-0">
+          <div className="px-4 lg:px-0">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Accounts</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Accounts</p>
               <button
                 data-tutorial-id="tutorial-manage-link"
                 onClick={() => router.push("/accounts")}
-                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
-                Manage <span className="text-base leading-none">+</span>
+                Manage <ChevronRight size={14} />
               </button>
             </div>
             {loading ? (
@@ -252,8 +329,19 @@ export default function HomePage() {
                 ))}
               </div>
             ) : accounts.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 text-center shadow-sm">
-                <p className="text-sm text-slate-400 dark:text-slate-500">No accounts connected</p>
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+                  Connect your first bank
+                </p>
+                <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+                  Read-only access through open banking — we can never move your money.
+                </p>
+                <button
+                  onClick={() => handleReconnect()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                >
+                  Connect a bank
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
@@ -294,10 +382,10 @@ export default function HomePage() {
         <div>
           <div className="mx-4 mb-4 lg:mx-0 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-slate-600 dark:text-slate-300 lg:pt-0">Recent Transactions</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
                 onClick={() => router.push("/spend?view=list")}
-                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70"
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 See all <ChevronRight size={13} />
               </button>
@@ -345,79 +433,15 @@ export default function HomePage() {
         />
       )}
 
+      {/* Penny FAB — persistent AI adviser entry point on Home */}
+      <MoneyAdvisorChat
+        insights={null}
+        sym={region === "Kenya" ? "KES " : "£"}
+        firstName={firstName || "there"}
+        page="home"
+      />
+
       <BottomNav />
-    </div>
-  );
-}
-
-const SKIP_CATS = new Set(["Transfer", "Savings", "Debt", "Income"]);
-
-// Sum of debit spend (excluding transfers/savings/debt/income) with date in [start, end).
-function spendBetween(txns: Transaction[], start: Date, end: Date): number {
-  let sum = 0;
-  for (const tx of txns) {
-    if (tx.transaction_type === "credit") continue;
-    if (SKIP_CATS.has(tx.category || "Other")) continue;
-    const d = new Date(tx.date);
-    if (d >= start && d < end) sum += Math.abs(tx.amount);
-  }
-  return sum;
-}
-
-// One-line "am I on track this period?" pace indicator.
-// Compares spend-so-far against spend at the SAME day-offset in the previous
-// pay period, so a partial period is never compared against a full one.
-function SpendingPace({ transactions, desktopFlat }: { transactions: Transaction[]; desktopFlat?: boolean }) {
-  const { payPeriodConfig, region } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
-  const fmtMoney = (v: number) => `${sym}${Math.round(v).toLocaleString("en-GB")}`;
-
-  const { soFar, delta, hasComparison } = useMemo(() => {
-    const now = new Date();
-    const dayMs = 86_400_000;
-    const [curStart] = getPayPeriodWithConfig(now, payPeriodConfig);
-    const [prevStart] = getPayPeriodWithConfig(new Date(curStart.getTime() - dayMs), payPeriodConfig);
-    const offsetMs = now.getTime() - curStart.getTime();
-    const prevCutoff = new Date(prevStart.getTime() + offsetMs);
-
-    const soFar = spendBetween(transactions, curStart, now);
-    const prevSoFar = spendBetween(transactions, prevStart, prevCutoff);
-    return { soFar, delta: soFar - prevSoFar, hasComparison: prevSoFar > 0 };
-  }, [transactions, payPeriodConfig]);
-
-  // Nothing meaningful to show yet
-  if (soFar === 0 && !hasComparison) return null;
-
-  const prevSoFar = soFar - delta;
-  // "On track" = within ~10% of the same point last period (or a small £ buffer)
-  const onTrack = !hasComparison || Math.abs(delta) < Math.max(prevSoFar * 0.1, 20);
-
-  return (
-    <div className={`mb-5 bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 ${desktopFlat ? "mx-4 lg:mx-0" : "mx-4"}`}>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">
-        Spending this period
-      </p>
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-xl font-bold text-slate-900 dark:text-slate-100">{fmtMoney(soFar)}</span>
-        {hasComparison && (
-          <>
-            <span className="text-slate-300 dark:text-slate-600">·</span>
-            {onTrack ? (
-              <span className="text-[13px] font-medium text-slate-500 dark:text-slate-400">on track</span>
-            ) : delta > 0 ? (
-              <span className="inline-flex items-center gap-0.5 text-[13px] font-medium text-rose-500 dark:text-rose-400">
-                <ArrowUp size={12} />
-                {fmtMoney(Math.abs(delta))} ahead of usual
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-0.5 text-[13px] font-medium text-emerald-600 dark:text-emerald-400">
-                <ArrowDown size={12} />
-                {fmtMoney(Math.abs(delta))} under usual
-              </span>
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 }
@@ -438,7 +462,7 @@ function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; rout
   // with the rotating insight spotlight above it
   return (
     <div
-      className="mx-4 mb-5 lg:mx-0 rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-transform bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
+      className="mx-4 lg:mx-0 rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-transform bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
       onClick={() => router.push("/insights?tab=tax")}
     >
       <div className="p-4">
