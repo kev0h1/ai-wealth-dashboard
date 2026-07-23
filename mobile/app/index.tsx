@@ -366,7 +366,7 @@ export default function App() {
     }
     // Safety net: if the WebView somehow navigates to a bank auth URL directly,
     // intercept and open in the Custom Tab instead.
-    if (req.url.includes("auth.truelayer.com") || req.url.includes("auth.yapily.com")) {
+    if (req.url.includes("auth.truelayer.com") || req.url.includes("auth.yapily.com") || req.url.includes("finexer.com/connect")) {
       WebBrowser.openAuthSessionAsync(req.url, "wealthdash://auth-complete").then(result => {
         if (result.type === "success") webViewRef.current?.reload();
       });
