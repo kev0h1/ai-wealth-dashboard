@@ -155,8 +155,8 @@ export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: {
             <span>Monthly income</span>
             <span className="font-semibold text-sky-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
           </div>
-          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-sky-400 rounded-full" style={{ width: `${(insights.monthly_income / maxBar) * 100}%` }} />
+          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_income / maxBar) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly income vs spending">
+            <div className="h-full bg-sky-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_income / maxBar) * 100}%` }} />
           </div>
         </div>
         <div>
@@ -164,8 +164,8 @@ export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: {
             <span>Monthly spending</span>
             <span className="font-semibold text-orange-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
           </div>
-          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-            <div className="h-full bg-orange-400 rounded-full" style={{ width: `${(insights.monthly_spending / maxBar) * 100}%` }} />
+          <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_spending / maxBar) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly spending vs income">
+            <div className="h-full bg-orange-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_spending / maxBar) * 100}%` }} />
           </div>
         </div>
       </div>
@@ -451,8 +451,8 @@ export default function DebtPage() {
                       <span>Monthly income</span>
                       <span className="font-semibold text-sky-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
                     </div>
-                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-sky-400 rounded-full" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly income vs spending">
+                      <div className="h-full bg-sky-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
                     </div>
                   </div>
                   <div>
@@ -460,8 +460,8 @@ export default function DebtPage() {
                       <span>Monthly spending</span>
                       <span className="font-semibold text-orange-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
                     </div>
-                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-orange-400 rounded-full" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
+                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly spending vs income">
+                      <div className="h-full bg-orange-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
                     </div>
                   </div>
                 </div>
@@ -494,7 +494,7 @@ export default function DebtPage() {
                     </span>
                   </div>
                   <div className="relative h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-visible mx-1">
-                    <div className={`h-full rounded-full transition-all ${onTrack ? "bg-indigo-400" : "bg-amber-400"}`} style={{ width: `${filledPct}%` }} />
+                    <div className={`h-full rounded-full bar-sweep ${onTrack ? "bg-indigo-400" : "bg-amber-400"}`} style={{ width: `${filledPct}%` }} />
                     <div className="absolute top-0 bottom-0 w-0.5 bg-slate-500 dark:bg-slate-400" style={{ left: `${markerTargetPct}%` }} />
                   </div>
                   <div className="flex justify-between mt-1">
@@ -822,8 +822,8 @@ export function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRate
                 <AprInput accountId={acc.account_id} initialApr={acc.apr} onSaved={onRateChange} />
               </div>
             </div>
-            <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-rose-400 rounded-full" style={{ width: `${pct}%` }} />
+            <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${acc.name ?? "Debt"}: ${Math.round(pct)}% of total debt`}>
+              <div className="h-full bg-rose-400 rounded-full bar-sweep" style={{ width: `${pct}%` }} />
             </div>
             <div className="flex justify-between mt-0.5">
               <span className="text-[10px] text-slate-400">{Math.round(pct)}% of total</span>

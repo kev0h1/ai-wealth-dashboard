@@ -85,3 +85,7 @@ excluded_accounts_col   = db["excluded_accounts"]
 
 # Distributed locks (startup migrations etc.)
 locks_col               = db["locks"]
+
+# Finexer
+finexer_consents_col   = db["finexer_consents"]
+finexer_customers_col  = db["finexer_customers"]

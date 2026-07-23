@@ -109,6 +109,8 @@ export default function HomePage() {
     }).catch(() => {});
   }, []);
 
+  const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
+  const greetingRef = useRef<HTMLDivElement>(null);
   const syncErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function handleSync() {
@@ -128,6 +130,18 @@ export default function HomePage() {
 
   useEffect(() => {
     return () => { if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current); };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = greetingRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setStickyHeaderVisible(!entry.isIntersecting),
+      { threshold: 0, rootMargin: "0px" }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
@@ -194,13 +208,27 @@ export default function HomePage() {
 
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8">
+      {/* Sticky desktop header — appears when greeting scrolls out of view */}
+      {stickyHeaderVisible && (
+        <div className="hidden lg:flex fixed top-0 z-40 items-center gap-3 px-6 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 fade-in"
+          style={{ left: "16rem", right: 0 }}>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {firstName ? `Hi, ${firstName}` : "Welcome back"}
+          </p>
+          {kpis && !hideNetWorth && (
+            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full num">
+              {kpis.net_worth < 0 ? "-" : ""}£{Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+            </span>
+          )}
+        </div>
+      )}
       {/* Desktop 2-col grid wrapper */}
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
         {/* ── Left column: header, KPIs, accounts, donut ── */}
         <div className="space-y-5">
           {/* ── ZONE 1: State — greeting, net worth, value stat, reauth banners ── */}
-          <div className="px-4 pt-6 lg:px-0 lg:pt-0">
+          <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">

@@ -171,15 +171,27 @@ export default function TransactionSheet({
             <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{formatDate(transaction.date)}</p>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 capitalize">{transaction.transaction_type}</p>
           </div>
-          {account && (
-            <div className="flex flex-col items-center gap-1 flex-shrink-0">
-              <BankBadge
-                meta={BANK_META[(account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_")]}
-                providerRaw={account.provider}
-              />
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 max-w-[64px] truncate text-center leading-tight">{account.provider}</span>
-            </div>
-          )}
+          {account && (() => {
+            const key = (account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_");
+            const meta = BANK_META[key];
+            const logoSrc = meta?.logoFile
+              ? `/banks/${meta.logoFile}`
+              : meta?.domain
+                ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
+                : null;
+            const initials = meta?.initials ?? (account.provider ?? "?").slice(0, 2).toUpperCase();
+            const label = meta?.label ?? (account.provider || "Bank");
+            return (
+              <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                <BankBadge
+                  logoSrc={logoSrc}
+                  initials={initials}
+                  altText={label}
+                />
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 max-w-[64px] truncate text-center leading-tight">{label}</span>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Category picker */}

@@ -86,3 +86,8 @@ MONO_API_URL     = "https://api.withmono.com/v2"
 YAPILY_APP_UUID = os.getenv("YAPILY_APP_UUID", "")
 YAPILY_SECRET   = os.getenv("YAPILY_SECRET", "")
 YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
+
+# ── Finexer ───────────────────────────────────────────────────────────────────
+FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
+FINEXER_API_URL    = "https://api.finexer.com"
+FINEXER_RETURN_URL = os.getenv("FINEXER_RETURN_URL", "https://wealth.auriqltd.co.uk/auth/finexer/callback")

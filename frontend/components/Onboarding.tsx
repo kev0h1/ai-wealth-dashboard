@@ -34,7 +34,7 @@ function Shell({ dotIndex, children }: { dotIndex: number; children: React.React
           {STEP_DOTS.map((_, i) => (
             <div
               key={i}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
+              className={`h-1.5 rounded-full transition-[width] duration-200 ${
                 i === dotIndex
                   ? "w-6 bg-indigo-500"
                   : i < dotIndex
@@ -159,7 +159,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
 
         <button
           onClick={() => setStep("profile")}
-          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-sm font-semibold text-white transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-200 dark:shadow-none"
+          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition flex items-center justify-center gap-2 shadow-md shadow-indigo-200 dark:shadow-none"
         >
           Get started <ChevronRight size={16} />
         </button>
@@ -275,7 +275,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
 
         <button
           onClick={savePayday}
-          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-sm font-semibold text-white transition-all"
+          className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition"
         >
           Continue
         </button>

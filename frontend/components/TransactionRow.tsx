@@ -156,7 +156,7 @@ export default function TransactionRow({
 
       {/* Amount */}
       <span
-        className={`text-sm font-semibold flex-shrink-0 ${
+        className={`text-sm font-semibold flex-shrink-0 num ${
           isCredit ? "text-emerald-500" : "text-slate-800 dark:text-slate-100"
         }`}
       >

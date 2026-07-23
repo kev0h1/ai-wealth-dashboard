@@ -74,7 +74,7 @@ export default function UpcomingBillsStrip() {
   const totalBillAmount = all.filter(b => b.type === "bill").reduce((s, b) => s + b.amount, 0);
 
   return (
-    <div className="px-4 lg:px-0">
+    <div className="px-4 lg:px-0 fade-in">
       <button
         className="w-full bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left"
         onClick={() => router.push("/spend?view=upcoming")}
@@ -97,7 +97,7 @@ export default function UpcomingBillsStrip() {
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-xs text-slate-400 dark:text-slate-500">total out</p>
-          <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{sym}{totalBillAmount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</p>
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 num">{sym}{totalBillAmount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</p>
         </div>
       </button>
     </div>

@@ -24,6 +24,11 @@ export default function FuelSavingsCard() {
   const [expanded, setExpanded] = useState(false);
   const triedGeo = useRef(false);
   const reqId = useRef(0);
+  const [sort, setSort] = useState<"price" | "distance">("price");
+
+  function kmToMiles(km: number): string {
+    return `${(km * 0.621371).toFixed(1)} mi`;
+  }
 
   useEffect(() => {
     run();
@@ -90,9 +95,15 @@ export default function FuelSavingsCard() {
   }
 
   const stations = result && result.count > 0 ? result : null;
+  const sortedStations = stations
+    ? [...stations.stations].sort((a, b) =>
+        sort === "distance" ? a.distance_km - b.distance_km : a.ppl - b.ppl
+      )
+    : [];
+  const cheapestPpl = stations ? Math.min(...stations.stations.map((s) => s.ppl)) : null;
   const cheapest = stations ? stations.stations[0] : null;
   const preview = stations
-    ? `Cheapest ${stations.grade_label.toLowerCase()} nearby: ${stations.cheapest_ppl}p/l${cheapest?.distance_km != null ? ` · ${cheapest.distance_km}km` : ""}`
+    ? `Cheapest ${stations.grade_label.toLowerCase()} nearby: ${stations.cheapest_ppl}p/l${cheapest?.distance_km != null ? ` · ${kmToMiles(cheapest.distance_km)}` : ""}`
     : null;
 
   return (
@@ -160,6 +171,25 @@ export default function FuelSavingsCard() {
             ))}
           </div>
 
+          {stations && (
+            <div className="flex items-center gap-1.5 mb-3">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 mr-0.5">Sort</span>
+              {(["price", "distance"] as const).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => setSort(opt)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                    sort === opt
+                      ? "bg-amber-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  {opt === "price" ? "Cheapest" : "Distance"}
+                </button>
+              ))}
+            </div>
+          )}
+
           {loading && !stations && <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Finding cheaper fuel nearby…</p>}
           {error && <p className="text-xs text-rose-500 mb-2">{error}</p>}
 
@@ -177,7 +207,7 @@ export default function FuelSavingsCard() {
 
           {result && result.count === 0 && !loading && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              No {result.grade_label.toLowerCase()} stations within {result.radius_km} km.
+              No {result.grade_label.toLowerCase()} stations within {Math.round(result.radius_km * 0.621371)} miles.
             </p>
           )}
 
@@ -188,18 +218,44 @@ export default function FuelSavingsCard() {
                 <span className="font-bold">{stations.cheapest_ppl}p/l</span>.
               </p>
               <ul className={`space-y-1.5 transition-opacity ${loading ? "opacity-50" : ""}`}>
-                {stations.stations.map((s, i) => (
-                  <li key={s.node_id} className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
-                        {s.brand || s.name || "Station"}
-                        {i === 0 && <span className="ml-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">CHEAPEST</span>}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{s.distance_km} km · {s.postcode || s.city}</p>
-                    </div>
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">{s.ppl}p</span>
-                  </li>
-                ))}
+                {sortedStations.map((s, i) => {
+                  const isCheapest = s.ppl === cheapestPpl;
+                  const isClosest = sort === "distance" && i === 0 && !isCheapest;
+                  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+                  return (
+                    <li key={s.node_id} className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
+                          {s.brand || s.name || "Station"}
+                          {isCheapest && (
+                            <span className="ml-1.5 text-[11px] font-semibold text-amber-700 dark:text-amber-400">CHEAPEST</span>
+                          )}
+                          {isClosest && (
+                            <span className="ml-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">CLOSEST</span>
+                          )}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {kmToMiles(s.distance_km)}
+                          {(s.postcode || s.city) && (
+                            <>
+                              {" · "}
+                              <a
+                                href={mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline decoration-dotted underline-offset-2 text-amber-700 dark:text-amber-400 active:opacity-70"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {s.postcode || s.city}
+                              </a>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100 num flex-shrink-0">{s.ppl}p</span>
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}

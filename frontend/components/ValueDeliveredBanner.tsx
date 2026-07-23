@@ -28,7 +28,7 @@ export default function ValueDeliveredBanner() {
       onClick={() => router.push("/insights")}
       className="mx-4 mb-4 w-[calc(100%-2rem)] lg:mx-0 lg:w-full text-left"
     >
-      <div className="flex items-center gap-3 bg-gradient-to-r from-indigo-500 to-violet-600 rounded-2xl px-4 py-3 shadow-sm active:scale-[0.98] transition-transform">
+      <div className="flex items-center gap-3 bg-indigo-600 rounded-2xl px-4 py-3 shadow-sm active:scale-[0.98] transition-transform">
         <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
           <Sparkles size={16} className="text-white" />
         </div>

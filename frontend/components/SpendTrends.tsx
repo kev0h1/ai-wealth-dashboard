@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
   ChartPie, BarChart3, TrendingUp, AlignStartVertical, MoreVertical,
@@ -84,6 +84,7 @@ interface WidgetData {
   periodEnd: Date;
   payPeriodConfig: PayPeriodConfig;
   colours: Record<string, string>;
+  onReviewLarge?: () => void;
 }
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -94,9 +95,6 @@ function spendDebits(txns: Transaction[]): Transaction[] {
 
 const fmtGBP = (n: number) =>
   `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
-
-// Log-safe floor for zero-spend days on the daily chart
-const DAILY_LOG_FLOOR = 0.1;
 
 const TOOLTIP_STYLE = {
   backgroundColor: "rgba(15,23,42,0.92)",
@@ -174,19 +172,14 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
       const key = t.date.slice(0, 10);
       byDay[key] = (byDay[key] ?? 0) + Math.abs(t.amount);
     }
-    const out: { label: string; spend: number; displaySpend: number }[] = [];
+    const out: { label: string; spend: number }[] = [];
     const d = new Date(data.periodStart);
     const today = new Date();
     while (d <= data.periodEnd && d <= today) {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const spend = byDay[key] ?? 0;
-      // Log scale so one rent-sized day doesn't flatten every other bar;
-      // floor keeps zero-spend days from breaking the log axis (same
-      // treatment as the Budget page's daily summary)
       out.push({
         label: `${d.getDate()} ${MONTH_SHORT[d.getMonth()]}`,
-        spend,
-        displaySpend: Math.max(spend, DAILY_LOG_FLOOR),
+        spend: byDay[key] ?? 0,
       });
       d.setDate(d.getDate() + 1);
     }
@@ -196,31 +189,63 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
   if (!days.some(d => d.spend > 0)) return <EmptyWidget compact={compact} />;
   const ticks = [days[0]?.label, days[Math.floor(days.length / 2)]?.label, days[days.length - 1]?.label].filter(Boolean) as string[];
 
+  const activeDays = days.filter(d => d.spend > 0);
+  const avg = activeDays.length > 0
+    ? activeDays.reduce((s, d) => s + d.spend, 0) / activeDays.length
+    : 0;
+
   return (
-    <div className={compact ? "h-20" : "h-36"}>
+    <>
+      {!compact && (() => {
+        if (activeDays.length === 0) return null;
+        const busiest = activeDays.reduce((best, d) => d.spend > best.spend ? d : best, activeDays[0]);
+        const ratio = avg > 0 ? (busiest.spend / avg).toFixed(1) : null;
+        return (
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
+            {"Busiest day: "}<span className="font-bold text-slate-900 dark:text-slate-100">{busiest.label}</span>
+            {" · "}<span className="font-bold text-slate-900 dark:text-slate-100">{fmtGBP(busiest.spend)}</span>
+            {ratio !== null && ` · ${ratio}× your daily average`}
+          </p>
+        );
+      })()}
+      <div className={compact ? "h-20" : "h-36"}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={days} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+        <BarChart data={days} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
           {!compact && (
             <XAxis dataKey="label" ticks={ticks} tickLine={false} axisLine={false}
               tick={{ fontSize: 9, fill: tickFill }} interval="preserveStartEnd" />
           )}
-          <YAxis hide scale="log" domain={[DAILY_LOG_FLOOR, "auto"]} allowDataOverflow />
+          <YAxis hide scale="sqrt" domain={[0, "auto"]} />
           <Tooltip
             trigger="click"
             contentStyle={TOOLTIP_STYLE}
-            formatter={(v, _n, item) =>
-              fmtGBP(Number((item as { payload?: { spend?: number } })?.payload?.spend ?? v ?? 0))
-            }
+            formatter={(v) => fmtGBP(Number(v ?? 0))}
             cursor={{ fill: "rgba(100,116,139,0.08)" }}
           />
-          <Bar dataKey="displaySpend" radius={[2, 2, 0, 0]} maxBarSize={12} isAnimationActive={false}>
+          <Bar dataKey="spend" radius={[2, 2, 0, 0]} maxBarSize={12} isAnimationActive={false}>
             {days.map((d, i) => (
               <Cell key={i} fill="#6366f1" fillOpacity={d.spend <= 0 ? 0.15 : 1} />
             ))}
           </Bar>
+          {!compact && avg > 0 && (
+            <ReferenceLine
+              y={avg}
+              strokeDasharray="4 4"
+              stroke="#94a3b8"
+              strokeWidth={1}
+              label={{
+                value: `avg ${fmtGBP(Math.round(avg))}/day`,
+                position: "insideTopRight",
+                fontSize: 9,
+                fill: tickFill,
+                offset: 4,
+              }}
+            />
+          )}
         </BarChart>
       </ResponsiveContainer>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -249,7 +274,35 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
   if (periods.every(p => p.spend === 0)) return <EmptyWidget compact={compact} />;
 
   return (
-    <div className={compact ? "h-20" : "h-36"}>
+    <>
+      {!compact && (() => {
+        const currentEntry = periods.find(p => p.current) ?? periods[periods.length - 1];
+        const currentIdx = periods.indexOf(currentEntry);
+        const prevEntry = currentIdx > 0 ? periods[currentIdx - 1] : null;
+        const currentSpend = currentEntry?.spend ?? 0;
+        const prevSpend = prevEntry?.spend ?? 0;
+        const delta = prevEntry && prevSpend > 0 ? currentSpend - prevSpend : null;
+        const absDelta = delta !== null ? Math.abs(delta) : null;
+        const pct = delta !== null && prevSpend > 0 ? Math.round((Math.abs(delta) / prevSpend) * 100) : null;
+        return (
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
+            <span className="font-bold text-slate-900 dark:text-slate-100">{fmtGBP(currentSpend)}</span>
+            {" this period"}
+            {delta !== null && absDelta !== null && pct !== null && (
+              delta > 0 ? (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {" · "}<span className="font-bold">{fmtGBP(absDelta)}</span>{` (${pct}%) more than last`}
+                </span>
+              ) : delta < 0 ? (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {" · "}<span className="font-bold">{fmtGBP(absDelta)}</span>{` (${pct}%) less than last`}
+                </span>
+              ) : null
+            )}
+          </p>
+        );
+      })()}
+      <div className={compact ? "h-20" : "h-36"}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={periods} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
           {!compact && (
@@ -267,7 +320,8 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -284,35 +338,107 @@ const SIZE_BANDS: { label: string; min: number; max: number }[] = [
 function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
   const isDark = useIsDark();
   const tickFill = isDark ? "#94a3b8" : "#64748b";
+  // "spend" is the decision-relevant default; "count" is the alternative
+  const [mode, setMode] = useState<"spend" | "count">("spend");
+
   const bands = useMemo(() => {
-    const counts = SIZE_BANDS.map(b => ({ label: b.label, count: 0 }));
+    const totals = SIZE_BANDS.map(b => ({ label: b.label, count: 0, total: 0 }));
     for (const t of spendDebits(data.periodTxns)) {
       const amt = Math.abs(t.amount);
       const idx = SIZE_BANDS.findIndex(b => amt >= b.min && amt < b.max);
-      if (idx >= 0) counts[idx].count += 1;
+      if (idx >= 0) { totals[idx].count += 1; totals[idx].total += amt; }
     }
-    return counts;
+    return totals;
   }, [data.periodTxns]);
 
   if (bands.every(b => b.count === 0)) return <EmptyWidget compact={compact} />;
 
+  const dataKey = mode === "spend" ? "total" : "count";
+  const yFormatter = mode === "spend"
+    ? (v: number) => fmtGBP(v)
+    : (v: number) => `${v}`;
+  const tooltipFormatter = mode === "spend"
+    ? (v: unknown) => [fmtGBP(Number(v ?? 0)), ""]
+    : (v: unknown) => [`${Number(v ?? 0)} payment${Number(v ?? 0) !== 1 ? "s" : ""}`, ""];
+
   return (
-    <div className={compact ? "h-20" : "h-36"}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={bands} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-          {!compact && (
-            <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill }} interval={0} />
-          )}
-          {!compact && (
-            <YAxis width={24} tickLine={false} axisLine={false} allowDecimals={false} tick={{ fontSize: 9, fill: tickFill }} />
-          )}
-          <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE}
-            formatter={(v) => [`${Number(v ?? 0)} transaction${Number(v ?? 0) !== 1 ? "s" : ""}`, ""]}
-            cursor={{ fill: "rgba(100,116,139,0.08)" }} />
-          <Bar dataKey="count" fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <>
+      {!compact && (() => {
+        const largeBand = bands[bands.length - 1]; // £250+ is the last band
+        const sumAll = bands.reduce((s, b) => s + b.total, 0);
+        const largeCount = largeBand?.count ?? 0;
+        const largePct = sumAll > 0 && largeBand ? Math.round((largeBand.total / sumAll) * 100) : 0;
+        return (
+          <div className="mb-3">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug flex-1">
+                {largeCount === 0
+                  ? "No single payment over £250 this period"
+                  : (
+                    <>
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{largeCount}</span>
+                      {` ${largeCount === 1 ? "payment" : "payments"} over £250`}
+                      {" · "}
+                      <span className="font-bold text-slate-900 dark:text-slate-100">{largePct}%</span>
+                      {" of your spend"}
+                    </>
+                  )
+                }
+              </p>
+              {/* By spend / By count segmented pill toggle */}
+              <div className="flex-shrink-0 flex rounded-full border border-slate-200 dark:border-slate-600 overflow-hidden text-[11px] font-semibold">
+                <button
+                  onClick={() => setMode("spend")}
+                  className={`px-2.5 py-1 transition-colors ${
+                    mode === "spend"
+                      ? "bg-slate-200 dark:bg-slate-600 text-slate-900 dark:text-slate-100"
+                      : "bg-transparent text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-700"
+                  }`}
+                >
+                  By spend
+                </button>
+                <button
+                  onClick={() => setMode("count")}
+                  className={`px-2.5 py-1 transition-colors ${
+                    mode === "count"
+                      ? "bg-slate-200 dark:bg-slate-600 text-slate-900 dark:text-slate-100"
+                      : "bg-transparent text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-700"
+                  }`}
+                >
+                  By count
+                </button>
+              </div>
+            </div>
+            {largeCount > 0 && data.onReviewLarge && (
+              <button
+                onClick={data.onReviewLarge}
+                className="px-4 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform bg-transparent"
+              >
+                Review large payments
+              </button>
+            )}
+          </div>
+        );
+      })()}
+      <div className={compact ? "h-20" : "h-36"}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={bands} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            {!compact && (
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill }} interval={0} />
+            )}
+            {!compact && (
+              <YAxis width={mode === "spend" ? 40 : 24} tickLine={false} axisLine={false}
+                allowDecimals={false} tick={{ fontSize: 9, fill: tickFill }}
+                tickFormatter={yFormatter} />
+            )}
+            <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE}
+              formatter={tooltipFormatter}
+              cursor={{ fill: "rgba(100,116,139,0.08)" }} />
+            <Bar dataKey={dataKey} fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </>
   );
 }
 
@@ -436,6 +562,7 @@ export default function SpendTrends(props: {
   periodEnd: Date;
   payPeriodConfig: PayPeriodConfig;
   colours: Record<string, string>;
+  onReviewLarge?: () => void;
 }) {
   const { spendWidgets: ctxWidgets, homePinnedWidget: ctxPinned, setSpendWidgets: setCtxWidgets, setHomePinnedWidget: setCtxPinned } = usePreferences();
   // prefsLoaded is true once the context has received the server response (non-null array).
@@ -495,6 +622,7 @@ export default function SpendTrends(props: {
     periodEnd: props.periodEnd,
     payPeriodConfig: props.payPeriodConfig,
     colours: props.colours,
+    onReviewLarge: props.onReviewLarge,
   };
 
   const available = ALL_WIDGETS.filter(w => !widgets.includes(w));

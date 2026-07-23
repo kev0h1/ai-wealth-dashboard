@@ -25,7 +25,7 @@ from app.routers import (
     analytics, budget, debt, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
-    goals, logos,
+    goals, logos, finexer,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -54,14 +54,19 @@ for router in [
     challenges.router, savings_insights.router, savings.router, admin.router,
     manual_accounts.router, profile.router, money_basics.router,
     fuel.router, baskets.router, subscription_router.router, transport.router,
-    webhooks.router, goals.router, logos.router,
+    webhooks.router, goals.router, logos.router, finexer.router,
 ]:
     app.include_router(router)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "truelayer_configured": bool(TRUELAYER_CLIENT_ID)}
+    from app.core.config import FINEXER_API_KEY
+    return {
+        "status": "ok",
+        "truelayer_configured": bool(TRUELAYER_CLIENT_ID),
+        "finexer_configured": bool(FINEXER_API_KEY),
+    }
 
 
 @app.on_event("startup")

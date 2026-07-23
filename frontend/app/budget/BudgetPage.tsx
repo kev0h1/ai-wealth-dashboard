@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 
 function useIsDark() {
@@ -15,7 +16,7 @@ function useIsDark() {
   }, []);
   return dark;
 }
-import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, ChevronDown, Flag, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, ChevronDown, Flag, ChevronLeft, ChevronRight, Sparkles, BarChart2, TrendingUp } from "lucide-react";
 import SwipeToDelete from "@/components/SwipeToDelete";
 import { BRAND, BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
@@ -85,9 +86,11 @@ export default function BudgetPage() {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories } = useCategories();
-  const { region, hideNetWorth, payPeriodConfig } = usePreferences();
+  const { region, hideNetWorth, payPeriodConfig, budgetWidgets, setBudgetWidgets } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
   const firstName = user?.name?.split(" ")[0] || "there";
+
+  const searchParams = useSearchParams();
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [paceProfile, setPaceProfile] = useState<Record<string, number[]>>({});
@@ -153,6 +156,15 @@ export default function BudgetPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Prefill add-budget form from ?category= query param
+  useEffect(() => {
+    const cat = searchParams.get("category");
+    if (cat) {
+      setAddCat(cat);
+      setShowAddForm(true);
+    }
+  }, []); // run once on mount only — eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
@@ -314,8 +326,13 @@ export default function BudgetPage() {
   }
 
   async function applyBudgets(suggested: Budget[]) {
-    await api.setBudgets(suggested);
-    setBudgets(suggested);
+    const suggestedMap = new Map(suggested.map(b => [b.category, b]));
+    const merged = [
+        ...budgets.map(b => suggestedMap.get(b.category) ?? b),
+        ...suggested.filter(b => !budgets.some(e => e.category === b.category)),
+    ];
+    await api.setBudgets(merged);
+    setBudgets(merged);
     await load();
   }
 
@@ -439,6 +456,16 @@ export default function BudgetPage() {
   // Is the displayed period the current pay period?
   const isCurrentPeriod = periodStart.getTime() === getPayPeriodWithConfig(new Date(), payPeriodConfig)[0].getTime();
 
+  // Budget charts are opt-in. null = prefs not yet loaded; [] = none added.
+  const widgets = budgetWidgets ?? [];
+  const prefsLoaded = budgetWidgets !== null;
+  const [chartGalleryOpen, setChartGalleryOpen] = useState(false);
+
+  function saveBudgetWidgets(next: string[]) {
+    setBudgetWidgets(next);
+    api.updatePreferences({ budget_widgets: next } as any).catch(() => {});
+  }
+
   function goPrev() {
     if (!canGoPrev) return;
     const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
@@ -497,29 +524,55 @@ export default function BudgetPage() {
       </div>
 
       {/* (c) Overall-spend summary card */}
-      {!pageLoading && budgets.length > 0 && (
-        <div className="px-4 pt-3">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
-            <div className="flex justify-between text-xs mb-1.5">
-              <span className="text-slate-500 dark:text-slate-400">
-                {hideNetWorth ? "••••" : fmt(totalSpent, sym)} spent
-                {totalPlanned > 0 && <span className="ml-1 text-slate-500 dark:text-slate-400">· {hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</span>}
-                {overBudgetCount > 0 && <span className="ml-1 text-red-600">· {overBudgetCount} over</span>}
-              </span>
-              <span className="font-semibold text-slate-700 dark:text-slate-200">{hideNetWorth ? "••••" : fmt(totalBudget, sym)} total</span>
-            </div>
-            <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${overallPct}%`, backgroundColor: overBudgetCount > 0 ? "#ef4444" : "#10b981" }}
-              />
-            </div>
-            <div className="flex justify-between mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              <span>{Math.round(overallPct)}% used this pay period</span>
+      {!pageLoading && budgets.length > 0 && (() => {
+        const remaining = totalBudget - totalSpent;
+        return (
+          <div className="px-4 pt-3">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+              {remaining >= 0 ? (
+                <>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Left in your budget</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num mb-1">
+                    {hideNetWorth ? "••••" : fmt(remaining, sym)}
+                  </p>
+                  {isCurrentPeriod && daysLeft > 0 && (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {hideNetWorth ? "••••" : fmt2(remaining / Math.max(1, daysLeft), sym)}/day · {daysLeft} days left
+                    </p>
+                  )}
+                  {totalPlanned > 0 && (
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Over budget</p>
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-400 num mb-1">
+                    {hideNetWorth ? "••••" : fmt(Math.abs(remaining), sym)} over
+                  </p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {overBudgetCount} {overBudgetCount === 1 ? "category" : "categories"} over budget
+                  </p>
+                  {totalPlanned > 0 && (
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</p>
+                  )}
+                </>
+              )}
+              <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-3" role="progressbar" aria-valuenow={Math.round(Math.min(overallPct, 100))} aria-valuemin={0} aria-valuemax={100} aria-label="Overall budget used">
+                <div
+                  className="h-full rounded-full bar-sweep"
+                  style={{ width: `${Math.min(100, overallPct)}%`, backgroundColor: remaining < 0 ? "#ef4444" : "#10b981" }}
+                />
+              </div>
+              {remaining >= 0 && overallAheadOfPace && totalBudget > 0 && (
+                <div className="mt-2">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full">On track</span>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="px-4 pt-4">
         {pageLoading ? (
@@ -531,23 +584,30 @@ export default function BudgetPage() {
           <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start">
           <div className="space-y-3 lg:col-span-3">
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
-            {paceChartData.length > 1 && budgets.length > 0 && (
+            {prefsLoaded && widgets.includes("pacing_curve") && paceChartData.length > 1 && budgets.length > 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
                 <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Spend Pacing Curve</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Spending vs budget</p>
+                  <button
+                    onClick={() => saveBudgetWidgets(widgets.filter(id => id !== "pacing_curve"))}
+                    className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 px-2 py-1 rounded-lg active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
+                    aria-label="Remove Spending vs budget chart"
+                  >
+                    Remove
+                  </button>
                 </div>
                 <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
                   <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <span className="w-5 h-[2px] bg-indigo-500 inline-block rounded" />
-                    Actual Spending
+                    Spent so far
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
-                    Target Pacing
+                    Steady pace
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#fb7185" strokeWidth="1.5"/></svg>
-                    Budget Limit
+                    Your budget
                   </span>
                 </div>
 
@@ -563,7 +623,7 @@ export default function BudgetPage() {
                     >
                       <div className={`rounded-xl px-2.5 py-1.5 text-center border whitespace-nowrap shadow-sm ${overallAheadOfPace ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'}`}>
                         <p className={`text-[11px] font-bold leading-tight ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                          {overallAheadOfPace ? "Ahead of Pace" : "Above Pace"}
+                          {overallAheadOfPace ? "On track" : "Faster than planned"}
                         </p>
                         <p className={`text-[11px] ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                           {hideNetWorth ? "••••" : fmt2(overallPaceGap, sym)} · {daysLeft > 0 ? `${daysLeft}d left` : "Period ended"}
@@ -610,12 +670,12 @@ export default function BudgetPage() {
                           <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs pointer-events-none">
                             <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{label}</p>
                             {actual != null && <p className="text-indigo-600 dark:text-indigo-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
-                            {pace != null && <p className="text-slate-500 dark:text-slate-400">Target: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
+                            {pace != null && <p className="text-slate-500 dark:text-slate-400">Steady pace: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
                             {actual != null && pace != null && (
                               <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-500'}`}>
                                 {ahead
-                                  ? `${hideNetWorth ? '••••' : fmt2(pace - actual, sym)} ahead`
-                                  : `${hideNetWorth ? '••••' : fmt2(actual - pace, sym)} above pace`}
+                                  ? `${hideNetWorth ? '••••' : fmt2(pace - actual, sym)} under pace`
+                                  : `${hideNetWorth ? '••••' : fmt2(actual - pace, sym)} faster than planned`}
                               </p>
                             )}
                           </div>
@@ -636,8 +696,37 @@ export default function BudgetPage() {
               </div>
             )}
 
+            {/* Add chart button */}
+            {prefsLoaded && budgets.length > 0 && (
+              (() => {
+                const CHART_DEFS = [
+                  { id: "pacing_curve", title: "Spending vs budget", description: "How your spending tracks against your budget through the period", Icon: TrendingUp },
+                  { id: "daily_breakdown", title: "Daily breakdown", description: "Day-by-day spending, fixed vs variable", Icon: BarChart2 },
+                ] as const;
+                const available = CHART_DEFS.filter(c => !widgets.includes(c.id));
+                if (available.length === 0) return null;
+                return (
+                  <>
+                    <button
+                      onClick={() => setChartGalleryOpen(true)}
+                      className="w-full flex items-center justify-center gap-1.5 py-3.5 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs font-semibold active:scale-[0.98] transition-transform"
+                    >
+                      <Plus size={14} /> Add chart
+                    </button>
+                    {chartGalleryOpen && (
+                      <BudgetChartGallery
+                        available={available as any}
+                        onAdd={(id: string) => { saveBudgetWidgets([...widgets, id]); setChartGalleryOpen(false); }}
+                        onClose={() => setChartGalleryOpen(false)}
+                      />
+                    )}
+                  </>
+                );
+              })()
+            )}
+
             {/* ── Daily Spending Summary ────────────────────────────────── */}
-            {paceChartData.some(d => (d.dailySpend ?? 0) > 0) && (() => {
+            {prefsLoaded && widgets.includes("daily_breakdown") && paceChartData.some(d => (d.dailySpend ?? 0) > 0) && (() => {
               // Use a log-safe floor (0.1) so log scale doesn't break on zero-spend days
               const LOG_FLOOR = 0.1;
               const pastDays = paceChartData
@@ -645,14 +734,23 @@ export default function BudgetPage() {
                 .map(d => ({ ...d, displaySpend: Math.max(d.dailySpend ?? 0, LOG_FLOOR) }));
               return (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-                  <button
-                    onClick={() => setShowDaily(v => !v)}
-                    aria-expanded={showDaily}
-                    className={`w-full flex items-center justify-between ${showDaily ? "mb-3" : ""}`}
-                  >
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Daily Summary</p>
-                    <ChevronDown size={14} color="#94a3b8" className={`transition-transform ${showDaily ? "rotate-180" : ""}`} />
-                  </button>
+                  <div className={`w-full flex items-center justify-between ${showDaily ? "mb-3" : ""}`}>
+                    <button
+                      onClick={() => setShowDaily(v => !v)}
+                      aria-expanded={showDaily}
+                      className="flex items-center gap-1.5 flex-1 text-left"
+                    >
+                      <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Daily breakdown</p>
+                      <ChevronDown size={14} color="#94a3b8" className={`transition-transform ${showDaily ? "rotate-180" : ""}`} />
+                    </button>
+                    <button
+                      onClick={() => saveBudgetWidgets(widgets.filter(id => id !== "daily_breakdown"))}
+                      className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 px-2 py-1 rounded-lg active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
+                      aria-label="Remove Daily breakdown chart"
+                    >
+                      Remove
+                    </button>
+                  </div>
                   {showDaily && (
                   <>
                   <ResponsiveContainer width="100%" height={90}>
@@ -738,7 +836,7 @@ export default function BudgetPage() {
                 </div>
                 {/* Empty state: show add form directly */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add a budget</p>
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Set a budget limit</p>
                   <div className="flex gap-2 mb-2">
                     <CustomSelect
                       value={addCat}
@@ -795,7 +893,7 @@ export default function BudgetPage() {
 
                     return (
                       <SwipeToDelete key={b.category} onDelete={() => requestDelete(b.category)} label="Delete">
-                      <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}`}>
+                      <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}${over ? " bg-red-50/50 dark:bg-red-950/10" : ""}`}>
                         {/* Expand button — covers icon+name area + progress bar + pace labels.
                             Right padding reserves space for the absolute-positioned control cluster. */}
                         <button
@@ -820,11 +918,11 @@ export default function BudgetPage() {
                             })()}
                             <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{b.category}</span>
                           </div>
-                          <div className="relative h-2">
+                          <div className="relative h-2.5" role="progressbar" aria-valuenow={Math.round(Math.min(pct, 100))} aria-valuemin={0} aria-valuemax={100} aria-label={`${b.category} budget: ${Math.round(pct)}% used`}>
                             {/* Track + spending bar */}
                             <div className="absolute inset-0 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                               <div
-                                className="h-full rounded-full transition-all"
+                                className="h-full rounded-full bar-sweep"
                                 style={{ width: `${pct}%`, backgroundColor: over ? "#f87171" : aheadOfPace ? colour : "#f59e0b" }}
                               />
                             </div>
@@ -849,12 +947,11 @@ export default function BudgetPage() {
                                 : `${fmt2(Math.abs(paceGap), sym)} above pace`
                               }
                             </span>
-                            <span className={`text-[11px] font-medium ${over ? "text-red-600" : "text-slate-500 dark:text-slate-400"}`}>
-                              {hideNetWorth ? "••••" : over
-                                ? `${fmt2(spent - b.monthly_limit, sym)} over`
-                                : `${fmt2(b.monthly_limit - spent, sym)} left`
-                              }
-                            </span>
+                            {!over && (
+                              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                {hideNetWorth ? "••••" : `${fmt2(b.monthly_limit - spent, sym)} left`}
+                              </span>
+                            )}
                           </div>
                         </button>
 
@@ -892,7 +989,7 @@ export default function BudgetPage() {
                           ) : (
                             <button
                               onClick={() => { setEditingCat(b.category); setEditValue(String(b.monthly_limit)); }}
-                              className={`text-xs font-semibold tabular-nums ${over ? "text-red-600" : "text-slate-600 dark:text-slate-300"}`}
+                              className={`text-sm font-semibold tabular-nums min-h-[44px] flex items-center px-1 ${over ? "text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"}`}
                               aria-label={`Edit ${b.category} budget limit`}
                             >
                               <span>{hideNetWorth ? "••••" : fmt2(spent, sym)}</span>
@@ -905,7 +1002,7 @@ export default function BudgetPage() {
                           {/* Chevron expand toggle */}
                           <button
                             onClick={() => setExpandedCat(isExpanded ? null : b.category)}
-                            className="w-9 h-9 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700"
+                            className="w-11 h-11 flex items-center justify-center rounded-full active:bg-slate-100 dark:active:bg-slate-700"
                             aria-label={isExpanded ? `Collapse ${b.category}` : `Expand ${b.category}`}
                             aria-expanded={isExpanded}
                             aria-controls={`budget-txns-${b.category}`}
@@ -994,7 +1091,7 @@ export default function BudgetPage() {
                   </button>
                 ) : null) : (
                   <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Add a budget</p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">Set a budget limit</p>
                     <div className="flex gap-2 mb-2">
                       <CustomSelect
                         value={addCat}
@@ -1181,6 +1278,50 @@ export default function BudgetPage() {
 
       <BottomNav />
     </div>
+  );
+}
+
+function BudgetChartGallery({ available, onAdd, onClose }: {
+  available: Array<{ id: string; title: string; description: string; Icon: React.ComponentType<{ size?: number; className?: string }> }>;
+  onAdd: (id: string) => void;
+  onClose: () => void;
+}) {
+  useLockBodyScroll();
+  const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add a chart"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white dark:bg-slate-800 rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88vh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
+      >
+        <p className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Add a chart</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+          Charts use the pay period you&apos;re viewing.
+        </p>
+        <div className="space-y-2">
+          {available.map(({ id, title, description, Icon }) => (
+            <button
+              key={id}
+              onClick={() => onAdd(id)}
+              className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-700/50 active:scale-[0.98] transition-transform text-left"
+            >
+              <span className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
+                <Icon size={16} className="text-indigo-500 dark:text-indigo-400" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400">{description}</span>
+              </span>
+              <Plus size={15} className="text-slate-300 dark:text-slate-500 flex-shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 

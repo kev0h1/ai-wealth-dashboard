@@ -117,7 +117,7 @@ IMPORTANT: When the user wants to set or update budgets, respond with BOTH a fri
 ]
 ```
 
-Only include categories with actual limits. Don't include Transfer, Savings, Debt.
+CRITICAL: The JSON block MUST always contain ALL of the user's budgets — existing ones plus any changes or additions. Never emit a partial list. If you are only changing one category, copy the rest from "Their current budget limits" above unchanged. Omit only Transfer, Savings, and Debt.
 
 How to help:
 - Be practical and specific to their numbers. Suggest realistic budgets based on their actual spending.

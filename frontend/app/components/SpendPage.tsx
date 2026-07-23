@@ -251,7 +251,11 @@ export default function SpendPage() {
   const [undoDismiss, setUndoDismiss] = useState<string | null>(null);
   const [undoNonce, setUndoNonce] = useState(0);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [largeToast, setLargeToast] = useState(false);
+  const largeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listSectionRef = useRef<HTMLDivElement>(null);
   const [highlightBill, setHighlightBill] = useState<string | null>(null);
+  const [largeOnly, setLargeOnly] = useState(false);
   // When the shortfall callout's "Review" is tapped, scroll the flagged bill
   // into view on the Upcoming tab and briefly ring it, then clear the highlight.
   useEffect(() => {
@@ -322,12 +326,14 @@ export default function SpendPage() {
     setPeriodStart(s);
     setPeriodEnd(e);
     if (view === "upcoming") setView("categories");
+    setLargeOnly(false);
   }
 
   function handleNext() {
     const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    setLargeOnly(false);
   }
 
   const [currentStart, currentEnd] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
@@ -359,6 +365,12 @@ export default function SpendPage() {
     `£${Math.abs(n).toLocaleString("en-GB", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
+    })}`;
+
+  const fmtSummary = (n: number) =>
+    `£${Math.abs(n).toLocaleString("en-GB", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
     })}`;
 
   return (
@@ -422,7 +434,7 @@ export default function SpendPage() {
           <div className="flex gap-2 mt-3 lg:mt-0">
             <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2 text-center">
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Spent</p>
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtAmt(summary.spent)}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.spent)}</p>
             </div>
             <button
               onClick={() => setIncomeExpanded(v => !v)}
@@ -431,7 +443,7 @@ export default function SpendPage() {
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5 flex items-center justify-center gap-0.5">
                 Income {incomeExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
               </p>
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtAmt(summary.income)}</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.income)}</p>
             </button>
             <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2 text-center">
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net</p>
@@ -441,7 +453,7 @@ export default function SpendPage() {
                 }`}
               >
                 {summary.net >= 0 ? "+" : ""}
-                {fmtAmt(summary.net)}
+                {fmtSummary(summary.net)}
               </p>
             </div>
           </div>
@@ -583,7 +595,7 @@ export default function SpendPage() {
                         </div>
                       </div>
                       <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </p>
                       {/* spend bar */}
                       <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
@@ -643,7 +655,7 @@ export default function SpendPage() {
                         </div>
                       </div>
                       <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </p>
                     </button>
                   );
@@ -653,21 +665,35 @@ export default function SpendPage() {
           </>
         );
 
+        const displayTxns = largeOnly ? listTxns.filter(tx => Math.abs(tx.amount) >= 250) : listTxns;
         const listBlock = (
-          <>
+          <div ref={listSectionRef}>
+            {largeOnly && (
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60">
+                  Payments over £250
+                </span>
+                <button
+                  onClick={() => setLargeOnly(false)}
+                  className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                >
+                  Show all
+                </button>
+              </div>
+            )}
             {pageLoading ? (
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
               </div>
-            ) : listTxns.length === 0 ? (
+            ) : displayTxns.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">
-                  No transactions in this period
+                  {largeOnly ? "No payments over £250 in this period" : "No transactions in this period"}
                 </p>
               </div>
             ) : (
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden divide-y divide-slate-50 dark:divide-slate-700 lg:max-h-[640px] lg:overflow-y-auto">
-                {listTxns.map((tx) => (
+                {displayTxns.map((tx) => (
                   <TransactionRow
                     key={tx.id}
                     transaction={tx}
@@ -676,7 +702,7 @@ export default function SpendPage() {
                 ))}
               </div>
             )}
-          </>
+          </div>
         );
 
         const trendsBlock = (
@@ -693,6 +719,27 @@ export default function SpendPage() {
                 periodEnd={periodEnd}
                 payPeriodConfig={payPeriodConfig}
                 colours={colours}
+                onReviewLarge={() => {
+                  setLargeOnly(true);
+                  setView("list");
+                  setLargeToast(true);
+                  if (largeToastTimer.current) clearTimeout(largeToastTimer.current);
+                  largeToastTimer.current = setTimeout(() => setLargeToast(false), 2500);
+                  // After the state update paints, scroll to the transactions list
+                  // (window top on mobile; list section into view on desktop).
+                  // Respects prefers-reduced-motion: smooth vs instant.
+                  requestAnimationFrame(() => {
+                    const reducedMotion =
+                      typeof window !== "undefined" &&
+                      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                    const scrollBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
+                    if (listSectionRef.current) {
+                      listSectionRef.current.scrollIntoView({ behavior: scrollBehavior, block: "start" });
+                    } else {
+                      window.scrollTo({ top: 0, behavior: scrollBehavior });
+                    }
+                  });
+                }}
               />
             )}
           </>
@@ -758,6 +805,7 @@ export default function SpendPage() {
                 <div className="space-y-4">
                   {/* Balance summary banner */}
                   {cashflow.available_balance != null && (
+                    <>
                     <div className={`rounded-2xl px-4 py-3 flex items-center justify-between ${
                       atRiskCount > 0
                         ? "bg-rose-50 dark:bg-rose-900/20"
@@ -766,16 +814,20 @@ export default function SpendPage() {
                       <div>
                         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Available now</p>
                         <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-                          {sym}{cashflow.available_balance.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {sym}{cashflow.available_balance.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">After all upcoming</p>
                         <p className={`text-base font-bold ${finalBalance >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                          {finalBalance >= 0 ? "" : "−"}{sym}{Math.abs(finalBalance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {finalBalance >= 0 ? "" : "−"}{sym}{Math.abs(finalBalance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </p>
                       </div>
                     </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 px-1">
+                      Based on your typical spending — last 90 days
+                    </p>
+                    </>
                   )}
 
                   {/* Day groups */}
@@ -871,7 +923,7 @@ export default function SpendPage() {
                                 onClick={() => dismissUpcoming(item.name)}
                                 title="Not recurring — stop predicting this"
                                 aria-label="Dismiss prediction"
-                                className={`flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full transition-colors hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 ${flagged ? "text-rose-300 dark:text-rose-600" : "text-slate-400 dark:text-slate-500"}`}
+                                className={`flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full transition-colors hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 ${flagged ? "text-rose-500 dark:text-rose-400" : "text-slate-400 dark:text-slate-500"}`}
                               >
                                 <X size={15} />
                               </button>
@@ -972,6 +1024,16 @@ export default function SpendPage() {
 
       {/* Category & rules manager sheet */}
       {manageOpen && <CategoryManagerSheet onClose={() => setManageOpen(false)} />}
+
+      {/* Transient confirmation toast — "Showing payments over £250" */}
+      {largeToast && (
+        <div
+          className="wd-toast fixed left-4 right-4 z-[70] pointer-events-none bg-slate-900/95 dark:bg-slate-100/95 backdrop-blur rounded-xl shadow-lg px-4 min-h-[48px] flex items-center"
+          style={{ bottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+        >
+          <p className="text-sm font-medium text-white dark:text-slate-900">Showing payments over £250</p>
+        </div>
+      )}
 
       {/* Undo snackbar for dismissed predictions — countdown bar shows the undo window */}
       {undoDismiss && (

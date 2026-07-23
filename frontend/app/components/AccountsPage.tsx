@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary } from "@/lib/api";
-import AccountMiniCard, { BANK_META } from "@/components/AccountMiniCard";
+import AccountMiniCard, { BANK_META, accountBrand } from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import { CategoryData } from "@/components/CategoryRow";
@@ -177,16 +177,23 @@ export default function AccountsPage() {
         try {
           const expected = JSON.parse(raw) as { provider: string; account_number: string; sort_code: string | null };
           localStorage.removeItem("reconnect_expected");
-          const match = accs.find(a =>
+          const masked = (n: string) => `••••${(n ?? "").slice(-4)}`;
+          const providerAccts = accs.filter(a =>
             a.provider.toUpperCase() === expected.provider.toUpperCase() &&
             a.status === "connected" &&
-            a.account_number
+            !!a.account_number
           );
-          if (match && match.account_number !== expected.account_number) {
-            const masked = (n: string) => `••••${n.slice(-4)}`;
-            const gotNum = match.account_number ?? "";
+          // Only warn if the account we set out to reconnect is genuinely missing
+          // from what came back (match on full number or last-4, since a bank can
+          // legitimately have several accounts under one connection).
+          const expectedPresent = providerAccts.some(a =>
+            a.account_number === expected.account_number ||
+            masked(a.account_number as string) === masked(expected.account_number)
+          );
+          if (providerAccts.length > 0 && !expectedPresent) {
+            const got = providerAccts.map(a => masked(a.account_number as string)).join(", ");
             setReconnectWarning(
-              `Different ${expected.provider} account connected. Expected ${masked(expected.account_number)}, got ${masked(gotNum)}. If this is wrong, remove it and reconnect again.`
+              `We couldn't find your ${expected.provider} account ${masked(expected.account_number)} in what was reconnected (found ${got}). If this is wrong, remove it and reconnect again.`
             );
           }
         } catch { /* ignore parse errors */ }
@@ -1023,22 +1030,24 @@ export default function AccountsPage() {
     const manualAcc = manualAccounts.find(m => m.id === selectedAccount.id);
     const accountRules = rules.filter(r => r.target_account_id === selectedAccount.id);
     const showTransactions = isManual ? detailSegment === "Transactions" : segment === "Transactions";
-    // Carry the provider's brand colour through from the card the user tapped
-    // (same key normalization as AccountMiniCard)
-    const providerBg = BANK_META[(selectedAccount.provider || "").toUpperCase().replace(/[\s-]+/g, "_")]?.bg
-      ?? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)";
+    // Use the shared brand resolver so Finexer accounts (logo_url/bg_colors) get
+    // the same branding as the card, and TrueLayer accounts fall through to BANK_META.
+    const brand = accountBrand(selectedAccount);
+    const providerBg = brand.background;
+    const headerTextColor = brand.textOnBrand;
 
     return (
       <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
         <div
-          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white"
-          style={{ background: providerBg }}
+          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6"
+          style={{ background: providerBg, color: headerTextColor }}
         >
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={handleBack}
-              className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 transition-colors"
+              style={{ color: headerTextColor === "#fff" ? "rgba(255,255,255,0.8)" : "rgba(15,23,42,0.6)" }}
             >
               <ArrowLeft size={18} />
               <span className="text-sm font-medium">Accounts</span>
@@ -1101,9 +1110,8 @@ export default function AccountsPage() {
               {typeLabel(selectedAccount.type, selectedAccount.subtype)}
             </span>
             <span
-              className={`text-2xl font-bold ${
-                balance < 0 ? "text-red-300" : "text-white"
-              }`}
+              className="text-2xl font-bold"
+              style={{ color: balance < 0 ? (headerTextColor === "#fff" ? "#fca5a5" : "#b91c1c") : headerTextColor }}
             >
               {hideNetWorth ? "••••" : `${balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>
@@ -1379,31 +1387,47 @@ export default function AccountsPage() {
         {/* Context-aware action buttons */}
         {tab === "Banks" ? (
           region === "UK" ? (
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <button
+                  data-tutorial-id="tutorial-add-account"
+                  onClick={() => setShowBankPicker(true)}
+                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+                >
+                  <Plus size={14} />
+                  Add Bank
+                </button>
+                <button
+                  data-tutorial-id="tutorial-upload-statement"
+                  onClick={() => setShowMpesaUpload(true)}
+                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+                >
+                  <Upload size={14} />
+                  Statement
+                </button>
+                <button
+                  onClick={openAddManual}
+                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+                >
+                  <Plus size={14} />
+                  Offline
+                </button>
+              </div>
               <button
-                data-tutorial-id="tutorial-add-account"
-                onClick={() => setShowBankPicker(true)}
-                className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+                onClick={async () => {
+                  try {
+                    const { auth_url } = await api.finexerConnectLink();
+                    window.location.href = auth_url;
+                  } catch {
+                    // no-op; user stays on page
+                  }
+                }}
+                className="flex w-full items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-2"
               >
                 <Plus size={14} />
-                Add Bank
+                Finexer (beta)
               </button>
-              <button
-                data-tutorial-id="tutorial-upload-statement"
-                onClick={() => setShowMpesaUpload(true)}
-                className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-              >
-                <Upload size={14} />
-                Statement
-              </button>
-              <button
-                onClick={openAddManual}
-                className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-              >
-                <Plus size={14} />
-                Offline
-              </button>
-            </div>
+            </>
           ) : (
             <div className="grid grid-cols-3 gap-2 mb-4">
               <MonoConnectWidget onSuccess={handleMonoSuccess}>

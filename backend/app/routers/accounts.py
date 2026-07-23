@@ -19,6 +19,8 @@ from app.services.region import get_user_region
 from app.services.truelayer_sync import sync_connection
 from app.services.yapily_sync import sync_yapily_consent
 from app.services.mono_sync import sync_mono_connection
+from app.db.collections import finexer_consents_col as _finexer_consents_col
+from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.routers.analytics import compute_and_cache_cashflow
@@ -134,6 +136,10 @@ async def sync_all(user: dict = Depends(current_user)):
     yapily_conns = await yapily_consents_col.find({"user_id": uid, "status": "AUTHORIZED"}).to_list(None)
     for yc in yapily_conns:
         asyncio.create_task(sync_yapily_consent(yc["_id"], uid))
+
+    finexer_conns = await _finexer_consents_col.find({"user_id": uid, "status": "authorized"}).to_list(None)
+    for fc in finexer_conns:
+        asyncio.create_task(_finexer_sync_pipeline(fc["_id"], uid))
 
     async def _post_sync(u, has_new: bool):
         await apply_rules_bulk(u, structural=True)

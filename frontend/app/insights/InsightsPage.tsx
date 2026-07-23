@@ -145,7 +145,7 @@ function UnknownBillsPanel({
                   <p className="text-[14px] font-medium text-slate-800 dark:text-slate-200 truncate">
                     {bill.display_name}
                   </p>
-                  <p className="text-[12px] text-slate-500 dark:text-slate-400">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     £{bill.monthly_amount.toFixed(2)}/mo · {bill.occurrences} payments
                   </p>
                 </div>
@@ -157,7 +157,7 @@ function UnknownBillsPanel({
 
               {isOpen && (
                 <div className="px-4 pb-4 space-y-2.5">
-                  <p className="text-[12px] text-slate-500 dark:text-slate-400">What type of bill is this?</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">What type of bill is this?</p>
                   <div className="grid grid-cols-3 gap-1.5">
                     {Object.entries(labelOptions).map(([key, opt]) => (
                       <button
@@ -184,7 +184,7 @@ function UnknownBillsPanel({
                     </button>
                   </div>
                   {isSaving && (
-                    <p className="text-[12px] text-indigo-500 flex items-center gap-1.5">
+                    <p className="text-[11px] text-indigo-500 flex items-center gap-1.5">
                       <RefreshCw size={12} className="animate-spin" /> Generating insight…
                     </p>
                   )}
@@ -292,14 +292,14 @@ function LabelledBillsPanel({
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-sm">{lbl.icon}</span>
-                      <span className={`text-[12px] text-slate-500 dark:text-slate-400 ${lbl.is_skip ? "italic" : ""}`}>
+                      <span className={`text-[11px] text-slate-500 dark:text-slate-400 ${lbl.is_skip ? "italic" : ""}`}>
                         {lbl.is_skip ? "Skipped" : lbl.label}
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={() => setEditing(isEditing ? null : lbl.merchant_key)}
-                    className="flex-shrink-0 text-[12px] font-medium text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                    className="flex-shrink-0 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
                   >
                     Edit
                   </button>
@@ -307,7 +307,7 @@ function LabelledBillsPanel({
 
                 {isEditing && (
                   <div className="mt-3 space-y-2">
-                    <p className="text-[12px] text-slate-500 dark:text-slate-400">Change category:</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Change category:</p>
                     <div className="grid grid-cols-3 gap-1.5">
                       {Object.entries(labelOptions).map(([key, opt]) => (
                         <button
@@ -344,7 +344,7 @@ function LabelledBillsPanel({
                     <button
                       disabled={isSaving}
                       onClick={() => handleDelete(lbl.merchant_key)}
-                      className="text-[12px] text-red-500 dark:text-red-400 hover:underline disabled:opacity-40 mt-1"
+                      className="text-[11px] text-red-500 dark:text-red-400 hover:underline disabled:opacity-40 mt-1"
                     >
                       Remove label (put back in unknown)
                     </button>
@@ -493,7 +493,7 @@ function WorkflowDrawer({
             <>
               {/* What we already see — grounds the questions in their own data */}
               {topTrigger && (
-                <div className="mb-4 px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/25 text-[12px] text-indigo-700 dark:text-indigo-300">
+                <div className="mb-4 px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/25 text-[11px] text-indigo-700 dark:text-indigo-300">
                   We can already see <span className="font-semibold">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
                   <span className="font-semibold">{topTrigger.display_name}</span> — {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
                 </div>
@@ -560,7 +560,7 @@ function WorkflowDrawer({
               <button
                 onClick={save}
                 disabled={saving}
-                className="w-full text-center text-[12px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 mt-3"
+                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 mt-3"
               >
                 Save with answers so far
               </button>
@@ -634,7 +634,7 @@ function InsightCard({
             </div>
           ) : null}
 
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
             {insight.title}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -644,7 +644,7 @@ function InsightCard({
           {/* Savings + timestamp */}
           <div className="flex items-center justify-between">
             {insight.savings_estimate ? (
-              <span className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg">
+              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg">
                 {insight.savings_estimate}
               </span>
             ) : <span />}
@@ -697,7 +697,7 @@ function InsightCard({
             {showTriggers && (
               <div className="px-4 pb-3 space-y-1.5">
                 {insight.triggered_by.map(t => (
-                  <div key={t.merchant_key} className="flex items-center justify-between text-[12px]">
+                  <div key={t.merchant_key} className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{t.display_name}</span>
                     <span className="text-slate-500 dark:text-slate-400">£{t.monthly_amount.toFixed(2)}/mo · {t.occurrences}×</span>
                   </div>
@@ -765,8 +765,10 @@ export function GroceryBasketCard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
   const [showTrends, setShowTrends] = useState(false);
+  const [showMoreCheaper, setShowMoreCheaper] = useState(false);
+  const [showMorePriceChanges, setShowMorePriceChanges] = useState(false);
+  const router = useRouter();
   const [cardOpen, setCardOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const { pinned: pinnedCards, toggle: toggleCard } = useHomePinnedCards();
@@ -833,7 +835,6 @@ export function GroceryBasketCard() {
   }
 
   const hasTrends = !!insights && (insights.item_trends.length > 0 || insights.store_prices.length > 0);
-  const visibleBaskets = showAll ? baskets : baskets.slice(0, 3);
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
@@ -846,7 +847,7 @@ export function GroceryBasketCard() {
           <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
             <Receipt size={16} className="text-emerald-600 dark:text-emerald-400" />
           </div>
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Groceries</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex-1">Groceries</p>
           {insights && insights.receipt_count > 0 && (
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
               {insights.receipt_count} receipt{insights.receipt_count === 1 ? "" : "s"}
@@ -876,10 +877,10 @@ export function GroceryBasketCard() {
           {insights?.headline ? (
             <>
               <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span className="text-[12px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate">{insights.headline}</span>
+              <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate">{insights.headline}</span>
             </>
           ) : (
-            <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
           )}
         </div>
       ) : (
@@ -891,7 +892,7 @@ export function GroceryBasketCard() {
           className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-left"
         >
           <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-          <span className="text-[12px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
+          <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
             {insights.headline}
           </span>
           {hasTrends && (
@@ -956,21 +957,38 @@ export function GroceryBasketCard() {
               <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
                 <Store size={12} /> Cheaper elsewhere
               </p>
-              <ul className="space-y-1.5">
-                {insights.store_prices.map((s) => (
-                  <li key={s.key} className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">{s.name}</p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {money(s.cheapest_price, s.currency)} at {s.cheapest_store} · {money(s.dearest_price, s.currency)} at {s.dearest_store}
-                      </p>
-                    </div>
-                    <span className="text-[12px] font-semibold text-emerald-500 flex-shrink-0">
-                      save {money(s.saving, s.currency)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {(() => {
+                const sorted = [...insights.store_prices].sort((a, b) => b.saving - a.saving);
+                const visible = showMoreCheaper ? sorted : sorted.slice(0, 5);
+                const hidden = sorted.length - 5;
+                return (
+                  <>
+                    <ul className="space-y-1.5">
+                      {visible.map((s) => (
+                        <li key={s.key} className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{s.name}</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              {money(s.cheapest_price, s.currency)} at {s.cheapest_store} · {money(s.dearest_price, s.currency)} at {s.dearest_store}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-semibold text-emerald-500 flex-shrink-0">
+                            save {money(s.saving, s.currency)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {sorted.length > 5 && (
+                      <button
+                        onClick={() => setShowMoreCheaper((v) => !v)}
+                        className="mt-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
+                      >
+                        {showMoreCheaper ? "Show less" : `See ${hidden} more`}
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
           {insights.item_trends.length > 0 && (
@@ -978,24 +996,42 @@ export function GroceryBasketCard() {
               <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
                 <TrendingUp size={12} /> Price changes
               </p>
-              <ul className="space-y-1.5">
-                {insights.item_trends.map((t) => {
-                  const up = t.pct_change > 0;
-                  return (
-                    <li key={t.key} className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">{t.name}</p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          {money(t.previous, t.currency)} → {money(t.latest, t.currency)}{t.store ? ` · ${t.store}` : ""}
-                        </p>
-                      </div>
-                      <span className={`text-[12px] font-semibold flex-shrink-0 ${up ? "text-rose-500" : "text-emerald-500"}`}>
-                        {up ? "+" : ""}{t.pct_change}%
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              {(() => {
+                const filtered = insights.item_trends.filter((t) => t.pct_change !== 0);
+                const sorted = [...filtered].sort((a, b) => Math.abs(b.pct_change) - Math.abs(a.pct_change));
+                const visible = showMorePriceChanges ? sorted : sorted.slice(0, 5);
+                const hidden = sorted.length - 5;
+                return (
+                  <>
+                    <ul className="space-y-1.5">
+                      {visible.map((t) => {
+                        const up = t.pct_change > 0;
+                        return (
+                          <li key={t.key} className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{t.name}</p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                {money(t.previous, t.currency)} → {money(t.latest, t.currency)}{t.store ? ` · ${t.store}` : ""}
+                              </p>
+                            </div>
+                            <span className={`text-[11px] font-semibold flex-shrink-0 ${up ? "text-rose-500" : "text-emerald-500"}`}>
+                              {up ? "+" : ""}{t.pct_change}%
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {sorted.length > 5 && (
+                      <button
+                        onClick={() => setShowMorePriceChanges((v) => !v)}
+                        className="mt-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
+                      >
+                        {showMorePriceChanges ? "Show less" : `See ${hidden} more`}
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
@@ -1003,7 +1039,7 @@ export function GroceryBasketCard() {
 
       {baskets.length > 0 && (
         <ul className="mt-4 space-y-2">
-          {visibleBaskets.map((b) => {
+          {baskets.slice(0, 3).map((b) => {
             const open = expanded === b.id;
             return (
               <li key={b.id} className="rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
@@ -1046,13 +1082,13 @@ export function GroceryBasketCard() {
                     {b.items.map((it, i) => (
                       <li key={i} className="flex items-center justify-between gap-2 pt-1.5">
                         <div className="min-w-0">
-                          <p className="text-[12px] text-slate-700 dark:text-slate-300 truncate">
+                          <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">
                             {it.qty > 1 && <span className="text-slate-500 dark:text-slate-400">{it.qty}× </span>}
                             {it.name}
                           </p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.category}</p>
                         </div>
-                        <span className="text-[12px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0">
+                        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0">
                           {money(it.line_price ?? it.unit_price, b.currency)}
                         </span>
                       </li>
@@ -1067,10 +1103,11 @@ export function GroceryBasketCard() {
 
       {baskets.length > 3 && (
         <button
-          onClick={() => setShowAll((v) => !v)}
-          className="mt-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+          onClick={() => router.push("/insights/receipts")}
+          className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
         >
-          {showAll ? "Show less" : `See all ${baskets.length} receipts`}
+          View all {baskets.length} receipts
+          <ChevronRight size={13} />
         </button>
       )}
       </>
@@ -1263,7 +1300,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
               </div>
             ))}
             <div className="pt-2">
-              <p className="text-[12px] text-slate-500 dark:text-slate-400 text-center">From £5.99/month · Cancel anytime</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">From £5.99/month · Cancel anytime</p>
             </div>
           </div>
         </div>
@@ -1279,7 +1316,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
         <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
           <span className="text-5xl">💡</span>
           <div>
-            <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300">No insights yet</p>
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">No insights yet</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Tap Refresh to search for savings based on your transactions</p>
           </div>
           <button
@@ -1436,7 +1473,7 @@ function ProgressRing({ pct, accent }: { pct: number; accent: string }) {
           style={{ transition: "stroke-dashoffset 0.5s ease" }}
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[12px] font-bold text-slate-700 dark:text-slate-200">
+      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-slate-700 dark:text-slate-200">
         {pct}%
       </span>
     </div>
@@ -1463,7 +1500,7 @@ function PlanCard({
             <Target className="w-5 h-5" style={{ color: accent }} />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Writing down a few concrete steps makes debt easier to clear. Build a short, trackable plan with your advisor.
             </p>
@@ -1489,7 +1526,7 @@ function PlanCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your debt-free plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1586,7 +1623,7 @@ function ReadyToGrowCard({ onOpenChat }: { onOpenChat: (p: string) => void }) {
           <Sparkles size={16} className="text-emerald-600 dark:text-emerald-400" />
           <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Next step</span>
         </div>
-        <p className="text-[17px] font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
+        <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
         <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mt-1.5">
           With your cushion in place and no expensive debt, the next stage is putting spare money to work — tax-free, using your UK allowances.
         </p>
@@ -1705,7 +1742,7 @@ function SafetyNetCard({
             <Shield className="w-5 h-5 text-emerald-600" />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Build your safety net</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Build your safety net</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
             </p>
@@ -1723,7 +1760,7 @@ function SafetyNetCard({
           ))}
         </div>
         {targetChoice !== "custom" && data.monthly_spending > 0 && (
-          <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1.5">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
             ≈ {hideValues ? "••••" : fmt((targetChoice === "6" ? 6 : 3) * data.monthly_spending, sym)} based on your spending
           </p>
         )}
@@ -1743,7 +1780,7 @@ function SafetyNetCard({
           <ChevronDown size={16} className={`text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
         </button>
         {!acctsOpen && selected.length === 0 && (
-          <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
         )}
         {acctsOpen && (<>
         <div className="space-y-1.5">
@@ -1822,7 +1859,7 @@ function SafetyNetCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent="#059669" />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {funded ? "Safety net funded 🎉" : "Your safety net"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1836,7 +1873,7 @@ function SafetyNetCard({
             )}
           </p>
         </div>
-        <button onClick={beginSetup} aria-label="Edit target" className="text-[12px] font-medium text-emerald-600 flex-shrink-0">Edit</button>
+        <button onClick={beginSetup} aria-label="Edit target" className="text-[11px] font-medium text-emerald-600 flex-shrink-0">Edit</button>
       </div>
 
       <div className="px-4 pb-4 space-y-2">
@@ -1855,13 +1892,13 @@ function SafetyNetCard({
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {debtTotal > 0 ? (
               <>
-                If your whole surplus of {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo went here, fully funded by{" "}
-                <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span> — but clearing
-                your cards first (as recommended above) pushes this later.
+                Put that spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo here and you&rsquo;re fully funded by{" "}
+                <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span> — clearing your
+                cards first (as recommended above) frees up their payments and pulls this sooner.
               </>
             ) : (
               <>
-                At your current surplus of {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo, fully funded by{" "}
+                At your spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo, fully funded by{" "}
                 <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span>.
               </>
             )}
@@ -1869,7 +1906,7 @@ function SafetyNetCard({
         )}
         {!funded && data.monthly_surplus <= 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400">
-            You&rsquo;re spending about as much as you earn, so your safety net isn&rsquo;t growing yet. Trimming spending will start building it.
+            After everyday spending and debt payments there&rsquo;s nothing spare yet, so your safety net isn&rsquo;t growing. Clearing debt or trimming spending will free up cash to build it.
           </p>
         )}
         {funded && (
@@ -1904,7 +1941,7 @@ function SavingsPlanCard({
             <Target className="w-5 h-5" style={{ color: accent }} />
           </div>
           <div className="flex-1">
-            <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Make a savings plan that sticks</p>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Make a savings plan that sticks</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Breaking your goal into small milestones makes it easier to stay on track. Build a short, trackable plan with your advisor.
             </p>
@@ -1930,7 +1967,7 @@ function SavingsPlanCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your savings plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -2268,8 +2305,8 @@ export default function InsightsPage() {
                 <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
               </div>
             </div>
-            <div className="mt-3 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-              <div className="h-full bg-violet-500 rounded-full" style={{ width: `${taxYear.pct}%` }} />
+            <div className="mt-3 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(taxYear.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Tax year progress">
+              <div className="h-full bg-violet-500 rounded-full bar-sweep" style={{ width: `${taxYear.pct}%` }} />
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-[11px] text-slate-500 dark:text-slate-400">6 Apr</span>
@@ -2313,8 +2350,9 @@ export default function InsightsPage() {
               <div className="mt-3">
                 {(insights.monthly_surplus ?? 0) > 0 ? (
                   <>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Monthly surplus</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Spare after essentials &amp; debt</p>
                     <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{hideNetWorth ? "••••" : fmt(insights.monthly_surplus, sym)}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">A typical month&rsquo;s income minus everyday spending and debt payments</p>
                   </>
                 ) : savings?.configured ? (
                   <>

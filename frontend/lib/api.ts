@@ -423,6 +423,8 @@ export const api = {
   insights: () => get<Insight[]>("/insights"),
   truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
   connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
+  finexerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/finexer/providers"),
+  finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>
     fetch(`${API_BASE}/auth/session/validate`, {
@@ -558,6 +560,7 @@ export const api = {
     recurring_categories?: string[];
     dismissed_recurring?: string[];
     spend_widgets?: string[] | null;
+    budget_widgets?: string[] | null;
     home_pinned_widget?: string | null;
   }>("/preferences"),
   updatePreferences: (body: Partial<{
@@ -573,6 +576,7 @@ export const api = {
     home_pinned_cards: string[];
     recurring_categories: string[];
     spend_widgets: string[];
+    budget_widgets: string[];
     home_pinned_widget: string | null;
   }>) =>
     fetch(`${API_BASE}/preferences`, {

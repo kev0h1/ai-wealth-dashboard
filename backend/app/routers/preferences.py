@@ -38,6 +38,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "home_pinned_accounts": doc.get("home_pinned_accounts", []),
         "home_pinned_cards":  doc.get("home_pinned_cards", []),
         "spend_widgets":      doc.get("spend_widgets"),
+        "budget_widgets":     doc.get("budget_widgets"),
         "home_pinned_widget": doc.get("home_pinned_widget"),
         "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"],
         "dismissed_recurring":  doc.get("dismissed_recurring", []),

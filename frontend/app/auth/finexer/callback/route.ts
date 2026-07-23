@@ -11,23 +11,23 @@ function publicBase(request: NextRequest): string {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const code = searchParams.get("code");
+  const fx_consent = searchParams.get("fx_consent");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
   const base = publicBase(request);
 
   const ua = request.headers.get("user-agent") || "";
 
-  if (error || !code) {
+  if (error || !fx_consent) {
     return returnToAppPage(`${base}/accounts?error=bank_auth_failed`, false, ua);
   }
 
   try {
     const params = new URLSearchParams();
-    params.set("code", code);
+    params.set("consent", fx_consent);
     if (state) params.set("state", state);
 
-    await fetch(`${BACKEND}/auth/truelayer/callback?${params}`, { redirect: "follow" });
+    await fetch(`${BACKEND}/auth/finexer/callback?${params}`, { redirect: "follow" });
   } catch {
     // sync may still have fired
   }

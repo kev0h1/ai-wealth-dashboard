@@ -5,7 +5,7 @@
 // on the pillar pages and in Penny — this is deliberately just the score.
 
 import { useEffect, useState, useCallback } from "react";
-import { Target } from "lucide-react";
+import { Target, ChevronRight } from "lucide-react";
 import { api, GoalSummary } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
@@ -55,11 +55,34 @@ export default function GoalsStrip() {
     );
   }
 
-  if (goals.length === 0) return null;
+  if (goals.length === 0) {
+    return (
+      <div className="px-4 lg:px-0">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
+              <Target size={13} className="text-indigo-500 dark:text-indigo-400" />
+            </span>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Your goals</p>
+          </div>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-3 leading-relaxed">
+            No goals set yet. Start tracking debt payoff, a safety net, or your budget pace.
+          </p>
+          <button
+            onClick={() => router.push("/debt")}
+            className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 active:opacity-70 transition-opacity"
+          >
+            Start with debt payoff
+            <ChevronRight size={13} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 lg:px-0">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 fade-in">
         <div className="flex items-center gap-2 mb-2.5">
           <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
             <Target size={13} className="text-indigo-500 dark:text-indigo-400" />
@@ -94,7 +117,7 @@ export default function GoalsStrip() {
                   className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"
                 >
                   <div
-                    className="h-full rounded-full"
+                    className="h-full rounded-full bar-sweep"
                     // 2% floor so a 0% goal still shows a starting sliver, not a broken bar
                     style={{ width: `${Math.max(Math.min(g.pct, 100), 2)}%`, backgroundColor: colour }}
                   />

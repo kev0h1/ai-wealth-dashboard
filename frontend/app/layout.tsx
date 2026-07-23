@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "./Providers";
 import Sidebar from "@/components/Sidebar";
+import ScrollReset from "@/components/ScrollReset";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import ThemeColor from "@/components/ThemeColor";
 import { TutorialProvider } from "@/components/TutorialContext";
@@ -57,6 +58,7 @@ export default function RootLayout({
             <ServiceWorkerRegistrar />
             <ThemeColor />
             <TutorialOverlay />
+            <ScrollReset />
             <Sidebar />
             <div id="app-shell">
               {children}

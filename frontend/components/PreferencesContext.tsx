@@ -13,6 +13,7 @@ interface Prefs {
   debtTargetMonths: number;
   debtTrackingStart: string;
   spendWidgets: string[] | null;
+  budgetWidgets: string[] | null;
   homePinnedWidget: string | null;
   rawPrefs: Record<string, any> | null;
 }
@@ -24,6 +25,7 @@ interface PrefsCtx extends Prefs {
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
   setSpendWidgets: (v: string[]) => void;
+  setBudgetWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
 }
 
@@ -37,6 +39,7 @@ const Ctx = createContext<PrefsCtx>({
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
   spendWidgets: null,
+  budgetWidgets: null,
   homePinnedWidget: null,
   rawPrefs: null,
   setHideNetWorth: () => {},
@@ -46,6 +49,7 @@ const Ctx = createContext<PrefsCtx>({
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
   setSpendWidgets: () => {},
+  setBudgetWidgets: () => {},
   setHomePinnedWidget: () => {},
 });
 
@@ -61,6 +65,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
+  const [budgetWidgets, setBudgetWidgetsState] = useState<string[] | null>(null);
   const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
   const [rawPrefs, setRawPrefs] = useState<Record<string, any> | null>(null);
 
@@ -76,6 +81,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
       if ((p as any).debt_tracking_start) setDebtTrackingStartState((p as any).debt_tracking_start as string);
       if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
+      if (Array.isArray((p as any).budget_widgets)) setBudgetWidgetsState((p as any).budget_widgets as string[]);
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
       setRawPrefs(p as any);
     }).catch(() => {});
@@ -124,6 +130,10 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setSpendWidgetsState(v);
   }, []);
 
+  const setBudgetWidgets = useCallback((v: string[]) => {
+    setBudgetWidgetsState(v);
+  }, []);
+
   const setHomePinnedWidget = useCallback((v: string | null) => {
     setHomePinnedWidgetState(v);
   }, []);
@@ -131,9 +141,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{
       hideNetWorth, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
-      spendWidgets, homePinnedWidget, rawPrefs,
+      spendWidgets, budgetWidgets, homePinnedWidget, rawPrefs,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
-      setSpendWidgets, setHomePinnedWidget,
+      setSpendWidgets, setBudgetWidgets, setHomePinnedWidget,
     }}>
       {children}
     </Ctx.Provider>

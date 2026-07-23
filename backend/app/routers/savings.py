@@ -11,44 +11,18 @@ from app.db.collections import (
     savings_goals_col, savings_plans_col, manual_accounts_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
+from app.services.cashflow import monthly_cashflow
 
 router = APIRouter(tags=["savings"])
 
-_NON_DISC = {"Transfer", "Savings", "Debt", "Income"}
-
 
 async def _cashflow(uid: str, region: str, cutoff: datetime) -> tuple[float, float, float]:
-    """Return (monthly_income, monthly_essential_spending, monthly_surplus) over ~3 months."""
-    if region == "Kenya":
-        all_txns    = await get_kenya_transactions(uid, cutoff)
-        income_txns = [t for t in all_txns if t.get("transaction_type") == "credit" and
-                       (t.get("custom_category") or t.get("category")) == "Income"]
-        debit_txns  = [t for t in all_txns if t.get("transaction_type") == "debit"]
-    else:
-        income_txns = await transactions_col.find(
-            {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
-        ).to_list(None)
-        yap_income  = await yapily_transactions_col.find(
-            {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
-        ).to_list(None)
-        income_txns = income_txns + yap_income
-        debit_txns  = await transactions_col.find(
-            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
-        ).to_list(None)
-        yap_debits  = await yapily_transactions_col.find(
-            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
-        ).to_list(None)
-        debit_txns  = debit_txns + yap_debits
-
-    monthly_income = sum(t["amount"] for t in income_txns) / 3
-    cat_totals: dict[str, float] = {}
-    for t in debit_txns:
-        cat = t.get("custom_category") or t.get("category") or "Other"
-        cat_totals[cat] = cat_totals.get(cat, 0) + t["amount"]
-    monthly_cat       = {k: round(v / 3, 2) for k, v in cat_totals.items()}
-    monthly_spending  = sum(v for k, v in monthly_cat.items() if k not in _NON_DISC)
-    monthly_surplus   = monthly_income - monthly_spending
-    return round(monthly_income, 2), round(monthly_spending, 2), round(monthly_surplus, 2)
+    """(monthly_income, monthly_everyday_spending, monthly_surplus_after_debt), each a
+    spike-smoothed 'typical month'. Surplus subtracts committed debt repayments so it
+    reflects genuinely free cash. See app/services/cashflow.py."""
+    cf = await monthly_cashflow(uid, region, cutoff)
+    surplus = round(cf["income"] - cf["spending"] - cf["debt"], 2)
+    return cf["income"], cf["spending"], surplus
 
 
 async def _bank_accounts(uid: str) -> list[dict]:

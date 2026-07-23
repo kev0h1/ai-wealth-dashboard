@@ -25,6 +25,68 @@ export interface BankMeta {
   initialsSize?: string;
 }
 
+/**
+ * Finexer stable provider_id → canonical BANK_META key.
+ * Add new entries here when Finexer adds new UK providers.
+ */
+const FINEXER_ALIAS: Record<string, string> = {
+  natwest:               "NATWEST",
+  natwest_bankline:      "NATWEST",
+  natwest_clearspend:    "NATWEST",
+  rbs:                   "NATWEST",
+  rbs_bankline:          "NATWEST",
+  rbs_clearspend:        "NATWEST",
+  chase_uk:              "CHASE",
+  amex:                  "AMEX",
+  first_direct:          "FIRST_DIRECT",
+  barclays_personal:     "BARCLAYS",
+  barclays_business:     "BARCLAYS",
+  barclays_corporate:    "BARCLAYS",
+  barclays_wealth:       "BARCLAYS",
+  barclaycard_uk:        "BARCLAYS",
+  barclaycard_bcp:       "BARCLAYS",
+  hsbc_personal:         "HSBC",
+  hsbc_business:         "HSBC",
+  hsbc_kinetic:          "HSBC",
+  hsbc_net:              "HSBC",
+  hsbc_ms:               "HSBC",
+  lloyds_personal:       "LLOYDS",
+  lloyds_business:       "LLOYDS",
+  lloyds_commercial:     "LLOYDS",
+  halifax:               "HALIFAX",
+  santander:             "SANTANDER",
+  santander_business:    "SANTANDER",
+  santander_corporate:   "SANTANDER",
+  nationwide:            "NATIONWIDE",
+  tsb:                   "TSB",
+  monzo:                 "MONZO",
+  starling:              "STARLING",
+  revolut:               "REVOLUT",
+};
+
+/**
+ * Resolve an account to a canonical BANK_META key.
+ * Priority:
+ *   1. Finexer provider_id alias (most reliable for Finexer accounts)
+ *   2. Normalised display name (covers TrueLayer + manual accounts)
+ */
+export function bankKey(account: { provider?: string; provider_id?: string }): string {
+  // 1. Finexer stable code
+  const pid = (account.provider_id ?? "").toLowerCase();
+  if (pid && FINEXER_ALIAS[pid]) return FINEXER_ALIAS[pid];
+
+  // 2. Normalise display name
+  const n = (account.provider ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (!n) return "";
+  if (BANK_META[n]) return n;
+
+  // Strip common suffixes and retry
+  const stripped = n.replace(/_(UK|PERSONAL|BUSINESS|CORPORATE|COMMERCIAL|WEALTH|CURRENT|SAVINGS|ONLINE|365)$/, "");
+  if (stripped !== n && BANK_META[stripped]) return stripped;
+
+  return n;
+}
+
 export const BANK_META: Record<string, BankMeta> = {
   BARCLAYS:     { label: "Barclays",     bg: "linear-gradient(135deg,#00aeef,#002d72)", logoFile: "barclays.png",  initials: "B" },
   NATWEST:      { label: "NatWest",      bg: "linear-gradient(135deg,#5a0069,#d9006c)", logoFile: "natwest.png",   initials: "NW" },
@@ -55,6 +117,133 @@ export const BANK_META: Record<string, BankMeta> = {
   IMBANK:       { label: "I&M Bank",     bg: "linear-gradient(135deg,#b22222,#7b0000)",  initials: "I&M", initialsSize: "9px" },
 };
 
+/** Parse a hex colour like "#RRGGBB" or "#RGB" into [r, g, b] 0-255. Returns null on failure. */
+function hexToRgb(hex: string): [number, number, number] | null {
+  const h = hex.replace("#", "");
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+    return [r, g, b];
+  }
+  if (h.length === 6) {
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+    return [r, g, b];
+  }
+  return null;
+}
+
+/** Darken an RGB triple by multiplying each channel by factor (0-1). */
+function darkenRgb([r, g, b]: [number, number, number], factor: number): string {
+  return `rgb(${Math.round(r * factor)},${Math.round(g * factor)},${Math.round(b * factor)})`;
+}
+
+/** sRGB relative luminance (0-255 range). */
+function luminance(r: number, g: number, b: number): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+export interface AccountBrand {
+  background: string;
+  logoSrc: string | null;
+  textOnBrand: "#fff" | "#0f172a";
+  initials: string;
+  label: string;
+}
+
+/** Build a Google favicon URL for a domain. */
+function googleFaviconURL(domain: string): string {
+  return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+}
+
+/**
+ * Single brand resolver.
+ *
+ * Priority:
+ *   1. BANK_META (curated) — ensures the same bank looks identical across
+ *      TrueLayer and Finexer. bankKey() resolves both provider display names
+ *      and Finexer provider_id codes to the same canonical key.
+ *   2. Finexer dynamic data (bg_colors / logo_url) — fallback for banks that
+ *      are not yet in BANK_META.
+ *   3. Neutral default gradient.
+ *
+ * TrueLayer accounts have no logo_url/bg_colors so they are unaffected by the
+ * priority change — they still fall through to BANK_META as before.
+ */
+export function accountBrand(account: Account): AccountBrand {
+  const key = bankKey(account);
+  const meta = BANK_META[key];
+
+  // --- BRANCH 1: curated entry exists ---
+  if (meta) {
+    const background = meta.bg;
+
+    // Extract first hex from the gradient for luminance check
+    const m = meta.bg.match(/#[0-9a-fA-F]{3,6}/);
+    const firstHex = m ? m[0] : null;
+    let textOnBrand: "#fff" | "#0f172a" = "#fff";
+    if (firstHex) {
+      const rgb = hexToRgb(firstHex);
+      if (rgb && luminance(rgb[0], rgb[1], rgb[2]) > 150) {
+        textOnBrand = "#0f172a";
+      }
+    }
+
+    // Never use account.logo_url here — keep it consistent across providers
+    const logoSrc: string | null = meta.logoFile
+      ? `/banks/${meta.logoFile}`
+      : meta.domain
+      ? googleFaviconURL(meta.domain)
+      : null;
+
+    return {
+      background,
+      logoSrc,
+      textOnBrand,
+      initials: meta.initials,
+      label: meta.label,
+    };
+  }
+
+  // --- BRANCH 2: no curated entry — fall back to Finexer dynamic data ---
+  let background: string;
+  let firstHex: string | null = null;
+
+  if (account.bg_colors && account.bg_colors.length > 0) {
+    firstHex = account.bg_colors[0];
+    if (account.bg_colors.length >= 2) {
+      background = `linear-gradient(135deg,${account.bg_colors[0]},${account.bg_colors[1]})`;
+    } else {
+      // Single colour: darken for the second stop
+      const rgb = hexToRgb(account.bg_colors[0]);
+      const darker = rgb ? darkenRgb(rgb, 0.62) : account.bg_colors[0];
+      background = `linear-gradient(135deg,${account.bg_colors[0]},${darker})`;
+    }
+  } else {
+    // --- BRANCH 3: neutral default ---
+    background = "linear-gradient(135deg,#2563eb,#1d4ed8)";
+    firstHex = "#2563eb";
+  }
+
+  let textOnBrand: "#fff" | "#0f172a" = "#fff";
+  if (firstHex) {
+    const rgb = hexToRgb(firstHex);
+    if (rgb && luminance(rgb[0], rgb[1], rgb[2]) > 150) {
+      textOnBrand = "#0f172a";
+    }
+  }
+
+  const logoSrc: string | null = account.logo_url ?? null;
+  const initials = (account.provider ?? "?").slice(0, 2).toUpperCase();
+  const label = account.provider || "Bank";
+
+  return { background, logoSrc, textOnBrand, initials, label };
+}
+
 function typeLabel(account: Account) {
   const type = account.type.toLowerCase();
   const sub = (account.subtype ?? "").toLowerCase();
@@ -63,30 +252,32 @@ function typeLabel(account: Account) {
   return "Current";
 }
 
-export function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw: string }) {
+export function BankBadge({
+  logoSrc,
+  initials,
+  initialsSize,
+  altText,
+}: {
+  logoSrc: string | null;
+  initials: string;
+  initialsSize?: string;
+  altText: string;
+}) {
   const [imgFailed, setImgFailed] = useState(false);
 
-  const src = !imgFailed
-    ? meta?.logoFile
-      ? `/banks/${meta.logoFile}`
-      : meta?.domain
-        ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
-        : null
-    : null;
-
-  if (src) {
+  if (logoSrc && !imgFailed) {
     return (
       <img
-        src={src}
-        alt={meta?.label ?? providerRaw}
+        src={logoSrc}
+        alt={altText}
         onError={() => setImgFailed(true)}
         className="w-9 h-9 rounded-xl object-contain bg-white p-0.5"
       />
     );
   }
 
-  const text = meta?.initials ?? providerRaw.slice(0, 2).toUpperCase();
-  const fontSize = meta?.initialsSize ?? (text.length >= 4 ? "8px" : text.length === 3 ? "10px" : "13px");
+  const text = initials;
+  const fontSize = initialsSize ?? (text.length >= 4 ? "8px" : text.length === 3 ? "10px" : "13px");
 
   return (
     <div
@@ -99,27 +290,29 @@ export function BankBadge({ meta, providerRaw }: { meta?: BankMeta; providerRaw:
 }
 
 export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin }: AccountMiniCardProps) {
-  const key = (account.provider ?? "").toUpperCase().replace(/[\s-]+/g, "_");
-  const meta = BANK_META[key];
+  const brand = accountBrand(account);
   const isCredit = account.type.toLowerCase().includes("credit");
   const balance = account.balance;
   const currSym = account.currency === "KES" ? "KES " : "£";
   const balanceStr = `${currSym}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const tc = brand.textOnBrand;
 
   return (
     <button
       onClick={onClick}
-      className={`${fullWidth || grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-sm overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${!meta ? "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500" : ""}`}
-      style={meta ? { background: meta.bg, color: "#fff" } : undefined}
+      className={`${fullWidth || grid ? "w-full" : "flex-shrink-0 w-44"} rounded-2xl p-4 text-left active:scale-95 transition-transform shadow-sm overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70`}
+      style={{ background: brand.background, color: tc }}
     >
       {/* Top: badge + type chip */}
       <div className="flex items-start justify-between mb-3">
-        <BankBadge meta={meta} providerRaw={account.provider ?? "?"} />
+        <BankBadge
+          logoSrc={brand.logoSrc}
+          initials={brand.initials}
+          altText={brand.label}
+        />
         <span
           className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5"
-          style={meta
-            ? { background: "rgba(255,255,255,0.2)", color: "#fff" }
-            : { background: isCredit ? "#fee2e2" : "#e0e7ff", color: isCredit ? "#b91c1c" : "#4338ca" }}
+          style={{ background: "rgba(255,255,255,0.2)", color: tc }}
         >
           {typeLabel(account)}
         </span>
@@ -127,31 +320,31 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
 
       {/* Bank label */}
       <p
-        className={`text-[10px] font-semibold uppercase tracking-widest mb-0.5 truncate ${!meta ? "text-slate-400 dark:text-slate-500" : ""}`}
-        style={meta ? { color: "rgba(255,255,255,0.6)" } : undefined}
+        className="text-[10px] font-semibold uppercase tracking-widest mb-0.5 truncate"
+        style={{ color: tc === "#fff" ? "rgba(255,255,255,0.6)" : "rgba(15,23,42,0.55)" }}
       >
-        {meta?.label ?? (account.provider || "Bank")}
+        {brand.label}
       </p>
 
       {/* Account name */}
       <p
-        className={`text-[11px] mb-1 truncate ${!meta ? "text-slate-400 dark:text-slate-500" : ""}`}
-        style={meta ? { color: "rgba(255,255,255,0.5)" } : undefined}
+        className="text-[11px] mb-1 truncate"
+        style={{ color: tc === "#fff" ? "rgba(255,255,255,0.5)" : "rgba(15,23,42,0.45)" }}
       >
         {account.name.trim()}
       </p>
 
       {/* Balance */}
       <p
-        className={`text-xl font-bold tracking-tight leading-none ${!meta ? (balance < 0 ? "text-red-500" : "text-slate-900 dark:text-slate-100") : ""}`}
-        style={meta ? { color: "#fff" } : undefined}
+        className={`text-xl font-bold tracking-tight leading-none`}
+        style={{ color: balance < 0 ? (tc === "#fff" ? "#fca5a5" : "#b91c1c") : tc }}
       >
         {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
       </p>
 
       {/* Masked account number — own line so reconnect button doesn't overlap */}
       {fullWidth && (account.account_number || account.sort_code) && (
-        <p className="text-[10px] font-mono mt-1" style={meta ? { color: "rgba(255,255,255,0.45)" } : { color: "#94a3b8" }}>
+        <p className="text-[10px] font-mono mt-1" style={{ color: tc === "#fff" ? "rgba(255,255,255,0.45)" : "rgba(15,23,42,0.4)" }}>
           {account.sort_code
             ? `${account.sort_code.replace(/(\d{2})(\d{2})(\d{2})/, "$1-$2-$3")} ••••${(account.account_number ?? "").slice(-4)}`
             : `••••${(account.account_number ?? "").slice(-4)}`}
@@ -165,7 +358,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         <button
           onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
           title={pinned ? "Unpin from Home" : "Pin to Home"}
-          className={`absolute bottom-3 right-3 flex items-center justify-center w-7 h-7 rounded-lg transition-all active:scale-95 ${
+          className={`absolute bottom-3 right-3 flex items-center justify-center w-7 h-7 rounded-lg transition-transform active:scale-95 ${
             pinned ? "bg-white text-indigo-700" : "bg-white/15 hover:bg-white/30 text-white/80"
           }`}
         >
@@ -173,23 +366,19 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         </button>
       )}
 
-      {/* Reconnect — only when the connection actually needs it; healthy
-          accounts reconnect from the detail view */}
+      {/* Reconnect — only when the connection actually needs it */}
       {onReconnect && account.status === "expired" && (
         <button
           onClick={(e) => { e.stopPropagation(); onReconnect(); }}
           title="Reconnect this bank"
           className={`
-            absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-all active:scale-95
+            absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-transform active:scale-95
             ${fullWidth || grid ? "bottom-3 right-3" : "top-2 right-2"}
-            ${account.status === "expired"
-              ? "ring-1 ring-amber-400/60 bg-amber-500/40 hover:bg-amber-500/60 text-white"
-              : "bg-white/15 hover:bg-white/30 text-white"
-            }
+            ring-1 ring-amber-400/60 bg-amber-500/40 hover:bg-amber-500/60 text-white
           `}
         >
           <RefreshCw size={10} />
-          {account.status === "expired" && <span>Reconnect</span>}
+          <span>Reconnect</span>
         </button>
       )}
     </button>

@@ -8,10 +8,12 @@ from app.core.config import REDIS_URL
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col, mono_connections_col,
     webhook_events_col, expo_push_tokens_col, push_subscriptions_col,
+    finexer_consents_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
 from app.services.mono_sync import sync_mono_connection
+from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 
@@ -39,6 +41,11 @@ async def task_sync_mono(ctx, connection_id: str, user_id: str):
     ids = await sync_mono_connection(connection_id, user_id)
     await apply_mirror_rules(user_id)
     return {"synced": len(ids)}
+
+
+async def task_sync_finexer(ctx, consent_id: str, user_id: str):
+    result = await finexer_sync_pipeline(consent_id, user_id)
+    return result
 
 
 async def task_reconcile_truelayer(ctx):
@@ -111,6 +118,26 @@ async def task_reconcile_truelayer(ctx):
         )
         enqueued += 1
 
+    # Re-sync authorized Finexer consents whose last_synced is stale
+    fx_conns = await finexer_consents_col.find(
+        {"status": "authorized"},
+        {"_id": 1, "user_id": 1, "last_synced": 1},
+    ).sort("created_at", 1).to_list(None)
+
+    for fx in fx_conns:
+        uid = fx.get("user_id")
+        if not uid:
+            continue
+        last_synced = fx.get("last_synced")
+        if last_synced is None or last_synced < stale_cutoff:
+            await arq.enqueue_job(
+                "task_sync_finexer",
+                consent_id=str(fx["_id"]),
+                user_id=uid,
+                _job_id=f"fx_reconcile:{fx['_id']}",
+            )
+            enqueued += 1
+
     return {"reconciled": enqueued, "at": now.isoformat()}
 
 
@@ -135,7 +162,7 @@ async def task_period_digests(ctx):
 
 class WorkerSettings:
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
-                 task_reconcile_truelayer, task_period_digests]
+                 task_sync_finexer, task_reconcile_truelayer, task_period_digests]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         # 07:00 UTC = start-of-morning UK; the task is a no-op except on each

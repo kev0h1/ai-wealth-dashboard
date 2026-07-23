@@ -15,6 +15,7 @@ from app.db.collections import (
     transactions_col, yapily_transactions_col,
     accounts_col, debt_plans_col,
     savings_goals_col, savings_plans_col, savings_insights_col,
+    cashflow_cache_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.memory import extract_episodic_memory
@@ -257,10 +258,32 @@ Work towards a close: end with a concrete recommendation or a confirmation of wh
         "transport": "the Mobility tab: their transport spending breakdown (car, rideshare, fuel, public transport)",
         "home":      "the Home dashboard: net worth, cash, runway and upcoming bills",
         "budget":    "the Budget page: category budgets for the current pay period",
-        "spend":     "the Spend page: their transactions for the current pay period",
+        "spend":     "the Spend page: their transactions for the current pay period, plus upcoming bills in the next ~30 days",
     }
-    if page_desc := _PAGE_CONTEXTS.get(body.get("page_context") or ""):
+    page_ctx = body.get("page_context") or ""
+    if page_desc := _PAGE_CONTEXTS.get(page_ctx):
         system += f"\n\nRight now the user is looking at {page_desc}. If they refer to 'this' or ask about what's on screen, assume they mean that."
+
+    # Upcoming-bills context — injected when user is on spend/home/budget pages
+    if page_ctx in ("spend", "home", "budget"):
+        try:
+            cf_cached = await cashflow_cache_col.find_one({"_id": uid})
+            if cf_cached:
+                from app.routers.analytics import _build_cashflow_response
+                cf = _build_cashflow_response(cf_cached)
+                bills = [b for b in cf.get("upcoming_bills", []) if b.get("days_away", 99) <= 30]
+                if bills:
+                    total_due = sum(b["amount"] for b in bills)
+                    next_b = bills[0]
+                    next_desc = f"{next_b['name']} £{next_b['amount']:.0f} on {next_b['expected_date']}"
+                    at_risk = [b for b in bills if b.get("account_balance") is not None and b["account_balance"] < b["amount"]]
+                    risk_note = f"; {len(at_risk)} flagged at-risk (balance may not cover payment)" if at_risk else ""
+                    system += (
+                        f"\n\nUpcoming bills (next ~30 days): about £{total_due:.0f} across {len(bills)} bills; "
+                        f"next up: {next_desc}{risk_note}."
+                    )
+        except Exception:
+            pass  # never let cashflow read break chat
 
     full_messages = history + messages
 

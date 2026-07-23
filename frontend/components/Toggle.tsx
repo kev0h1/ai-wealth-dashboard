@@ -25,22 +25,24 @@ export default function Toggle({
   onColor = "bg-indigo-500",
 }: ToggleProps) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onChange}
-      className={`relative w-12 h-6 rounded-full flex-shrink-0 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800 ${
-        checked ? onColor : "bg-slate-200 dark:bg-slate-600"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-          checked ? "translate-x-6" : "translate-x-0"
+    <span className="inline-flex items-center justify-center min-w-[44px] min-h-[44px]">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onChange}
+        className={`relative w-12 h-6 rounded-full flex-shrink-0 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-800 ${
+          checked ? onColor : "bg-slate-200 dark:bg-slate-600"
         }`}
-      />
-    </button>
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+            checked ? "translate-x-6" : "translate-x-0"
+          }`}
+        />
+      </button>
+    </span>
   );
 }

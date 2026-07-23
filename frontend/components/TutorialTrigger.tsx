@@ -16,7 +16,7 @@ export default function TutorialTrigger({
     <button
       onClick={start}
       aria-label="Open tutorial"
-      className={`w-11 h-11 flex items-center justify-center rounded-full active:scale-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+      className={`w-11 h-11 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
         isOnColor
           ? "bg-white/20 hover:bg-white/30"
           : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"

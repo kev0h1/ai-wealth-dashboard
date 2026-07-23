@@ -81,7 +81,7 @@ function ModeRow({ mode, maxTotal }: { mode: TransportMode; maxTotal: number }) 
         </div>
         <div className="h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
           <div
-            className="h-full rounded-full transition-all duration-500"
+            className="h-full rounded-full transition-[width] duration-200 ease-out"
             style={{ width: `${w}%`, backgroundColor: mode.colour }}
           />
         </div>

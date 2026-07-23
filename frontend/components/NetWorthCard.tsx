@@ -49,7 +49,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
         <div className="h-10 w-48 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-4" />
       ) : (
         <div
-          className={`text-4xl font-bold tracking-tight mb-4 select-none ${
+          className={`text-4xl font-bold tracking-tight mb-4 select-none num fade-in ${
             isNegative ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-slate-100"
           }`}
           aria-label={hidden ? "Balance hidden" : undefined}
@@ -68,7 +68,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
           {loading
             ? <div className="h-5 w-20 bg-slate-100 dark:bg-slate-600 rounded animate-pulse" />
             : <p
-                className="text-base font-semibold text-slate-800 dark:text-slate-100"
+                className="text-base font-semibold text-slate-800 dark:text-slate-100 num"
                 aria-label={hidden ? "Balance hidden" : undefined}
               >
                 {hidden ? <span aria-hidden="true">••••</span> : fmt(cash, sym)}
@@ -86,7 +86,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
           {loading
             ? <div className="h-5 w-16 bg-slate-100 dark:bg-slate-600 rounded animate-pulse" />
             : <p
-                className="text-base font-semibold text-slate-800 dark:text-slate-100"
+                className="text-base font-semibold text-slate-800 dark:text-slate-100 num"
                 aria-label={hidden ? "Balance hidden" : undefined}
               >
                 {hidden ? <span aria-hidden="true">••</span> : `${runway}mo`}
@@ -95,7 +95,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
       </div>
       {runwayExpanded && (
         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2 leading-snug">
-          Cash runway = all cash ÷ average monthly outgoings
+          Cash runway = all cash ÷ average monthly outgoings · based on your last 90 days of spending
         </p>
       )}
     </div>

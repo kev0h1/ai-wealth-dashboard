@@ -16,12 +16,12 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
+from app.services.cashflow import monthly_cashflow
 
 router = APIRouter(tags=["debt"])
 
 _DISCRETIONARY = ["Eating Out", "Entertainment", "Shopping", "Travel", "Subscriptions", "Software", "Other", "Health"]
 _DISC_CATS     = {"Eating Out", "Entertainment", "Shopping", "Travel", "Subscriptions", "Software", "Other", "Health"}
-_NON_DISC      = {"Transfer", "Savings", "Debt", "Income"}
 
 
 @router.get("/debt/insights")
@@ -30,20 +30,16 @@ async def debt_insights(user: dict = Depends(current_user)):
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
+    cf = await monthly_cashflow(uid, region, cutoff)
+    monthly_income       = cf["income"]
+    monthly_cat          = cf["cat"]
+    monthly_essential    = cf["spending"]
+    monthly_debt_payment = cf["debt"]
+    monthly_surplus      = round(monthly_income - monthly_essential, 2)
+
     if region == "Kenya":
-        all_txns    = await get_kenya_transactions(uid, cutoff)
-        income_txns = [t for t in all_txns if t.get("transaction_type") == "credit" and
-                       (t.get("custom_category") or t.get("category")) == "Income"]
-        debit_txns  = [t for t in all_txns if t.get("transaction_type") == "debit"]
-        monthly_income = sum(t["amount"] for t in income_txns) / 3
-        cat_totals: dict[str, float] = {}
-        for t in debit_txns:
-            cat = t.get("custom_category") or t.get("category") or "Other"
-            cat_totals[cat] = cat_totals.get(cat, 0) + t["amount"]
-        monthly_cat     = {k: round(v / 3, 2) for k, v in cat_totals.items()}
-        monthly_essential = sum(v for k, v in monthly_cat.items() if k not in _NON_DISC)
-        monthly_surplus   = monthly_income - monthly_essential
-        recommendations   = []
+        all_txns = await get_kenya_transactions(uid, cutoff)
+        recommendations = []
         for cat in sorted(_DISCRETIONARY, key=lambda c: monthly_cat.get(c, 0), reverse=True):
             amt = monthly_cat.get(cat, 0)
             if amt > 5:
@@ -73,32 +69,6 @@ async def debt_insights(user: dict = Depends(current_user)):
     accounts    = await accounts_col.find({"user_id": uid}).to_list(None)
     cc_accounts = [a for a in accounts if a.get("type") == "credit_card" and a.get("balance", 0) < 0]
     total_debt  = sum(abs(a["balance"]) for a in cc_accounts)
-
-    income_txns = await transactions_col.find(
-        {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
-    ).to_list(None)
-    yap_income  = await yapily_transactions_col.find(
-        {"user_id": uid, "transaction_type": "credit", "category": "Income", "date": {"$gte": cutoff}}
-    ).to_list(None)
-    income_txns   = income_txns + yap_income
-    monthly_income = sum(t["amount"] for t in income_txns) / 3
-
-    debit_txns = await transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
-    ).to_list(None)
-    yap_debits = await yapily_transactions_col.find(
-        {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}}
-    ).to_list(None)
-    debit_txns = debit_txns + yap_debits
-
-    cat_totals2: dict[str, float] = {}
-    for t in debit_txns:
-        cat = t.get("custom_category") or t.get("category") or "Other"
-        cat_totals2[cat] = cat_totals2.get(cat, 0) + t["amount"]
-    monthly_cat      = {k: round(v / 3, 2) for k, v in cat_totals2.items()}
-    monthly_debt_payment = monthly_cat.get("Debt", 0)
-    monthly_essential    = sum(v for k, v in monthly_cat.items() if k not in _NON_DISC)
-    monthly_surplus      = monthly_income - monthly_essential
 
     account_rates: dict[str, float] = {}
     for a in cc_accounts:

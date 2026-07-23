@@ -92,7 +92,7 @@ export default function BottomNav() {
                 <Icon
                   size={22}
                   strokeWidth={active ? 2.5 : 1.8}
-                  color={active ? "#4f46e5" : "#94a3b8"}
+                  className={active ? "text-indigo-600" : "text-slate-400"}
                 />
                 {href === "/insights" && newInsights > 0 && (
                   <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-violet-500 text-white text-[9px] font-bold flex items-center justify-center">
@@ -106,8 +106,7 @@ export default function BottomNav() {
                 )}
               </span>
               <span
-                className={`relative text-[11px] font-medium leading-none`}
-                style={{ color: active ? "#4f46e5" : "#94a3b8" }}
+                className={`relative text-[11px] font-medium leading-none ${active ? "text-indigo-600" : "text-slate-400"}`}
               >
                 {label}
               </span>

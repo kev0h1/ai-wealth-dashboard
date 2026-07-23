@@ -18,6 +18,8 @@ class Account(BaseModel):
     sort_code: Optional[str] = None
     connection_id: Optional[str] = None
     manual: bool = False
+    logo_url: Optional[str] = None
+    bg_colors: Optional[list] = None
 
 
 class Transaction(BaseModel):
