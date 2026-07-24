@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, X, SlidersHorizontal, AlertTriangle } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, X, SlidersHorizontal, AlertTriangle, ReceiptText, Fuel, CreditCard } from "lucide-react";
 import { api, Account, Transaction, CashflowData } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
@@ -32,6 +32,7 @@ import CategoryManagerSheet from "@/components/CategoryManagerSheet";
 import SpendTrends from "@/components/SpendTrends";
 import CustomSelect from "@/components/CustomSelect";
 import SegmentedControl from "@/components/SegmentedControl";
+import UpcomingEditSheet from "@/components/UpcomingEditSheet";
 
 async function ensureAuth() {}
 
@@ -263,6 +264,14 @@ export default function SpendPage() {
   const listSectionRef = useRef<HTMLDivElement>(null);
   const [highlightBill, setHighlightBill] = useState<string | null>(null);
   const [largeOnly, setLargeOnly] = useState(false);
+  const [editItem, setEditItem] = useState<null | {
+    name: string;
+    amount: number;
+    expected_date: string;
+    type: "bill" | "income";
+    category?: string | null;
+    edited?: boolean;
+  }>(null);
   // When the shortfall callout's "Review" is tapped, scroll the flagged bill
   // into view on the Upcoming tab and briefly ring it, then clear the highlight.
   useEffect(() => {
@@ -436,87 +445,96 @@ export default function SpendPage() {
           </button>
         </div>
 
-        {/* Summary chips */}
+        {/* Summary — three equal pills: Spent | Income | Net */}
         {!pageLoading && (
-          <div className="flex gap-2 mt-3 lg:mt-0">
-            <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2 text-center">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Spent</p>
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.spent)}</p>
-            </div>
-            <button
-              onClick={() => setIncomeExpanded(v => !v)}
-              className="flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2 text-center active:scale-[0.98] transition-transform"
-            >
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5 flex items-center justify-center gap-0.5">
-                Income {incomeExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-              </p>
-              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.income)}</p>
-            </button>
-            <div className="flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2 text-center">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net</p>
-              <p
-                className={`text-sm font-bold ${
-                  summary.net >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                }`}
+          <div className="mt-3 lg:mt-0 space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              {/* Spent */}
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Spent</span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.spent)}</span>
+              </div>
+              {/* Income — tappable to expand drill-down */}
+              <button
+                onClick={() => setIncomeExpanded(v => !v)}
+                className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center active:opacity-70 transition-opacity"
               >
-                {summary.net >= 0 ? "+" : ""}
-                {fmtSummary(summary.net)}
-              </p>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5 flex items-center gap-0.5">
+                  Income {incomeExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.income)}</span>
+              </button>
+              {/* Net */}
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net</span>
+                <span
+                  className={`text-sm font-bold ${
+                    summary.net >= 0
+                      ? "text-emerald-700 dark:text-emerald-400"
+                      : "text-slate-900 dark:text-slate-100"
+                  }`}
+                >
+                  {summary.net >= 0 ? "+" : "−"}
+                  {fmtSummary(Math.abs(summary.net))}
+                </span>
+              </div>
             </div>
+            {/* Income drill-down — shown below the pills when expanded */}
+            {incomeExpanded && incomeTxns.length > 0 && (
+              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+                <div className="px-4 pt-2.5 pb-1">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Income this period</p>
+                </div>
+                {incomeTxns.map(tx => (
+                  <TransactionRow
+                    key={tx.id}
+                    transaction={tx}
+                    onClick={() => setSelectedTx(tx)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
         </div>{/* end lg:grid wrapper */}
 
-        {/* Proportional breakdown bar — categories view only */}
-        {(isDesktop || view === "categories") && !pageLoading && summary.spent > 0 && categories.length > 0 && (
-          <div
-            role="img"
-            aria-label={"Spending breakdown: " + categories.map(c => `${c.name} ${Math.round(c.pct)}%`).join(", ")}
-            className="mt-3 flex h-2.5 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700"
-          >
-            {categories.map((cat) => (
-              <div
-                key={cat.name}
-                style={{ width: `${cat.pct}%`, backgroundColor: colours[cat.name] ?? CATEGORY_COLOURS.Other }}
-                title={`${cat.name} · ${Math.round(cat.pct)}%`}
-              />
-            ))}
-          </div>
-        )}
-
         {/* Bill shortfall callout — visible on all views when at-risk bills exist */}
         {isCurrentPeriod && atRiskBills.length > 0 && (
-          <button
-            onClick={() => {
-              const top = atRiskBills[0];
-              if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
-              setView("upcoming");
-            }}
-            className="mt-3 w-full text-left bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 rounded-2xl px-4 py-3 active:scale-[0.99] transition-transform"
-          >
+          <div className="mt-3 w-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl px-4 py-3">
             <div className="flex items-start gap-2.5">
-              <AlertTriangle size={16} className="text-rose-500 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={16} className="text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-rose-700 dark:text-rose-300">
+                <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
                   {atRiskBills.length === 1
-                    ? "1 bill may not clear this week"
+                    ? "A payment may bounce this week"
                     : `${atRiskBills.length} bills may not clear this week`}
                 </p>
                 {(() => {
                   const top = atRiskBills[0];
                   const sym = region === "Kenya" ? "KES " : "£";
+                  const merchantName = top.name
+                    .split(" ")
+                    .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+                    .join(" ");
                   return (
-                    <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5 truncate">
-                      {top.name} {sym}{top.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      {" — "}
-                      {top.account_name || "your account"} only has {sym}{(top.account_balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                      {merchantName} · {sym}{top.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — your current account only has {sym}{(top.account_balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Move money or check the date.
                     </p>
                   );
                 })()}
               </div>
-              <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex-shrink-0 self-center">Review</span>
+              <button
+                onClick={() => {
+                  const top = atRiskBills[0];
+                  if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
+                  setView("upcoming");
+                }}
+                className="flex-shrink-0 self-center px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold min-h-[44px] flex items-center active:scale-95 transition-transform"
+              >
+                Review
+              </button>
             </div>
-          </button>
+          </div>
         )}
 
         {/* View switcher — categories / transactions / upcoming */}
@@ -542,21 +560,6 @@ export default function SpendPage() {
         })()}
       </div>
 
-      {/* Income drill-down panel */}
-      {incomeExpanded && incomeTxns.length > 0 && (
-        <div className="mx-4 mt-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-4 pt-3 pb-1">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Income this period</p>
-          </div>
-          {incomeTxns.map(tx => (
-            <TransactionRow
-              key={tx.id}
-              transaction={tx}
-              onClick={() => setSelectedTx(tx)}
-            />
-          ))}
-        </div>
-      )}
 
       {/* ── Content blocks extracted as consts for desktop/mobile reuse ── */}
       {(() => {
@@ -601,17 +604,24 @@ export default function SpendPage() {
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{cat.count} txn{cat.count !== 1 ? "s" : ""}</p>
                         </div>
                       </div>
-                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
+                      <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
                         £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </p>
                       {/* spend bar */}
-                      <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                      <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                         <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
                       </div>
                       {(cat.name.toLowerCase() === "transport" || cat.name.toLowerCase() === "groceries" || cat.name === "Debt") && (
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium -mt-1">
-                          {cat.name.toLowerCase() === "transport" ? "⛽ cheaper fuel inside" : cat.name.toLowerCase() === "groceries" ? "🧾 scan receipts inside" : "› payoff plan"}
-                        </p>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                          {cat.name.toLowerCase() === "transport" ? (
+                            <><Fuel size={10} style={{ color: colour }} /><span>cheaper fuel inside</span></>
+                          ) : cat.name.toLowerCase() === "groceries" ? (
+                            <><ReceiptText size={10} style={{ color: colour }} /><span>scan receipts inside</span></>
+                          ) : (
+                            <><CreditCard size={10} style={{ color: colour }} /><span>payoff plan</span></>
+                          )}
+                          <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
+                        </span>
                       )}
                     </button>
                   );
@@ -638,8 +648,8 @@ export default function SpendPage() {
                   {untrackedCategories.reduce((s, c) => s + c.count, 0)}
                 </span>
                 {untrackedOpen
-                  ? <ChevronUp size={15} color="#94a3b8" />
-                  : <ChevronDown size={15} color="#94a3b8" />}
+                  ? <ChevronUp size={16} className="text-slate-500 dark:text-slate-400" />
+                  : <ChevronDown size={16} className="text-slate-500 dark:text-slate-400" />}
               </div>
             </button>
 
@@ -763,10 +773,18 @@ export default function SpendPage() {
               <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
             ) : (() => {
               const sym = "£";
+              const today = new Date();
+              // Compute next payday: periodEnd + 1 day
+              const nextPayday = new Date(periodEnd.getTime() + 86400000);
+              const isCalendarMonth = payPeriodConfig.type === "calendar_month";
+              // daysToPayday from today
+              const todayMidnight = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+              const nextPaydayMidnight = new Date(Date.UTC(nextPayday.getUTCFullYear(), nextPayday.getUTCMonth(), nextPayday.getUTCDate()));
+              const daysToPayday = Math.round((nextPaydayMidnight.getTime() - todayMidnight.getTime()) / 86400000);
+              const paydayLabel = nextPayday.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-              // Sort chronologically: income before bills on same day (salary lands first).
-              // Clip to the end of the current pay period — the backend projects
-              // further so any period length is covered.
+              // Sort chronologically: income before bills on same day.
+              // Clip to the end of the current pay period.
               const rawItems = [
                 ...cashflow.upcoming_income.map(b => ({ ...b, type: "income" as const })),
                 ...cashflow.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
@@ -785,167 +803,278 @@ export default function SpendPage() {
                 );
               }
 
-              // Running balance projection (total across all accounts)
+              // Find the payday milestone: the largest income item within 2 days of nextPayday.
+              let paydayMilestone: (typeof rawItems[0]) | null = null;
+              if (!isCalendarMonth) {
+                const candidates = rawItems.filter(item => {
+                  if (item.type !== "income") return false;
+                  const d = new Date(item.expected_date);
+                  const diffDays = Math.abs(Math.round((d.getTime() - nextPaydayMidnight.getTime()) / 86400000));
+                  return diffDays <= 2;
+                });
+                if (candidates.length > 0) {
+                  paydayMilestone = candidates.reduce((best, c) => c.amount > best.amount ? c : best, candidates[0]);
+                }
+              }
+
+              // Remove payday milestone from inline list
+              const milestoneKey = paydayMilestone ? `${paydayMilestone.type}-${paydayMilestone.name}-${paydayMilestone.expected_date}` : null;
+              const filteredItems = rawItems.filter(item => {
+                const k = `${item.type}-${item.name}-${item.expected_date}`;
+                return k !== milestoneKey;
+              });
+
+              // Running balance projection
               let running = cashflow.available_balance ?? 0;
-              const items = rawItems.map(item => {
+              const items = filteredItems.map(item => {
                 if (item.type === "income") {
                   running += item.amount;
                   return { ...item, balance_after: running, at_risk: false, account_short: false, is_credit_card: false };
                 } else {
                   running -= item.amount;
                   const acctBalance = item.account_balance ?? null;
-                  // Negative balance = credit card. Don't flag as insufficient — it's a card charge.
                   const is_credit_card = acctBalance !== null && acctBalance < 0;
                   const account_short = !is_credit_card && acctBalance !== null && item.amount > acctBalance;
                   return { ...item, balance_after: running, at_risk: running < 0, account_short, is_credit_card };
                 }
               });
 
-              const finalBalance = running;
+              // Compute runway = available_balance - sum of bills before nextPayday
+              const billsBeforePayday = filteredItems.filter(item => {
+                if (item.type !== "bill") return false;
+                const d = new Date(item.expected_date);
+                return d < nextPaydayMidnight;
+              });
+              const runwayBillsTotal = billsBeforePayday.reduce((s, b) => s + b.amount, 0);
+              const runway = (cashflow.available_balance ?? 0) - runwayBillsTotal;
+              const runwayNegative = runway < 0;
+
               const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
 
-              // Group by day label
-              const groups: { label: string; items: typeof items }[] = [];
-              for (const item of items) {
-                const label = item.days_away === 0 ? "Today" : item.days_away === 1 ? "Tomorrow" : `${item.days_away} days`;
-                const g = groups.find(g => g.label === label);
-                if (g) g.items.push(item);
-                else groups.push({ label, items: [item] });
+              // Split items into before/after payday
+              const beforePayday = items.filter(item => new Date(item.expected_date) < nextPaydayMidnight);
+              const afterPayday = items.filter(item => new Date(item.expected_date) >= nextPaydayMidnight);
+
+              // Group by day label helper
+              function groupByDay(list: typeof items) {
+                const groups: { label: string; items: typeof items }[] = [];
+                for (const item of list) {
+                  const label = item.days_away === 0 ? "Today" : item.days_away === 1 ? "Tomorrow" : `${item.days_away} days`;
+                  const g = groups.find(g => g.label === label);
+                  if (g) g.items.push(item);
+                  else groups.push({ label, items: [item] });
+                }
+                return groups;
+              }
+
+              const beforeGroups = groupByDay(beforePayday);
+              const afterGroups = groupByDay(afterPayday);
+
+              // Format date helper
+              function formatItemDate(iso: string) {
+                const d = new Date(iso);
+                return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+              }
+
+              // Row renderer
+              function renderRow(item: typeof items[0]) {
+                const flagged = item.at_risk || item.account_short;
+                const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
+                const highlighted = highlightBill === rowKey;
+                const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
+                const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                const Icon = getCategoryIcon(catName, iconOverrides);
+
+                return (
+                  <SwipeDismissRow
+                    key={rowKey}
+                    onDismiss={() => dismissUpcoming(item.name)}
+                  >
+                    <div
+                      data-bill-key={rowKey}
+                      onClick={() => setEditItem({
+                        name: item.name,
+                        amount: item.amount,
+                        expected_date: item.expected_date,
+                        type: item.type,
+                        category: item.category,
+                        edited: item.edited,
+                      })}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited }); } }}
+                      aria-label={`Edit ${item.name}`}
+                      className={`rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${
+                        flagged
+                          ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
+                          : "bg-white dark:bg-slate-800"
+                      }${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
+                    >
+                      {/* Icon chip */}
+                      {flagged ? (
+                        <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500 text-sm" aria-hidden="true">⚠</span>
+                      ) : (
+                        <span
+                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: `${colour}26` }}
+                          aria-hidden="true"
+                        >
+                          <Icon size={15} style={{ color: colour }} />
+                        </span>
+                      )}
+
+                      {/* Name + details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className={`text-sm font-medium truncate ${flagged ? "text-rose-700 dark:text-rose-300" : "text-slate-800 dark:text-slate-100"}`}>
+                            {item.name}
+                          </p>
+                          {item.edited && (
+                            <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">edited</span>
+                          )}
+                        </div>
+
+                        {item.account_short && (item.account_bank || item.account_name) && (
+                          <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400 truncate">
+                            {item.account_bank || item.account_name} · only {sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })} available
+                          </p>
+                        )}
+                        {item.at_risk && !item.account_short && (
+                          <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400">Overall balance will be low</p>
+                        )}
+                        {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {item.account_bank || item.account_name}
+                          </p>
+                        )}
+
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
+                      </div>
+
+                      {/* Amount + running balance */}
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-base font-bold ${
+                          item.type === "income" ? "text-emerald-500" :
+                          flagged ? "text-rose-600 dark:text-rose-400" :
+                          "text-slate-800 dark:text-slate-100"
+                        }`}>
+                          {item.type === "income" ? "+" : "−"}{sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className={`text-[11px] font-medium ${item.balance_after >= 0 ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
+                          {item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })} left
+                        </p>
+                      </div>
+                    </div>
+                  </SwipeDismissRow>
+                );
+              }
+
+              // Day-group section renderer
+              function renderGroups(groups: ReturnType<typeof groupByDay>) {
+                return groups.map(({ label, items: groupItems }) => (
+                  <div key={label}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
+                      label === "Today" || label === "Tomorrow"
+                        ? "text-amber-700 dark:text-amber-400"
+                        : "text-slate-500 dark:text-slate-400"
+                    }`}>{label}</p>
+                    <div className="space-y-2">
+                      {groupItems.map(renderRow)}
+                    </div>
+                  </div>
+                ));
               }
 
               return (
                 <div className="space-y-4">
-                  {/* Balance summary banner */}
+                  {/* ── Runway summary card ─────────────────────────────────── */}
                   {cashflow.available_balance != null && (
-                    <>
-                    <div className={`rounded-2xl px-4 py-3 flex items-center justify-between ${
-                      atRiskCount > 0
-                        ? "bg-rose-50 dark:bg-rose-900/20"
-                        : "bg-emerald-50 dark:bg-emerald-900/20"
+                    <div className={`rounded-2xl px-4 py-4 shadow-sm ${
+                      runwayNegative
+                        ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
+                        : "bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700"
                     }`}>
-                      <div>
-                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">Available now</p>
-                        <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-                          {sym}{cashflow.available_balance.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">After all upcoming</p>
-                        <p className={`text-base font-bold ${finalBalance >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                          {finalBalance >= 0 ? "" : "−"}{sym}{Math.abs(finalBalance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                        </p>
+                      {/* Hero verdict */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">
+                            {isCalendarMonth ? "Before month end" : "To last until payday"}
+                          </p>
+                          <p className={`text-2xl font-bold tracking-tight ${
+                            runwayNegative
+                              ? "text-rose-600 dark:text-rose-400"
+                              : "text-slate-900 dark:text-slate-100"
+                          }`}>
+                            {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </p>
+                          {/* Evidence line: shows the maths behind the runway figure */}
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                            {sym}{(cashflow.available_balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} now
+                            {" − "}
+                            {sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} bills
+                            {isCalendarMonth
+                              ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
+                              : ` · ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
+                          </p>
+                          {/* Salary landing line — only when a payday milestone income exists */}
+                          {!isCalendarMonth && paydayMilestone && (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              then +{sym}{paydayMilestone.amount.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} salary lands
+                            </p>
+                          )}
+                        </div>
+                        {atRiskCount > 0 && (
+                          <span className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
+                            <span>⚠</span> {atRiskCount} at risk
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 px-1">
-                      Based on your typical spending — last 90 days
-                    </p>
-                    </>
                   )}
 
-                  {/* Day groups */}
-                  {groups.map(({ label, items: groupItems }) => (
-                    <div key={label}>
-                      <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                        label === "Today" || label === "Tomorrow"
-                          ? "text-amber-700 dark:text-amber-400"
-                          : "text-slate-500 dark:text-slate-400"
-                      }`}>{label}</p>
-                      <div className="space-y-2">
-                        {groupItems.map((item) => {
-                          const flagged = item.at_risk || item.account_short;
-                          const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
-                          const highlighted = highlightBill === rowKey;
-                          return (
-                            <SwipeDismissRow
-                              key={rowKey}
-                              onDismiss={() => dismissUpcoming(item.name)}
-                            >
-                            <div
-                              data-bill-key={rowKey}
-                              className={`rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 transition-shadow ${
-                                flagged
-                                  ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
-                                  : "bg-white dark:bg-slate-800"
-                              }${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
-                            >
-                              {/* Left indicator — category icon chip, same as the category grid */}
-                              {flagged ? (
-                                <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500 text-sm">⚠</span>
-                              ) : (() => {
-                                const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
-                                const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
-                                const Icon = getCategoryIcon(catName, iconOverrides);
-                                return (
-                                  <span
-                                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                                    style={{ backgroundColor: `${colour}26` }}
-                                  >
-                                    <Icon size={15} style={{ color: colour }} />
-                                  </span>
-                                );
-                              })()}
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 px-1">
+                    Based on your typical spending — last 90 days
+                  </p>
 
-                              {/* Name + contextual info */}
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium truncate ${flagged ? "text-rose-700 dark:text-rose-300" : "text-slate-800 dark:text-slate-100"}`}>
-                                  {item.name}
-                                </p>
-
-                                {/* Only show account details when there's a problem */}
-                                {item.account_short && (item.account_bank || item.account_name) && (
-                                  <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400 truncate">
-                                    {item.account_bank || item.account_name} · only {sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })} available
-                                  </p>
-                                )}
-                                {item.at_risk && !item.account_short && (
-                                  <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400">
-                                    Overall balance will be low
-                                  </p>
-                                )}
-
-                                {/* Subtle credit card label — no affordability flag */}
-                                {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && (
-                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                    {item.account_bank || item.account_name}
-                                  </p>
-                                )}
-
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.expected_date}</p>
-                              </div>
-
-                              {/* Amount + running balance */}
-                              <div className="text-right flex-shrink-0">
-                                <p className={`text-base font-bold ${
-                                  item.type === "income" ? "text-emerald-500" :
-                                  flagged ? "text-rose-600 dark:text-rose-400" :
-                                  "text-slate-800 dark:text-slate-100"
-                                }`}>
-                                  {item.type === "income" ? "+" : "−"}{sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </p>
-                                <p className={`text-[11px] font-medium ${item.balance_after >= 0 ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
-                                  {item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })} left
-                                </p>
-                              </div>
-
-                              {/* Dismiss a wrong prediction. × is the universally
-                                  recognised "remove from list" glyph and matches the
-                                  swipe backdrop; the "Not recurring" label + undo toast
-                                  carry the nuance that this stops future predictions. */}
-                              <button
-                                onClick={() => dismissUpcoming(item.name)}
-                                title="Not recurring — stop predicting this"
-                                aria-label="Dismiss prediction"
-                                className={`flex-shrink-0 w-11 h-11 flex items-center justify-center rounded-full transition-colors hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 ${flagged ? "text-rose-500 dark:text-rose-400" : "text-slate-400 dark:text-slate-500"}`}
-                              >
-                                <X size={15} />
-                              </button>
-                            </div>
-                            </SwipeDismissRow>
-                          );
-                        })}
-                      </div>
+                  {/* ── Before payday section ───────────────────────────────── */}
+                  {beforeGroups.length > 0 && (
+                    <div className="space-y-3">
+                      {!isCalendarMonth && (
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-1">Before payday</p>
+                      )}
+                      {renderGroups(beforeGroups)}
                     </div>
-                  ))}
+                  )}
+
+                  {/* ── Payday milestone row ─────────────────────────────────── */}
+                  {!isCalendarMonth && (beforeGroups.length > 0 || afterGroups.length > 0) && (
+                    <div className="flex items-center gap-3 py-1">
+                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+                        <span className="text-base" aria-hidden="true">💰</span>
+                        <div className="text-center">
+                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Payday</span>
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400 ml-1.5">{paydayLabel}</span>
+                          {paydayMilestone && (
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 ml-1.5">
+                              +{sym}{paydayMilestone.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+                    </div>
+                  )}
+
+                  {/* ── After payday section ─────────────────────────────────── */}
+                  {afterGroups.length > 0 && (
+                    <div className="space-y-3">
+                      {!isCalendarMonth && beforeGroups.length > 0 && (
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-1">After payday</p>
+                      )}
+                      {renderGroups(afterGroups)}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -1070,6 +1199,21 @@ export default function SpendPage() {
             <div className="h-[3px] bg-indigo-400/90" style={{ animation: "wdCountdown 6s linear forwards" }} />
           </div>
         </div>
+      )}
+
+      {/* UpcomingEditSheet */}
+      {editItem && (
+        <UpcomingEditSheet
+          item={editItem}
+          onClose={() => setEditItem(null)}
+          onDismiss={() => dismissUpcoming(editItem.name)}
+          onSaved={async () => {
+            try {
+              const fresh = await api.cashflow();
+              setCashflow(fresh);
+            } catch {}
+          }}
+        />
       )}
 
       <BottomNav />

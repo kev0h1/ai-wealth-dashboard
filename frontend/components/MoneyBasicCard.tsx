@@ -50,7 +50,7 @@ export default function MoneyBasicCard({ className = "mx-4 mt-3 mb-5 lg:mx-0" }:
             </div>
             <ChevronDown
               size={18}
-              className={`text-slate-400 flex-shrink-0 mt-0.5 transition-transform ${open ? "rotate-180" : ""}`}
+              className={`text-slate-500 dark:text-slate-400 flex-shrink-0 mt-0.5 transition-transform ${open ? "rotate-180" : ""}`}
             />
           </div>
 

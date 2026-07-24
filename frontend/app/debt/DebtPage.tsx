@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
-import { api } from "@/lib/api";
+import { TrendingDown, Trash2, SlidersHorizontal, ChevronDown, ChevronLeft } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { api, DebtPlan } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
@@ -10,6 +11,8 @@ import Spinner from "@/components/Spinner";
 import TransactionRow from "@/components/TransactionRow";
 import { useAllTransactions } from "@/lib/useAllTransactions";
 import { filterPeriod, getPayPeriodWithConfig } from "@/lib/payPeriod";
+import MoneyAdvisorChat, { MoneyAdvisorChatHandle } from "@/components/MoneyAdvisorChat";
+import DebtPlanCard from "@/components/DebtPlanCard";
 import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, ReferenceDot,
@@ -40,11 +43,6 @@ export interface DebtInsights {
   recent_discretionary: { id: string; description: string; amount: number; date: string; category: string }[];
 }
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 export function fmt(n: number, sym = "£") {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
@@ -62,48 +60,6 @@ export function debtFreeDate(months: number): string {
 }
 
 
-export function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: {
-  insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number;
-  onOpenChat: (prompt?: string) => void;
-}) {
-  const months = insights.months_at_current_rate;
-  const targetDate = debtFreeDate(months);
-  const onTrack = months <= targetMonths;
-  const paymentNeeded = insights.total_debt > 0 ? insights.total_debt / targetMonths : 0;
-
-  return (
-    <div className="rounded-2xl p-4 bg-indigo-600 text-white shadow-sm">
-      <div className="flex items-center gap-1.5 mb-3">
-        <Target className="w-3.5 h-3.5 opacity-80" />
-        <p className="text-[11px] font-bold uppercase tracking-widest opacity-80">Your Mission</p>
-      </div>
-
-      <div className="mb-4">
-        <p className="text-[11px] opacity-60 mb-0.5">Debt-free by</p>
-        <p className="text-xl font-bold leading-tight">{targetDate}</p>
-        <p className="text-xs opacity-60 mt-0.5">
-          {onTrack ? `✅ On track for ${targetMonths}mo target` : months > 600 ? "⚠️ Very slow at current rate" : `${Math.ceil(months)} months at current rate`}
-        </p>
-      </div>
-
-      {/* Quick stat */}
-      <div className="mb-3">
-        <div className="bg-white/10 rounded-xl px-3 py-2">
-          <p className="text-[10px] opacity-60 mb-0.5">Pay per month</p>
-          <p className="text-sm font-bold">{hideNetWorth ? "••••" : fmt2(paymentNeeded, sym)}</p>
-          <p className="text-[10px] opacity-50">to clear in {targetMonths}mo</p>
-        </div>
-      </div>
-
-      <button
-        onClick={() => onOpenChat(`Help me build a concrete plan to be debt-free in ${targetMonths} months (by ${targetDate}). My total debt is ${fmt(insights.total_debt, sym)}, monthly surplus is ${fmt2(insights.monthly_surplus, sym)}, and I need to pay ${fmt2(paymentNeeded, sym)}/month.`)}
-        className="w-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all rounded-xl py-2.5 text-sm font-semibold"
-      >
-        Build my debt-free plan →
-      </button>
-    </div>
-  );
-}
 
 export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: { insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number }) {
   const deficit = Math.abs(insights.monthly_surplus);
@@ -159,13 +115,6 @@ export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: {
   );
 }
 
-const QUICK_PROMPTS = [
-  "How do I pay this off faster?",
-  "What should I cut first?",
-  "Make me a monthly repayment plan",
-  "Am I making progress?",
-];
-
 export type BurndownData = {
   burndown: { month: string; actual: number | null; target: number | null; projected: number | null }[];
   current_debt: number;
@@ -191,16 +140,14 @@ export default function DebtPage() {
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
   const [progressOpen, setProgressOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [plan, setPlan] = useState<DebtPlan | null>(null);
 
-  // Chat state
-  const [chatOpen, setChatOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputText, setInputText] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatInitialised = useRef(false);
-  const pendingPromptRef = useRef<string | null>(null);
+  const chatRef = useRef<MoneyAdvisorChatHandle>(null);
+  const router = useRouter();
+  const goBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) router.back();
+    else router.push("/spend");
+  }, [router]);
   const burndownMounted = useRef(false);
   const burndownRef = useRef<BurndownData | null>(null);
 
@@ -215,22 +162,25 @@ export default function DebtPage() {
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
+  const refreshPlan = useCallback(() => {
+    api.getDebtPlan().then(({ plan }) => setPlan(plan)).catch(() => {});
+  }, []);
+
   const load = useCallback(async () => {
     try {
-      // Don't pass start_date — backend reads debt_tracking_start from saved prefs,
-      // so the initial load always uses the correct persisted value.
       const [data, bdata] = await Promise.all([
         api.debtInsights(), api.debtBurndown(debtTargetMonths, strategy),
       ]);
       setInsights(data);
       setBurndown(bdata);
       if (!monthlyPaymentInput) setMonthlyPaymentInput(Math.ceil(bdata.monthly_payment_needed));
+      api.getDebtPlan().then(({ plan }) => setPlan(plan)).catch(() => {});
     } catch {
       // leave as null
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { burndownRef.current = burndown; }, [burndown]);
@@ -243,88 +193,35 @@ export default function DebtPage() {
   // Reload burndown when anything changes — skip initial mount
   useEffect(() => {
     if (!burndownMounted.current) { burndownMounted.current = true; return; }
-    // Use current burndown's debt/apr for amount-mode calculation (stable, no dep needed)
     const months = burndownMode === "amount" && burndown && monthlyPaymentInput > 0
       ? calcMonthsFromPayment(burndown.current_debt, monthlyPaymentInput, burndown.weighted_apr)
       : debtTargetMonths;
     api.debtBurndown(months, strategy, debtTrackingStart).then(setBurndown).catch(() => {});
   }, [debtTargetMonths, burndownMode, monthlyPaymentInput, strategy, debtTrackingStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function openChatWithPrompt(prompt?: string) {
-    if (prompt) pendingPromptRef.current = prompt;
-    setChatOpen(true);
-  }
-
-  useEffect(() => {
-    if (!chatOpen || chatInitialised.current || !insights) return;
-    chatInitialised.current = true;
-    api.getChatSession().then(({ session_id, messages: sessionMsgs }) => {
-      setSessionId(session_id);
-      if (sessionMsgs && sessionMsgs.length > 0) {
-        setMessages(sessionMsgs as ChatMessage[]);
-        // Still send the pending prompt if present
-        if (pendingPromptRef.current) {
-          const p = pendingPromptRef.current;
-          pendingPromptRef.current = null;
-          setInputText(p);
-        }
-      } else {
-        const greeting: ChatMessage = {
-          role: "assistant",
-          content: insights.total_debt > 0
-            ? `Hi ${firstName}! I can see you have ${fmt(insights.total_debt, sym)} in credit card debt. What would you like to work on first?`
-            : `Hi ${firstName}! You have no credit card debt — great position. I can help you analyse your spending or work towards savings goals. What would you like to explore?`,
-        };
-        setMessages([greeting]);
-        if (pendingPromptRef.current) {
-          const p = pendingPromptRef.current;
-          pendingPromptRef.current = null;
-          setInputText(p);
-        }
-      }
-    }).catch(() => {
-      const greeting: ChatMessage = {
-        role: "assistant",
-        content: insights.total_debt > 0
-          ? `Hi ${firstName}! I can see you have ${fmt(insights.total_debt, sym)} in credit card debt. What would you like to work on first?`
-          : `Hi ${firstName}! No credit card debt — I can help with spending or savings goals. What would you like to explore?`,
-      };
-      setMessages([greeting]);
-    });
-  }, [chatOpen, insights, firstName, sym]);
-
-  useEffect(() => {
-    if (chatOpen) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, chatOpen, chatLoading]);
-
-  async function sendMessage(overrideText?: string) {
-    const text = (overrideText ?? inputText).trim();
-    if (!text || chatLoading) return;
-    setInputText("");
-
-    const userMsg: ChatMessage = { role: "user", content: text };
-    setMessages((prev) => [...prev, userMsg]);
-    setChatLoading(true);
-
+  async function togglePlanStep(id: string, done: boolean) {
     try {
-      const { reply } = await api.debtChat([userMsg], sessionId ?? undefined);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, I couldn't reach the AI right now. Please try again." }]);
-    } finally {
-      setChatLoading(false);
-    }
+      const { plan } = await api.toggleDebtPlanStep(id, done);
+      setPlan(plan);
+    } catch {}
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  async function deletePlanStep(id: string) {
+    try {
+      const { plan } = await api.deleteDebtPlanStep(id);
+      setPlan(plan);
+    } catch {}
+  }
+
+  async function deletePlan() {
+    try {
+      await api.deleteDebtPlan();
+      setPlan(null);
+    } catch {}
   }
 
   const hasDebt = (insights?.total_debt ?? 0) > 0;
   const onTrack = insights ? insights.months_at_current_rate <= effectiveTargetMonths : false;
-  const displayMax = insights ? Math.max(effectiveTargetMonths + 6, Math.ceil(insights.months_at_current_rate)) : effectiveTargetMonths + 6;
-  const markerTargetPct = Math.min(100, (effectiveTargetMonths / displayMax) * 100);
-  const filledPct = insights ? Math.min(100, (insights.months_at_current_rate / displayMax) * 100) : 0;
   const paymentNeededForTarget = burndownMode === "amount" && monthlyPaymentInput > 0
     ? monthlyPaymentInput
     : (insights && insights.total_debt > 0 ? insights.total_debt / effectiveTargetMonths : 0);
@@ -334,8 +231,18 @@ export default function DebtPage() {
       {/* Header */}
       <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700" data-tutorial-id="tutorial-debt-header">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Debt Tracker</h1>
-          <TrendingDown className="w-7 h-7 text-indigo-500" />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              onClick={goBack}
+              aria-label="Back"
+              className="w-9 h-9 -ml-2 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors flex-shrink-0"
+            >
+              <ChevronLeft size={22} strokeWidth={2.5} />
+            </button>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Debt Tracker</h1>
+          </div>
+          <TrendingDown className="w-7 h-7 text-indigo-500 flex-shrink-0" />
         </div>
         {loading ? (
           <div className="mt-4 h-12 w-40 bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse" />
@@ -357,6 +264,11 @@ export default function DebtPage() {
                     </span>
                   )}
                 </p>
+                {paymentNeededForTarget > 0 && (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                    {hideNetWorth ? "Pay ••••/mo" : `Pay ${fmt2(paymentNeededForTarget, sym)}/mo`} to clear in {effectiveTargetMonths} months
+                  </p>
+                )}
               </>
             ) : (
               <>
@@ -389,7 +301,7 @@ export default function DebtPage() {
                   className="w-full px-4 py-3 flex items-center justify-between text-left"
                 >
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Payoff progress</span>
-                  <ChevronDown size={15} className={`text-slate-400 transition-transform duration-200 ${progressOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${progressOpen ? "rotate-180" : ""}`} />
                 </button>
                 {progressOpen && (
                   <div className="border-t border-slate-50 dark:border-slate-700">
@@ -416,9 +328,18 @@ export default function DebtPage() {
               </div>
             )}
 
-            {/* Mission card — only when there's debt to clear */}
-            {hasDebt && insights.monthly_surplus > 0 && (
-              <MissionCard insights={insights} hideNetWorth={hideNetWorth} sym={sym} targetMonths={effectiveTargetMonths} onOpenChat={openChatWithPrompt} />
+            {/* Debt plan card — always shown when there's debt */}
+            {hasDebt && (
+              <DebtPlanCard
+                plan={plan}
+                sym={sym}
+                accent="#4f46e5"
+                hideValues={hideNetWorth}
+                onToggleStep={togglePlanStep}
+                onDeleteStep={deletePlanStep}
+                onDelete={deletePlan}
+                onOpenChat={(p) => chatRef.current?.open(p)}
+              />
             )}
 
             {/* Story card */}
@@ -451,40 +372,7 @@ export default function DebtPage() {
               </div>
             ) : insights.monthly_surplus < 0 ? (
               <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} sym={sym} targetMonths={effectiveTargetMonths} />
-            ) : (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-                  {onTrack ? (
-                    <>Your <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span> monthly
-                    surplus is enough to clear your <span className="font-semibold text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}</span> debt in {effectiveTargetMonths} months.
-                    Keep putting <span className="font-semibold">{hideNetWorth ? "••••" : fmt2(paymentNeededForTarget, sym)}/month</span> towards repayments.</>
-                  ) : (
-                    <>Your monthly surplus is <span className="font-semibold">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span>.
-                    To clear in {effectiveTargetMonths} months you need <span className="font-semibold">{hideNetWorth ? "••••" : fmt2(paymentNeededForTarget, sym)}/month</span> — that&apos;s{" "}
-                    <span className="font-semibold text-red-600">{hideNetWorth ? "••••" : fmt2(Math.max(0, paymentNeededForTarget - insights.monthly_surplus), sym)} more</span> than you&apos;re freeing up.</>
-                  )}
-                </p>
-                <div className="mt-4">
-                  <div className="relative h-4 mb-0.5">
-                    <span className="absolute text-[10px] font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap -translate-x-1/2"
-                      style={{ left: `clamp(2.5rem, ${markerTargetPct}%, calc(100% - 3rem))` }}>
-                      {effectiveTargetMonths}mo goal
-                    </span>
-                  </div>
-                  <div className="relative h-3 bg-slate-100 dark:bg-slate-700 rounded-full overflow-visible mx-1">
-                    <div className={`h-full rounded-full bar-sweep ${onTrack ? "bg-indigo-400" : "bg-amber-400"}`} style={{ width: `${filledPct}%` }} />
-                    <div className="absolute top-0 bottom-0 w-0.5 bg-slate-500 dark:bg-slate-400" style={{ left: `${markerTargetPct}%` }} />
-                  </div>
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[10px] text-slate-400">Now</span>
-                    {displayMax < 999 && <span className="text-[10px] text-slate-400">{displayMax}mo</span>}
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Debt-free in <span className={`font-semibold ${onTrack ? "text-emerald-600" : "text-amber-600"}`}>{insights.months_at_current_rate > 600 ? "a very long time" : `${insights.months_at_current_rate} months`}</span> at your current rate.
-                  </p>
-                </div>
-              </div>
-            )}
+            ) : null}
 
             {/* Cards breakdown */}
             {hasDebt && insights.accounts.length > 0 && (
@@ -515,7 +403,7 @@ export default function DebtPage() {
                   className="w-full px-4 py-3 flex items-center justify-between text-left"
                 >
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Debt payments this period</span>
-                  <ChevronDown size={15} className={`text-slate-400 transition-transform duration-200 ${debtPaymentsOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${debtPaymentsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {debtPaymentsOpen && (
                   <div className="border-t border-slate-50 dark:border-slate-700 divide-y divide-slate-50 dark:divide-slate-700">
@@ -531,112 +419,14 @@ export default function DebtPage() {
         )}
       </div>
 
-      {/* Chat FAB */}
-      <button
-        onClick={() => openChatWithPrompt()}
-        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "#4f46e5" }}
-        aria-label="Open Debt Advisor"
-      >
-        <MessageCircle className="w-6 h-6" />
-      </button>
-
-      {/* Chat panel */}
-      {chatOpen && (
-        <div
-          className="fixed z-[60] bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden"
-          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
-        >
-          <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-            style={{ background: "#4f46e5" }}>
-            <div>
-              <p className="text-sm font-bold">Debt Advisor</p>
-              <p className="text-[10px] opacity-70">Powered by Claude</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    const { session_id } = await api.newChatSession();
-                    setSessionId(session_id);
-                    chatInitialised.current = false;
-                    setMessages([{
-                      role: "assistant",
-                      content: insights?.total_debt ?? 0 > 0
-                        ? `Hi ${firstName}! Starting fresh. You have ${fmt(insights!.total_debt, sym)} in debt. What would you like to work on?`
-                        : `Hi ${firstName}! Starting fresh. How can I help?`,
-                    }]);
-                  } catch {}
-                }}
-                aria-label="New chat" className="opacity-70 hover:opacity-100 transition-opacity" title="New chat">
-                <RotateCcw className="w-4 h-4" />
-              </button>
-              <button onClick={() => setChatOpen(false)} aria-label="Close chat">
-                <X className="w-5 h-5 opacity-80 hover:opacity-100" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-indigo-600 text-white rounded-br-sm"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm"
-                }`}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className="bg-slate-100 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
-                  {[0, 150, 300].map((d) => (
-                    <span key={d} className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
-                  ))}
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Quick prompt chips — shown only when chat is fresh (≤1 message) */}
-          {messages.length <= 1 && !chatLoading && (
-            <div className="flex-shrink-0 flex gap-1.5 px-3 pb-2 overflow-x-auto scrollbar-none">
-              {QUICK_PROMPTS.map((p) => (
-                <button
-                  key={p}
-                  onClick={() => sendMessage(p)}
-                  className="flex-shrink-0 text-[11px] font-medium px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-700 dark:hover:text-indigo-400 transition-colors whitespace-nowrap"
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 border-t border-slate-100 dark:border-slate-700">
-            <input
-              className="flex-1 text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-indigo-300"
-              placeholder="Ask anything…"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={chatLoading}
-            />
-            <button
-              onClick={() => sendMessage()}
-              disabled={!inputText.trim() || chatLoading}
-              className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 text-white"
-              style={{ background: "#4f46e5" }}
-              aria-label="Send"
-            >
-              {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-      )}
+      <MoneyAdvisorChat
+        ref={chatRef}
+        insights={insights}
+        sym={sym}
+        firstName={firstName}
+        onPlanSaved={refreshPlan}
+        page="debt"
+      />
 
       <BottomNav />
     </div>
@@ -754,7 +544,7 @@ export function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRate
             </span>
           )}
           {collapsible && (
-            <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+            <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
           )}
         </span>
       </button>
@@ -933,13 +723,6 @@ export function DebtBurndownCard({
   const yFmt = (v: number) =>
     hideValues ? "••" : (v >= 1000 ? `${sym}${(v / 1000).toFixed(0)}k` : `${sym}${v}`);
 
-  // Annotation: compare paydown since tracking start vs required paydown.
-  // The backend anchors target[today] = current_debt always, so comparing actual[today]
-  // to target[today] is meaningless (always equal). Instead compare trajectories:
-  //   actual paydown = startActual - currentActual  (positive = debt shrank)
-  //   required paydown = startTarget - currentTarget (same: how much target dropped)
-  //   on track ⟺ actual paydown ≥ required paydown
-  const fraction = todayIdx >= 0 ? todayIdx / Math.max(1, data.burndown.length - 1) : -1;
   const todayActual = todayIdx >= 0 ? chartData[todayIdx]?.actual : undefined;
   const todayTarget = todayIdx >= 0 ? chartData[todayIdx]?.target : undefined;
   const firstActualIdx = chartData.findIndex(d => d.actual !== undefined);
@@ -961,7 +744,6 @@ export function DebtBurndownCard({
           {" · "}
           <span className="text-indigo-500 font-medium">{hideValues ? "••••" : `${sym}${data.monthly_payment_needed.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`}</span>
         </p>
-        {/* A target the user's cashflow can't fund is a wish, not a plan — say so */}
         {monthlySurplus !== undefined && monthlySurplus > 0 && data.monthly_payment_needed > monthlySurplus && !hideValues && (
           <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 leading-snug">
             This needs {sym}{Math.round(data.monthly_payment_needed - monthlySurplus).toLocaleString("en-GB")}/mo more than
@@ -1125,7 +907,7 @@ export function DebtBurndownCard({
           <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
             <SlidersHorizontal size={13} /> Adjust plan
           </span>
-          <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`} />
+          <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${settingsOpen ? "rotate-180" : ""}`} />
         </button>
       )}
 

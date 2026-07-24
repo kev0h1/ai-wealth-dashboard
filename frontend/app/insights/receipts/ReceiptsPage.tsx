@@ -40,7 +40,7 @@ export default function ReceiptsPage() {
             className="w-11 h-11 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-slate-800"
             aria-label="Back"
           >
-            <ChevronLeft size={22} />
+            <ChevronLeft size={22} className="text-slate-500 dark:text-slate-400" />
           </button>
           <h1 className="flex-1 text-lg font-bold text-slate-900 dark:text-slate-100">Receipts</h1>
           {!loading && baskets.length > 0 && (
@@ -90,8 +90,8 @@ export default function ReceiptsPage() {
                       aria-expanded={open}
                     >
                       <ChevronDown
-                        size={15}
-                        className={`text-slate-400 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+                        size={16}
+                        className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
                       />
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">

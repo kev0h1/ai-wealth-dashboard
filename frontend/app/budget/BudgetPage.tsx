@@ -768,7 +768,7 @@ export default function BudgetPage() {
                       className="flex items-center gap-1.5 flex-1 text-left"
                     >
                       <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">Daily breakdown</p>
-                      <ChevronDown size={14} color="#94a3b8" className={`transition-transform ${showDaily ? "rotate-180" : ""}`} />
+                      <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform ${showDaily ? "rotate-180" : ""}`} />
                     </button>
                     <button
                       onClick={() => saveBudgetWidgets(widgets.filter(id => id !== "daily_breakdown"))}
@@ -1036,8 +1036,7 @@ export default function BudgetPage() {
                           >
                             <ChevronDown
                               size={14}
-                              color="#94a3b8"
-                              className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                              className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                             />
                           </button>
                         </div>

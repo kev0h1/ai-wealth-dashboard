@@ -66,10 +66,10 @@ export default function UpcomingBillsStrip() {
   const later     = all.filter(b => b.days_away > 1);
 
   // Build a tight summary line e.g. "3 due tomorrow · 1 today · 2 later"
-  const parts: { label: string; count: number; urgent: boolean }[] = [];
+  const parts: { label: string; count: number; urgent: boolean; noDue?: boolean }[] = [];
   if (today.length)    parts.push({ label: "today",    count: today.length,    urgent: true });
   if (tomorrow.length) parts.push({ label: "tomorrow", count: tomorrow.length, urgent: true });
-  if (later.length)    parts.push({ label: `in ${later[0].days_away}–${later[later.length-1].days_away}d`, count: later.length, urgent: false });
+  if (later.length)    parts.push({ label: "bills over the next 2 weeks", count: later.length, urgent: false, noDue: true });
 
   const totalBillAmount = all.filter(b => b.type === "bill").reduce((s, b) => s + b.amount, 0);
 
@@ -90,7 +90,7 @@ export default function UpcomingBillsStrip() {
                 key={p.label}
                 className={`text-sm font-semibold ${p.urgent ? "text-amber-500" : "text-slate-600 dark:text-slate-300"}`}
               >
-                {p.count} due {p.label}
+                {p.noDue ? `${p.count} ${p.label}` : `${p.count} due ${p.label}`}
               </span>
             ))}
           </div>

@@ -140,7 +140,7 @@ export default function GroceryBasketCard() {
           )}
           <ChevronDown
             size={18}
-            className={`text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
+            className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
           />
         </button>
         <button
@@ -334,8 +334,8 @@ export default function GroceryBasketCard() {
                     className="flex-1 flex items-center gap-2 min-w-0 text-left"
                   >
                     <ChevronDown
-                      size={15}
-                      className={`text-slate-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+                      size={16}
+                      className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
                     />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
@@ -392,7 +392,7 @@ export default function GroceryBasketCard() {
           className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
         >
           View all {baskets.length} receipts
-          <ChevronRight size={13} />
+          <ChevronRight size={16} className="text-slate-500 dark:text-slate-400" />
         </button>
       )}
       </>

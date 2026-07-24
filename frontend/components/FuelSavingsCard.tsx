@@ -120,7 +120,7 @@ export default function FuelSavingsCard() {
           <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-1">Fuel prices nearby</p>
           <ChevronDown
             size={18}
-            className={`text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+            className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
           />
         </button>
         <button

@@ -70,9 +70,9 @@ export default function CategoryRow({
         </div>
 
         {expanded ? (
-          <ChevronUp size={16} color="#94a3b8" className="flex-shrink-0" />
+          <ChevronUp size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
         ) : (
-          <ChevronDown size={16} color="#94a3b8" className="flex-shrink-0" />
+          <ChevronDown size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
         )}
       </button>
 

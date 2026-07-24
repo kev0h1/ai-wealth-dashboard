@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { X, ChevronDown } from "lucide-react";
+import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api } from "@/lib/api";
@@ -126,13 +126,14 @@ export default function CategorySheet({ name, total, count, transactions, onClos
                 aria-expanded={toolOpen}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
               >
-                <span className="text-base leading-none">⛽</span>
-                <span className="flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                  Cheaper fuel nearby
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                  <Fuel size={10} style={{ color: colour }} />
+                  <span>Cheaper fuel nearby</span>
+                  <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
                 </span>
                 <ChevronDown
                   size={14}
-                  className="text-slate-400 dark:text-slate-500 flex-shrink-0 transition-transform motion-reduce:transition-none"
+                  className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-auto transition-transform motion-reduce:transition-none"
                   style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                 />
               </button>
@@ -150,13 +151,14 @@ export default function CategorySheet({ name, total, count, transactions, onClos
                 aria-expanded={toolOpen}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
               >
-                <span className="text-base leading-none">🧾</span>
-                <span className="flex-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                  Scan &amp; compare receipts
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                  <ReceiptText size={10} style={{ color: colour }} />
+                  <span>Scan &amp; compare receipts</span>
+                  <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
                 </span>
                 <ChevronDown
                   size={14}
-                  className="text-slate-400 dark:text-slate-500 flex-shrink-0 transition-transform motion-reduce:transition-none"
+                  className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-auto transition-transform motion-reduce:transition-none"
                   style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                 />
               </button>

@@ -320,7 +320,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
                   Categories
-                  <ChevronDown size={13} className={`transition-transform ${coloursOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${coloursOpen ? "rotate-180" : ""}`} />
                 </p>
                 {confirmReset ? (
                   <div className="flex items-center gap-2">
@@ -568,7 +568,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                     Dismissed predictions ({dismissedRecurring.length})
                   </p>
-                  <ChevronDown size={13} className={`text-slate-400 transition-transform ${dismissedOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${dismissedOpen ? "rotate-180" : ""}`} />
                 </button>
                 {dismissedOpen && (
                 <div className="space-y-1.5">

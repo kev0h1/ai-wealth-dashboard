@@ -31,7 +31,7 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           {isNegative
-            ? <TrendingDown size={16} strokeWidth={2} className="text-red-500 dark:text-red-400/80" />
+            ? <TrendingDown size={16} strokeWidth={2} className="text-amber-500 dark:text-amber-400/80" />
             : <TrendingUp size={16} strokeWidth={2} className="text-emerald-500 dark:text-emerald-400/80" />}
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Net Worth</span>
         </div>
@@ -44,13 +44,20 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
         </button>
       </div>
 
+      {/* Verdict — one calm line before the number */}
+      {!loading && (
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-2 leading-snug">
+          {isNegative ? "Building towards net-positive — stay the course" : "Tracking in the right direction"}
+        </p>
+      )}
+
       {/* Main figure */}
       {loading ? (
         <div className="h-10 w-48 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-4" />
       ) : (
         <div
           className={`text-4xl font-bold tracking-tight mb-4 select-none num fade-in ${
-            isNegative ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-slate-100"
+            "text-slate-900 dark:text-slate-100"
           }`}
           aria-label={hidden ? "Balance hidden" : undefined}
         >
@@ -89,7 +96,11 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
                 className="text-base font-semibold text-slate-800 dark:text-slate-100 num"
                 aria-label={hidden ? "Balance hidden" : undefined}
               >
-                {hidden ? <span aria-hidden="true">••</span> : `${runway}mo`}
+                {hidden ? <span aria-hidden="true">••</span> : (
+                  runway < 1
+                    ? <span className={runway * 30 < 7 ? "text-amber-500 dark:text-amber-400" : ""}>~{Math.round(runway * 30)} days</span>
+                    : `~${Math.round(runway)} months`
+                )}
               </p>}
         </div>
       </div>

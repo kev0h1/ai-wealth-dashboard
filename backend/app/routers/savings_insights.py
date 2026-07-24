@@ -422,11 +422,15 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
 
 
 def _serialize_insight(d: dict) -> dict:
+    cat = d["category"]
+    # Always resolve icon/label from the live config so stale cached docs
+    # automatically pick up any correction — never trust the stored copy.
+    _cfg = INSIGHT_CATEGORIES.get(cat) or LABEL_OPTIONS.get(cat) or {}
     return {
         "id":              d.get("insight_id", str(d["_id"])),
-        "category":        d["category"],
-        "icon":            d.get("icon", "💡"),
-        "label":           d.get("label", d["category"].replace("_", " ").title()),
+        "category":        cat,
+        "icon":            _cfg.get("icon") or d.get("icon", "💡"),
+        "label":           _cfg.get("label") or d.get("label", cat.replace("_", " ").title()),
         "title":           d.get("title", ""),
         "body":            d.get("body", ""),
         "savings_estimate": d.get("savings_estimate"),

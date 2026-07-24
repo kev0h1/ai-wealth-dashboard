@@ -70,6 +70,7 @@ export type UpcomingBill = {
   account_bank?: string | null;
   account_balance?: number | null;
   category?: string | null;
+  edited?: boolean;
 };
 
 export type CashflowData = {
@@ -411,6 +412,10 @@ export const api = {
   allTransactions: (days = 365) => get<Transaction[]>(`/transactions?days=${days}`),
   dismissRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/dismiss-recurring", { key }),
   restoreRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/restore-recurring", { key }),
+  editUpcoming: (params: { key: string; date: string; new_date?: string | null; new_amount?: number | null; scope: "one" | "future" }) =>
+    post<{ ok: boolean }>("/cashflow/edit-upcoming", params),
+  clearUpcomingOverride: (params: { key: string; date: string }) =>
+    post<{ ok: boolean }>("/cashflow/clear-override", params),
   deleteUserAccount: async (): Promise<{ deleted: boolean }> => {
     const res = await fetch(`${API_BASE}/account`, {
       method: "DELETE",

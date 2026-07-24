@@ -30,3 +30,11 @@ backend/fuel_cache/
 # cached merchant logo PNGs (proxied from Clearbit)
 backend/.logo_cache/
 backups/
+
+# Local Claude / tooling artifacts — never commit
+.claude/
+.impeccable/
+.mcp.json
+.railway-config-pull-*/
+backend/bot_state.json
+skills-lock.json

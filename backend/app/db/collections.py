@@ -77,6 +77,9 @@ subscription_usage_col  = db["subscription_usage"]
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
 
+# Upcoming payment overrides (user-edits to forecast dates/amounts)
+upcoming_overrides_col  = db["upcoming_overrides"]
+
 # Webhook event log (TrueLayer webhooks → queue → processed)
 webhook_events_col      = db["webhook_events"]
 

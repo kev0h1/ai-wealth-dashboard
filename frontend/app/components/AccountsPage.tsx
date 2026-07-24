@@ -1641,7 +1641,7 @@ export default function AccountsPage() {
                       <span className={`text-sm font-bold flex-shrink-0 ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
                         {hideNetWorth ? "••••" : `${isCredit ? "-" : ""}${currency}${acc.balance.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
-                      <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />
+                      <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
                     </div>
                   );
                 })}
@@ -1706,7 +1706,7 @@ export default function AccountsPage() {
                       <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
                         {hideNetWorth ? "••••" : `£${inv.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
-                      {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                      {isExpanded ? <ChevronUp size={14} className="text-slate-500 dark:text-slate-400" /> : <ChevronDown size={14} className="text-slate-500 dark:text-slate-400" />}
                     </div>
                   </button>
 

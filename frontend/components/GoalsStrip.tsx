@@ -9,11 +9,26 @@ import { Target, ChevronRight } from "lucide-react";
 import { api, GoalSummary } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
-const PILLAR_COLOURS: Record<string, string> = {
-  debt:    "#f87171",
-  savings: "#34d399",
-  budget:  "#60a5fa",
-};
+// Bar colour is driven by status, not a fixed pillar hue.
+// Debt on-track → calm indigo; at-risk → amber.
+// Savings/safety-net → emerald.
+// Budget on-track → indigo; over/at-risk → amber (matches Budget page + amber text).
+function goalBarColour(g: GoalSummary): string {
+  if (g.done) return "#10b981"; // emerald for completed
+  if (g.at_risk) return "#f59e0b"; // amber for any at-risk
+  if (g.pillar === "savings") return "#34d399"; // emerald for savings progress
+  if (g.pillar === "debt") return "#6366f1"; // indigo for on-track debt (not red — on-plan debt is not risk)
+  return "#6366f1"; // indigo default for budget on-track
+}
+
+function humaniseDetail(g: GoalSummary): string {
+  // "7 over" → "7 categories over budget" (budget pillar only)
+  if (g.pillar === "budget" && g.at_risk) {
+    const match = g.detail.match(/^(\d+)\s+over$/);
+    if (match) return `${match[1]} categories over budget`;
+  }
+  return g.detail;
+}
 
 type Status = "loading" | "ready" | "failed";
 
@@ -91,7 +106,7 @@ export default function GoalsStrip() {
         </div>
         <div className="space-y-3">
           {goals.map(g => {
-            const colour = PILLAR_COLOURS[g.pillar] ?? "#6366f1";
+            const colour = goalBarColour(g);
             return (
               <button
                 key={g.pillar}
@@ -105,7 +120,7 @@ export default function GoalsStrip() {
                   <span className={`text-[11px] font-medium flex-shrink-0 ${
                     g.done ? "text-emerald-500" : g.at_risk ? "text-amber-500" : "text-slate-400 dark:text-slate-500"
                   }`}>
-                    {g.detail}
+                    {humaniseDetail(g)}
                   </span>
                 </div>
                 <div
@@ -114,7 +129,7 @@ export default function GoalsStrip() {
                   aria-valuemax={100}
                   aria-valuenow={Math.round(Math.min(g.pct, 100))}
                   aria-label={g.label}
-                  className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"
+                  className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"
                 >
                   <div
                     className="h-full rounded-full bar-sweep"

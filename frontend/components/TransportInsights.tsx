@@ -153,7 +153,7 @@ export default function TransportInsights() {
           <ChevronDown
             size={16}
             className={[
-              "text-slate-400 flex-shrink-0",
+              "text-slate-500 dark:text-slate-400 flex-shrink-0",
               reducedMotion ? "" : "transition-transform duration-200",
               breakdownOpen ? "rotate-180" : "rotate-0",
             ].join(" ")}

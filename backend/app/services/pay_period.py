@@ -66,3 +66,9 @@ def get_pay_period_for_date(ref: _date, config: dict) -> tuple[_date, _date]:
 
 def prev_pay_period(start: _date, config: dict) -> tuple[_date, _date]:
     return get_pay_period_for_date(start - timedelta(days=1), config)
+
+
+def _next_payday(today: _date, config: dict) -> _date:
+    """Return the first day of the next pay period strictly after today."""
+    _start, end = get_pay_period_for_date(today, config)
+    return end + timedelta(days=1)

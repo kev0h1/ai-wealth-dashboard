@@ -532,7 +532,7 @@ function TransportModesWidget({ compact }: { compact?: boolean }) {
       {/* Mode rows */}
       {!compact && (
         <>
-          <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-100">Where it goes</p>
+          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">Where it goes</p>
           <div className="space-y-3">
             {data.modes.map(m => {
               const w = Math.max(Math.round((m.total / maxModeTotal) * 100), 3);
@@ -546,9 +546,9 @@ function TransportModesWidget({ compact }: { compact?: boolean }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between mb-1">
-                      <span className="text-[12px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.name}</span>
-                      <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-100 ml-2 flex-shrink-0">
-                        {fmtGBP(m.monthly)}<span className="text-[10px] font-normal text-slate-400">/mo</span>
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{m.name}</span>
+                      <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 ml-2 flex-shrink-0">
+                        {fmtGBP(m.monthly)}<span className="text-[11px] font-normal text-slate-400">/mo</span>
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">

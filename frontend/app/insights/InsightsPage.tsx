@@ -39,17 +39,19 @@ const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   subscriptions: [{ label: "MSE Deals", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
 
+const NEUTRAL_PILL = { bg: "bg-slate-100 dark:bg-slate-700/60", text: "text-slate-600 dark:text-slate-300" };
+
 const CATEGORY_COLOURS: Record<string, { bg: string; text: string }> = {
-  energy:        { bg: "bg-amber-100 dark:bg-amber-900/40",   text: "text-amber-700 dark:text-amber-300" },
-  mortgage:      { bg: "bg-blue-100 dark:bg-blue-900/40",     text: "text-blue-700 dark:text-blue-300" },
-  car_finance:   { bg: "bg-cyan-100 dark:bg-cyan-900/40",     text: "text-cyan-700 dark:text-cyan-300" },
-  car_insurance: { bg: "bg-red-100 dark:bg-red-900/40",       text: "text-red-700 dark:text-red-300" },
-  broadband:     { bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
-  mobile:        { bg: "bg-sky-100 dark:bg-sky-900/40",       text: "text-sky-700 dark:text-sky-300" },
-  groceries:     { bg: "bg-green-100 dark:bg-green-900/40",   text: "text-green-700 dark:text-green-300" },
-  eating_out:    { bg: "bg-orange-100 dark:bg-orange-900/40", text: "text-orange-700 dark:text-orange-300" },
-  gym:           { bg: "bg-pink-100 dark:bg-pink-900/40",     text: "text-pink-700 dark:text-pink-300" },
-  subscriptions: { bg: "bg-indigo-100 dark:bg-indigo-900/40", text: "text-indigo-700 dark:text-indigo-300" },
+  energy:        NEUTRAL_PILL,
+  mortgage:      NEUTRAL_PILL,
+  car_finance:   NEUTRAL_PILL,
+  car_insurance: NEUTRAL_PILL,
+  broadband:     NEUTRAL_PILL,
+  mobile:        NEUTRAL_PILL,
+  groceries:     NEUTRAL_PILL,
+  eating_out:    NEUTRAL_PILL,
+  gym:           NEUTRAL_PILL,
+  subscriptions: NEUTRAL_PILL,
 };
 
 function timeAgo(iso: string | null): string {
@@ -127,7 +129,7 @@ function UnknownBillsPanel({
             </p>
           </div>
         </div>
-        <ChevronDown size={16} className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={16} className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && <div className="border-t border-amber-100 dark:border-amber-800/40 divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -150,7 +152,7 @@ function UnknownBillsPanel({
                 </div>
                 <ChevronDown
                   size={16}
-                  className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                  className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
                 />
               </button>
 
@@ -274,7 +276,7 @@ function LabelledBillsPanel({
             <p className="text-xs text-slate-500 dark:text-slate-400">{labels.length} bill{labels.length !== 1 ? "s" : ""} categorised</p>
           </div>
         </div>
-        <ChevronDown size={16} className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
@@ -572,6 +574,47 @@ function WorkflowDrawer({
 }
 
 
+// ── Insight Body (truncated with "more" toggle) ───────────────────────────────
+
+function InsightBody({ body }: { body: string }) {
+  const [expanded, setExpanded] = useState(false);
+  // Split on sentence endings; keep first 2 sentences as the visible preview
+  const sentences = body.match(/[^.!?]+[.!?]+/g) ?? [body];
+  const preview = sentences.slice(0, 2).join(" ").trim();
+  const rest = sentences.slice(2).join(" ").trim();
+  const hasMore = rest.length > 0;
+
+  return (
+    <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+      <span>{preview}</span>
+      {hasMore && !expanded && (
+        <>
+          {" "}
+          <button
+            onClick={() => setExpanded(true)}
+            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline"
+          >
+            more
+          </button>
+        </>
+      )}
+      {hasMore && expanded && (
+        <>
+          {" "}
+          <span>{rest}</span>
+          {" "}
+          <button
+            onClick={() => setExpanded(false)}
+            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline"
+          >
+            less
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Insight Card ──────────────────────────────────────────────────────────────
 
 function InsightCard({
@@ -607,11 +650,6 @@ function InsightCard({
                   <Sparkles size={10} /> New
                 </span>
               )}
-              {insight.user_context && (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
-                  Personalised
-                </span>
-              )}
             </div>
             <button
               onClick={() => onPin(insight.id)}
@@ -621,8 +659,7 @@ function InsightCard({
             </button>
           </div>
 
-          {/* Title + body */}
-          {/* Closure: the loop actually closed — celebrate, stop advising */}
+          {/* Closure: the loop actually closed — celebrate */}
           {insight.verified_savings ? (
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800">
               <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -633,49 +670,50 @@ function InsightCard({
             </div>
           ) : null}
 
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+          {/* Title — visual lead now that estimate is removed */}
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]">
             {insight.title}
           </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-            {insight.body}
-          </p>
 
-          {/* Savings + timestamp */}
-          <div className="flex items-center justify-between">
-            {insight.savings_estimate ? (
-              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-lg">
-                {insight.savings_estimate}
-              </span>
-            ) : <span />}
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">{timeAgo(insight.refreshed_at)}</span>
-          </div>
+          {/* Body — truncated to ~2 sentences with a "more" toggle */}
+          <InsightBody body={insight.body} />
 
-          {/* Comparison / deal links */}
+          {/* Timestamp — only show if recent (≤14 days) */}
+          {insight.refreshed_at && (Date.now() - new Date(insight.refreshed_at).getTime()) < 14 * 86400000 && (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500 self-end">{timeAgo(insight.refreshed_at)}</span>
+          )}
+
+          {/* Deal sites — primary action payoff */}
           {CATEGORY_LINKS[insight.category] && (
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_LINKS[insight.category].map(link => (
-                <a
-                  key={link.url}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                >
-                  <ExternalLink size={10} />
-                  {link.label}
-                </a>
-              ))}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                Where to save
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORY_LINKS[insight.category].map(link => (
+                  <a
+                    key={link.url}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all"
+                  >
+                    <ExternalLink size={12} />
+                    {link.label}
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* CTA — workflow */}
+          {/* CTA — workflow (demoted to secondary) */}
           {workflow && (
             <button
               onClick={() => setShowWorkflow(true)}
-              className="w-full mt-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all"
+              className="w-full mt-1 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-700/50 active:scale-[0.98] text-slate-600 dark:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 transition-all"
             >
               <SlidersHorizontal size={14} />
-              {insight.user_context ? "Update your details" : workflow.cta}
+              {insight.user_context ? "Improve this tip" : workflow.cta}
             </button>
           )}
         </div>
@@ -691,7 +729,7 @@ function InsightCard({
               <span className="text-xs text-slate-500 dark:text-slate-400">
                 Based on {insight.triggered_by.length} transaction{insight.triggered_by.length > 1 ? "s" : ""}
               </span>
-              <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 ${showTriggers ? "rotate-180" : ""}`} />
+              <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${showTriggers ? "rotate-180" : ""}`} />
             </button>
             {showTriggers && (
               <div className="px-4 pb-3 space-y-1.5">
@@ -716,6 +754,41 @@ function InsightCard({
         />
       )}
     </>
+  );
+}
+
+// ── Improve Housekeeping Panel (collapsed disclosure) ─────────────────────────
+
+function ImproveHousekeepingPanel({
+  labelOptions,
+  onNewInsight,
+}: {
+  labelOptions: Record<string, { icon: string; label: string }>;
+  onNewInsight: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-slate-100 dark:border-slate-700/60 pt-1">
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-2 py-2 px-1 text-left"
+      >
+        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+          Improve your suggestions
+        </span>
+        <ChevronDown
+          size={14}
+          className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="space-y-3 pb-1">
+          <UnknownBillsPanel labelOptions={labelOptions} onNewInsight={onNewInsight} />
+          <LabelledBillsPanel labelOptions={labelOptions} onRelabelled={onNewInsight} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -831,10 +904,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           When embedded under a page-level "Ways to save" header, drop the duplicate
           title/description and keep only the Refresh control. */}
       {embedded ? (
-        <div className="px-1 flex items-center justify-between gap-3">
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-            Personalised ways to spend less. Start with the top one.
-          </p>
+        <div className="px-1 flex items-center justify-end gap-3">
           <button
             onClick={handleRefresh}
             disabled={refreshing || refreshQueued}
@@ -862,12 +932,6 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           </p>
         </div>
       )}
-
-      {/* Identify unknown bills */}
-      <UnknownBillsPanel labelOptions={labelOptions} onNewInsight={loadInsights} />
-
-      {/* Review / edit existing labels */}
-      <LabelledBillsPanel labelOptions={labelOptions} onRelabelled={loadInsights} />
 
       {loading && (
         <div className="space-y-3">
@@ -963,6 +1027,9 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           )}
         </div>
       )}
+
+      {/* Improve your suggestions — collapsed housekeeping, default closed */}
+      <ImproveHousekeepingPanel labelOptions={labelOptions} onNewInsight={loadInsights} />
     </div>
   );
 }
@@ -1032,7 +1099,7 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, o
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Where should your next {sym}100 go?
           </p>
-          <ChevronRight size={14} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+          <ChevronRight size={14} className={`text-slate-500 dark:text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
         </div>
         <div className="flex items-start gap-2 mt-1.5">
           <span className="mt-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">1</span>
@@ -1385,7 +1452,7 @@ function SafetyNetCard({
           <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
             Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
           </span>
-          <ChevronDown size={16} className={`text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
+          <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
         </button>
         {!acctsOpen && selected.length === 0 && (
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
@@ -1462,83 +1529,113 @@ function SafetyNetCard({
   const pct = Math.round(data.pct_funded);
   const funded = data.target_amount > 0 && data.current_savings >= data.target_amount;
   const unsizedGoal = data.target_type === "months" && data.target_amount <= 0;
+
+  // Compute verdict metrics
+  const dailySpend = data.monthly_spending > 0 ? data.monthly_spending / 30 : 0;
+  const daysCovered = dailySpend > 0 ? Math.round(data.current_savings / dailySpend) : 0;
+  const oneMonthTarget = data.monthly_spending > 0 ? data.monthly_spending : data.target_amount;
+  const atOrBeyondOneMonth = data.monthly_spending > 0 && data.current_savings >= data.monthly_spending;
+  const oneMonthPct = oneMonthTarget > 0
+    ? Math.min(100, Math.round((data.current_savings / oneMonthTarget) * 100))
+    : pct;
+
+  // Near-date computation: today + ceil((monthly_spending − current) / monthly_surplus) months
+  const nearDate: string | null = (() => {
+    if (atOrBeyondOneMonth || data.monthly_surplus <= 0 || data.monthly_spending <= 0) return null;
+    const monthsToOneMonth = Math.ceil((data.monthly_spending - data.current_savings) / data.monthly_surplus);
+    if (monthsToOneMonth <= 0 || monthsToOneMonth > 240) return null;
+    const d = new Date();
+    d.setMonth(d.getMonth() + monthsToOneMonth);
+    return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  })();
+
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
-      <div className="p-4 flex items-center gap-4">
-        <ProgressRing pct={pct} accent="#059669" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {funded ? "Safety net funded 🎉" : "Your safety net"}
-          </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {unsizedGoal ? (
-              <>{hideValues ? "••••" : fmt(data.current_savings, sym)} saved</>
+      <div className="p-4">
+        {/* Header row: ring + verdict + Edit */}
+        <div className="flex items-start gap-4">
+          <ProgressRing pct={funded ? 100 : oneMonthPct} accent="#059669" />
+          <div className="flex-1 min-w-0">
+            {funded ? (
+              <>
+                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                  Safety net funded 🎉
+                </p>
+                <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  Your target is covered — consider investing surplus beyond this cushion.
+                </p>
+              </>
+            ) : unsizedGoal ? (
+              <>
+                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                  {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  A {data.target_months ?? 6}-month goal needs more spending history to size — tap <span className="font-semibold text-emerald-600">Edit</span> to set a {sym.trim() || sym} target.
+                </p>
+              </>
             ) : (
               <>
-                {hideValues ? "••••" : fmt(data.current_savings, sym)} of {hideValues ? "••••" : fmt(data.target_amount, sym)}
-                {data.target_type === "months" && data.target_months ? ` · ${data.target_months}-month goal` : ""}
+                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                  {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  {hideValues
+                    ? `Towards 1-month goal`
+                    : `${fmt(data.current_savings, sym)} of ${fmt(oneMonthTarget, sym)} (1 month)`}
+                </p>
               </>
             )}
-          </p>
+          </div>
+          <button
+            onClick={beginSetup}
+            aria-label="Edit safety net target"
+            className="flex-shrink-0 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+          >
+            Edit
+          </button>
         </div>
-        <button onClick={beginSetup} aria-label="Edit target" className="text-[11px] font-medium text-emerald-600 flex-shrink-0">Edit</button>
-      </div>
 
-      <div className="px-4 pb-4 space-y-2">
-        {unsizedGoal && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            A {data.target_months ?? 6}-month goal is sized from your spending, but there isn&rsquo;t enough spending history yet to set the amount. Tap <span className="font-semibold text-emerald-600">Edit</span> to choose a specific {sym.trim() || sym} target.
-          </p>
-        )}
-        {!unsizedGoal && data.months_funded > 0 && (
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Your safety net alone covers <span className="font-semibold">{data.months_funded.toFixed(1)} months</span> of spending
-            — separate from the cash runway on your home screen, which counts all your cash.
-          </p>
-        )}
-        {!funded && data.monthly_surplus > 0 && data.funded_date && data.months_to_target < 999 && (
-          <div className="space-y-1.5">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              {debtTotal > 0 ? (
-                <>
-                  Put that spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo here and you&rsquo;re fully funded by{" "}
-                  <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span> — clearing your
-                  cards first (as recommended above) frees up their payments and pulls this sooner.
-                </>
-              ) : (() => {
-                // Compute progress toward the first meaningful milestone: 1 month of spending.
-                const oneMonthTarget = data.monthly_spending > 0 ? data.monthly_spending : data.target_amount;
-                const nearPct = oneMonthTarget > 0
-                  ? Math.min(100, Math.round((data.current_savings / oneMonthTarget) * 100))
-                  : Math.round(data.pct_funded);
-                const atOneMo = data.monthly_spending > 0 && data.current_savings >= data.monthly_spending;
-                return (
-                  <>
-                    {atOneMo ? (
-                      <>You&rsquo;ve got one month covered — next milestone: your full {data.target_months ?? 3}-month goal.</>
-                    ) : (
-                      <>You&rsquo;re <span className="font-semibold text-emerald-600">{nearPct}% to your first month</span> of safety net.</>
-                    )}
-                  </>
-                );
-              })()}
-            </p>
-            {debtTotal === 0 && (
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                At {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo spare, fully funded by {fmtMonth(data.funded_date)}.
+        {/* Timeline / motivation line — below the header */}
+        {!funded && !unsizedGoal && (
+          <div className="mt-3 space-y-2">
+            {data.monthly_surplus > 0 && nearDate ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                At {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo spare →{" "}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  1 month covered by {nearDate}
+                </span>
+              </p>
+            ) : atOrBeyondOneMonth && data.monthly_surplus > 0 && data.funded_date && data.months_to_target < 999 ? (
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                One month covered — keep going:{" "}
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  full {data.target_months ?? 3}-month goal by {fmtMonth(data.funded_date)}
+                </span>
+              </p>
+            ) : data.monthly_surplus <= 0 ? (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                After debt, nothing spare to save yet — freeing up cash comes first.
+              </p>
+            ) : null}
+
+            {/* Full goal as secondary small text */}
+            {data.target_amount > 0 && !atOrBeyondOneMonth && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                {hideValues ? "" : `${data.target_months ?? 3}-month goal: ${fmt(data.target_amount, sym)}`}
+                {data.funded_date && data.months_to_target < 999 && data.monthly_surplus > 0 && !hideValues
+                  ? ` · fully funded ${fmtMonth(data.funded_date)}`
+                  : ""}
+              </p>
+            )}
+
+            {/* Spendable cash disambiguation — muted one-liner, no mid-paragraph wall */}
+            {data.months_funded > 0 && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                ⓘ Separate from your spendable cash on the home screen.
               </p>
             )}
           </div>
-        )}
-        {!funded && data.monthly_surplus <= 0 && (
-          <p className="text-sm text-amber-600 dark:text-amber-400">
-            After everyday spending and debt payments there&rsquo;s nothing spare yet, so your safety net isn&rsquo;t growing. Clearing debt or trimming spending will free up cash to build it.
-          </p>
-        )}
-        {funded && (
-          <p className="text-sm text-emerald-600 dark:text-emerald-400">
-            You&rsquo;ve hit your target — consider investing surplus beyond this cushion.
-          </p>
         )}
       </div>
     </div>
@@ -1671,7 +1768,8 @@ export default function InsightsPage() {
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<"savings" | "tax">("savings");
+  const [tab, setTab] = useState<"savings" | "save" | "tax">("savings");
+  const [newInsightCount, setNewInsightCount] = useState(0);
   const [incomeBracket, setIncomeBracket] = useState("");
   const [taxIncomeValue, setTaxIncomeValue] = useState(0);
   const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
@@ -1789,6 +1887,12 @@ export default function InsightsPage() {
     api.getSubscription()
       .then(s => setIsPro(s.tier !== "free"))
       .catch(() => setIsPro(true));
+    // New-insight count for the Ways to save tab badge
+    try {
+      const cached = localStorage.getItem("wd_insight_badge");
+      if (cached) { const { n } = JSON.parse(cached); setNewInsightCount(n); }
+    } catch {}
+    api.newInsightCount().then(({ count: n }) => setNewInsightCount(n)).catch(() => {});
   }, []);
 
   // Hydrate tab-shaping flags from the last visit before paint, so the tab row
@@ -1831,8 +1935,8 @@ export default function InsightsPage() {
         router.replace("/debt");
         return;
       }
-      let chosen: "savings" | "tax";
-      if (requested === "savings" || requested === "tax") {
+      let chosen: "savings" | "save" | "tax";
+      if (requested === "savings" || requested === "save" || requested === "tax") {
         chosen = requested;
       } else if (params.get("insight")) {
         chosen = "savings";
@@ -1840,7 +1944,7 @@ export default function InsightsPage() {
         chosen = "savings";
       }
       setTab(chosen);
-      if (chosen === "savings" && requested === "savings") {
+      if ((chosen === "savings" || chosen === "save") && (requested === "savings" || requested === "save")) {
         setTimeout(() => {
           savingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 150);
@@ -1874,7 +1978,7 @@ export default function InsightsPage() {
     const label = `${start.getFullYear()}/${String(end.getFullYear()).slice(2)}`;
     return { pct, daysLeft, label };
   })();
-  const accent = tab === "tax" ? "#7c3aed" : "#059669";
+  const accent = tab === "tax" ? "#7c3aed" : tab === "save" ? "#0d9488" : "#059669";
 
   function refreshDebt() {
     api.debtInsights().then(setInsights).catch(() => {});
@@ -1916,6 +2020,18 @@ export default function InsightsPage() {
               <span className="text-[11px] text-slate-500 dark:text-slate-400">6 Apr</span>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">{taxYear.daysLeft} days left</span>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
+            </div>
+          </>
+        ) : heroMode === "save" ? (
+          <>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Personalised ways to spend less — start with the top one.</p>
+              </div>
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: "#0d948826" }}>
+                <TrendingDown className="w-5 h-5" style={{ color: "#0d9488" }} />
+              </div>
             </div>
           </>
         ) : (
@@ -1965,27 +2081,31 @@ export default function InsightsPage() {
           <>
             {/* Savings | Tax tabs — hidden when there's only one */}
             {(() => {
-              const tabs: ("savings" | "tax")[] = [
+              const tabs: ("savings" | "save" | "tax")[] = [
                 "savings",
+                "save",
                 ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? ["tax" as const] : []),
               ];
-              if (tabs.length < 2 || isDesktop) return null;
+              if (isDesktop) return null;
               return (
                 <SegmentedControl
                   ariaLabel="Insights sections"
                   value={tab}
-                  onChange={(t) => setTab(t as typeof tab)}
+                  onChange={(t) => {
+                    setTab(t as typeof tab);
+                    if (t === "save") { setNewInsightCount(0); }
+                  }}
                   options={[
                     { value: "savings", label: "Savings", accent: "#059669" },
+                    { value: "save", label: "Ways to save", accent: "#0d9488", badge: newInsightCount > 0 ? newInsightCount : undefined },
                     ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? [{ value: "tax", label: "Tax", accent: "#7c3aed" }] : []),
                   ]}
                 />
               );
             })()}
 
-            {/* Wait for savings data — otherwise the #1 recommendation renders
-                without the buffer step, then swaps once savings loads */}
-            {savings && (
+            {/* Next £100 buffer card — savings tab only (not tax, not save) */}
+            {savings && tab === "savings" && (
               <NextHundredCard
                 debtTotal={insights.total_debt ?? 0}
                 savings={savings}
@@ -2025,12 +2145,11 @@ export default function InsightsPage() {
                   {!hasDebt && (savings?.pct_funded ?? 0) >= 100 && (
                     <ReadyToGrowCard onOpenChat={(p) => chatRef.current?.open(p)} />
                   )}
+                </>
+              );
 
-                  {/* ── Ways to save hub ── */}
-                  <div ref={savingsSectionRef} className="px-1 pt-3 border-t border-slate-200/70 dark:border-slate-700/60">
-                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Ways to save</h2>
-                  </div>
-
+              const waysBlock = (
+                <>
                   <SavingsInsightsSection embedded />
 
                   {/* ── Collapsed education section ── */}
@@ -2040,7 +2159,7 @@ export default function InsightsPage() {
                       className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 py-1 w-full text-left"
                       aria-expanded={savingsMoreOpen}
                     >
-                      <ChevronRight size={13} className={`transition-transform flex-shrink-0 ${savingsMoreOpen ? "rotate-90" : ""}`} />
+                      <ChevronRight size={16} className={`text-slate-500 dark:text-slate-400 transition-transform flex-shrink-0 ${savingsMoreOpen ? "rotate-90" : ""}`} />
                       More · learn the basics
                     </button>
                     {savingsMoreOpen && <MoneyBasicCard className="mt-2" />}
@@ -2058,6 +2177,9 @@ export default function InsightsPage() {
                 );
                 const savingsSec = (
                   <div key="savings" className="space-y-3">{columnTitle("Savings", "#10b981")}{savingsBlock}</div>
+                );
+                const waysSec = (
+                  <div key="save" className="space-y-3">{columnTitle("Ways to save", "#0d9488")}{waysBlock}</div>
                 );
                 const secondaryPlaceholder = (
                   <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
@@ -2078,17 +2200,21 @@ export default function InsightsPage() {
                   </div>
                 ) : null;
 
-                const leftCol: ReactNode[] = [savingsSec];
-                const rightCol: ReactNode[] = [];
-                if (taxSec) rightCol.push(taxSec);
-
-                if (rightCol.length === 0) {
-                  return <div className="max-w-2xl mx-auto space-y-6">{leftCol}</div>;
+                if (!showTaxSection) {
+                  // 2 columns: Savings | Ways to save
+                  return (
+                    <div className="grid grid-cols-2 gap-4 items-start">
+                      <div className="space-y-3">{savingsSec}</div>
+                      <div className="space-y-3">{waysSec}</div>
+                    </div>
+                  );
                 }
+                // 3 columns: Savings | Ways to save | Tax
                 return (
-                  <div className="flex gap-4 items-start">
-                    <div className="flex-1 min-w-0 space-y-6">{leftCol}</div>
-                    <div className="flex-1 min-w-0 space-y-6">{rightCol}</div>
+                  <div className="grid grid-cols-3 gap-4 items-start">
+                    <div className="space-y-3">{savingsSec}</div>
+                    <div className="space-y-3">{waysSec}</div>
+                    <div className="space-y-3">{taxSec}</div>
                   </div>
                 );
               }
@@ -2102,6 +2228,8 @@ export default function InsightsPage() {
                   pensionAnnual={taxPensionAnnual}
                   hasChildBenefit={taxHasChildBenefit}
                 />
+              ) : tab === "save" ? (
+                waysBlock
               ) : (
                 savingsBlock
               );

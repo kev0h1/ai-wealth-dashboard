@@ -113,7 +113,7 @@ export default function YapilyConnect({ onClose }: YapilyConnectProps) {
                   {connecting === inst.id ? (
                     <Loader2 size={16} className="animate-spin text-indigo-400 flex-shrink-0" />
                   ) : (
-                    <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />
+                    <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
                   )}
                 </button>
               ))}

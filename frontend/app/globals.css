@@ -204,3 +204,12 @@ a:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Upcoming edit sheet animation ──────────────────────────────────────── */
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); opacity: 0.6; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="slideUpSheet"] { animation: none !important; }
+}

@@ -1,8 +1,9 @@
 """User preferences endpoints."""
+import asyncio
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
-from app.db.collections import preferences_col
+from app.db.collections import preferences_col, cashflow_cache_col
 from app.services.notifications import NOTIF_DEFAULTS
 
 router = APIRouter(tags=["preferences"])
@@ -56,10 +57,22 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         body["income_bracket"] = (
             "under_100k" if v < 100_000 else "100k_125k" if v <= 125_140 else "125k_plus"
         )
+    uid = user["email"]
+    pay_period_changed = "pay_period_config" in body
     await preferences_col.update_one(
-        {"user_id": user["email"]},
-        {"$set": {**body, "user_id": user["email"]}},
+        {"user_id": uid},
+        {"$set": {**body, "user_id": uid}},
         upsert=True,
     )
-    doc = await preferences_col.find_one({"user_id": user["email"]})
+    doc = await preferences_col.find_one({"user_id": uid})
+
+    if pay_period_changed:
+        # Best-effort: recompute cashflow so the new pay period takes effect
+        # immediately. Don't let a compute failure block the pref save.
+        try:
+            from app.routers.analytics import compute_and_cache_cashflow
+            asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+        except Exception:
+            pass
+
     return {"hide_net_worth": doc.get("hide_net_worth", False), "dark_mode": doc.get("dark_mode", False)}

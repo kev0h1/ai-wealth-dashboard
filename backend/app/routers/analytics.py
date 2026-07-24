@@ -18,7 +18,7 @@ from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
     statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
-    preferences_col, savings_insights_col, cashflow_cache_col,
+    preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
@@ -346,7 +346,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
 DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]
 
 
-def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None) -> list[dict]:
+def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
     for t in txns:
@@ -386,17 +386,57 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                     continue
 
         avg_amount = sum(abs(float(t.get("amount", 0))) for t in items) / len(items)
-        last_date  = dates[-1]
-        if 28 <= avg_interval <= 33:
-            # Monthly bills anchor to a day of the month. Adding a rounded
-            # ~30-day interval lands a day early whenever a 31-day month is
-            # involved, so advance the calendar month and keep the day.
-            year  = last_date.year + (1 if last_date.month == 12 else 0)
-            month = 1 if last_date.month == 12 else last_date.month + 1
-            day   = min(last_date.day, monthrange(year, month)[1])
-            next_date = last_date.replace(year=year, month=month, day=day)
+        # Normalise to date objects — MongoDB stores dates as datetime, which
+        # breaks comparisons against _today (a date) and .replace() calls below.
+        _d2date = lambda d: d.date() if isinstance(d, datetime) else d
+        last_date  = _d2date(dates[-1])
+        _today = today or _date.today()
+        _config = pay_period_config or {"type": "calendar_month"}
+
+        if 6 <= avg_interval <= 10:
+            # Weekly — anchor to the modal weekday of the occurrence dates
+            weekdays = [d.weekday() for d in dates]
+            modal_wd = max(set(weekdays), key=weekdays.count)
+            delta = (modal_wd - _today.weekday()) % 7
+            delta = delta or 7  # never 0: always strictly after today
+            next_date = _today + timedelta(days=delta)
+        elif 11 <= avg_interval <= 18:
+            # Biweekly — anchor to the modal weekday but keep 14-day cadence
+            weekdays = [d.weekday() for d in dates]
+            modal_wd = max(set(weekdays), key=weekdays.count)
+            # Find next occurrence of modal_wd strictly after today
+            delta = (modal_wd - _today.weekday()) % 7
+            delta = delta or 7
+            candidate = _today + timedelta(days=delta)
+            # Align to 14-day cadence from last known date
+            since_last = (candidate - last_date).days
+            # Round to nearest 14-day multiple from last_date
+            periods = round(since_last / 14)
+            next_date = last_date + timedelta(days=max(14, periods * 14))
+            # Ensure it's strictly after today
+            while next_date <= _today:
+                next_date += timedelta(days=14)
+        elif 26 <= avg_interval <= 33:
+            # Monthly — anchor to day-of-month (existing logic)
+            if is_income and _config.get("type", "calendar_month") != "calendar_month":
+                # Income with a determinate payday: use pay period config
+                from app.services.pay_period import _next_payday
+                next_date = _next_payday(_today, _config)
+            else:
+                year  = last_date.year + (1 if last_date.month == 12 else 0)
+                month = 1 if last_date.month == 12 else last_date.month + 1
+                day   = min(last_date.day, monthrange(year, month)[1])
+                next_date = last_date.replace(year=year, month=month, day=day)
+                # If still in the past or today, advance one more month
+                while next_date <= _today:
+                    year  = next_date.year + (1 if next_date.month == 12 else 0)
+                    month = 1 if next_date.month == 12 else next_date.month + 1
+                    day   = min(next_date.day, monthrange(year, month)[1])
+                    next_date = next_date.replace(year=year, month=month, day=day)
         else:
             next_date = last_date + timedelta(days=round(avg_interval))
+            while next_date <= _today:
+                next_date += timedelta(days=round(avg_interval))
         # Use account_id from the most recent transaction — bills reliably come from the same account
         most_recent = max(items, key=lambda t: t["date"])
         results.append({
@@ -451,10 +491,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
     dismissed = set(prefs.get("dismissed_recurring") or [])
+    pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
+    _today = _date.today()
 
-    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted)
+    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
-    recurring_income = _detect_recurring(credits)
+    recurring_income = _detect_recurring(credits, today=_today, is_income=True, pay_period_config=pay_period_config)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
 
     heuristic_keys = {r["key"] for r in recurring_spend}
@@ -546,7 +588,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
     if not cached:
         return {"count": 0}
-    resp = _build_cashflow_response(cached)
+    resp = await _build_cashflow_response(cached, uid=user["email"])
     n = sum(
         1 for b in resp["upcoming_bills"]
         if b["days_away"] <= 7
@@ -588,7 +630,79 @@ async def restore_recurring(body: dict, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
-def _build_cashflow_response(cached: dict) -> dict:
+@router.post("/cashflow/edit-upcoming")
+async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
+    """Override a single upcoming occurrence's date and/or amount."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    date_str = (body.get("date") or "").strip()
+    scope = (body.get("scope") or "one").strip()
+    new_date = (body.get("new_date") or "").strip() or None
+    new_amount = body.get("new_amount")
+
+    if not key:
+        raise HTTPException(400, "key required")
+    if not date_str:
+        raise HTTPException(400, "date required")
+    if scope not in ("one", "future"):
+        raise HTTPException(400, "scope must be 'one' or 'future'")
+    # Validate ISO dates
+    try:
+        _date.fromisoformat(date_str)
+        if new_date:
+            _date.fromisoformat(new_date)
+    except ValueError:
+        raise HTTPException(400, "invalid date format — use ISO 8601 (YYYY-MM-DD)")
+    if new_amount is not None:
+        try:
+            new_amount = float(new_amount)
+            if new_amount <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise HTTPException(400, "new_amount must be a positive number")
+    if new_date is None and new_amount is None:
+        raise HTTPException(400, "at least one of new_date or new_amount must be provided")
+
+    doc = {
+        "uid": uid,
+        "key": key,
+        "date": date_str,
+        "scope": scope,
+        "new_date": new_date,
+        "new_amount": new_amount,
+        "created_at": datetime.now(),
+    }
+    await upcoming_overrides_col.update_one(
+        {"uid": uid, "key": key, "date": date_str, "scope": scope},
+        {"$set": doc},
+        upsert=True,
+    )
+    # Fast rebuild from cached patterns — no AI re-run
+    cached = await cashflow_cache_col.find_one({"_id": uid})
+    if cached:
+        result = await _build_cashflow_response(cached, uid=uid)
+        await cashflow_cache_col.update_one(
+            {"_id": uid},
+            {"$set": {"_override_rebuild": datetime.now()}},
+        )
+    return {"ok": True}
+
+
+@router.post("/cashflow/clear-override")
+async def clear_override(body: dict, user: dict = Depends(current_user)):
+    """Remove all overrides for a given occurrence key+date."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    date_str = (body.get("date") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    if not date_str:
+        raise HTTPException(400, "date required")
+    await upcoming_overrides_col.delete_many({"uid": uid, "key": key, "date": date_str})
+    return {"ok": True}
+
+
+async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict:
     """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost."""
     today = datetime.now()
     # 35 days covers any monthly pay period; the frontend clips to period end.
@@ -597,6 +711,11 @@ def _build_cashflow_response(cached: dict) -> dict:
 
     spend_patterns  = cached.get("recurring_spend", [])
     income_patterns = cached.get("recurring_income", [])
+
+    # Load overrides for this user (empty list if no uid provided)
+    overrides: list[dict] = []
+    if uid:
+        overrides = await upcoming_overrides_col.find({"uid": uid}).to_list(None)
 
     def _parse_date(s: str) -> datetime:
         return datetime.fromisoformat(s)
@@ -620,21 +739,75 @@ def _build_cashflow_response(cached: dict) -> dict:
                 d = d + timedelta(days=max(2, round(interval)))
         return out
 
-    upcoming_bills = sorted([
-        {
-            "name":            r["key"],
-            "amount":          r["avg_amount"],
-            "expected_date":   occ.date().isoformat(),
-            "days_away":       (occ.date() - today.date()).days,
-            "account_id":      r.get("account_id"),
-            "account_name":    r.get("account_name"),
-            "account_bank":    _bank_label(r.get("account_bank")),
-            "account_balance": r.get("account_balance"),
-            "category":        r.get("category"),
-        }
-        for r in spend_patterns
-        for occ in _occurrences(r)
-    ], key=lambda x: (x["days_away"], -x["amount"]))
+    def _apply_overrides_to_occurrence(key: str, occ_date_str: str, amount: float) -> tuple[str, float, bool]:
+        """Returns (final_date_str, final_amount, edited_flag)."""
+        edited = False
+        final_date = occ_date_str
+        final_amount = amount
+        for ov in overrides:
+            if ov.get("key") != key:
+                continue
+            scope = ov.get("scope", "one")
+            ov_date = ov.get("date", "")
+            if scope == "one" and occ_date_str == ov_date:
+                if ov.get("new_date"):
+                    final_date = ov["new_date"]
+                if ov.get("new_amount") is not None:
+                    final_amount = float(ov["new_amount"])
+                edited = True
+            elif scope == "future" and occ_date_str >= ov_date:
+                if ov.get("new_amount") is not None:
+                    final_amount = float(ov["new_amount"])
+                    edited = True
+                if ov.get("new_date") and not edited:
+                    # For future scope, re-anchor the day-of-month/weekday
+                    # to match the override date's weekday/day
+                    try:
+                        new_ref = _date.fromisoformat(ov["new_date"])
+                        orig = _date.fromisoformat(occ_date_str)
+                        r_interval = float(overrides[0].get("avg_interval", 30) if overrides else 30)
+                        if 6 <= r_interval <= 18:
+                            # Weekly/biweekly: shift by weekday delta
+                            wd_delta = new_ref.weekday() - _date.fromisoformat(ov_date).weekday()
+                            shifted = orig + timedelta(days=wd_delta)
+                            final_date = shifted.isoformat()
+                        else:
+                            # Monthly: shift by day-of-month delta
+                            day_delta = new_ref.day - _date.fromisoformat(ov_date).day
+                            try:
+                                shifted = orig.replace(day=min(orig.day + day_delta, monthrange(orig.year, orig.month)[1]))
+                                final_date = shifted.isoformat()
+                            except ValueError:
+                                pass
+                        edited = True
+                    except Exception:
+                        pass
+        return final_date, final_amount, edited
+
+    raw_bills = []
+    for r in spend_patterns:
+        for occ in _occurrences(r):
+            occ_date_str = occ.date().isoformat()
+            final_date, final_amount, edited = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            final_date_obj = _date.fromisoformat(final_date)
+            days_away = (final_date_obj - today.date()).days
+            if final_date_obj > window_end.date():
+                continue
+            if final_date_obj < today.date():
+                continue
+            raw_bills.append({
+                "name":            r["key"],
+                "amount":          final_amount,
+                "expected_date":   final_date,
+                "days_away":       days_away,
+                "account_id":      r.get("account_id"),
+                "account_name":    r.get("account_name"),
+                "account_bank":    _bank_label(r.get("account_bank")),
+                "account_balance": r.get("account_balance"),
+                "category":        r.get("category"),
+                "edited":          edited,
+            })
+    upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
 
     upcoming_income = sorted([
         {
@@ -643,6 +816,7 @@ def _build_cashflow_response(cached: dict) -> dict:
             "expected_date": occ.date().isoformat(),
             "days_away":     (occ.date() - today.date()).days,
             "category":      r.get("category"),
+            "edited":        False,
         }
         for r in income_patterns
         for occ in _occurrences(r)
@@ -684,13 +858,13 @@ async def get_cashflow(user: dict = Depends(current_user)):
         computed_at = cached.get("computed_at")
         if computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:
             asyncio.create_task(compute_and_cache_cashflow(uid))
-        return _build_cashflow_response(cached)
+        return await _build_cashflow_response(cached, uid=uid)
 
     # No cache yet — compute live, store, then return
     data = await _compute_cashflow_patterns(uid)
     data["computed_at"] = datetime.now()
     await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
-    return _build_cashflow_response(data)
+    return await _build_cashflow_response(data, uid=uid)
 
 
 def _parse_saving_amount(estimate: str | None) -> float:

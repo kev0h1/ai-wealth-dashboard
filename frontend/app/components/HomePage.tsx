@@ -216,7 +216,7 @@ export default function HomePage() {
             {firstName ? `Hi, ${firstName}` : "Welcome back"}
           </p>
           {kpis && !hideNetWorth && (
-            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-1 rounded-full num">
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full num">
               {kpis.net_worth < 0 ? "-" : ""}£{Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
             </span>
           )}
@@ -231,9 +231,6 @@ export default function HomePage() {
           <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
-                  Good {getGreeting()}
-                </p>
                 <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
                   {firstName ? `Hi, ${firstName}` : "Welcome back"}
                 </h1>
@@ -361,7 +358,7 @@ export default function HomePage() {
                 <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
                   Connect your first bank
                 </p>
-                <p className="text-[13px] text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
                   Read-only access through open banking — we can never move your money.
                 </p>
                 <button
@@ -474,13 +471,6 @@ export default function HomePage() {
   );
 }
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Morning";
-  if (h < 17) return "Afternoon";
-  return "Evening";
-}
-
 function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; router: ReturnType<typeof useRouter> }) {
   // Same thresholds as the Tax page: taper starts at £100k, allowance gone at £125,140
   const is125k    = adjusted !== null && adjusted >= 125_140;
@@ -496,7 +486,7 @@ function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; rout
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400 mb-1">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400 mb-1">
               Tax efficiency
             </p>
             {is125k ? (
@@ -511,10 +501,10 @@ function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; rout
             ) : protectedAllowance ? (
               <>
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                  Personal allowance protected
+                  Pension headroom available — check your levers
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Your pension contributions keep you under £100k — check your remaining levers
+                  Your allowance is protected. You may still benefit from additional contributions.
                 </p>
               </>
             ) : inTaper ? (
@@ -537,11 +527,11 @@ function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; rout
               </>
             )}
           </div>
-          <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <TrendingUp size={16} className="text-violet-600 dark:text-violet-400" />
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <TrendingUp size={16} className="text-indigo-500 dark:text-indigo-400" />
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-1 text-xs font-semibold text-violet-600 dark:text-violet-400">
+        <div className="mt-3 flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
           See your tax position <ChevronRight size={13} />
         </div>
       </div>

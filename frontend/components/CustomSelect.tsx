@@ -121,8 +121,8 @@ export default function CustomSelect({ value, onChange, options, placeholder, cl
       >
         <span className="truncate">{selected ? selected.label : (placeholder ?? "Select…")}</span>
         <ChevronDown
-          size={15}
-          className={`flex-shrink-0 text-slate-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+          size={16}
+          className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
         />
       </button>
 
