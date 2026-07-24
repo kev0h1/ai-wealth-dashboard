@@ -532,7 +532,7 @@ function TransportModesWidget({ compact }: { compact?: boolean }) {
       {/* Mode rows */}
       {!compact && (
         <>
-          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">Where it goes</p>
+          <p className="text-base font-bold text-slate-800 dark:text-slate-100">Where it goes</p>
           <div className="space-y-3">
             {data.modes.map(m => {
               const w = Math.max(Math.round((m.total / maxModeTotal) * 100), 3);
@@ -628,7 +628,7 @@ function WidgetCard({
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 min-w-0">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{meta.title}</p>
+          <p className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">{meta.title}</p>
           {pinned && <Pin size={11} className="text-indigo-400 flex-shrink-0" />}
         </div>
         <div className="relative" ref={menuRef}>
@@ -811,8 +811,8 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
         aria-label="Add a widget"
         className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white dark:bg-slate-800 rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88vh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
       >
-        <p className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-1">Add a widget</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+        <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-1">Add a widget</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
           Charts use the pay period you're viewing.
         </p>
         <div className="space-y-2">
@@ -871,7 +871,7 @@ export function PinnedWidgetCard({
         className="w-full bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-[0.99] transition-transform"
       >
         <div className="flex items-center justify-between mb-2.5">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <p className="text-base font-bold text-slate-800 dark:text-slate-100">
             {WIDGET_META[id].title}
           </p>
           <span className="flex items-center gap-0.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400">

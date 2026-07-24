@@ -147,7 +147,7 @@ export default function HomeInsightSpotlight() {
           {insight.savings_estimate && (
             <div className="flex items-start gap-2 mt-3.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-2.5">
               <TrendingDown size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-              <p className="text-[13px] font-semibold text-emerald-800 dark:text-emerald-300 leading-snug">
+              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300 leading-snug">
                 {insight.savings_estimate}
               </p>
             </div>

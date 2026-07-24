@@ -46,7 +46,7 @@ export default function DebtPlanCard({
             <Target className="w-5 h-5" style={{ color: accent }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Writing down a few concrete steps makes debt easier to clear. Build a short, trackable plan with your advisor.
             </p>
@@ -54,7 +54,7 @@ export default function DebtPlanCard({
         </div>
         <button
           onClick={() => onOpenChat("Build me a debt-free plan I can track, with a few milestones.")}
-          className="w-full mt-3 py-2.5 rounded-xl text-white text-[14px] font-semibold active:scale-[0.98] transition-all"
+          className="w-full mt-3 py-2.5 rounded-xl text-white text-sm font-semibold active:scale-[0.98] transition-all"
           style={{ background: accent }}
         >
           Build my debt-free plan
@@ -72,7 +72,7 @@ export default function DebtPlanCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your debt-free plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">

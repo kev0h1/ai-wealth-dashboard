@@ -1290,7 +1290,7 @@ function PayPeriodSettingsSheet({
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
         </div>
         <div className="flex items-center justify-between px-5 pt-2 pb-4">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">Pay Period</h2>
+          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Pay Period</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700">
             <X size={16} color="#64748b" />
           </button>
@@ -1312,7 +1312,7 @@ function PayPeriodSettingsSheet({
               </span>
               <div>
                 <p className={`text-sm font-semibold ${mode === m.value ? "text-indigo-700 dark:text-indigo-300" : "text-slate-700 dark:text-slate-200"}`}>{m.label}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{m.desc}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{m.desc}</p>
               </div>
             </button>
           ))}

@@ -255,7 +255,7 @@ export default function HomePage() {
             {syncError && (
               <div className="flex items-center gap-2 mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
                 <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
-                <p className="text-xs text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
+                <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
               </div>
             )}
             {loadError ? (
@@ -283,7 +283,7 @@ export default function HomePage() {
             <div key={provider} className="mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
               <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
                 <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-tight">Transactions have stopped syncing.</p>
               </div>
               <button
@@ -491,37 +491,37 @@ function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; rout
             </p>
             {is125k ? (
               <>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
                   You&apos;ve lost your personal allowance
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Pension contributions still save 45p in every £1 — see how much to put in
                 </p>
               </>
             ) : protectedAllowance ? (
               <>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
                   Pension headroom available — check your levers
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Your allowance is protected. You may still benefit from additional contributions.
                 </p>
               </>
             ) : inTaper ? (
               <>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
                   You&apos;re in the 60% rate band
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Pension contributions can restore your personal allowance and cut your tax bill
                 </p>
               </>
             ) : (
               <>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
                   You may be in the 60% rate band
                 </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Set your income in Settings for a precise picture
                 </p>
               </>

@@ -272,7 +272,7 @@ export default function DebtPage() {
               </>
             ) : (
               <>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Monthly {insights.monthly_surplus >= 0 ? "Surplus" : "Deficit"}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Monthly {insights.monthly_surplus >= 0 ? "Surplus" : "Deficit"}</p>
                 <p className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(Math.abs(insights.monthly_surplus), sym)}</p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                   {insights.monthly_surplus >= 0 ? "No credit card debt" : "Spending exceeds income"}
@@ -300,7 +300,7 @@ export default function DebtPage() {
                   onClick={() => setProgressOpen(v => !v)}
                   className="w-full px-4 py-3 flex items-center justify-between text-left"
                 >
-                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Payoff progress</span>
+                  <span className="text-base font-bold text-slate-700 dark:text-slate-200">Payoff progress</span>
                   <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${progressOpen ? "rotate-180" : ""}`} />
                 </button>
                 {progressOpen && (
@@ -349,23 +349,23 @@ export default function DebtPage() {
                   <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-2.5">
                     <span className="text-lg">✅</span>
                     <div>
-                      <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Finances look healthy</p>
-                      <p className="text-xs text-emerald-600 dark:text-emerald-500">No credit card debt and a positive monthly surplus</p>
+                      <p className="text-base font-bold text-emerald-700 dark:text-emerald-400">Finances look healthy</p>
+                      <p className="text-sm text-emerald-600 dark:text-emerald-500">No credit card debt and a positive monthly surplus</p>
                     </div>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2.5">
                     <span className="text-lg">⚠️</span>
                     <div>
-                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Spending exceeds income</p>
-                      <p className="text-xs text-amber-600 dark:text-amber-500">
+                      <p className="text-base font-bold text-amber-700 dark:text-amber-400">Spending exceeds income</p>
+                      <p className="text-sm text-amber-600 dark:text-amber-500">
                         You spend {hideNetWorth ? "••••" : fmt2(Math.abs(insights.monthly_surplus), sym)} more than you earn each month
                       </p>
                     </div>
                   </div>
                 )}
                 {insights.monthly_surplus >= 0 && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
                     Monthly surplus: <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span>
                   </p>
                 )}
@@ -402,7 +402,7 @@ export default function DebtPage() {
                   onClick={() => setDebtPaymentsOpen(v => !v)}
                   className="w-full px-4 py-3 flex items-center justify-between text-left"
                 >
-                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Debt payments this period</span>
+                  <span className="text-base font-bold text-slate-700 dark:text-slate-200">Debt payments this period</span>
                   <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${debtPaymentsOpen ? "rotate-180" : ""}`} />
                 </button>
                 {debtPaymentsOpen && (
@@ -738,7 +738,7 @@ export function DebtBurndownCard({
     <div className="debt-burndown-frosted rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-700/60">
       {/* Card header */}
       <div className="px-4 pt-4 pb-2">
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Payoff progress</p>
+        <p className="text-base font-bold text-slate-800 dark:text-slate-100">Payoff progress</p>
         <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
           Your goal · <span className="font-medium text-slate-600 dark:text-slate-300">{fmtMonth(data.target_date)}</span>
           {" · "}
@@ -975,7 +975,7 @@ export function DebtBurndownCard({
         <div>
           <div className="flex items-baseline gap-2 mb-1.5">
             <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">Projected strategy</p>
-            <p className="text-[9px] text-slate-400 dark:text-slate-500">affects projected line only — target is fixed</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500">affects projected line only — target is fixed</p>
           </div>
           <div className="flex gap-1.5">
             {([
@@ -989,18 +989,18 @@ export function DebtBurndownCard({
                 className={`flex-1 px-2 py-2 rounded-xl text-xs font-semibold transition-all text-left ${strategy === s.key ? "bg-indigo-500 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600"}`}
               >
                 <span className="block font-bold">{s.label}</span>
-                <span className="text-[9px] opacity-70 leading-tight block">{s.desc}</span>
+                <span className="text-[10px] opacity-70 leading-tight block">{s.desc}</span>
               </button>
             ))}
           </div>
           {!data.has_rates && (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 leading-snug">
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5 leading-snug">
               Strategies only differ through interest — add APRs to your cards below and the
               projections (and interest costs) will diverge.
             </p>
           )}
           {data.has_rates && (
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5 leading-snug">
               Projected interest with this strategy:{" "}
               <span className="font-semibold text-slate-600 dark:text-slate-300">
                 {hideValues ? "••••" : `${sym}${data.total_interest_projected.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}

@@ -114,7 +114,7 @@ export default function GoalsStrip() {
                 className="w-full active:opacity-70 transition-opacity text-left"
               >
                 <div className="flex items-baseline justify-between gap-3 mb-1.5">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">
                     {g.label}
                   </span>
                   <span className={`text-[11px] font-medium flex-shrink-0 ${

@@ -78,7 +78,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
             );
           })()}
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">{name}</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{name}</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">{count} transaction{count !== 1 ? "s" : ""}</p>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
@@ -99,7 +99,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
             <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 {debtVerdict ? (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
                     <span className="font-semibold text-slate-700 dark:text-slate-200">
                       £{debtVerdict.totalDebt.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} left
                     </span>
@@ -108,7 +108,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
                     )}
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Payoff planner</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Payoff planner</p>
                 )}
               </div>
               <button
