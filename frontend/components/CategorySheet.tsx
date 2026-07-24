@@ -42,8 +42,8 @@ export default function CategorySheet({ name, total, count, transactions, onClos
       let debtFreeLabel = "";
       if (months && isFinite(months) && months > 0 && months < 600) {
         const target = new Date();
-        target.setMonth(target.getMonth() + Math.round(months));
-        debtFreeLabel = target.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        target.setMonth(target.getMonth() + Math.ceil(months));
+        debtFreeLabel = target.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
       }
       setDebtVerdict({ totalDebt: d.total_debt, debtFreeLabel });
     }).catch(() => {});
@@ -104,7 +104,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
                       £{debtVerdict.totalDebt.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} left
                     </span>
                     {debtVerdict.debtFreeLabel && (
-                      <> · debt-free {debtVerdict.debtFreeLabel}</>
+                      <> · debt-free {debtVerdict.debtFreeLabel} at this rate</>
                     )}
                   </p>
                 ) : (

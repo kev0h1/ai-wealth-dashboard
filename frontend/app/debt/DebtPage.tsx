@@ -4,9 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
-import { useColours } from "@/components/ColourProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import TransactionRow from "@/components/TransactionRow";
@@ -184,7 +182,6 @@ export type BurndownData = {
 
 export default function DebtPage() {
   const { user } = useAuth();
-  const { colours } = useColours();
   const { hideNetWorth, region, debtTargetMonths, setDebtTargetMonths, debtTrackingStart, setDebtTrackingStart, payPeriodConfig } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
   const [insights, setInsights] = useState<DebtInsights | null>(null);
@@ -350,7 +347,7 @@ export default function DebtPage() {
                   {hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
-                  <span>debt-free {debtFreeDate(insights.months_at_current_rate)}</span>
+                  <span>debt-free {debtFreeDate(insights.months_at_current_rate)} at this rate</span>
                   <span className="text-slate-300 dark:text-slate-600">·</span>
                   {onTrack ? (
                     <span className="text-emerald-600 dark:text-emerald-400 font-medium">On track</span>
@@ -383,44 +380,6 @@ export default function DebtPage() {
           </div>
         ) : (
           <>
-            {/* Free Up Cash */}
-            {insights.recommendations.length > 0 && insights.monthly_surplus > 0 && (() => {
-              const rows = insights.recommendations
-                .map(rec => ({
-                  ...rec,
-                  moSaved: Math.max(0, insights.months_at_current_rate - (insights.total_debt / (insights.monthly_surplus + rec.cut_25pct_saves))),
-                }))
-                .filter(rec => rec.moSaved > 0.5)
-                .sort((a, b) => b.moSaved - a.moSaved)
-                .slice(0, 3);
-              if (rows.length === 0) return null;
-              return (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-4 pt-4 pb-2">
-                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Free Up Cash</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Cut these to pay off debt sooner — based on last 3 months</p>
-                  </div>
-                  {rows.map(rec => {
-                    const colour = colours[rec.category] ?? CATEGORY_COLOURS[rec.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
-                    return (
-                      <div key={rec.category} className="flex items-center justify-between px-4 py-3.5 border-t border-slate-50 dark:border-slate-700/60">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</p>
-                            <p className="text-xs text-slate-400 dark:text-slate-500">{hideNetWorth ? "••••" : `${fmt(rec.monthly_spend, sym)}/mo avg · cut 25% saves ${fmt(rec.cut_25pct_saves, sym)}/mo`}</p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-3">
-                          <p className="text-sm font-bold text-emerald-600">{Math.round(rec.moSaved)} mo sooner</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-
             {/* Payoff progress disclosure */}
             {hasDebt && burndown && burndown.burndown.length > 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700/60">
@@ -998,7 +957,7 @@ export function DebtBurndownCard({
       <div className="px-4 pt-4 pb-2">
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Payoff progress</p>
         <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-          Clear by <span className="font-medium text-slate-600 dark:text-slate-300">{fmtMonth(data.target_date)}</span>
+          Your goal · <span className="font-medium text-slate-600 dark:text-slate-300">{fmtMonth(data.target_date)}</span>
           {" · "}
           <span className="text-indigo-500 font-medium">{hideValues ? "••••" : `${sym}${data.monthly_payment_needed.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo`}</span>
         </p>
@@ -1015,15 +974,15 @@ export function DebtBurndownCard({
       <div className="px-4 pb-2 flex items-center gap-4">
         <span className="flex items-center gap-1.5">
           <span className="w-5 h-[2px] bg-indigo-500 rounded inline-block" />
-          <span className="text-[10px] text-slate-500 dark:text-slate-400">Actual</span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400">What you&apos;ve paid</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-5 inline-block" style={{ borderTop: "2px dashed #14b8a6", display: "inline-block" }} />
-          <span className="text-[10px] text-teal-600 dark:text-teal-400">Target</span>
+          <span className="text-[10px] text-teal-600 dark:text-teal-400">Your goal pace</span>
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-5 inline-block" style={{ borderTop: "2px dotted #f59e0b", display: "inline-block" }} />
-          <span className="text-[10px] text-amber-500 dark:text-amber-400">Projected</span>
+          <span className="text-[10px] text-amber-500 dark:text-amber-400">At this rate</span>
         </span>
       </div>
 
@@ -1045,22 +1004,6 @@ export function DebtBurndownCard({
 
       {/* Chart + annotation */}
       <div className="relative px-1 pb-2">
-        {/* Annotation callout at today — only shown when we have a meaningful history window */}
-        {fraction >= 0 && firstActualIdx >= 0 && firstActualIdx < todayIdx && (
-          <div
-            className="absolute pointer-events-none z-10 -translate-x-1/2"
-            style={{ top: 4, left: `calc(44px + ${fraction} * (100% - 56px))` }}
-          >
-            <div className={`text-[10px] font-semibold px-2 py-1 rounded-lg shadow-sm border whitespace-nowrap ${
-              isOnTrack
-                ? "bg-emerald-50 dark:bg-emerald-900/40 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300"
-                : "bg-amber-50 dark:bg-amber-900/40 border-amber-200 dark:border-amber-700 text-amber-700 dark:text-amber-300"
-            }`}>
-              {isOnTrack ? "On Track" : "Behind"}
-              {annotationGap !== null && !hideValues && ` · ${sym}${Math.round(annotationGap).toLocaleString("en-GB")} ${isOnTrack ? "ahead" : "behind"}`}
-            </div>
-          </div>
-        )}
 
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -1169,7 +1112,7 @@ export function DebtBurndownCard({
             onClick={() => onTrackingStartChange(new Date().toISOString().slice(0, 7))}
             className="mx-3 mb-2 mt-1 w-[calc(100%-24px)] py-2 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700 active:scale-[0.98] transition-transform"
           >
-            Plan drifted? Re-baseline from today&apos;s balance
+            Reset the plan to today&apos;s balance
           </button>
         )}
       </div>
