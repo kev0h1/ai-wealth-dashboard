@@ -24,7 +24,7 @@ import { PinnedWidgetCard } from "@/components/SpendTrends";
 import { useColours } from "@/components/ColourProvider";
 import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
-import { GroceryBasketCard } from "@/app/insights/InsightsPage";
+import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 
 // Token is guaranteed by AuthProvider before this component mounts

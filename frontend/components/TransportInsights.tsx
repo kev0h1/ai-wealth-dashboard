@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Fuel, SquareParking, CarTaxiFront, Train, Bus,
-  PlugZap, Wrench, Car,
+  PlugZap, Wrench, Car, ChevronDown,
 } from "lucide-react";
 import { api, TransportSummary, TransportMode } from "@/lib/api";
 import Spinner from "@/components/Spinner";
@@ -34,27 +34,18 @@ function adaptiveInsight(data: TransportSummary): string {
   const parking   = data.modes.find(m => m.name === "Parking");
   const rideshare = data.modes.find(m => m.name === "Taxi & Rideshare");
 
-  // Car user with notable rideshare spend — compare the two
   if (ridesharePct > 25 && data.car_total > 0 && rideshare && parking) {
     return `Rideshare (£${fmt(rideshare.monthly)}/mo) is nearly as much as parking (£${fmt(parking.monthly)}/mo)`;
   }
-
-  // Rideshare-dominant, no car — suggest PT alternative
   if (ridesharePct > 50 && data.car_total === 0 && rideshare) {
     return `£${fmt(rideshare.monthly)}/mo on rideshare — could a monthly travelcard work out cheaper?`;
   }
-
-  // Car-dominant: lead with annual figure, most impactful number
   if (carPct > 60) {
     return `Your car costs roughly £${Math.round(data.car_monthly * 12).toLocaleString("en-GB")} a year to run`;
   }
-
-  // PT-dominant
   if (ptPct > 60) {
     return `Public transport is your main mode at £${fmt(data.pt_monthly)}/mo`;
   }
-
-  // Default: biggest single mode
   const top = data.modes[0];
   if (!top) return "";
   return `${top.name} is your biggest cost at £${fmt(top.monthly)}/mo (${Math.round(top.pct)}%)`;
@@ -96,12 +87,22 @@ function ModeRow({ mode, maxTotal }: { mode: TransportMode; maxTotal: number }) 
 export default function TransportInsights() {
   const [data, setData] = useState<TransportSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
     api.transportSummary()
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
   }, []);
 
   if (loading) {
@@ -129,94 +130,125 @@ export default function TransportInsights() {
   return (
     <div className="pb-8 space-y-3">
 
-      {/* ── Card 1: Hero + split bar (merged) ───────────────────────── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-        <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">
-          Transport · 90 days
-        </p>
-        <div className="flex items-end gap-2 mb-3">
-          <p className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-            £{fmt(data.monthly_avg)}<span className="text-base font-normal text-slate-400">/mo</span>
-          </p>
-          <p className="text-sm text-slate-400 dark:text-slate-500 mb-0.5">
-            £{fmt(data.weekly_avg)}/wk
-          </p>
-        </div>
-
-        {/* Proportional split bar — only when 2+ groups have spend */}
-        {activeSplitGroups >= 2 && (
-          <>
-            <div className="h-2.5 rounded-full overflow-hidden flex gap-px mb-2">
-              {carPct > 1 && (
-                <div className="h-full bg-amber-400" style={{ width: `${carPct}%` }} />
-              )}
-              {ridesharePct > 1 && (
-                <div className="h-full bg-blue-500" style={{ width: `${ridesharePct}%` }} />
-              )}
-              {ptPct > 1 && (
-                <div className="h-full bg-violet-500" style={{ width: `${ptPct}%` }} />
-              )}
-            </div>
-            <div className="flex flex-wrap gap-3 mb-3">
-              {carPct > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-                  Car · {Math.round(carPct)}%
-                </span>
-              )}
-              {ridesharePct > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                  Rideshare · {Math.round(ridesharePct)}%
-                </span>
-              )}
-              {ptPct > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
-                  <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
-                  Public · {Math.round(ptPct)}%
-                </span>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* Adaptive insight chip */}
-        {insight && (
-          <div className="flex items-start gap-2 bg-slate-50 dark:bg-slate-700/60 rounded-xl px-3 py-2">
-            <div
-              className="w-5 h-5 rounded-md flex items-center justify-center text-white flex-shrink-0 mt-0.5"
-              style={{ backgroundColor: data.modes[0]?.colour ?? "#64748b" }}
-            >
-              {MODE_ICON[data.modes[0]?.name] ?? <Car size={11} />}
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300">{insight}</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Card 2: Unified mode breakdown ──────────────────────────── */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
-        <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 mb-4">Where it goes</p>
-        <div className="space-y-4">
-          {data.modes.map(m => (
-            <ModeRow key={m.name} mode={m} maxTotal={maxModeTotal} />
-          ))}
-        </div>
-        {hasCar && (
-          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
-            Car running costs total roughly{" "}
-            <span className="font-semibold text-slate-600 dark:text-slate-300">
-              £{annualCar.toLocaleString("en-GB")}/yr
-            </span>{" "}
-            before depreciation and insurance
-          </p>
-        )}
-      </div>
-
-      {/* ── Card 3: Fuel finder — car users only ────────────────────── */}
+      {/* ── 1. FuelSavingsCard — action first ───────────────────────── */}
       {hasCar && <FuelSavingsCard />}
 
-      {/* ── Card 4: Recent transport ─────────────────────────────────── */}
+      {/* ── 2. Always-visible summary whisper ───────────────────────── */}
+      <div className="px-1">
+        <p className="text-[12px] text-slate-400 dark:text-slate-500">
+          Transport · <span className="font-semibold text-slate-600 dark:text-slate-300">~£{fmt(data.monthly_avg)}/mo</span>
+        </p>
+      </div>
+
+      {/* ── 3. Collapsible breakdown ─────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <button
+          onClick={() => setBreakdownOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+          aria-expanded={breakdownOpen}
+        >
+          <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+            See your travel breakdown
+          </span>
+          <ChevronDown
+            size={16}
+            className={[
+              "text-slate-400 flex-shrink-0",
+              reducedMotion ? "" : "transition-transform duration-200",
+              breakdownOpen ? "rotate-180" : "rotate-0",
+            ].join(" ")}
+          />
+        </button>
+
+        <div
+          className={[
+            "overflow-hidden",
+            reducedMotion ? "" : "transition-[max-height] duration-300 ease-in-out",
+          ].join(" ")}
+          style={{ maxHeight: breakdownOpen ? "2000px" : "0px" }}
+        >
+          <div className="px-4 pb-4 space-y-4 border-t border-slate-100 dark:border-slate-700 pt-3">
+            {/* Hero total */}
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">
+                Transport · 90 days
+              </p>
+              <div className="flex items-end gap-2">
+                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100">
+                  £{fmt(data.monthly_avg)}<span className="text-base font-normal text-slate-400">/mo</span>
+                </p>
+                <p className="text-sm text-slate-400 dark:text-slate-500 mb-0.5">
+                  £{fmt(data.weekly_avg)}/wk
+                </p>
+              </div>
+            </div>
+
+            {/* Split bar + legend */}
+            {activeSplitGroups >= 2 && (
+              <>
+                <div className="h-2.5 rounded-full overflow-hidden flex gap-px">
+                  {carPct > 1 && <div className="h-full bg-amber-400" style={{ width: `${carPct}%` }} />}
+                  {ridesharePct > 1 && <div className="h-full bg-blue-500" style={{ width: `${ridesharePct}%` }} />}
+                  {ptPct > 1 && <div className="h-full bg-violet-500" style={{ width: `${ptPct}%` }} />}
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {carPct > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />Car · {Math.round(carPct)}%
+                    </span>
+                  )}
+                  {ridesharePct > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />Rideshare · {Math.round(ridesharePct)}%
+                    </span>
+                  )}
+                  {ptPct > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
+                      <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />Public · {Math.round(ptPct)}%
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Where it goes */}
+            <div>
+              <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 mb-3">Where it goes</p>
+              <div className="space-y-4">
+                {data.modes.map(m => (
+                  <ModeRow key={m.name} mode={m} maxTotal={maxModeTotal} />
+                ))}
+              </div>
+            </div>
+
+            {/* Adaptive insight chip */}
+            {insight && (
+              <div className="flex items-start gap-2 bg-slate-50 dark:bg-slate-700/60 rounded-xl px-3 py-2">
+                <div
+                  className="w-5 h-5 rounded-md flex items-center justify-center text-white flex-shrink-0 mt-0.5"
+                  style={{ backgroundColor: data.modes[0]?.colour ?? "#64748b" }}
+                >
+                  {MODE_ICON[data.modes[0]?.name] ?? <Car size={11} />}
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300">{insight}</p>
+              </div>
+            )}
+
+            {/* Annual car footnote */}
+            {hasCar && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-700">
+                Car running costs total roughly{" "}
+                <span className="font-semibold text-slate-600 dark:text-slate-300">
+                  £{annualCar.toLocaleString("en-GB")}/yr
+                </span>{" "}
+                before depreciation and insurance
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 4. Recent transport ──────────────────────────────────────── */}
       {data.top_transactions.length > 0 && (
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
           <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 mb-3">Recent transport</p>

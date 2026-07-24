@@ -13,6 +13,7 @@ import {
 import {
   ChartPie, BarChart3, TrendingUp, AlignStartVertical, MoreVertical,
   Pin, PinOff, Trash2, Plus, ChevronRight,
+  Car, Fuel, Train, Bus, CarTaxiFront, PlugZap, Wrench, SquareParking,
 } from "lucide-react";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
@@ -22,7 +23,7 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { api, Transaction } from "@/lib/api";
+import { api, Transaction, TransportSummary } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -44,7 +45,7 @@ function useIsDark() {
   return dark;
 }
 
-export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution";
+export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution" | "transport_modes";
 
 export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars"];
 
@@ -68,6 +69,11 @@ const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: 
     title: "Transaction sizes",
     description: "How many transactions fall in each price band",
     Icon: AlignStartVertical,
+  },
+  transport_modes: {
+    title: "Transport by mode",
+    description: "Where your transport spend goes — car, rideshare, public",
+    Icon: BarChart3,
   },
 };
 
@@ -450,12 +456,125 @@ function EmptyWidget({ compact }: { compact?: boolean }) {
   );
 }
 
+const TRANSPORT_MODE_ICON: Record<string, import("react").ReactNode> = {
+  "Fuel":             <Fuel size={14} />,
+  "Parking":          <SquareParking size={14} />,
+  "Taxi & Rideshare": <CarTaxiFront size={14} />,
+  "Rail":             <Train size={14} />,
+  "TfL / Oyster":     <Train size={14} />,
+  "Bus & Coach":      <Bus size={14} />,
+  "EV Charging":      <PlugZap size={14} />,
+  "Car Rental":       <Car size={14} />,
+  "Car Care":         <Wrench size={14} />,
+};
+
+function TransportModesWidget({ compact }: { compact?: boolean }) {
+  const [data, setData] = useState<TransportSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.transportSummary()
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <EmptyWidget compact={compact} />;
+  if (!data || data.total_spend === 0) return <EmptyWidget compact={compact} />;
+
+  const total        = data.total_spend;
+  const carPct       = total > 0 ? (data.car_total       / total) * 100 : 0;
+  const ridesharePct = total > 0 ? (data.rideshare_total / total) * 100 : 0;
+  const ptPct        = total > 0 ? (data.pt_total        / total) * 100 : 0;
+  const activeSplitGroups = [carPct, ridesharePct, ptPct].filter(p => p > 0).length;
+  const maxModeTotal      = Math.max(...data.modes.map(m => m.total), 1);
+
+  return (
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      {/* Hero */}
+      <div>
+        <p className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">
+          Transport · 90 days
+        </p>
+        <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+          {fmtGBP(data.monthly_avg)}<span className="text-sm font-normal text-slate-400">/mo</span>
+        </p>
+      </div>
+
+      {/* Split bar + legend */}
+      {activeSplitGroups >= 2 && (
+        <>
+          <div className="h-2 rounded-full overflow-hidden flex gap-px">
+            {carPct > 1 && <div className="h-full bg-amber-400" style={{ width: `${carPct}%` }} />}
+            {ridesharePct > 1 && <div className="h-full bg-blue-500" style={{ width: `${ridesharePct}%` }} />}
+            {ptPct > 1 && <div className="h-full bg-violet-500" style={{ width: `${ptPct}%` }} />}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {carPct > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />Car · {Math.round(carPct)}%
+              </span>
+            )}
+            {ridesharePct > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />Rideshare · {Math.round(ridesharePct)}%
+              </span>
+            )}
+            {ptPct > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
+                <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />Public · {Math.round(ptPct)}%
+              </span>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Mode rows */}
+      {!compact && (
+        <>
+          <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-100">Where it goes</p>
+          <div className="space-y-3">
+            {data.modes.map(m => {
+              const w = Math.max(Math.round((m.total / maxModeTotal) * 100), 3);
+              return (
+                <div key={m.name} className="flex items-center gap-3">
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-white"
+                    style={{ backgroundColor: m.colour }}
+                  >
+                    {TRANSPORT_MODE_ICON[m.name] ?? <Car size={12} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between mb-1">
+                      <span className="text-[12px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.name}</span>
+                      <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-100 ml-2 flex-shrink-0">
+                        {fmtGBP(m.monthly)}<span className="text-[10px] font-normal text-slate-400">/mo</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${w}%`, backgroundColor: m.colour }} />
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 w-6 text-right flex-shrink-0">
+                    {Math.round(m.pct)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function renderWidget(id: WidgetId, data: WidgetData, compact?: boolean) {
   switch (id) {
     case "category_pie":      return <CategoryPieWidget data={data} compact={compact} />;
     case "daily_bars":        return <DailyBarsWidget data={data} compact={compact} />;
     case "period_compare":    return <PeriodCompareWidget data={data} compact={compact} />;
     case "size_distribution": return <SizeDistributionWidget data={data} compact={compact} />;
+    case "transport_modes":   return <TransportModesWidget compact={compact} />;
   }
 }
 

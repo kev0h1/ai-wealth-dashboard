@@ -81,7 +81,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
       if ((p as any).debt_tracking_start) setDebtTrackingStartState((p as any).debt_tracking_start as string);
       if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
-      if (Array.isArray((p as any).budget_widgets)) setBudgetWidgetsState((p as any).budget_widgets as string[]);
+      setBudgetWidgetsState(Array.isArray((p as any).budget_widgets) ? ((p as any).budget_widgets as string[]) : []);
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
       setRawPrefs(p as any);
     }).catch(() => {});

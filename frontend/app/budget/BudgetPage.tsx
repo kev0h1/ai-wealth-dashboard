@@ -36,7 +36,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import { getPayPeriodWithConfig, filterPeriod, formatDate, formatPeriod, prevPeriodWithConfig, nextPeriodWithConfig } from "@/lib/payPeriod";
-import type { Transaction } from "@/lib/api";
+import type { Transaction, CashflowData } from "@/lib/api";
 import CustomSelect from "@/components/CustomSelect";
 
 interface Budget {
@@ -69,6 +69,10 @@ function interpolateCurve(curve: number[], elapsedFraction: number): number {
   if (lo === hi) return curve[lo];
   return curve[lo] + (pos - lo) * (curve[hi] - curve[lo]);
 }
+
+// Status colours — drive all over-budget bars and text from these two constants
+const OVER_COLOUR  = "#f59e0b"; // amber: watch state (over a self-set budget)
+const RISK_COLOUR  = "#ef4444"; // red: genuine risk only (bill can't clear)
 
 const SKIP = new Set(["Transfer", "Savings", "Debt", "Income"]);
 
@@ -105,6 +109,7 @@ export default function BudgetPage() {
     [allTransactions, periodStart, periodEnd, region]
   );
   const [loading, setLoading] = useState(true);
+  const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   // Page is ready once both budgets/profile and transactions are loaded.
   const pageLoading = loading || txLoading;
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
@@ -145,12 +150,14 @@ export default function BudgetPage() {
 
   const load = useCallback(async () => {
     try {
-      const [{ budgets: b }, profile] = await Promise.all([
+      const [{ budgets: b }, profile, cashflowData] = await Promise.all([
         api.getBudgets(),
         api.budgetPaceProfile().catch(() => ({ curves: {}, sample_points: 20, periods_analysed: 0 })),
+        api.cashflow().catch(() => null),
       ]);
       setPaceProfile(profile.curves);
       setBudgets(b);
+      setCashflow(cashflowData);
     } catch {}
     finally { setLoading(false); }
   }, []);
@@ -350,6 +357,20 @@ export default function BudgetPage() {
   const overallPct = totalBudget > 0 ? Math.min(100, (totalSpent / totalBudget) * 100) : 0;
   const overBudgetCount = budgets.filter(b => (spending[b.category] ?? 0) > b.monthly_limit).length;
 
+  // True at-risk: a bill that likely won't clear (within 7 days, amount > account balance)
+  // or the available cash balance is already negative.
+  const atRiskBills = cashflow
+    ? cashflow.upcoming_bills.filter(
+        b => b.days_away <= 7 &&
+             b.account_balance != null &&
+             b.account_balance >= 0 &&
+             b.amount > b.account_balance
+      )
+    : [];
+  const hasGenuineRisk =
+    (cashflow?.available_balance != null && cashflow.available_balance < 0) ||
+    atRiskBills.length > 0;
+
   // How far through the current pay period are we (linear fraction)?
   const _today = new Date();
   const _totalMs = Math.max(1, periodEnd.getTime() - periodStart.getTime());
@@ -535,6 +556,9 @@ export default function BudgetPage() {
                   <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num mb-1">
                     {hideNetWorth ? "••••" : fmt(remaining, sym)}
                   </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                    {hideNetWorth ? "••••" : `${fmt(totalSpent, sym)} spent of ${fmt(totalBudget, sym)}`}
+                  </p>
                   {isCurrentPeriod && daysLeft > 0 && (
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                       {hideNetWorth ? "••••" : fmt2(remaining / Math.max(1, daysLeft), sym)}/day · {daysLeft} days left
@@ -546,12 +570,15 @@ export default function BudgetPage() {
                 </>
               ) : (
                 <>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Over budget</p>
-                  <p className="text-2xl font-bold text-red-600 dark:text-red-400 num mb-1">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Over your budget</p>
+                  <p className={`text-2xl font-bold num mb-1 ${hasGenuineRisk ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-500"}`}>
                     {hideNetWorth ? "••••" : fmt(Math.abs(remaining), sym)} over
                   </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {overBudgetCount} {overBudgetCount === 1 ? "category" : "categories"} over budget
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                    {hideNetWorth ? "••••" : `${fmt(totalSpent, sym)} spent of ${fmt(totalBudget, sym)}`}
+                  </p>
+                  <p className={`text-sm ${hasGenuineRisk ? "text-red-600 dark:text-red-500" : "text-amber-700 dark:text-amber-400"}`}>
+                    {overBudgetCount} {overBudgetCount === 1 ? "category" : "categories"} over budget{hasGenuineRisk ? " · a bill may not clear" : ""}
                   </p>
                   {totalPlanned > 0 && (
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</p>
@@ -561,7 +588,7 @@ export default function BudgetPage() {
               <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-3" role="progressbar" aria-valuenow={Math.round(Math.min(overallPct, 100))} aria-valuemin={0} aria-valuemax={100} aria-label="Overall budget used">
                 <div
                   className="h-full rounded-full bar-sweep"
-                  style={{ width: `${Math.min(100, overallPct)}%`, backgroundColor: remaining < 0 ? "#ef4444" : "#10b981" }}
+                  style={{ width: `${Math.min(100, overallPct)}%`, backgroundColor: remaining < 0 ? (hasGenuineRisk ? RISK_COLOUR : OVER_COLOUR) : "#10b981" }}
                 />
               </div>
               {remaining >= 0 && overallAheadOfPace && totalBudget > 0 && (
@@ -893,7 +920,7 @@ export default function BudgetPage() {
 
                     return (
                       <SwipeToDelete key={b.category} onDelete={() => requestDelete(b.category)} label="Delete">
-                      <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}${over ? " bg-red-50/50 dark:bg-red-950/10" : ""}`}>
+                      <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}`}>
                         {/* Expand button — covers icon+name area + progress bar + pace labels.
                             Right padding reserves space for the absolute-positioned control cluster. */}
                         <button
@@ -923,7 +950,7 @@ export default function BudgetPage() {
                             <div className="absolute inset-0 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full bar-sweep"
-                                style={{ width: `${pct}%`, backgroundColor: over ? "#f87171" : aheadOfPace ? colour : "#f59e0b" }}
+                                style={{ width: `${pct}%`, backgroundColor: over ? OVER_COLOUR : aheadOfPace ? colour : OVER_COLOUR }}
                               />
                             </div>
                             {/* Pace marker — where you should be at this point in the period */}
@@ -935,7 +962,7 @@ export default function BudgetPage() {
                             )}
                           </div>
                           <div className="flex justify-between mt-1">
-                            <span className={`text-[11px] font-medium ${over ? "text-red-600" : elapsedFraction < 0.05 ? "text-slate-500 dark:text-slate-400" : aheadOfPace ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-500"}`}>
+                            <span className={`text-[11px] font-medium ${over ? "text-amber-700 dark:text-amber-400" : elapsedFraction < 0.05 ? "text-slate-500 dark:text-slate-400" : aheadOfPace ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-500"}`}>
                               {hideNetWorth ? "••••" : over
                                 ? `${fmt2(spent - b.monthly_limit, sym)} over budget`
                                 : elapsedFraction < 0.05
@@ -989,7 +1016,7 @@ export default function BudgetPage() {
                           ) : (
                             <button
                               onClick={() => { setEditingCat(b.category); setEditValue(String(b.monthly_limit)); }}
-                              className={`text-sm font-semibold tabular-nums min-h-[44px] flex items-center px-1 ${over ? "text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"}`}
+                              className={`text-sm font-semibold tabular-nums min-h-[44px] flex items-center px-1 ${over ? "text-slate-600 dark:text-slate-300" : "text-slate-600 dark:text-slate-300"}`}
                               aria-label={`Edit ${b.category} budget limit`}
                             >
                               <span>{hideNetWorth ? "••••" : fmt2(spent, sym)}</span>

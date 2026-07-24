@@ -2,8 +2,8 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, ArrowRight, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, Fuel, MapPin, Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin } from "lucide-react";
-import { api, SavingsInsight, WorkflowDef, WorkflowStep, DebtPlan, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby, Basket, BasketInsights } from "@/lib/api";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, ArrowRight, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, TrendingUp } from "lucide-react";
+import { api, SavingsInsight, WorkflowDef, WorkflowStep, DebtPlan, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby } from "@/lib/api";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import BottomNav from "@/components/BottomNav";
@@ -14,14 +14,13 @@ import MoneyBasicCard from "@/components/MoneyBasicCard";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import {
   DebtGrowingCard, CreditCardsCard, DebtBurndownCard,
   calcMonthsFromPayment, debtFreeDate, fmt,
   DebtInsights, BurndownData,
 } from "@/app/debt/DebtPage";
-import TransportInsights from "@/components/TransportInsights";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
+import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxChat from "@/components/TaxChat";
 import SegmentedControl from "@/components/SegmentedControl";
@@ -720,411 +719,6 @@ function InsightCard({
   );
 }
 
-// ── Grocery receipt scanning ──────────────────────────────────────────────────
-
-const CURRENCY_SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$" };
-
-function money(value: number | null, currency: string): string {
-  if (value == null) return "—";
-  const sym = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
-  return `${sym}${value.toFixed(2)}`;
-}
-
-// Downscale on the client so we send a lean image: smaller payload + the model
-// reads a 1600px receipt fine, and we never ship a 12MP original.
-function fileToScaledDataUrl(file: File, maxDim = 1600, quality = 0.8): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(reader.result as string); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = reject;
-      img.src = reader.result as string;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-export function GroceryBasketCard() {
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const uploadRef = useRef<HTMLInputElement>(null);
-  const [baskets, setBaskets] = useState<Basket[]>([]);
-  const [insights, setInsights] = useState<BasketInsights | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [showTrends, setShowTrends] = useState(false);
-  const [showMoreCheaper, setShowMoreCheaper] = useState(false);
-  const [showMorePriceChanges, setShowMorePriceChanges] = useState(false);
-  const router = useRouter();
-  const [cardOpen, setCardOpen] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const { pinned: pinnedCards, toggle: toggleCard } = useHomePinnedCards();
-  const isGroceriesPinned = pinnedCards.includes("groceries");
-
-  const loadInsights = () => api.basketInsights().then(setInsights).catch(() => {});
-
-  useEffect(() => {
-    api.listBaskets().then(setBaskets).catch(() => {});
-    loadInsights();
-  }, []);
-
-  async function scanFile(file: File | Blob) {
-    setError(null);
-    setLoading(true);
-    try {
-      const dataUrl = await fileToScaledDataUrl(file as File);
-      const basket = await api.scanReceipt(dataUrl);
-      setBaskets((prev) => [basket, ...prev]);
-      setExpanded(basket.id);
-      loadInsights();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't scan that receipt");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    await scanFile(file);
-  }
-
-  // Inside the app shell, use the native camera via the message bridge — the
-  // WebView's file-input camera is unreliable across Android versions.
-  function takePhoto() {
-    const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
-    if (!rn) { cameraRef.current?.click(); return; }
-    const id = Math.random().toString(36).slice(2);
-    const onResult = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail || detail.id !== id) return;
-      window.removeEventListener("native-camera", onResult);
-      if (detail.error === "cancelled") return;
-      if (detail.error || !detail.base64) { cameraRef.current?.click(); return; } // fall back to the input route
-      const bytes = atob(detail.base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      scanFile(new Blob([arr], { type: detail.mime || "image/jpeg" }));
-    };
-    window.addEventListener("native-camera", onResult);
-    rn.postMessage(JSON.stringify({ type: "camera:request", id }));
-    // Safety: stop listening if the shell never answers (old app build)
-    setTimeout(() => window.removeEventListener("native-camera", onResult), 60_000);
-  }
-
-  async function remove(id: string) {
-    setBaskets((prev) => prev.filter((b) => b.id !== id));
-    if (expanded === id) setExpanded(null);
-    try { await api.deleteBasket(id); } catch { /* best-effort */ }
-    loadInsights();
-  }
-
-  const hasTrends = !!insights && (insights.item_trends.length > 0 || insights.store_prices.length > 0);
-
-  return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => setCardOpen((v) => !v)}
-          aria-expanded={cardOpen}
-          className="flex-1 flex items-center gap-2 text-left min-w-0"
-        >
-          <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
-            <Receipt size={16} className="text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex-1">Groceries</p>
-          {insights && insights.receipt_count > 0 && (
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              {insights.receipt_count} receipt{insights.receipt_count === 1 ? "" : "s"}
-            </span>
-          )}
-          <ChevronDown
-            size={18}
-            className={`text-slate-400 flex-shrink-0 transition-transform ${cardOpen ? "rotate-180" : ""}`}
-          />
-        </button>
-        <button
-          onClick={() => toggleCard("groceries")}
-          title={isGroceriesPinned ? "Unpin from Home" : "Pin to Home"}
-          aria-label={isGroceriesPinned ? "Unpin from Home" : "Pin to Home"}
-          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${isGroceriesPinned ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-500" : "text-slate-300 dark:text-slate-600 hover:text-indigo-400"}`}
-        >
-          <Pin size={13} className={isGroceriesPinned ? "fill-indigo-400" : ""} />
-        </button>
-      </div>
-
-      {!cardOpen ? (
-        <div
-          className={`flex items-center gap-2 mt-2 px-3 py-2 rounded-xl ${
-            insights?.headline ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-slate-50 dark:bg-slate-900/60"
-          }`}
-        >
-          {insights?.headline ? (
-            <>
-              <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate">{insights.headline}</span>
-            </>
-          ) : (
-            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
-          )}
-        </div>
-      ) : (
-      <>
-
-      {insights?.headline ? (
-        <button
-          onClick={() => hasTrends && setShowTrends((v) => !v)}
-          className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-left"
-        >
-          <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-          <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
-            {insights.headline}
-          </span>
-          {hasTrends && (
-            <ChevronDown
-              size={14}
-              className={`text-emerald-600 dark:text-emerald-400 flex-shrink-0 transition-transform ${showTrends ? "rotate-180" : ""}`}
-            />
-          )}
-        </button>
-      ) : (
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 mb-4 leading-relaxed">
-          Snap a receipt and we&apos;ll itemise it, then track how prices change over
-          time and which shop is cheapest for what you buy.
-        </p>
-      )}
-
-      <input
-        ref={cameraRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={onFile}
-      />
-      <input
-        ref={uploadRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={onFile}
-      />
-      {loading ? (
-        <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-sm font-semibold text-white opacity-60">
-          <Camera size={16} />
-          Reading receipt…
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={takePhoto}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-sm font-semibold text-white transition-all active:scale-95"
-          >
-            <Camera size={16} />
-            Take photo
-          </button>
-          <button
-            onClick={() => uploadRef.current?.click()}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-400/60 dark:border-emerald-400/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-sm font-semibold text-emerald-700 dark:text-emerald-200 transition-all active:scale-95"
-          >
-            <ImageIcon size={16} />
-            Upload
-          </button>
-        </div>
-      )}
-
-      {error && <p className="text-xs text-rose-500 mt-2">{error}</p>}
-
-      {showTrends && insights && (
-        <div className="mt-4 space-y-3">
-          {insights.store_prices.length > 0 && (
-            <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
-                <Store size={12} /> Cheaper elsewhere
-              </p>
-              {(() => {
-                const sorted = [...insights.store_prices].sort((a, b) => b.saving - a.saving);
-                const visible = showMoreCheaper ? sorted : sorted.slice(0, 5);
-                const hidden = sorted.length - 5;
-                return (
-                  <>
-                    <ul className="space-y-1.5">
-                      {visible.map((s) => (
-                        <li key={s.key} className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{s.name}</p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              {money(s.cheapest_price, s.currency)} at {s.cheapest_store} · {money(s.dearest_price, s.currency)} at {s.dearest_store}
-                            </p>
-                          </div>
-                          <span className="text-[11px] font-semibold text-emerald-500 flex-shrink-0">
-                            save {money(s.saving, s.currency)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    {sorted.length > 5 && (
-                      <button
-                        onClick={() => setShowMoreCheaper((v) => !v)}
-                        className="mt-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
-                      >
-                        {showMoreCheaper ? "Show less" : `See ${hidden} more`}
-                      </button>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          )}
-          {insights.item_trends.length > 0 && (
-            <div>
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1.5">
-                <TrendingUp size={12} /> Price changes
-              </p>
-              {(() => {
-                const filtered = insights.item_trends.filter((t) => t.pct_change !== 0);
-                const sorted = [...filtered].sort((a, b) => Math.abs(b.pct_change) - Math.abs(a.pct_change));
-                const visible = showMorePriceChanges ? sorted : sorted.slice(0, 5);
-                const hidden = sorted.length - 5;
-                return (
-                  <>
-                    <ul className="space-y-1.5">
-                      {visible.map((t) => {
-                        const up = t.pct_change > 0;
-                        return (
-                          <li key={t.key} className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{t.name}</p>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {money(t.previous, t.currency)} → {money(t.latest, t.currency)}{t.store ? ` · ${t.store}` : ""}
-                              </p>
-                            </div>
-                            <span className={`text-[11px] font-semibold flex-shrink-0 ${up ? "text-rose-500" : "text-emerald-500"}`}>
-                              {up ? "+" : ""}{t.pct_change}%
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {sorted.length > 5 && (
-                      <button
-                        onClick={() => setShowMorePriceChanges((v) => !v)}
-                        className="mt-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
-                      >
-                        {showMorePriceChanges ? "Show less" : `See ${hidden} more`}
-                      </button>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-      )}
-
-      {baskets.length > 0 && (
-        <ul className="mt-4 space-y-2">
-          {baskets.slice(0, 3).map((b) => {
-            const open = expanded === b.id;
-            return (
-              <li key={b.id} className="rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
-                <div className="flex items-center gap-2 p-3">
-                  <button
-                    onClick={() => setExpanded(open ? null : b.id)}
-                    className="flex-1 flex items-center gap-2 min-w-0 text-left"
-                  >
-                    <ChevronDown
-                      size={15}
-                      className={`text-slate-400 flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-                    />
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {b.shop || "Receipt"}
-                        <span className="ml-1.5 text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                          {b.item_count} item{b.item_count === 1 ? "" : "s"}
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {b.purchased_at
-                          ? <>{b.purchased_at}{b.date_estimated && <span className="italic"> · estimated</span>}</>
-                          : "Date unknown"}
-                      </p>
-                    </div>
-                  </button>
-                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                    {money(b.total, b.currency)}
-                  </span>
-                  <button
-                    onClick={() => setPendingDeleteId(b.id)}
-                    className="p-2.5 text-slate-300 hover:text-rose-500 flex-shrink-0"
-                    aria-label="Delete receipt"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-                {open && (
-                  <ul className="px-3 pb-3 pt-0 space-y-1 border-t border-slate-100 dark:border-slate-700">
-                    {b.items.map((it, i) => (
-                      <li key={i} className="flex items-center justify-between gap-2 pt-1.5">
-                        <div className="min-w-0">
-                          <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">
-                            {it.qty > 1 && <span className="text-slate-500 dark:text-slate-400">{it.qty}× </span>}
-                            {it.name}
-                          </p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.category}</p>
-                        </div>
-                        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0">
-                          {money(it.line_price ?? it.unit_price, b.currency)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {baskets.length > 3 && (
-        <button
-          onClick={() => router.push("/insights/receipts")}
-          className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
-        >
-          View all {baskets.length} receipts
-          <ChevronRight size={13} />
-        </button>
-      )}
-      </>
-      )}
-      <ConfirmDialog
-        open={pendingDeleteId !== null}
-        destructive
-        title="Delete receipt?"
-        message="Remove this scanned receipt? This can't be undone."
-        confirmLabel="Delete"
-        onConfirm={() => { const id = pendingDeleteId!; setPendingDeleteId(null); remove(id); }}
-        onCancel={() => setPendingDeleteId(null)}
-      />
-    </div>
-  );
-}
-
 // ── Savings Insights Section (reusable body) ──────────────────────────────────
 
 export function SavingsInsightsSection({ embedded = false }: { embedded?: boolean } = {}) {
@@ -1375,12 +969,13 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
 // ── Debt-free Plan Card ───────────────────────────────────────────────────────
 
-function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }: {
+function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, onOpenChat }: {
   debtTotal: number;
   savings: SavingsInsights | null;
   incomeBracket: string;
   sym: string;
   hideValues: boolean;
+  onOpenChat: (prompt: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -1392,29 +987,37 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }:
   const bufferGap    = Math.max(0, bufferTarget - currentNet);
   const highEarner   = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
 
-  const steps: { title: string; why: string }[] = [];
+  const steps: { title: string; why: string; ctaLabel: string; ctaPrompt: string }[] = [];
   if (monthlySpend > 0 && bufferGap > 0) {
     steps.push({
       title: "Starter buffer",
       why: `Get your safety net to 1 month of spending${hideValues ? "" : ` — ${fmt(bufferGap, sym)} to go`}. Without it, a surprise bill lands on a credit card.`,
+      ctaLabel: "Ask Penny how",
+      ctaPrompt: "How do I build my starter safety-net buffer?",
     });
   }
   if (debtTotal > 0) {
     steps.push({
       title: "Credit card debt",
       why: "Cards typically charge 20%+ APR, so £100 here reliably saves £20+/yr — a better guaranteed return than any savings account.",
+      ctaLabel: "Ask Penny how",
+      ctaPrompt: "How should I pay down my credit card fastest?",
     });
   }
   if (highEarner) {
     steps.push({
       title: "Pension contributions",
       why: "In the £100k–£125k band, £100 into your pension effectively costs ~£40 after tax relief and allowance restoration.",
+      ctaLabel: "Ask Penny how",
+      ctaPrompt: "How do I use pension contributions to save tax?",
     });
   }
   if (savings && savings.target_amount > 0 && currentNet < savings.target_amount && bufferGap <= 0) {
     steps.push({
       title: "Full safety net",
       why: `Top up to your ${savings.target_months ?? 3}-month goal, then surplus can go to investments.`,
+      ctaLabel: "Ask Penny how",
+      ctaPrompt: "How do I build my full safety net faster?",
     });
   }
 
@@ -1439,6 +1042,14 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }:
           </div>
         </div>
       </button>
+      <div className="px-4 pb-3">
+        <button
+          onClick={() => onOpenChat(first.ctaPrompt)}
+          className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+        >
+          {first.ctaLabel} →
+        </button>
+      </div>
       {open && rest.length > 0 && (
         <div className="px-4 pb-3 space-y-2 border-t border-slate-100 dark:border-slate-700 pt-2.5">
           {rest.map((s, i) => (
@@ -1450,9 +1061,6 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }:
               </div>
             </div>
           ))}
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
-            One order, all tabs — buffer first, then the most expensive debt, then tax-advantaged saving.
-          </p>
         </div>
       )}
     </div>
@@ -1889,20 +1497,38 @@ function SafetyNetCard({
           </p>
         )}
         {!funded && data.monthly_surplus > 0 && data.funded_date && data.months_to_target < 999 && (
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {debtTotal > 0 ? (
-              <>
-                Put that spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo here and you&rsquo;re fully funded by{" "}
-                <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span> — clearing your
-                cards first (as recommended above) frees up their payments and pulls this sooner.
-              </>
-            ) : (
-              <>
-                At your spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo, fully funded by{" "}
-                <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span>.
-              </>
+          <div className="space-y-1.5">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {debtTotal > 0 ? (
+                <>
+                  Put that spare {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo here and you&rsquo;re fully funded by{" "}
+                  <span className="font-semibold text-emerald-600">{fmtMonth(data.funded_date)}</span> — clearing your
+                  cards first (as recommended above) frees up their payments and pulls this sooner.
+                </>
+              ) : (() => {
+                // Compute progress toward the first meaningful milestone: 1 month of spending.
+                const oneMonthTarget = data.monthly_spending > 0 ? data.monthly_spending : data.target_amount;
+                const nearPct = oneMonthTarget > 0
+                  ? Math.min(100, Math.round((data.current_savings / oneMonthTarget) * 100))
+                  : Math.round(data.pct_funded);
+                const atOneMo = data.monthly_spending > 0 && data.current_savings >= data.monthly_spending;
+                return (
+                  <>
+                    {atOneMo ? (
+                      <>You&rsquo;ve got one month covered — next milestone: your full {data.target_months ?? 3}-month goal.</>
+                    ) : (
+                      <>You&rsquo;re <span className="font-semibold text-emerald-600">{nearPct}% to your first month</span> of safety net.</>
+                    )}
+                  </>
+                );
+              })()}
+            </p>
+            {debtTotal === 0 && (
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                At {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo spare, fully funded by {fmtMonth(data.funded_date)}.
+              </p>
             )}
-          </p>
+          </div>
         )}
         {!funded && data.monthly_surplus <= 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400">
@@ -2045,16 +1671,16 @@ export default function InsightsPage() {
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<"plan" | "savings" | "transport" | "tax">("plan");
+  const [tab, setTab] = useState<"savings" | "tax">("savings");
   const [incomeBracket, setIncomeBracket] = useState("");
   const [taxIncomeValue, setTaxIncomeValue] = useState(0);
   const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
   const [taxHasChildBenefit, setTaxHasChildBenefit] = useState(false);
   const [taxPrefsLoaded, setTaxPrefsLoaded] = useState(false);
-  const [hasTransport, setHasTransport] = useState(true);
   const [plan, setPlan] = useState<DebtPlan | null>(null);
   const [savings, setSavings] = useState<SavingsInsights | null>(null);
   const [savingsPlan, setSavingsPlan] = useState<SavingsPlan | null>(null);
+  const [savingsMoreOpen, setSavingsMoreOpen] = useState(false);
 
   const chatRef = useRef<MoneyAdvisorChatHandle>(null);
   const burndownMounted = useRef(false);
@@ -2171,8 +1797,6 @@ export default function InsightsPage() {
     try {
       const b = localStorage.getItem("wd_bracket");
       if (b !== null) setIncomeBracket(b);
-      const t = localStorage.getItem("wd_has_transport");
-      if (t !== null) setHasTransport(t === "1");
     } catch {}
   }, []);
 
@@ -2195,40 +1819,34 @@ export default function InsightsPage() {
         setTaxPrefsLoaded(true);
       })
       .catch(() => {});
-    // Mobility only earns a tab when there's meaningful transport spend to analyse
-    api.transportSummary()
-      .then(t => {
-        const has = (t.monthly_avg ?? 0) >= 50;
-        setHasTransport(has);
-        try { localStorage.setItem("wd_has_transport", has ? "1" : "0"); } catch {}
-      })
-      .catch(() => {});
   }, []);
 
-  // Default to the most relevant tab once insights load: Debt if in debt, else Savings.
-  // A `?tab=savings|plan` query param (e.g. from the Home spotlight) overrides the default.
+  // Default to savings tab; redirect ?tab=plan deep-links to /debt.
   useEffect(() => {
     if (insights && !initialTabSet.current) {
       initialTabSet.current = true;
       const params = new URLSearchParams(window.location.search);
       const requested = params.get("tab");
-      let chosen: "plan" | "savings" | "transport" | "tax";
-      if (requested === "savings" || requested === "plan" || requested === "transport" || requested === "tax") {
+      if (requested === "plan") {
+        router.replace("/debt");
+        return;
+      }
+      let chosen: "savings" | "tax";
+      if (requested === "savings" || requested === "tax") {
         chosen = requested;
       } else if (params.get("insight")) {
         chosen = "savings";
       } else {
-        chosen = (insights.total_debt ?? 0) > 0 ? "plan" : "savings";
+        chosen = "savings";
       }
       setTab(chosen);
       if (chosen === "savings" && requested === "savings") {
-        // Scroll to the savings insights section after a brief render tick
         setTimeout(() => {
           savingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 150);
       }
     }
-  }, [insights]);
+  }, [insights, router]);
 
   const effectiveTargetMonths = burndownMode === "amount" && burndown && monthlyPaymentInput > 0
     ? calcMonthsFromPayment(burndown.current_debt, monthlyPaymentInput, burndown.weighted_apr)
@@ -2243,11 +1861,7 @@ export default function InsightsPage() {
   }, [debtTargetMonths, burndownMode, monthlyPaymentInput, strategy, debtTrackingStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasDebt = (insights?.total_debt ?? 0) > 0;
-  // The Debt tab only exists when there's debt; otherwise the page is Savings-only.
-  const onDebtTab = hasDebt && tab === "plan";
-  // Desktop has no tabs — the hero always reflects the primary pillar.
-  const heroMode = isDesktop ? (hasDebt ? "plan" : "savings") : tab;
-  const heroDebt = hasDebt && heroMode === "plan";
+  const heroMode = isDesktop ? "savings" : tab;
 
   const taxYear = (() => {
     const now = new Date();
@@ -2260,7 +1874,7 @@ export default function InsightsPage() {
     const label = `${start.getFullYear()}/${String(end.getFullYear()).slice(2)}`;
     return { pct, daysLeft, label };
   })();
-  const accent = onDebtTab ? "#b91c1c" : tab === "transport" ? "#7c3aed" : "#059669";
+  const accent = tab === "tax" ? "#7c3aed" : "#059669";
 
   function refreshDebt() {
     api.debtInsights().then(setInsights).catch(() => {});
@@ -2284,17 +1898,7 @@ export default function InsightsPage() {
         className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
         data-tutorial-id="tutorial-debt-header"
       >
-        {heroMode === "transport" ? (
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Transport & mobility</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Your travel costs across all modes</p>
-            </div>
-            <div className="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
-              <MapPin className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-            </div>
-          </div>
-        ) : heroMode === "tax" ? (
+        {heroMode === "tax" ? (
           <>
             <div className="flex items-center justify-between">
               <div>
@@ -2313,26 +1917,6 @@ export default function InsightsPage() {
               <span className="text-[11px] text-slate-500 dark:text-slate-400">{taxYear.daysLeft} days left</span>
               <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
             </div>
-          </>
-        ) : heroDebt ? (
-          <>
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Get debt-free</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Track your payoff and find ways to save</p>
-              </div>
-              <div className="w-11 h-11 rounded-2xl bg-red-100 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
-                <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
-              </div>
-            </div>
-            {insights ? (
-              <div className="mt-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">{hasDebt ? "Total outstanding" : "Credit-card debt"}</p>
-                <p className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400">
-                  {hideNetWorth ? "••••" : hasDebt ? fmt(insights.total_debt, sym) : fmt(0, sym)}
-                </p>
-              </div>
-            ) : null}
           </>
         ) : (
           /* Savings */
@@ -2379,12 +1963,10 @@ export default function InsightsPage() {
           </>
         ) : (
           <>
-            {/* Debt | Savings | Mobility | Tax tabs — hidden when there's only one */}
+            {/* Savings | Tax tabs — hidden when there's only one */}
             {(() => {
-              const tabs = [
-                ...(hasDebt ? ["plan" as const] : []),
-                "savings" as const,
-                ...(hasTransport ? ["transport" as const] : []),
+              const tabs: ("savings" | "tax")[] = [
+                "savings",
                 ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? ["tax" as const] : []),
               ];
               if (tabs.length < 2 || isDesktop) return null;
@@ -2394,9 +1976,7 @@ export default function InsightsPage() {
                   value={tab}
                   onChange={(t) => setTab(t as typeof tab)}
                   options={[
-                    ...(hasDebt ? [{ value: "plan", label: "Debt", accent: "#b91c1c" }] : []),
                     { value: "savings", label: "Savings", accent: "#059669" },
-                    ...(hasTransport ? [{ value: "transport", label: "Mobility", accent: "#7c3aed" }] : []),
                     ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? [{ value: "tax", label: "Tax", accent: "#7c3aed" }] : []),
                   ]}
                 />
@@ -2412,61 +1992,12 @@ export default function InsightsPage() {
                 incomeBracket={incomeBracket}
                 sym={sym}
                 hideValues={hideNetWorth}
+                onOpenChat={(p) => chatRef.current?.open(p)}
               />
             )}
 
             {(() => {
               const showTaxSection = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
-
-              const debtBlock = (
-                <>
-                  {burndown && burndown.burndown.length > 0 && (
-                    <DebtBurndownCard
-                      data={burndown}
-                      mode={burndownMode}
-                      onModeChange={setBurndownMode}
-                      targetMonths={debtTargetMonths}
-                      onTargetChange={setDebtTargetMonths}
-                      monthlyPayment={monthlyPaymentInput}
-                      onMonthlyPaymentChange={setMonthlyPaymentInput}
-                      effectiveTargetMonths={effectiveTargetMonths}
-                      trackingStart={debtTrackingStart}
-                      onTrackingStartChange={setDebtTrackingStart}
-                      strategy={strategy}
-                      onStrategyChange={setStrategy}
-                      hideValues={hideNetWorth}
-                      sym={sym}
-                      monthlySurplus={insights.monthly_surplus}
-                      collapsibleSettings
-                      settingsExtra={insights.accounts.length > 0 ? (
-                        <CreditCardsCard
-                          accounts={insights.accounts}
-                          totalDebt={insights.total_debt}
-                          hideNetWorth={hideNetWorth}
-                          sym={sym}
-                          strategy={strategy}
-                          onRateChange={refreshDebt}
-                        />
-                      ) : undefined}
-                    />
-                  )}
-
-                  <PlanCard
-                    plan={plan}
-                    sym={sym}
-                    accent="#b91c1c"
-                    hideValues={hideNetWorth}
-                    onToggleStep={togglePlanStep}
-                    onDeleteStep={deletePlanStep}
-                    onOpenChat={(p) => chatRef.current?.open(p)}
-                    onDelete={deletePlan}
-                  />
-
-                  {insights.monthly_surplus < 0 && (
-                    <DebtGrowingCard insights={insights} hideNetWorth={hideNetWorth} sym={sym} targetMonths={effectiveTargetMonths} />
-                  )}
-                </>
-              );
 
               const savingsBlock = (
                 <>
@@ -2502,16 +2033,22 @@ export default function InsightsPage() {
 
                   <SavingsInsightsSection embedded />
 
-                  {isPro && <GroceryBasketCard />}
-
-                  <MoneyBasicCard className="" />
+                  {/* ── Collapsed education section ── */}
+                  <div className="border-t border-slate-200/70 dark:border-slate-700/60 pt-2">
+                    <button
+                      onClick={() => setSavingsMoreOpen(v => !v)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 py-1 w-full text-left"
+                      aria-expanded={savingsMoreOpen}
+                    >
+                      <ChevronRight size={13} className={`transition-transform flex-shrink-0 ${savingsMoreOpen ? "rotate-90" : ""}`} />
+                      More · learn the basics
+                    </button>
+                    {savingsMoreOpen && <MoneyBasicCard className="mt-2" />}
+                  </div>
                 </>
               );
 
-              // Desktop: no tabs — every applicable pillar is visible at once.
-              // Two independent stacked columns (not a row-based grid): grid rows
-              // size to their tallest cell, which left a dead gap under Debt
-              // whenever Savings ran longer. Independent columns flow continuously.
+              // Desktop: no tabs — savings and tax visible at once.
               if (isDesktop) {
                 const columnTitle = (label: string, colour: string) => (
                   <div className="flex items-center gap-2 px-1">
@@ -2519,22 +2056,12 @@ export default function InsightsPage() {
                     <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</h2>
                   </div>
                 );
-                const debtSec = hasDebt ? (
-                  <div key="debt" className="space-y-3">{columnTitle("Debt", "#ef4444")}{debtBlock}</div>
-                ) : null;
                 const savingsSec = (
                   <div key="savings" className="space-y-3">{columnTitle("Savings", "#10b981")}{savingsBlock}</div>
                 );
-                // Placeholder shown while secondary sections wait for idle/first-paint.
                 const secondaryPlaceholder = (
                   <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
                 );
-                const mobilitySec = hasTransport ? (
-                  <div key="mobility" className="space-y-3">
-                    {columnTitle("Mobility", "#7c3aed")}
-                    {secondaryReady ? <TransportInsights /> : secondaryPlaceholder}
-                  </div>
-                ) : null;
                 const taxSec = showTaxSection ? (
                   <div key="tax" className="space-y-3">
                     {columnTitle("Tax efficiency", "#7c3aed")}
@@ -2551,18 +2078,9 @@ export default function InsightsPage() {
                   </div>
                 ) : null;
 
-                const leftCol: ReactNode[] = [];
+                const leftCol: ReactNode[] = [savingsSec];
                 const rightCol: ReactNode[] = [];
-                if (debtSec) {
-                  leftCol.push(debtSec);
-                  if (mobilitySec) leftCol.push(mobilitySec);
-                  rightCol.push(savingsSec);
-                  if (taxSec) rightCol.push(taxSec);
-                } else {
-                  leftCol.push(savingsSec);
-                  if (mobilitySec) rightCol.push(mobilitySec);
-                  if (taxSec) rightCol.push(taxSec);
-                }
+                if (taxSec) rightCol.push(taxSec);
 
                 if (rightCol.length === 0) {
                   return <div className="max-w-2xl mx-auto space-y-6">{leftCol}</div>;
@@ -2584,10 +2102,6 @@ export default function InsightsPage() {
                   pensionAnnual={taxPensionAnnual}
                   hasChildBenefit={taxHasChildBenefit}
                 />
-              ) : tab === "transport" ? (
-                <TransportInsights />
-              ) : onDebtTab ? (
-                debtBlock
               ) : (
                 savingsBlock
               );
@@ -2607,7 +2121,7 @@ export default function InsightsPage() {
         firstName={firstName}
         onPlanSaved={refreshPlan}
         hidden={!isDesktop && tab === "tax"}
-        page={isDesktop ? (hasDebt ? "debt" : "savings") : (tab === "plan" ? "debt" : tab)}
+        page={tab === "tax" ? "tax" : "savings"}
       />
       {!isDesktop && tab === "tax" && <TaxChat />}
       <BottomNav />

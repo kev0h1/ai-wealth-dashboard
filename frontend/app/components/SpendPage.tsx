@@ -75,6 +75,7 @@ export default function SpendPage() {
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [isPro, setIsPro] = useState<boolean>(false);
 
   // Desktop shows every view at once (no tabs), so render mode must be
   // decided in JS — CSS-hiding a duplicate tree would double every fetch.
@@ -104,6 +105,12 @@ export default function SpendPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    api.getSubscription()
+      .then(s => setIsPro(s.tier !== "free"))
+      .catch(() => setIsPro(true));
+  }, []);
 
   // Page is ready once both accounts/cashflow and transactions are loaded.
   const pageLoading = loading || txLoading;
@@ -601,6 +608,11 @@ export default function SpendPage() {
                       <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
                         <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
                       </div>
+                      {(cat.name.toLowerCase() === "transport" || cat.name.toLowerCase() === "groceries" || cat.name === "Debt") && (
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium -mt-1">
+                          {cat.name.toLowerCase() === "transport" ? "⛽ cheaper fuel inside" : cat.name.toLowerCase() === "groceries" ? "🧾 scan receipts inside" : "› payoff plan"}
+                        </p>
+                      )}
                     </button>
                   );
                 })}
@@ -997,6 +1009,7 @@ export default function SpendPage() {
           transactions={openCategory.transactions}
           onClose={() => setOpenCategory(null)}
           onTransactionClick={(tx) => { setOpenCategory(null); setSelectedTx(tx); }}
+          isPro={isPro}
         />
       )}
 

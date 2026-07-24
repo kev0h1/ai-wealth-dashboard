@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { MessageCircle, X, Send, Loader2, TrendingDown, RotateCcw, Target, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -9,6 +9,9 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import TransactionRow from "@/components/TransactionRow";
+import { useAllTransactions } from "@/lib/useAllTransactions";
+import { filterPeriod, getPayPeriodWithConfig } from "@/lib/payPeriod";
 import {
   ResponsiveContainer, ComposedChart, Area, Line, XAxis, YAxis,
   Tooltip, ReferenceLine, ReferenceDot,
@@ -60,67 +63,37 @@ export function debtFreeDate(months: number): string {
   return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-// Circular SVG progress ring
-function Ring({ pct, size = 64, stroke = 6 }: { pct: number; size?: number; stroke?: number }) {
-  const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const offset = circ * (1 - Math.min(1, Math.max(0, pct / 100)));
-  return (
-    <svg width={size} height={size} className="-rotate-90" viewBox={`0 0 ${size} ${size}`}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth={stroke} />
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="white" strokeWidth={stroke}
-        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" />
-    </svg>
-  );
-}
 
 export function MissionCard({ insights, hideNetWorth, sym, targetMonths, onOpenChat }: {
   insights: DebtInsights; hideNetWorth: boolean; sym: string; targetMonths: number;
   onOpenChat: (prompt?: string) => void;
 }) {
   const months = insights.months_at_current_rate;
-  const score = Math.round(Math.min(100, Math.max(0, (targetMonths / months) * 100)));
   const targetDate = debtFreeDate(months);
   const onTrack = months <= targetMonths;
   const paymentNeeded = insights.total_debt > 0 ? insights.total_debt / targetMonths : 0;
 
   return (
-    <div
-      className="rounded-2xl p-4 text-white shadow-sm"
-      style={{ background: "#b91c1c" }}
-    >
+    <div className="rounded-2xl p-4 bg-indigo-600 text-white shadow-sm">
       <div className="flex items-center gap-1.5 mb-3">
         <Target className="w-3.5 h-3.5 opacity-80" />
         <p className="text-[11px] font-bold uppercase tracking-widest opacity-80">Your Mission</p>
       </div>
 
-      <div className="flex items-center gap-4 mb-4">
-        <div className="relative flex-shrink-0" style={{ width: 64, height: 64 }}>
-          <Ring pct={score} />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs font-bold">{score}%</span>
-          </div>
-        </div>
-        <div>
-          <p className="text-[11px] opacity-60 mb-0.5">Debt-free by</p>
-          <p className="text-xl font-bold leading-tight">{targetDate}</p>
-          <p className="text-xs opacity-60 mt-0.5">
-            {onTrack ? `✅ On track for ${targetMonths}mo target` : months > 600 ? "⚠️ Very slow at current rate" : `${Math.ceil(months)} months at current rate`}
-          </p>
-        </div>
+      <div className="mb-4">
+        <p className="text-[11px] opacity-60 mb-0.5">Debt-free by</p>
+        <p className="text-xl font-bold leading-tight">{targetDate}</p>
+        <p className="text-xs opacity-60 mt-0.5">
+          {onTrack ? `✅ On track for ${targetMonths}mo target` : months > 600 ? "⚠️ Very slow at current rate" : `${Math.ceil(months)} months at current rate`}
+        </p>
       </div>
 
-      {/* Two quick stats */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
+      {/* Quick stat */}
+      <div className="mb-3">
         <div className="bg-white/10 rounded-xl px-3 py-2">
           <p className="text-[10px] opacity-60 mb-0.5">Pay per month</p>
           <p className="text-sm font-bold">{hideNetWorth ? "••••" : fmt2(paymentNeeded, sym)}</p>
           <p className="text-[10px] opacity-50">to clear in {targetMonths}mo</p>
-        </div>
-        <div className="bg-white/10 rounded-xl px-3 py-2">
-          <p className="text-[10px] opacity-60 mb-0.5">Daily cost</p>
-          <p className="text-sm font-bold">{hideNetWorth ? "••••" : fmt2(insights.total_debt / (months * 30), sym)}</p>
-          <p className="text-[10px] opacity-50">of carrying this debt</p>
         </div>
       </div>
 
@@ -212,13 +185,14 @@ export type BurndownData = {
 export default function DebtPage() {
   const { user } = useAuth();
   const { colours } = useColours();
-  const { hideNetWorth, region, debtTargetMonths, setDebtTargetMonths, debtTrackingStart, setDebtTrackingStart } = usePreferences();
+  const { hideNetWorth, region, debtTargetMonths, setDebtTargetMonths, debtTrackingStart, setDebtTrackingStart, payPeriodConfig } = usePreferences();
   const sym = region === "Kenya" ? "KES " : "£";
   const [insights, setInsights] = useState<DebtInsights | null>(null);
   const [burndown, setBurndown] = useState<BurndownData | null>(null);
   const [strategy, setStrategy] = useState<"avalanche" | "snowball" | "costliest">("avalanche");
   const [burndownMode, setBurndownMode] = useState<"time" | "amount">("time");
   const [monthlyPaymentInput, setMonthlyPaymentInput] = useState<number>(0);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Chat state
@@ -232,6 +206,15 @@ export default function DebtPage() {
   const pendingPromptRef = useRef<string | null>(null);
   const burndownMounted = useRef(false);
   const burndownRef = useRef<BurndownData | null>(null);
+
+  const { transactions: allTransactions } = useAllTransactions();
+  const debtPayments = useMemo(() => {
+    const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    return filterPeriod(allTransactions, s, e)
+      .filter(tx => tx.category === "Debt" && tx.transaction_type === "debit")
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [allTransactions, payPeriodConfig]);
+  const [debtPaymentsOpen, setDebtPaymentsOpen] = useState(false);
 
   const firstName = user?.name?.split(" ")[0] || "there";
 
@@ -352,34 +335,37 @@ export default function DebtPage() {
   return (
     <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 text-white" style={{ background: "#b91c1c" }} data-tutorial-id="tutorial-debt-header">
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700" data-tutorial-id="tutorial-debt-header">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Debt Tracker</h1>
-            {user && <p className="text-sm opacity-80 mt-0.5">Hi {firstName},</p>}
-          </div>
-          <div className="flex items-center gap-2">
-            <TrendingDown className="w-7 h-7 opacity-60" />
-          </div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Debt Tracker</h1>
+          <TrendingDown className="w-7 h-7 text-indigo-500" />
         </div>
         {loading ? (
-          <div className="mt-4 h-12 w-40 bg-white/20 rounded-xl animate-pulse" />
+          <div className="mt-4 h-12 w-40 bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse" />
         ) : insights ? (
-          <div className="mt-4">
+          <div className="mt-3">
             {hasDebt ? (
               <>
-                <p className="text-xs opacity-70 mb-0.5">Total Outstanding</p>
-                <p className="text-4xl font-bold tracking-tight">{hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}</p>
-                <p className="text-sm opacity-60 mt-0.5">
-                  across {insights.accounts.length} card{insights.accounts.length !== 1 ? "s" : ""} · free by{" "}
-                  <span className="font-semibold opacity-90">{debtFreeDate(insights.months_at_current_rate)}</span>
+                <p className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  {hideNetWorth ? "••••" : fmt(insights.total_debt, sym)}
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
+                  <span>debt-free {debtFreeDate(insights.months_at_current_rate)}</span>
+                  <span className="text-slate-300 dark:text-slate-600">·</span>
+                  {onTrack ? (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">On track</span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      {hideNetWorth ? "••••" : `${fmt(Math.max(0, paymentNeededForTarget - (insights.monthly_surplus ?? 0)), sym)}/mo behind`}
+                    </span>
+                  )}
                 </p>
               </>
             ) : (
               <>
-                <p className="text-xs opacity-70 mb-0.5">Monthly {insights.monthly_surplus >= 0 ? "Surplus" : "Deficit"}</p>
-                <p className="text-4xl font-bold tracking-tight">{hideNetWorth ? "••••" : fmt(Math.abs(insights.monthly_surplus), sym)}</p>
-                <p className="text-sm opacity-60 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Monthly {insights.monthly_surplus >= 0 ? "Surplus" : "Deficit"}</p>
+                <p className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{hideNetWorth ? "••••" : fmt(Math.abs(insights.monthly_surplus), sym)}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                   {insights.monthly_surplus >= 0 ? "No credit card debt" : "Spending exceeds income"}
                 </p>
               </>
@@ -397,25 +383,78 @@ export default function DebtPage() {
           </div>
         ) : (
           <>
-            {/* Burndown chart — only when there's debt */}
+            {/* Free Up Cash */}
+            {insights.recommendations.length > 0 && insights.monthly_surplus > 0 && (() => {
+              const rows = insights.recommendations
+                .map(rec => ({
+                  ...rec,
+                  moSaved: Math.max(0, insights.months_at_current_rate - (insights.total_debt / (insights.monthly_surplus + rec.cut_25pct_saves))),
+                }))
+                .filter(rec => rec.moSaved > 0.5)
+                .sort((a, b) => b.moSaved - a.moSaved)
+                .slice(0, 3);
+              if (rows.length === 0) return null;
+              return (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-4 pt-4 pb-2">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Free Up Cash</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Cut these to pay off debt sooner — based on last 3 months</p>
+                  </div>
+                  {rows.map(rec => {
+                    const colour = colours[rec.category] ?? CATEGORY_COLOURS[rec.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                    return (
+                      <div key={rec.category} className="flex items-center justify-between px-4 py-3.5 border-t border-slate-50 dark:border-slate-700/60">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{hideNetWorth ? "••••" : `${fmt(rec.monthly_spend, sym)}/mo avg · cut 25% saves ${fmt(rec.cut_25pct_saves, sym)}/mo`}</p>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0 ml-3">
+                          <p className="text-sm font-bold text-emerald-600">{Math.round(rec.moSaved)} mo sooner</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Payoff progress disclosure */}
             {hasDebt && burndown && burndown.burndown.length > 0 && (
-              <DebtBurndownCard
-                data={burndown}
-                mode={burndownMode}
-                onModeChange={setBurndownMode}
-                targetMonths={debtTargetMonths}
-                onTargetChange={setDebtTargetMonths}
-                monthlyPayment={monthlyPaymentInput}
-                onMonthlyPaymentChange={setMonthlyPaymentInput}
-                effectiveTargetMonths={effectiveTargetMonths}
-                trackingStart={debtTrackingStart}
-                onTrackingStartChange={setDebtTrackingStart}
-                strategy={strategy}
-                onStrategyChange={setStrategy}
-                hideValues={hideNetWorth}
-                sym={sym}
-                monthlySurplus={insights?.monthly_surplus}
-              />
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700/60">
+                <button
+                  type="button"
+                  onClick={() => setProgressOpen(v => !v)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-left"
+                >
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Payoff progress</span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform duration-200 ${progressOpen ? "rotate-180" : ""}`} />
+                </button>
+                {progressOpen && (
+                  <div className="border-t border-slate-50 dark:border-slate-700">
+                    <DebtBurndownCard
+                      data={burndown}
+                      mode={burndownMode}
+                      onModeChange={setBurndownMode}
+                      targetMonths={debtTargetMonths}
+                      onTargetChange={setDebtTargetMonths}
+                      monthlyPayment={monthlyPaymentInput}
+                      onMonthlyPaymentChange={setMonthlyPaymentInput}
+                      effectiveTargetMonths={effectiveTargetMonths}
+                      trackingStart={debtTrackingStart}
+                      onTrackingStartChange={setDebtTrackingStart}
+                      strategy={strategy}
+                      onStrategyChange={setStrategy}
+                      hideValues={hideNetWorth}
+                      sym={sym}
+                      collapsibleSettings={true}
+                      monthlySurplus={insights?.monthly_surplus}
+                    />
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Mission card — only when there's debt to clear */}
@@ -445,26 +484,6 @@ export default function DebtPage() {
                     </div>
                   </div>
                 )}
-                <div className="space-y-2">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-                      <span>Monthly income</span>
-                      <span className="font-semibold text-sky-600">{hideNetWorth ? "••••" : fmt(insights.monthly_income, sym)}</span>
-                    </div>
-                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly income vs spending">
-                      <div className="h-full bg-sky-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_income / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
-                      <span>Monthly spending</span>
-                      <span className="font-semibold text-orange-500">{hideNetWorth ? "••••" : fmt(insights.monthly_spending, sym)}</span>
-                    </div>
-                    <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round((insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Monthly spending vs income">
-                      <div className="h-full bg-orange-400 rounded-full bar-sweep" style={{ width: `${(insights.monthly_spending / Math.max(insights.monthly_income, insights.monthly_spending)) * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
                 {insights.monthly_surplus >= 0 && (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Monthly surplus: <span className="font-semibold text-emerald-600">{hideNetWorth ? "••••" : fmt2(insights.monthly_surplus, sym)}</span>
@@ -516,6 +535,7 @@ export default function DebtPage() {
                 hideNetWorth={hideNetWorth}
                 sym={sym}
                 strategy={strategy}
+                collapsible={true}
                 onRateChange={() => {
                   api.debtInsights().then(setInsights).catch(() => {});
                   const bdn = burndownRef.current;
@@ -527,43 +547,27 @@ export default function DebtPage() {
               />
             )}
 
-            {/* Free Up Cash */}
-            {insights.recommendations.length > 0 && insights.monthly_surplus > 0 && (() => {
-              const rows = insights.recommendations
-                .map(rec => ({
-                  ...rec,
-                  moSaved: Math.max(0, insights.months_at_current_rate - (insights.total_debt / (insights.monthly_surplus + rec.cut_25pct_saves))),
-                }))
-                .filter(rec => rec.moSaved > 0.5)
-                .sort((a, b) => b.moSaved - a.moSaved)
-                .slice(0, 3);
-              if (rows.length === 0) return null;
-              return (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                  <div className="px-4 pt-4 pb-2">
-                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Free Up Cash</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Cut these to pay off debt sooner — based on last 3 months</p>
+            {/* Debt payments this period */}
+            {debtPayments.length > 0 && (
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700/60">
+                <button
+                  type="button"
+                  onClick={() => setDebtPaymentsOpen(v => !v)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-left"
+                >
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Debt payments this period</span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform duration-200 ${debtPaymentsOpen ? "rotate-180" : ""}`} />
+                </button>
+                {debtPaymentsOpen && (
+                  <div className="border-t border-slate-50 dark:border-slate-700 divide-y divide-slate-50 dark:divide-slate-700">
+                    {debtPayments.map(tx => (
+                      <TransactionRow key={tx.id} transaction={tx} />
+                    ))}
                   </div>
-                  {rows.map(rec => {
-                    const colour = colours[rec.category] ?? CATEGORY_COLOURS[rec.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
-                    return (
-                      <div key={rec.category} className="flex items-center justify-between px-4 py-3.5 border-t border-slate-50 dark:border-slate-700/60">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{rec.category}</p>
-                            <p className="text-xs text-slate-400 dark:text-slate-500">{hideNetWorth ? "••••" : `${fmt(rec.monthly_spend, sym)}/mo avg · cut 25% saves ${fmt(rec.cut_25pct_saves, sym)}/mo`}</p>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-3">
-                          <p className="text-sm font-bold text-emerald-600">{Math.round(rec.moSaved)} mo sooner</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+                )}
+              </div>
+            )}
+
           </>
         )}
       </div>
@@ -572,7 +576,7 @@ export default function DebtPage() {
       <button
         onClick={() => openChatWithPrompt()}
         className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-lg text-white"
-        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "#b91c1c" }}
+        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: "#4f46e5" }}
         aria-label="Open Debt Advisor"
       >
         <MessageCircle className="w-6 h-6" />
@@ -585,7 +589,7 @@ export default function DebtPage() {
           style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", width: "340px", maxWidth: "calc(100vw - 32px)", height: "520px" }}
         >
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0"
-            style={{ background: "#b91c1c" }}>
+            style={{ background: "#4f46e5" }}>
             <div>
               <p className="text-sm font-bold">Debt Advisor</p>
               <p className="text-[10px] opacity-70">Powered by Claude</p>
@@ -666,7 +670,7 @@ export default function DebtPage() {
               onClick={() => sendMessage()}
               disabled={!inputText.trim() || chatLoading}
               className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 text-white"
-              style={{ background: "#b91c1c" }}
+              style={{ background: "#4f46e5" }}
               aria-label="Send"
             >
               {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -992,7 +996,7 @@ export function DebtBurndownCard({
     <div className="debt-burndown-frosted rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-700/60">
       {/* Card header */}
       <div className="px-4 pt-4 pb-2">
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Debt Burndown</p>
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Payoff progress</p>
         <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
           Clear by <span className="font-medium text-slate-600 dark:text-slate-300">{fmtMonth(data.target_date)}</span>
           {" · "}
