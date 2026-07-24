@@ -96,10 +96,10 @@ function ActionRow({
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold leading-snug ${status === "done" ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"}`}>
+        <p className={`text-base font-bold leading-snug ${status === "done" ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"}`}>
           {title}
         </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{detail}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{detail}</p>
         {onToggle && (
           <p className="text-[11px] font-medium mt-2 text-slate-500 dark:text-slate-400">
             {status === "done" ? "Tap to unmark" : "Tap to mark done"}
@@ -137,8 +137,8 @@ function KeyDate({ date, label, sublabel }: { date: string; label: string; subla
         <Calendar size={13} className="text-indigo-600 dark:text-indigo-400" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{label}</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{sublabel}</p>
+        <p className="text-base font-bold text-slate-800 dark:text-slate-100">{label}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{sublabel}</p>
       </div>
       <p className="text-xs font-medium text-slate-500 dark:text-slate-400 flex-shrink-0 pt-0.5">{date}</p>
     </div>
@@ -319,7 +319,7 @@ export default function TaxPage({
         <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-500 dark:text-indigo-400 mb-2">
           Tax year {ty.label} · your situation
         </p>
-        <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-snug mb-2">
+        <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug mb-2">
           {heroHeadline}
         </p>
         <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed mb-4">
@@ -328,7 +328,7 @@ export default function TaxPage({
         {/* Deadline footer */}
         <div className="flex items-center gap-2 pt-3 border-t border-indigo-100 dark:border-indigo-800/50">
           <Calendar size={14} className="text-amber-500 flex-shrink-0" />
-          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
             {ty.daysLeft} days left in {ty.label} — allowances reset 5 Apr
           </p>
         </div>
@@ -351,10 +351,10 @@ export default function TaxPage({
           <div className="flex items-start gap-3">
             <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <p className="text-base font-bold text-slate-800 dark:text-slate-100">
                 Pension — contribute £{fmt(pensionNeededTotal)} before 5 Apr
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                 Your adjusted income is £{fmt(adjustedIncome)} — £{fmt(over100k)} over the
                 £100,000 threshold. Contributing £{fmt(pensionNeededTotal)} more this tax year
                 (via any mix of regular or one-off payments) restores your full personal allowance.
@@ -384,10 +384,10 @@ export default function TaxPage({
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex items-center gap-3">
           <CheckCircle2 size={18} className="text-emerald-500 flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+            <p className="text-base font-bold text-slate-800 dark:text-slate-100">
               ✓ Your £100k allowance is safe
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               Adjusted income £{fmt(adjustedIncome)} — below the taper threshold. Keep pension contributions going to maximise relief.
             </p>
           </div>
@@ -436,7 +436,7 @@ export default function TaxPage({
           aria-expanded={alsoKnowingOpen}
           className="w-full flex items-center justify-between px-4 py-3.5 text-left active:scale-[0.99] transition-transform"
         >
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Also worth knowing</p>
+          <p className="text-base font-bold text-slate-700 dark:text-slate-200">Also worth knowing</p>
           <ChevronDown
             size={16}
             className={`text-slate-400 transition-transform flex-shrink-0 ${alsoKnowingOpen ? "rotate-180" : ""}`}

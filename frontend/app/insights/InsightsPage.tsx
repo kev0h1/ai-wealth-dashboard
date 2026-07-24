@@ -980,7 +980,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           <button
             onClick={handleRefresh}
             disabled={refreshing || refreshQueued}
-            className="mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold disabled:opacity-50"
+            className="mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50"
           >
             Find Savings
           </button>
@@ -1102,10 +1102,10 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, o
           <ChevronRight size={14} className={`text-slate-500 dark:text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
         </div>
         <div className="flex items-start gap-2 mt-1.5">
-          <span className="mt-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">1</span>
+          <span className="mt-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">1</span>
           <div>
-            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{first.title}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug mt-0.5">{first.why}</p>
+            <p className="text-base font-bold text-slate-800 dark:text-slate-100">{first.title}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug mt-0.5">{first.why}</p>
           </div>
         </div>
       </button>
@@ -1121,10 +1121,10 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, o
         <div className="px-4 pb-3 space-y-2 border-t border-slate-100 dark:border-slate-700 pt-2.5">
           {rest.map((s, i) => (
             <div key={s.title} className="flex items-start gap-2">
-              <span className="mt-0.5 w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-600 text-white text-[9px] font-bold flex items-center justify-center flex-shrink-0">{i + 2}</span>
+              <span className="mt-0.5 w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 2}</span>
               <div>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{s.title}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">{s.why}</p>
+                <p className="text-base font-bold text-slate-700 dark:text-slate-200">{s.title}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug">{s.why}</p>
               </div>
             </div>
           ))}
@@ -1175,7 +1175,7 @@ function PlanCard({
             <Target className="w-5 h-5" style={{ color: accent }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100">Make a plan that sticks</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Writing down a few concrete steps makes debt easier to clear. Build a short, trackable plan with your advisor.
             </p>
@@ -1183,7 +1183,7 @@ function PlanCard({
         </div>
         <button
           onClick={() => onOpenChat("Build me a debt-free plan I can track, with a few milestones.")}
-          className="w-full mt-3 py-2.5 rounded-xl text-white text-[14px] font-semibold active:scale-[0.98] transition-all"
+          className="w-full mt-3 py-2.5 rounded-xl text-white text-sm font-semibold active:scale-[0.98] transition-all"
           style={{ background: accent }}
         >
           Build my debt-free plan
@@ -1201,7 +1201,7 @@ function PlanCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your debt-free plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1298,7 +1298,7 @@ function ReadyToGrowCard({ onOpenChat }: { onOpenChat: (p: string) => void }) {
           <Sparkles size={16} className="text-emerald-600 dark:text-emerald-400" />
           <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Next step</span>
         </div>
-        <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
+        <p className="text-base font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
         <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mt-1.5">
           With your cushion in place and no expensive debt, the next stage is putting spare money to work — tax-free, using your UK allowances.
         </p>
@@ -1316,7 +1316,7 @@ function ReadyToGrowCard({ onOpenChat }: { onOpenChat: (p: string) => void }) {
 
         <button
           onClick={() => onOpenChat("I've built my emergency fund and I'm debt-free. How should I start investing and using ISAs to grow my money in the UK?")}
-          className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2.5 text-[14px] font-semibold active:scale-[0.99] transition-all"
+          className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2.5 text-sm font-semibold active:scale-[0.99] transition-all"
         >
           Explore growing your money
         </button>
@@ -1417,7 +1417,7 @@ function SafetyNetCard({
             <Shield className="w-5 h-5 text-emerald-600" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Build your safety net</p>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100">Build your safety net</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
             </p>
@@ -1513,12 +1513,12 @@ function SafetyNetCard({
 
         <div className="flex gap-2 mt-4">
           {data.configured && (
-            <button onClick={() => setEditing(false)} className="px-4 py-2.5 rounded-xl text-[14px] font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
+            <button onClick={() => setEditing(false)} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
               Cancel
             </button>
           )}
           <button onClick={save} disabled={selected.length === 0 || customInvalid || saving}
-            className="flex-1 py-2.5 rounded-xl text-white text-[14px] font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
+            className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
             {saving ? "Saving…" : data.configured ? "Update target" : "Start tracking"}
           </button>
         </div>
@@ -1558,7 +1558,7 @@ function SafetyNetCard({
           <div className="flex-1 min-w-0">
             {funded ? (
               <>
-                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
                   Safety net funded 🎉
                 </p>
                 <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
@@ -1567,7 +1567,7 @@ function SafetyNetCard({
               </>
             ) : unsizedGoal ? (
               <>
-                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
                   {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1576,7 +1576,7 @@ function SafetyNetCard({
               </>
             ) : (
               <>
-                <p className="text-lg font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
                   {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -1664,7 +1664,7 @@ function SavingsPlanCard({
             <Target className="w-5 h-5" style={{ color: accent }} />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Make a savings plan that sticks</p>
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100">Make a savings plan that sticks</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
               Breaking your goal into small milestones makes it easier to stay on track. Build a short, trackable plan with your advisor.
             </p>
@@ -1672,7 +1672,7 @@ function SavingsPlanCard({
         </div>
         <button
           onClick={() => onOpenChat("Build me a savings plan I can track, with a few milestones to grow my safety net.")}
-          className="w-full mt-3 py-2.5 rounded-xl text-white text-[14px] font-semibold active:scale-[0.98] transition-all"
+          className="w-full mt-3 py-2.5 rounded-xl text-white text-sm font-semibold active:scale-[0.98] transition-all"
           style={{ background: accent }}
         >
           Build my savings plan
@@ -1690,7 +1690,7 @@ function SavingsPlanCard({
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <p className="text-base font-bold text-slate-900 dark:text-slate-100">
             {allDone ? "Plan complete! 🎉" : "Your savings plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">

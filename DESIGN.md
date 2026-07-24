@@ -151,7 +151,8 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 ### Hierarchy
 - **Display** (700, 30px, tight −0.025em): The one hero figure per screen — net worth, total debt, monthly surplus.
 - **Headline** (700, 20px): Page titles ("Spending", "Budgets", account names).
-- **Title** (600, 14px): Card titles, row primaries, button labels.
+- **Card/section title** (700, 16px, `text-base font-bold`): Card headers, section titles, verdict lines within content cards. The standard chosen for Savings and Tax tab content.
+- **Title** (600, 14px): Row primaries, button labels.
 - **Body** (400-500, 13-14px): Descriptions, chat text, explanatory copy.
 - **Label** (600, 10-11px, +0.05em, UPPERCASE): Section markers ("PAY PERIOD", "YOUR GOALS"), metric captions. Always muted (#94a3b8), never ink.
 
