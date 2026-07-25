@@ -584,19 +584,102 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
 
 @router.get("/cashflow/at-risk-count")
 async def at_risk_count(user: dict = Depends(current_user)):
-    """Bills due within 7 days that their account can't currently cover."""
+    """Bills due strictly before the user's next payday that their account genuinely can't cover.
+
+    Uses a running-balance simulation per account rather than comparing each bill
+    in isolation.  The naive approach (bill.amount > account_balance) over-counts
+    because N bills sharing one under-funded account each trip the check, inflating
+    the badge by up to N-1.  The simulation walks bills and income in chronological
+    order and only marks a bill at-risk when the running balance at that point in
+    time is insufficient — reflecting payment sequencing and incoming income.
+    """
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
     if not cached:
         return {"count": 0}
     resp = await _build_cashflow_response(cached, uid=user["email"])
-    n = sum(
-        1 for b in resp["upcoming_bills"]
-        if b["days_away"] <= 7
-        and b.get("account_balance") is not None
-        and b["account_balance"] >= 0          # negative balance = credit card, not shortfall
-        and b["amount"] > b["account_balance"]
-    )
-    return {"count": n}
+
+    from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
+    from datetime import date as _date_cls
+    _user_prefs = await preferences_col.find_one({"user_id": user["email"]}) or {}
+    _pay_cfg    = _user_prefs.get("pay_period_config", {"type": "calendar_month"})
+    _today_d    = _date_cls.today()
+    _next_pay   = _calc_next_payday(_today_d, _pay_cfg)
+    _days_to_pay = (_next_pay - _today_d).days
+    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] < _days_to_pay]
+    window_income = [i for i in resp["upcoming_income"] if i["days_away"] < _days_to_pay]
+
+    # Skip bills where we have no balance data (credit cards / unknown accounts).
+    assessable_bills = [
+        b for b in window_bills
+        if b.get("account_balance") is not None and b["account_balance"] >= 0
+    ]
+    if not assessable_bills:
+        return {"count": 0}
+
+    # Seed each account's running balance from live account documents so that
+    # balances reflect the current state rather than the (possibly days-old)
+    # snapshot frozen inside the cashflow cache.  Falls back to the cached
+    # account_balance if the live query returns nothing for a given account
+    # (e.g. the account was removed or belongs to a provider not in scope).
+    acct_ids = list({b["account_id"] for b in assessable_bills if b.get("account_id")})
+    live_balances: dict[str, float] = {}
+    if acct_ids:
+        from bson import ObjectId
+
+        def _try_oid(v: str):
+            try:
+                return ObjectId(v)
+            except Exception:
+                return v
+
+        oid_ids = [_try_oid(a) for a in acct_ids]
+        for col in (accounts_col, yapily_accounts_col):
+            async for acc in col.find(
+                {"_id": {"$in": oid_ids}},
+                {"balance": 1, "current_balance": 1, "available_balance": 1},
+            ):
+                bal = acc.get("balance") or acc.get("current_balance") or acc.get("available_balance") or 0.0
+                live_balances[str(acc["_id"])] = float(bal)
+
+    running: dict[str, float] = {}
+    for b in assessable_bills:
+        acct = b["account_id"] or "__unknown__"
+        if acct not in running:
+            running[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
+
+    # Merge bills and income into a single timeline, sorted by days_away.
+    # Income carries no account_id in the current schema, so credit it to every
+    # account proportionally would be wrong — instead we credit the shared pot for
+    # each account that has the same account_id as the income occurrence (unknown
+    # here, so income without an account_id is applied to "__unknown__" only).
+    events: list[tuple[int, str, float, bool]] = []  # (days_away, acct_id, amount, is_income)
+    for b in assessable_bills:
+        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False))
+    for i in window_income:
+        # income_patterns don't carry account_id; broadcast credit to all seeded accounts
+        for acct in list(running.keys()):
+            events.append((i["days_away"], acct, float(i["amount"]), True))
+
+    events.sort(key=lambda e: (e[0], 0 if e[3] else 1))  # income before bills on the same day
+
+    at_risk = 0
+    # Track which (days_away, acct) bills we've already assessed so that
+    # broadcast income isn't double-applied when multiple bills share one account.
+    processed_income: set[tuple[int, str]] = set()
+    for days_away, acct, amount, is_income in events:
+        if is_income:
+            key = (days_away, acct)
+            if key not in processed_income:
+                running[acct] = running.get(acct, 0.0) + amount
+                processed_income.add(key)
+        else:
+            bal = running.get(acct, 0.0)
+            if bal >= amount:
+                running[acct] = bal - amount  # bill clears
+            else:
+                at_risk += 1                  # bill bounces; balance unchanged
+
+    return {"count": at_risk}
 
 
 @router.post("/cashflow/dismiss-recurring")

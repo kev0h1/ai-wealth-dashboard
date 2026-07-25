@@ -237,21 +237,118 @@ export default function SpendPage() {
     [periodTxns]
   );
 
-  // Bills due within 7 days whose linked account can't cover the amount.
-  // Mirrors the at-risk predicate in backend/app/routers/analytics.py at_risk_count.
-  const atRiskBills = useMemo(
-    () =>
-      cashflow
-        ? cashflow.upcoming_bills.filter(
-            (b) =>
-              b.days_away <= 7 &&
-              b.account_balance != null &&
-              b.account_balance >= 0 &&
-              b.amount > b.account_balance
-          )
-        : [],
-    [cashflow]
-  );
+  // Bills due strictly before the user's next payday — running-balance simulation per account.
+  // Mirrors the at-risk logic in backend/app/routers/analytics.py.
+  const atRiskBills = useMemo(() => {
+    if (!cashflow) return [];
+
+    // nextPayday = first day of next pay period = periodEnd + 1 day (UTC midnight)
+    const nextPaydayMs = periodEnd.getTime() + 86400000; // midnight UTC of payday
+    const scopedBills = cashflow.upcoming_bills.filter(
+      (b) => new Date(b.expected_date).getTime() < nextPaydayMs &&
+             b.account_balance != null && b.account_balance >= 0
+    );
+    if (scopedBills.length === 0) return [];
+
+    // Seed running balance per account_id.
+    // Bills with no account_id share a single "null" pot.
+    const running: Record<string, number> = {};
+    for (const b of scopedBills) {
+      const key = b.account_id ?? "__null__";
+      if (!(key in running)) {
+        running[key] = b.account_balance!;
+      }
+    }
+
+    // Build events: scoped bills + upcoming income (within 7 days).
+    type Event =
+      | { kind: "income"; days_away: number; amount: number; account_id: string | null | undefined }
+      | { kind: "bill"; days_away: number; amount: number; account_id: string | null | undefined; bill: typeof scopedBills[0] };
+
+    const events: Event[] = [
+      ...scopedBills.map((b) => ({
+        kind: "bill" as const,
+        days_away: b.days_away,
+        amount: b.amount,
+        account_id: b.account_id,
+        bill: b,
+      })),
+      ...cashflow.upcoming_income
+        .filter((inc) => new Date(inc.expected_date).getTime() < nextPaydayMs)
+        .map((inc) => ({
+          kind: "income" as const,
+          days_away: inc.days_away,
+          amount: inc.amount,
+          account_id: inc.account_id as string | null | undefined,
+        })),
+    ];
+
+    // Sort: ascending days_away; income before bills on same day.
+    events.sort((a, b) => {
+      if (a.days_away !== b.days_away) return a.days_away - b.days_away;
+      return a.kind === "income" ? -1 : 1;
+    });
+
+    const atRisk: typeof scopedBills = [];
+
+    for (const ev of events) {
+      if (ev.kind === "income") {
+        if (ev.account_id) {
+          // Apply to that specific account if it's in our running map
+          const key = ev.account_id;
+          if (key in running) running[key] += ev.amount;
+        } else {
+          // Broadcast to every seeded account (mirrors backend)
+          for (const key of Object.keys(running)) {
+            running[key] += ev.amount;
+          }
+        }
+      } else {
+        const key = ev.account_id ?? "__null__";
+        if (!(key in running)) continue; // skip null-balance bills (already filtered)
+        if (running[key] >= ev.amount) {
+          running[key] -= ev.amount;
+        } else {
+          // Bounces — at risk; running unchanged
+          atRisk.push(ev.bill);
+        }
+      }
+    }
+
+    return atRisk;
+  }, [cashflow, periodEnd]);
+
+  const accountShortfalls = useMemo(() => {
+    if (!cashflow || atRiskBills.length === 0) return [];
+
+    // Get distinct account IDs from at-risk bills
+    const accountIds = [...new Set(atRiskBills.map(b => b.account_id ?? "__null__"))];
+
+    return accountIds
+      .map(accountId => {
+        // Get balance from first at-risk bill for this account
+        const firstBill = atRiskBills.find(b => (b.account_id ?? "__null__") === accountId);
+        if (!firstBill) return null;
+        const balance = firstBill.account_balance ?? 0;
+        const bank = firstBill.account_bank || firstBill.account_name || "Account";
+
+        // Sum bills strictly before payday for this account (same scope as atRiskBills)
+        const nextPaydayMs = periodEnd.getTime() + 86400000;
+        const scopedBills = cashflow.upcoming_bills.filter(
+          b => (b.account_id ?? "__null__") === accountId &&
+               new Date(b.expected_date).getTime() < nextPaydayMs &&
+               b.account_balance != null &&
+               b.account_balance >= 0
+        );
+        const billsSum = scopedBills.reduce((s, b) => s + b.amount, 0);
+        const shortfall = billsSum - balance;
+        if (shortfall <= 0) return null;
+
+        return { accountId, bank, balance, shortfall };
+      })
+      .filter((x): x is { accountId: string; bank: string; balance: number; shortfall: number } => x !== null)
+      .sort((a, b) => b.shortfall - a.shortfall);
+  }, [cashflow, atRiskBills, periodEnd]);
 
   // Stop at the period containing the oldest transaction — no empty pre-history
   const canGoPrev = !oldestTxDate || periodStart.getTime() > oldestTxDate.getTime();
@@ -498,34 +595,55 @@ export default function SpendPage() {
         )}
         </div>{/* end lg:grid wrapper */}
 
-        {/* Bill shortfall callout — visible on all views when at-risk bills exist */}
-        {isCurrentPeriod && atRiskBills.length > 0 && (
+        {/* Account shortfall callout — visible on all views when at-risk bills exist */}
+        {isCurrentPeriod && accountShortfalls.length > 0 && (
           <div className="mt-3 w-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl px-4 py-3">
             <div className="flex items-start gap-2.5">
               <AlertTriangle size={16} className="text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
-                  {atRiskBills.length === 1
-                    ? "A payment may bounce this week"
-                    : `${atRiskBills.length} bills may not clear this week`}
-                </p>
                 {(() => {
-                  const top = atRiskBills[0];
                   const sym = region === "Kenya" ? "KES " : "£";
-                  const merchantName = top.name
-                    .split(" ")
-                    .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-                    .join(" ");
+                  const fmt = (n: number) => sym + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  if (accountShortfalls.length === 1) {
+                    const acct = accountShortfalls[0];
+                    return (
+                      <>
+                        <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+                          Your {acct.bank} account is short before payday
+                        </p>
+                        <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                          {fmt(acct.shortfall)} short for bills due before payday — move money in, or change a payment date.
+                        </p>
+                      </>
+                    );
+                  }
+                  const shown = accountShortfalls.slice(0, 3);
+                  const extra = accountShortfalls.length - 3;
                   return (
-                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                      {merchantName} · {sym}{top.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — your current account only has {sym}{(top.account_balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Move money or check the date.
-                    </p>
+                    <>
+                      <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+                        {accountShortfalls.length} accounts are short before payday
+                      </p>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                        {shown.map((a, i) => (
+                          <span key={a.accountId}>
+                            {i > 0 && " · "}{a.bank} · {fmt(a.shortfall)} short
+                          </span>
+                        ))}
+                        {extra > 0 && <span> · +{extra} more</span>}
+                      </p>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                        Move money in, or change a payment date.
+                      </p>
+                    </>
                   );
                 })()}
               </div>
               <button
                 onClick={() => {
-                  const top = atRiskBills[0];
+                  const top = [...atRiskBills].sort(
+                    (a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount
+                  )[0];
                   if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
                   setView("upcoming");
                 }}
@@ -878,7 +996,9 @@ export default function SpendPage() {
 
               // Row renderer
               function renderRow(item: typeof items[0]) {
-                const flagged = item.at_risk || item.account_short;
+                const flagged = item.type === "bill"
+                  ? atRiskBills.some(r => r.name === item.name && r.expected_date === item.expected_date)
+                  : false;
                 const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
                 const highlighted = highlightBill === rowKey;
                 const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
@@ -1023,9 +1143,9 @@ export default function SpendPage() {
                             </p>
                           )}
                         </div>
-                        {atRiskCount > 0 && (
+                        {accountShortfalls.length > 0 && (
                           <span className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
-                            <span>⚠</span> {atRiskCount} at risk
+                            <span>⚠</span> {accountShortfalls.length} {accountShortfalls.length === 1 ? "account" : "accounts"} short
                           </span>
                         )}
                       </div>

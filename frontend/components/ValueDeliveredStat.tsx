@@ -25,7 +25,7 @@ export default function ValueDeliveredStat() {
 
   return (
     <button
-      onClick={() => router.push("/insights?tab=savings")}
+      onClick={() => router.push("/insights?tab=save")}
       className="flex items-center gap-1.5 mt-2 px-1 active:opacity-70 transition-opacity"
     >
       <Sparkles size={11} className="text-indigo-400" />

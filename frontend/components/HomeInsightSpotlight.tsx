@@ -109,7 +109,7 @@ export default function HomeInsightSpotlight() {
         </button>
 
         <button
-          onClick={() => router.push(`/insights?tab=savings&insight=${encodeURIComponent(insight.id)}`)}
+          onClick={() => router.push(`/insights?tab=save&insight=${encodeURIComponent(insight.id)}`)}
           className="w-full text-left p-4 active:scale-[0.99] transition-transform"
         >
           {/* Topic chip + new badge — chip uses Penny gradient as it IS an AI surface */}

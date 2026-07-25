@@ -129,7 +129,13 @@ async def debt_chat(body: dict, user: dict = Depends(current_user)):
     cats_text  = "\n".join(f"  - {k}: {currency}{v:.2f}/mo" for k, v in sorted(monthly_cat.items(), key=lambda x: -x[1]) if k not in _NON_DISC and v > 0)
     debt_line  = f"- Total credit card debt: {currency}{total_debt:.2f} across {len(cc_accounts)} card(s)\n{cards_text}" if total_debt > 0 else "- No credit card debt"
 
-    is_savings = total_debt <= 0
+    # Determine which system prompt to use based on page_context FIRST, falling
+    # back to debt presence.  A user on the Savings tab wants savings guidance even
+    # when they carry credit-card debt; using total_debt alone would mis-route them
+    # to the debt prompt and cause the model to emit a bare JSON list (not the
+    # ```plan``` block the parser expects) → raw JSON visible in the chat bubble.
+    page_ctx_early = (body.get("page_context") or "").strip().lower()
+    is_savings = page_ctx_early == "savings" or (page_ctx_early != "debt" and total_debt <= 0)
 
     if is_savings:
         goal            = await savings_goals_col.find_one({"_id": uid})

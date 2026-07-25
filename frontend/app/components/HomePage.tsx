@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
-import { RefreshCw, ChevronRight, AlertTriangle, TrendingUp } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { RefreshCw, ChevronRight, AlertTriangle } from "lucide-react";
 import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
@@ -45,8 +45,6 @@ export default function HomePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [incomeBracket, setIncomeBracket] = useState("");
-  const [adjustedIncome, setAdjustedIncome] = useState<number | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [pinnedWidget, setPinnedWidget] = useState<string | null>(null);
   const { pinned: pinnedCards } = useHomePinnedCards();
@@ -86,26 +84,10 @@ export default function HomePage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Last-known bracket from cache so the tax card doesn't pop in after paint
-  useLayoutEffect(() => {
-    try {
-      const b = localStorage.getItem("wd_bracket");
-      if (b !== null) setIncomeBracket(b);
-    } catch {}
-  }, []);
-
   useEffect(() => {
     api.getPreferences().then(p => {
-      setIncomeBracket(p.income_bracket ?? "");
       setPinnedIds(p.home_pinned_accounts ?? []);
       setPinnedWidget(p.home_pinned_widget ?? null);
-      try { localStorage.setItem("wd_bracket", p.income_bracket ?? ""); } catch {}
-      // Mirror the Tax page's adjusted-income computation so the two never disagree
-      let inc = 0;
-      if (p.income_value && p.income_value > 0) inc = p.income_value;
-      else if (p.income_bracket === "100k_125k") inc = 110_000;
-      else if (p.income_bracket === "125k_plus") inc = 130_000;
-      setAdjustedIncome(inc > 0 ? inc - (p.pension_annual ?? 0) : null);
     }).catch(() => {});
   }, []);
 
@@ -330,11 +312,6 @@ export default function HomePage() {
             );
           })()}
 
-          {/* Tax efficiency card — shown only for £100k+ earners */}
-          {!loading && (incomeBracket === "100k_125k" || incomeBracket === "125k_plus") && (
-            <TaxEfficiencyCard adjusted={adjustedIncome} router={router} />
-          )}
-
           {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
           <div className="px-4 lg:px-0">
             <div className="flex items-center justify-between mb-3">
@@ -471,70 +448,3 @@ export default function HomePage() {
   );
 }
 
-function TaxEfficiencyCard({ adjusted, router }: { adjusted: number | null; router: ReturnType<typeof useRouter> }) {
-  // Same thresholds as the Tax page: taper starts at £100k, allowance gone at £125,140
-  const is125k    = adjusted !== null && adjusted >= 125_140;
-  const inTaper   = adjusted !== null && adjusted > 100_000 && adjusted < 125_140;
-  const protectedAllowance = adjusted !== null && adjusted <= 100_000;
-  // Plain card, not a gradient banner — permanent chrome shouldn't compete
-  // with the rotating insight spotlight above it
-  return (
-    <div
-      className="mx-4 lg:mx-0 rounded-2xl overflow-hidden cursor-pointer active:scale-[0.98] transition-transform bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
-      onClick={() => router.push("/insights?tab=tax")}
-    >
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-400 mb-1">
-              Tax efficiency
-            </p>
-            {is125k ? (
-              <>
-                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                  You&apos;ve lost your personal allowance
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Pension contributions still save 45p in every £1 — see how much to put in
-                </p>
-              </>
-            ) : protectedAllowance ? (
-              <>
-                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                  Pension headroom available — check your levers
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Your allowance is protected. You may still benefit from additional contributions.
-                </p>
-              </>
-            ) : inTaper ? (
-              <>
-                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                  You&apos;re in the 60% rate band
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Pension contributions can restore your personal allowance and cut your tax bill
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-base font-bold text-slate-800 dark:text-slate-100 leading-tight">
-                  You may be in the 60% rate band
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Set your income in Settings for a precise picture
-                </p>
-              </>
-            )}
-          </div>
-          <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-            <TrendingUp size={16} className="text-indigo-500 dark:text-indigo-400" />
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-          See your tax position <ChevronRight size={13} />
-        </div>
-      </div>
-    </div>
-  );
-}
