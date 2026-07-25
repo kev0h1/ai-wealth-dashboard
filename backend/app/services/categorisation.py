@@ -29,11 +29,10 @@ VALID_CATEGORIES = [
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
     (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit|\bAMERICAN EXPRESS\b', re.I), 'Transfer'),
-    (re.compile(r'goldman sachs.*bgc|goldman sachs.*bcc|goldman sachs.*salary|gs.*payroll', re.I), 'Income'),
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),
-    (re.compile(r'^natwest\s*$', re.I), 'Debt'),
+
     (re.compile(r'tesco|sainsbury|asda|morrisons?|waitrose|lidl|aldi|iceland food|co-?op\b|ocado|farmfoods|marks.{0,5}spencer food|m&s food|whole foods|budgens|londis|spar\b|nisa\b|costco', re.I), 'Groceries'),
     (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house|cabana\b|dishoom|hawksmoor|bills restaurant|turtle bay|wahaca|zizzi\b|bella italia|frankie|benny|carluccio|harvester\b|toby carvery|ember inns|mitchells.?butlers|stonehouse\b|vintage inns", re.I), 'Eating Out'),
     (re.compile(r'tfl\b|transport for london|oyster|uber\b|bolt\b|trainline|national rail|avanti|lner\b|cross.?country|great western|south western|south.?eastern|northern rail|arriva|stagecoach|first.?bus|megabus|national express|eurostar|heathrow express|gatwick express|stansted express|go.?ahead|chiltern rail|trainpal|train pal|railcard|splittickets|railsmartr|seatfrog', re.I), 'Transport'),
@@ -50,7 +49,7 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'moneybox|plum\b|chip\b|nutmeg|wealthify|wealthsimple|vanguard|hargreaves lansdown|fidelity|trading 212|freetrade|ii\b|interactive investor|isa\b|pension|\bsavings?\b', re.I), 'Savings'),
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b', re.I), 'Transfer'),
-    (re.compile(r'goldman sachs.{0,30}(purchase|payment|ddr|direct debit|repay)', re.I), 'Transfer'),
+
     (re.compile(r'\bfrom\s+\w+\s+\w+(\s+\w+)?\s+(payment|transfer|paid)\b|fps credit\b|faster payment credit|\bpayment from\b', re.I), 'Transfer'),
     (re.compile(r'valeting|car.?valet|car.?clean|car.?wash\b', re.I), 'Transport'),
     (re.compile(r'enterprise rent|rent.?a.?car|hertz\b|avis\b|sixt\b|national car|zipcar|enterprise.?car', re.I), 'Transport'),
@@ -92,30 +91,47 @@ async def user_identity(user_id: str) -> dict:
     return {"name_tokens": name_tokens, "own_ids": own_ids}
 
 
-def _name_token_hits(description: str, name_tokens: list[str]) -> int:
-    """Count distinct user name tokens that fuzzy-match a word in the description.
-    A match is a >=3-char prefix overlap (so 'MAING' matches 'maingi')."""
+def _name_token_hits(description: str, name_tokens: list[str]) -> set:
+    """Return a set of indices into name_tokens whose token fuzzy-matches any
+    word in the description.  A match is a >=3-char prefix overlap either way
+    (so 'MAING' matches 'maingi' and vice-versa).  Only words of length >=3
+    are considered for full-token matching."""
     words = re.split(r"[^a-zA-Z]+", description.lower())
     words = [w for w in words if len(w) >= 3]
-    hits = 0
-    for tok in name_tokens:
+    matched_indices: set = set()
+    for idx, tok in enumerate(name_tokens):
         if any(w == tok or w.startswith(tok) or tok.startswith(w) for w in words):
-            hits += 1
-    return hits
+            matched_indices.add(idx)
+    return matched_indices
 
 
 def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
-    """Does this text carry the user's own name? Two full token matches, or one
-    full token plus a single-letter initial ('K M Maingi' → maingi + K)."""
-    full_hits = _name_token_hits(text, name_tokens)
-    if full_hits >= 2:
-        return True
-    if full_hits == 0:
+    """Does this text carry the user's own name?
+
+    Rules:
+    1. Return False when fewer than 2 name tokens are available.
+    2. Two or more distinct token indices fully matched → True.
+    3. Exactly one token index matched → True only if a standalone
+       single-letter word in text equals the first letter of a *different*
+       (unmatched) token.  'Maingi M' is False because 'M' is the initial of
+       the matched token itself, not of another token.
+    4. Otherwise False.
+    """
+    if len(name_tokens) < 2:
         return False
-    initials = {t[0] for t in name_tokens if t}
+    matched = _name_token_hits(text, name_tokens)
+    if len(matched) >= 2:
+        return True
+    if len(matched) == 0:
+        return False
+    # Exactly one full match — look for an initial from a *different* token.
+    unmatched_initials = {
+        name_tokens[i][0]
+        for i in range(len(name_tokens))
+        if i not in matched and name_tokens[i]
+    }
     words = re.split(r"[^a-zA-Z]+", text.lower())
-    initial_hits = sum(1 for w in words if len(w) == 1 and w in initials)
-    return initial_hits >= 1
+    return any(w for w in words if len(w) == 1 and w in unmatched_initials)
 
 
 def is_own_transfer(text: str, identity: dict) -> bool:
@@ -194,18 +210,24 @@ def normalise_merchant(merchant: str, description: str = "") -> str:
     return re.sub(r'\s+', ' ', key)
 
 
-async def cache_merchant(key: str, category: str, source: str) -> None:
+async def cache_merchant(key: str, category: str, source: str, uid: str | None = None) -> None:
     """Persist a merchant->category decision. 'user' entries win: an 'llm' write
-    will not overwrite a category a user has explicitly corrected."""
+    will not overwrite a category a user has explicitly corrected.
+    When uid is given the entry is scoped to that user (id = uid::key) so that
+    name-based decisions don't leak between users."""
     if not key or category not in VALID_CATEGORIES:
         return
+    store_id = f"{uid}::{key}" if uid else key
     if source != "user":
-        existing = await merchant_categories_col.find_one({"_id": key}, {"source": 1})
+        existing = await merchant_categories_col.find_one({"_id": store_id}, {"source": 1})
         if existing and existing.get("source") == "user":
             return
+    doc = {"category": category, "source": source, "updated_at": datetime.utcnow()}
+    if uid:
+        doc["uid"] = uid
     await merchant_categories_col.update_one(
-        {"_id": key},
-        {"$set": {"category": category, "source": source, "updated_at": datetime.utcnow()}},
+        {"_id": store_id},
+        {"$set": doc},
         upsert=True,
     )
 
@@ -262,15 +284,31 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 )
                 updated += 1
 
-        # Pass 1: credits on credit card accounts → Transfer
+        # Pass 1: credits on CC accounts → Transfer ONLY when text matches payment wording
+        # (refunds and other credits are left as Income for the LLM path)
+        CC_PAYMENT_RE = re.compile(
+            r'payment received|thank you for.{0,15}payment|card payment received|'
+            r'direct debit|faster payment|bank transfer|payment - thank you',
+            re.I,
+        )
         cc_ids = [d["_id"] async for d in accounts_col.find({"user_id": user_id, "type": "credit_card"}, {"_id": 1})]
         if cc_ids:
-            result = await transactions_col.update_many(
+            cc_credits = await transactions_col.find(
                 {"user_id": user_id, "account_id": {"$in": cc_ids},
                  "transaction_type": "credit", "category": "Income", "custom_category": None},
-                {"$set": {"category": "Transfer"}},
-            )
-            updated += result.modified_count
+                {"_id": 1, "merchant_name": 1, "description": 1},
+            ).to_list(None)
+            cc_transfer_ids = []
+            for t in cc_credits:
+                text = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()
+                if CC_PAYMENT_RE.search(text):
+                    cc_transfer_ids.append(t["_id"])
+            if cc_transfer_ids:
+                result = await transactions_col.update_many(
+                    {"_id": {"$in": cc_transfer_ids}, "custom_category": None},
+                    {"$set": {"category": "Transfer"}},
+                )
+                updated += result.modified_count
 
         # Pass 2: match transfer pairs
         all_txns = await transactions_col.find(
@@ -354,7 +392,11 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         if raw_cat == "TRANSFER":
             cat = "Transfer"
         elif txn_type == "credit" and raw_cat in ("CREDIT", None):
-            cat = "Transfer"
+            # Own-account transfers are already caught above (raw TRANSFER) and by the
+            # FT/identity rule. A remaining incoming credit is income unless a rule
+            # refines it (e.g. a merchant refund nets against its category).
+            _match = rule_categorise(merchant, description)
+            cat = _match if _match else "Income"
         else:
             cat = rule_categorise(merchant, description)
             if cat is None and raw_cat in RAW_TRUELAYER_CATEGORIES:
@@ -368,18 +410,34 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             updated += 1
 
     # Pass 3.4: learned merchant cache (persisted LLM + user decisions)
-    cache_docs = await merchant_categories_col.find(
-        {}, {"category": 1}
+    # Load global entries (no uid field) + user-scoped entries for this user.
+    # User-scoped entries take priority (name-based decisions must not cross users).
+    all_cache_docs = await merchant_categories_col.find(
+        {"$or": [{"uid": {"$exists": False}}, {"uid": user_id}]},
+        {"category": 1, "uid": 1},
     ).to_list(None)
-    cache = {d["_id"]: d["category"] for d in cache_docs if d.get("category") in VALID_CATEGORIES}
-    if cache:
+    cache: dict[str, str] = {}
+    user_cache: dict[str, str] = {}
+    for d in all_cache_docs:
+        if d.get("category") not in VALID_CATEGORIES:
+            continue
+        raw_id: str = d["_id"]
+        if d.get("uid") == user_id:
+            # User-scoped: strip the "uid::" prefix to get bare normalised key
+            bare = raw_id[len(user_id) + 2:] if raw_id.startswith(f"{user_id}::") else raw_id
+            user_cache[bare] = d["category"]
+        else:
+            cache[raw_id] = d["category"]
+    # Merge: user-scoped wins
+    merged_cache = {**cache, **user_cache}
+    if merged_cache:
         cache_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None,
              "$or": [{"category": None}, {"category": {"$in": list(RAW_TRUELAYER_CATEGORIES) + ["Other"]}}]},
             {"merchant_name": 1, "description": 1, "category": 1},
         ).to_list(None)
         for t in cache_txns:
-            cat = cache.get(normalise_merchant(t.get("merchant_name") or "", t.get("description") or ""))
+            cat = merged_cache.get(normalise_merchant(t.get("merchant_name") or "", t.get("description") or ""))
             if cat and t.get("category") != cat:
                 await transactions_col.update_one(
                     {"_id": t["_id"], "custom_category": None},
@@ -451,9 +509,17 @@ async def categorise_others_bg(uid: str) -> int:
     """LLM-classify transactions still on None/Other across all collections."""
     if not OPENROUTER_API_KEY:
         return 0
+    identity = await user_identity(uid)
+    owner_name = " ".join(t.capitalize() for t in identity["name_tokens"]) if identity["name_tokens"] else None
 
     col_map = [transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col]
     cat_list = ", ".join(VALID_CATEGORIES)
+    _name_clause = (
+        f"- The account owner's name is {owner_name}. "
+        "If a transaction's text references that name (full, partial, initials, or truncated), "
+        "it is a transfer between the owner's own accounts → Transfer.\n"
+        "- A credit into a bank account whose text does NOT reference the owner's name → Income.\n"
+    ) if owner_name else ""
     prompt_prefix = (
         "You are a UK personal finance assistant categorising bank transactions.\n"
         f"Assign each to exactly one of: {cat_list}.\n"
@@ -467,6 +533,7 @@ async def categorise_others_bg(uid: str) -> int:
         "- Travel: flights, hotels, holidays\n"
         "- Transfer: payments between accounts, credit card repayments, personal transfers\n"
         "- Income: salary, refunds, cashback, money received from people\n"
+        f"{_name_clause}"
         "- Other: only if genuinely unclassifiable\n"
         "Reply ONLY with JSON: {\"1\": \"Category\", \"2\": \"Category\", ...}\n\nTransactions:\n"
     )
@@ -532,4 +599,153 @@ async def categorise_others_bg(uid: str) -> int:
         if missed:
             await col.update_many({"_id": {"$in": missed}}, {"$set": {"ai_attempted": True}})
 
+    return total_updated
+
+
+async def llm_name_check(uid: str) -> int:
+    """LLM pass that judges whether a transaction references the account owner's name.
+
+    Prefilter: any transaction (custom_category=None, not already Transfer) whose
+    merchant/description has a >=3-char prefix overlap with any name token, OR whose
+    text contains a standalone initial matching a name token's first letter.
+    LLM: batched Haiku call asking whether the text references the owner; result
+    stored in user-scoped cache so decisions never leak between users.
+    Returns count of updated transactions.
+    """
+    if not OPENROUTER_API_KEY:
+        return 0
+
+    identity = await user_identity(uid)
+    name_tokens = identity["name_tokens"]
+    if not name_tokens:
+        return 0
+
+    owner_name = " ".join(t.capitalize() for t in name_tokens)
+    cat_list = ", ".join(VALID_CATEGORIES)
+
+    # --- Prefilter: pull candidates from transactions_col only (primary data source)
+    candidates_raw = await transactions_col.find(
+        {"user_id": uid, "custom_category": None,
+         "category": {"$nin": ["Transfer"]}},
+        {"merchant_name": 1, "description": 1, "transaction_type": 1,
+         "amount": 1, "category": 1},
+    ).to_list(None)
+
+    # Python-side fuzzy prefilter using existing _name_token_hits
+    candidates = []
+    for t in candidates_raw:
+        text = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()
+        # Also check for standalone initials of any name token
+        hits = _name_token_hits(text, name_tokens)
+        if hits:
+            candidates.append(t)
+            continue
+        # Standalone initial check
+        words = re.split(r"[^a-zA-Z]+", text.lower())
+        initials = {tok[0] for tok in name_tokens if tok}
+        if any(w for w in words if len(w) == 1 and w in initials):
+            candidates.append(t)
+
+    log = logging.getLogger(__name__)
+    log.info("llm_name_check uid=%s prefilter_candidates=%d", uid, len(candidates))
+
+    if not candidates:
+        return 0
+
+    # --- Batch LLM calls (up to 40 per call)
+    BATCH_SIZE = 40
+    total_updated = 0
+    flip_counts: dict[str, int] = {}
+    spot_examples: list[dict] = []
+
+    prompt_prefix = (
+        f"The account owner's full name is: {owner_name}.\n"
+        "For each transaction below, decide:\n"
+        "1. Does this transaction's text reference the account owner's name "
+        "(full name, first name only, last name only, initials, or truncated)?\n"
+        "   - If YES and it is a credit (money in) → Transfer (between own accounts)\n"
+        "   - If YES and it is a debit (money out) → Transfer\n"
+        "2. If NO reference to the owner's name:\n"
+        "   - A credit into a bank account (money in, not from owner) → Income\n"
+        f"   - Otherwise assign the best category from: {cat_list}\n"
+        "Reply ONLY with JSON: {\"1\": \"Category\", \"2\": \"Category\", ...}\n\n"
+        "Transactions:\n"
+    )
+
+    for batch_start in range(0, len(candidates), BATCH_SIZE):
+        batch = candidates[batch_start: batch_start + BATCH_SIZE]
+
+        lines_data = []
+        for t in batch:
+            direction = "credit (money in)" if t.get("transaction_type") == "credit" else "debit (money out)"
+            amt = t.get("amount", 0)
+            desc = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()[:120]
+            lines_data.append({"id": t["_id"], "desc": desc, "direction": direction, "amount": amt, "old_cat": t.get("category")})
+
+        lines_text = "\n".join(
+            f"{i+1}. [{d['direction']}, £{d['amount']:.2f}] {d['desc']}"
+            for i, d in enumerate(lines_data)
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                r = await http.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                    json={
+                        "model": "anthropic/claude-haiku-4-5",
+                        "max_tokens": 600,
+                        "temperature": 0,
+                        "messages": [{"role": "user", "content": prompt_prefix + lines_text}],
+                    },
+                )
+            data = r.json()
+            if "choices" not in data:
+                continue
+            raw = data["choices"][0]["message"]["content"].strip()
+            if raw.startswith("```"):
+                raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                raw = re.sub(r'\s*```\s*$', '', raw).strip()
+            m = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not m:
+                continue
+            classifications: dict = json.loads(m.group())
+        except Exception as exc:
+            log.warning("llm_name_check batch error: %s", exc)
+            continue
+
+        for i, d in enumerate(lines_data):
+            cat = classifications.get(str(i + 1))
+            if not cat or cat not in VALID_CATEGORIES:
+                continue
+            old_cat = d["old_cat"]
+            if cat == old_cat:
+                continue
+            # Apply
+            result = await transactions_col.update_one(
+                {"_id": d["id"], "custom_category": None},
+                {"$set": {"category": cat}},
+            )
+            if result.modified_count:
+                total_updated += 1
+                flip_key = f"{old_cat or 'None'} → {cat}"
+                flip_counts[flip_key] = flip_counts.get(flip_key, 0) + 1
+                # Cache user-scoped so future syncs don't re-ask
+                norm_key = normalise_merchant("", d["desc"])
+                if norm_key:
+                    await cache_merchant(norm_key, cat, "llm", uid=uid)
+                # Collect up to 5 spot-check examples
+                if len(spot_examples) < 5:
+                    spot_examples.append({
+                        "description": d["desc"],
+                        "direction": d["direction"],
+                        "amount": d["amount"],
+                        "old_category": old_cat,
+                        "new_category": cat,
+                    })
+
+    log.info(
+        "llm_name_check uid=%s examined=%d flips=%s examples=%s",
+        uid, len(candidates), flip_counts, spot_examples,
+    )
     return total_updated
