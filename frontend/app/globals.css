@@ -20,6 +20,22 @@
   color-scheme: dark;
 }
 
+/* Text-selection highlight — indigo-tinted, legible in both themes */
+::selection {
+  background-color: rgba(99, 102, 241, 0.22); /* indigo-500 @ ~22% — light mode */
+}
+::-moz-selection {
+  background-color: rgba(99, 102, 241, 0.22);
+}
+.dark ::selection {
+  background-color: rgba(129, 140, 248, 0.40); /* indigo-400 @ ~40% — reads on dark */
+  color: #f1f5f9;                               /* slate-100 — legible selected text */
+}
+.dark ::-moz-selection {
+  background-color: rgba(129, 140, 248, 0.40);
+  color: #f1f5f9;
+}
+
 * {
   box-sizing: border-box;
 }

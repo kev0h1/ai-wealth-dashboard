@@ -38,6 +38,7 @@ import ChatMarkdown from "@/components/ChatMarkdown";
 import { getPayPeriodWithConfig, filterPeriod, formatDate, formatPeriod, prevPeriodWithConfig, nextPeriodWithConfig } from "@/lib/payPeriod";
 import type { Transaction, CashflowData } from "@/lib/api";
 import CustomSelect from "@/components/CustomSelect";
+import BudgetLimitSheet from "@/components/BudgetLimitSheet";
 
 interface Budget {
   category: string;
@@ -121,9 +122,8 @@ export default function BudgetPage() {
   const [addLimit, setAddLimit] = useState("");
   const [addError, setAddError] = useState("");
 
-  // Inline limit edit state
-  const [editingCat, setEditingCat] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
+  // Budget limit sheet state
+  const [budgetSheetCat, setBudgetSheetCat] = useState<string | null>(null);
 
   // Chat state
   const [chatOpen, setChatOpen] = useState(false);
@@ -295,12 +295,10 @@ export default function BudgetPage() {
 
   async function handleUpdateLimit(cat: string, value: string) {
     const limit = parseFloat(value);
-    if (!limit || limit <= 0) { setEditingCat(null); setEditValue(""); return; }
+    if (!limit || limit <= 0) return;
     const next = budgets.map(b => b.category === cat ? { ...b, monthly_limit: limit } : b);
     setBudgets(next);
     await api.setBudgets(next).catch(() => {});
-    setEditingCat(null);
-    setEditValue("");
   }
 
   // Clean up undo timer on unmount
@@ -313,8 +311,8 @@ export default function BudgetPage() {
     const next = budgets.filter(b => b.category !== cat);
     setBudgets(next);
     api.setBudgets(next).catch(() => {});
-    // Close any open edit / expand state for this category
-    if (editingCat === cat) { setEditingCat(null); setEditValue(""); }
+    // Close any open sheet / expand state for this category
+    if (budgetSheetCat === cat) setBudgetSheetCat(null);
     if (expandedCat === cat) setExpandedCat(null);
     // Stash for undo
     setUndoBudget(target);
@@ -571,14 +569,14 @@ export default function BudgetPage() {
               ) : (
                 <>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Over your budget</p>
-                  <p className={`text-2xl font-bold num mb-1 ${hasGenuineRisk ? "text-red-600 dark:text-red-400" : "text-amber-700 dark:text-amber-500"}`}>
+                  <p className="text-2xl font-bold num mb-1 text-amber-700 dark:text-amber-500">
                     {hideNetWorth ? "••••" : fmt(Math.abs(remaining), sym)} over
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
                     {hideNetWorth ? "••••" : `${fmt(totalSpent, sym)} spent of ${fmt(totalBudget, sym)}`}
                   </p>
-                  <p className={`text-sm ${hasGenuineRisk ? "text-red-600 dark:text-red-500" : "text-amber-700 dark:text-amber-400"}`}>
-                    {overBudgetCount} {overBudgetCount === 1 ? "category" : "categories"} over budget{hasGenuineRisk ? " · a bill may not clear" : ""}
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
+                    {overBudgetCount} {overBudgetCount === 1 ? "category" : "categories"} over budget{hasGenuineRisk ? <>{" "}<span className="text-red-600 dark:text-red-400">· a bill may not clear</span></> : ""}
                   </p>
                   {totalPlanned > 0 && (
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{hideNetWorth ? "••••" : fmt(totalPlanned, sym)} planned</p>
@@ -588,7 +586,7 @@ export default function BudgetPage() {
               <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-3" role="progressbar" aria-valuenow={Math.round(Math.min(overallPct, 100))} aria-valuemin={0} aria-valuemax={100} aria-label="Overall budget used">
                 <div
                   className="h-full rounded-full bar-sweep"
-                  style={{ width: `${Math.min(100, overallPct)}%`, backgroundColor: remaining < 0 ? (hasGenuineRisk ? RISK_COLOUR : OVER_COLOUR) : "#10b981" }}
+                  style={{ width: `${Math.min(100, overallPct)}%`, backgroundColor: remaining < 0 ? OVER_COLOUR : "#10b981" }}
                 />
               </div>
               {remaining >= 0 && overallAheadOfPace && totalBudget > 0 && (
@@ -612,7 +610,7 @@ export default function BudgetPage() {
           <div className="space-y-3 lg:col-span-3">
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
             {prefsLoaded && widgets.includes("pacing_curve") && paceChartData.length > 1 && budgets.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-base font-bold text-slate-700 dark:text-slate-200">Spending vs budget</p>
                   <button
@@ -760,7 +758,7 @@ export default function BudgetPage() {
                 .filter(d => d.dailySpend !== null)
                 .map(d => ({ ...d, displaySpend: Math.max(d.dailySpend ?? 0, LOG_FLOOR) }));
               return (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
                   <div className={`w-full flex items-center justify-between ${showDaily ? "mb-3" : ""}`}>
                     <button
                       onClick={() => setShowDaily(v => !v)}
@@ -899,25 +897,30 @@ export default function BudgetPage() {
               <>
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
                   <div className="px-4 pt-2.5 pb-1">
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      <Flag size={9} className="inline mb-0.5 text-blue-400 mr-0.5" />Flag a transaction as planned if you budgeted for it separately — it won&apos;t count towards the total.
-                    </p>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/40 rounded-lg px-3 py-2">
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                        <Flag size={12} className="inline mb-0.5 text-blue-500 dark:text-blue-400 mr-1" />Flag a transaction as planned if you budgeted for it separately — it won&apos;t count towards the total.
+                      </p>
+                    </div>
                   </div>
-                  {budgets.map((b, i) => {
+                  {[...budgets].sort((a, b) => {
+                    const overspendA = (spending[a.category] ?? 0) - a.monthly_limit;
+                    const overspendB = (spending[b.category] ?? 0) - b.monthly_limit;
+                    // Over-budget rows first, largest overspend at top; non-over rows keep existing order
+                    if (overspendA > 0 && overspendB > 0) return overspendB - overspendA;
+                    if (overspendA > 0) return -1;
+                    if (overspendB > 0) return 1;
+                    return 0;
+                  }).map((b, i) => {
                     const spent = spending[b.category] ?? 0;
-                    const pct = Math.min(100, (spent / b.monthly_limit) * 100);
                     const over = spent > b.monthly_limit;
                     const colour = colours[b.category] ?? CATEGORY_COLOURS[b.category] ?? CATEGORY_COLOURS.Other;
                     const txns = categoryTxns[b.category] ?? [];
                     const isExpanded = expandedCat === b.category;
                     const curve = paceProfile[b.category];
                     const expectedFraction = curve ? interpolateCurve(curve, elapsedFraction) : elapsedFraction;
-                    const markerPct = expectedFraction * 100;
-                    const expectedSpend = expectedFraction * b.monthly_limit;
-                    const paceGap = expectedSpend - spent; // positive = spending less than pace (good)
+                    const paceGap = (expectedFraction * b.monthly_limit) - spent; // positive = spending less than pace (good)
                     const aheadOfPace = !over && paceGap >= 0;
-                    const isEditingThis = editingCat === b.category;
-
                     return (
                       <SwipeToDelete key={b.category} onDelete={() => requestDelete(b.category)} label="Delete">
                       <div className={`relative${i > 0 ? " border-t border-slate-50 dark:border-slate-700" : ""}`}>
@@ -928,104 +931,84 @@ export default function BudgetPage() {
                           className="w-full px-4 pt-3 pb-3 text-left"
                           aria-expanded={isExpanded}
                           aria-controls={`budget-txns-${b.category}`}
+                          aria-label={b.monthly_limit === 0
+                            ? `${b.category}: no limit set`
+                            : over
+                              ? `${b.category}: ${fmt2(spent - b.monthly_limit, sym)} over budget of ${fmt2(b.monthly_limit, sym)}`
+                              : `${b.category}: ${fmt2(b.monthly_limit - spent, sym)} left of ${fmt2(b.monthly_limit, sym)}`}
                         >
-                          {/* Only the name row clears the floating control cluster —
-                              the bar + pace labels below span full width */}
-                          <div className="flex items-center gap-2.5 min-w-0 mb-1.5 pr-28">
-                            {(() => {
-                              const Icon = getCategoryIcon(b.category, iconOverrides);
-                              return (
-                                <span
-                                  className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                                  style={{ backgroundColor: `${colour}26` }}
-                                >
-                                  <Icon size={15} style={{ color: colour }} />
-                                </span>
-                              );
-                            })()}
-                            <span className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{b.category}</span>
-                          </div>
-                          <div className="relative h-2.5" role="progressbar" aria-valuenow={Math.round(Math.min(pct, 100))} aria-valuemin={0} aria-valuemax={100} aria-label={`${b.category} budget: ${Math.round(pct)}% used`}>
-                            {/* Track + spending bar */}
-                            <div className="absolute inset-0 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full bar-sweep"
-                                style={{ width: `${pct}%`, backgroundColor: over ? OVER_COLOUR : aheadOfPace ? colour : OVER_COLOUR }}
-                              />
+                          <div className="flex items-center gap-2.5 pr-14">
+                              {/* LEFT: icon chip + two-line text */}
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                {(() => {
+                                  const Icon = getCategoryIcon(b.category, iconOverrides);
+                                  return (
+                                    <span
+                                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                      style={{ backgroundColor: `${colour}26` }}
+                                    >
+                                      <Icon size={15} style={{ color: colour }} />
+                                    </span>
+                                  );
+                                })()}
+                                <div className="min-w-0">
+                                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate block">{b.category}</span>
+                                  {/* Quiet secondary caption — limit is a tappable edit trigger */}
+                                  <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-1 flex-wrap">
+                                    {hideNetWorth ? "••••" : b.monthly_limit === 0 ? (
+                                      <span className="text-slate-400 dark:text-slate-500 italic">No limit set</span>
+                                    ) : (
+                                      <>
+                                        {fmt2(spent, sym)} of{" "}
+                                        <button
+                                          onClick={e => { e.stopPropagation(); setBudgetSheetCat(b.category); }}
+                                          className="underline decoration-dotted underline-offset-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                                          aria-label={`Edit ${b.category} budget limit`}
+                                        >
+                                          {fmt2(b.monthly_limit, sym)}
+                                        </button>
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* RIGHT: delta hero — the ONLY coloured element on the row */}
+                              <div className="flex-shrink-0 text-right">
+                                {b.monthly_limit === 0 ? (
+                                  <button
+                                    onClick={e => { e.stopPropagation(); setBudgetSheetCat(b.category); }}
+                                    className="text-[11px] text-indigo-500 dark:text-indigo-400 font-medium underline decoration-dotted underline-offset-2"
+                                    aria-label={`Set ${b.category} budget limit`}
+                                  >
+                                    Set limit
+                                  </button>
+                                ) : over ? (
+                                  <span className="text-base font-bold tabular-nums text-red-600 dark:text-red-400">
+                                    {hideNetWorth ? "••••" : `${fmt(spent - b.monthly_limit, sym)} over`}
+                                  </span>
+                                ) : !aheadOfPace && elapsedFraction >= 0.05 && elapsedFraction < 1 ? (
+                                  <div className="text-right">
+                                    <span className="text-base font-bold tabular-nums text-amber-600 dark:text-amber-500 block">
+                                      {hideNetWorth ? "••••" : `${fmt(b.monthly_limit - spent, sym)} left`}
+                                    </span>
+                                    {!hideNetWorth && (
+                                      <span className="block text-[10px] text-amber-500/70 dark:text-amber-400/60 font-medium leading-tight">
+                                        over pace
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-base font-bold tabular-nums text-slate-700 dark:text-slate-200">
+                                    {hideNetWorth ? "••••" : `${fmt(b.monthly_limit - spent, sym)} left`}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            {/* Pace marker — where you should be at this point in the period */}
-                            {elapsedFraction < 1 && markerPct > 1 && markerPct < 99 && (
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-slate-400 dark:bg-slate-500 rounded-full"
-                                style={{ left: `${markerPct}%` }}
-                              />
-                            )}
-                          </div>
-                          <div className="flex justify-between mt-1">
-                            <span className={`text-[11px] font-medium ${over ? "text-amber-700 dark:text-amber-400" : elapsedFraction < 0.05 ? "text-slate-500 dark:text-slate-400" : aheadOfPace ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-500"}`}>
-                              {hideNetWorth ? "••••" : over
-                                ? `${fmt2(spent - b.monthly_limit, sym)} over budget`
-                                : elapsedFraction < 0.05
-                                ? "Period just started"
-                                : elapsedFraction >= 1
-                                ? (aheadOfPace ? `${fmt2(paceGap, sym)} under budget` : `${fmt2(Math.abs(paceGap), sym)} over budget`)
-                                : aheadOfPace
-                                ? `${fmt2(paceGap, sym)} ahead of pace`
-                                : `${fmt2(Math.abs(paceGap), sym)} above pace`
-                              }
-                            </span>
-                            {!over && (
-                              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                                {hideNetWorth ? "••••" : `${fmt2(b.monthly_limit - spent, sym)} left`}
-                              </span>
-                            )}
-                          </div>
                         </button>
 
                         {/* Absolutely-positioned control cluster — NOT nested inside the expand button */}
                         <div className="absolute top-3 right-4 flex items-center gap-1.5">
-                          {/* Amount / inline-edit trigger */}
-                          {isEditingThis ? (
-                            <div className="flex items-center gap-1">
-                              <div className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">{sym}</span>
-                                <input
-                                  type="number"
-                                  inputMode="decimal"
-                                  min="1"
-                                  value={editValue}
-                                  onChange={e => setEditValue(e.target.value)}
-                                  onKeyDown={e => {
-                                    if (e.key === "Enter") { handleUpdateLimit(b.category, editValue); }
-                                    if (e.key === "Escape") { setEditingCat(null); setEditValue(""); }
-                                  }}
-                                  onBlur={() => handleUpdateLimit(b.category, editValue)}
-                                  aria-label={`Edit ${b.category} budget limit`}
-                                  autoFocus
-                                  className={`text-xs bg-white dark:bg-slate-700 dark:text-slate-100 border border-indigo-400 dark:border-indigo-500 rounded-lg py-1 pr-2 outline-none focus:ring-2 focus:ring-indigo-500 ${sym.length > 2 ? "w-24 pl-10" : "w-20 pl-6"}`}
-                                />
-                              </div>
-                              <button
-                                onClick={() => { setEditingCat(null); setEditValue(""); }}
-                                className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600"
-                                aria-label="Cancel edit"
-                              >
-                                <X size={11} color="#94a3b8" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setEditingCat(b.category); setEditValue(String(b.monthly_limit)); }}
-                              className={`text-sm font-semibold tabular-nums min-h-[44px] flex items-center px-1 ${over ? "text-slate-600 dark:text-slate-300" : "text-slate-600 dark:text-slate-300"}`}
-                              aria-label={`Edit ${b.category} budget limit`}
-                            >
-                              <span>{hideNetWorth ? "••••" : fmt2(spent, sym)}</span>
-                              <span className="mx-0.5 text-slate-400">/</span>
-                              <span className="underline decoration-dotted underline-offset-2">
-                                {hideNetWorth ? "••••" : fmt(b.monthly_limit, "")}
-                              </span>
-                            </button>
-                          )}
                           {/* Chevron expand toggle */}
                           <button
                             onClick={() => setExpandedCat(isExpanded ? null : b.category)}
@@ -1073,7 +1056,7 @@ export default function BudgetPage() {
                                           className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${
                                             tx.planned
                                               ? "bg-blue-100 dark:bg-blue-900/40 text-blue-500"
-                                              : "bg-slate-100 dark:bg-slate-700 text-blue-300 dark:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-400"
+                                              : "bg-slate-100 dark:bg-slate-700 text-blue-400 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-500 dark:hover:text-blue-300"
                                           }`}
                                           aria-label={`${tx.planned ? "Unmark" : "Mark"} ${tx.merchant_name || tx.description} as planned`}
                                         >
@@ -1301,6 +1284,30 @@ export default function BudgetPage() {
           </div>
         </div>
       )}
+
+      {/* Budget limit sheet */}
+      {budgetSheetCat && (() => {
+        const b = budgets.find(bud => bud.category === budgetSheetCat);
+        if (!b) return null;
+        const colour = colours[b.category] ?? CATEGORY_COLOURS[b.category] ?? CATEGORY_COLOURS.Other;
+        const Icon = getCategoryIcon(b.category, iconOverrides);
+        const spent = spending[b.category] ?? 0;
+        return (
+          <BudgetLimitSheet
+            category={b.category}
+            colour={colour}
+            icon={Icon}
+            spent={spent}
+            currentLimit={b.monthly_limit}
+            sym={sym}
+            onClose={() => setBudgetSheetCat(null)}
+            onSave={(v) => {
+              handleUpdateLimit(b.category, String(v));
+              setBudgetSheetCat(null);
+            }}
+          />
+        );
+      })()}
 
       <BottomNav />
     </div>
