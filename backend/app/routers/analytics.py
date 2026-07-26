@@ -19,12 +19,14 @@ from app.db.collections import (
     statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
+    upcoming_rules_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
+from app.services.income import next_occurrence as _next_occ_svc, schedule_label as _schedule_label_svc
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
 # Any code not in the map is title-cased by default (e.g. "MONZO" → "Monzo").
@@ -346,7 +348,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
 DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]
 
 
-def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None) -> list[dict]:
+def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
     for t in txns:
@@ -393,50 +395,56 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         _today = today or _date.today()
         _config = pay_period_config or {"type": "calendar_month"}
 
-        if 6 <= avg_interval <= 10:
-            # Weekly — anchor to the modal weekday of the occurrence dates
-            weekdays = [d.weekday() for d in dates]
-            modal_wd = max(set(weekdays), key=weekdays.count)
-            delta = (modal_wd - _today.weekday()) % 7
-            delta = delta or 7  # never 0: always strictly after today
-            next_date = _today + timedelta(days=delta)
-        elif 11 <= avg_interval <= 18:
-            # Biweekly — anchor to the modal weekday but keep 14-day cadence
-            weekdays = [d.weekday() for d in dates]
-            modal_wd = max(set(weekdays), key=weekdays.count)
-            # Find next occurrence of modal_wd strictly after today
-            delta = (modal_wd - _today.weekday()) % 7
-            delta = delta or 7
-            candidate = _today + timedelta(days=delta)
-            # Align to 14-day cadence from last known date
-            since_last = (candidate - last_date).days
-            # Round to nearest 14-day multiple from last_date
-            periods = round(since_last / 14)
-            next_date = last_date + timedelta(days=max(14, periods * 14))
-            # Ensure it's strictly after today
-            while next_date <= _today:
-                next_date += timedelta(days=14)
-        elif 26 <= avg_interval <= 33:
-            # Monthly — anchor to day-of-month (existing logic)
-            if is_income and _config.get("type", "calendar_month") != "calendar_month":
-                # Income with a determinate payday: use pay period config
-                from app.services.pay_period import _next_payday
-                next_date = _next_payday(_today, _config)
-            else:
-                year  = last_date.year + (1 if last_date.month == 12 else 0)
-                month = 1 if last_date.month == 12 else last_date.month + 1
-                day   = min(last_date.day, monthrange(year, month)[1])
-                next_date = last_date.replace(year=year, month=month, day=day)
-                # If still in the past or today, advance one more month
-                while next_date <= _today:
-                    year  = next_date.year + (1 if next_date.month == 12 else 0)
-                    month = 1 if next_date.month == 12 else next_date.month + 1
-                    day   = min(next_date.day, monthrange(year, month)[1])
-                    next_date = next_date.replace(year=year, month=month, day=day)
+        # Confirmed income stream: use stored schedule directly (wins over all interval logic)
+        _confirmed_sched = (confirmed_income or {}).get(key, {}).get("schedule") if is_income else None
+        if _confirmed_sched:
+            from app.services.income import next_occurrence as _next_occ
+            next_date = _next_occ(_confirmed_sched, _today)
         else:
-            next_date = last_date + timedelta(days=round(avg_interval))
-            while next_date <= _today:
-                next_date += timedelta(days=round(avg_interval))
+            if 6 <= avg_interval <= 10:
+                # Weekly — anchor to the modal weekday of the occurrence dates
+                weekdays = [d.weekday() for d in dates]
+                modal_wd = max(set(weekdays), key=weekdays.count)
+                delta = (modal_wd - _today.weekday()) % 7
+                delta = delta or 7  # never 0: always strictly after today
+                next_date = _today + timedelta(days=delta)
+            elif 11 <= avg_interval <= 18:
+                # Biweekly — anchor to the modal weekday but keep 14-day cadence
+                weekdays = [d.weekday() for d in dates]
+                modal_wd = max(set(weekdays), key=weekdays.count)
+                # Find next occurrence of modal_wd strictly after today
+                delta = (modal_wd - _today.weekday()) % 7
+                delta = delta or 7
+                candidate = _today + timedelta(days=delta)
+                # Align to 14-day cadence from last known date
+                since_last = (candidate - last_date).days
+                # Round to nearest 14-day multiple from last_date
+                periods = round(since_last / 14)
+                next_date = last_date + timedelta(days=max(14, periods * 14))
+                # Ensure it's strictly after today
+                while next_date <= _today:
+                    next_date += timedelta(days=14)
+            elif 26 <= avg_interval <= 33:
+                # Monthly — anchor to day-of-month (existing logic)
+                if is_income and _config.get("type", "calendar_month") != "calendar_month":
+                    # Income with a determinate payday: use pay period config
+                    from app.services.pay_period import _next_payday
+                    next_date = _next_payday(_today, _config)
+                else:
+                    year  = last_date.year + (1 if last_date.month == 12 else 0)
+                    month = 1 if last_date.month == 12 else last_date.month + 1
+                    day   = min(last_date.day, monthrange(year, month)[1])
+                    next_date = last_date.replace(year=year, month=month, day=day)
+                    # If still in the past or today, advance one more month
+                    while next_date <= _today:
+                        year  = next_date.year + (1 if next_date.month == 12 else 0)
+                        month = 1 if next_date.month == 12 else next_date.month + 1
+                        day   = min(next_date.day, monthrange(year, month)[1])
+                        next_date = next_date.replace(year=year, month=month, day=day)
+            else:
+                next_date = last_date + timedelta(days=round(avg_interval))
+                while next_date <= _today:
+                    next_date += timedelta(days=round(avg_interval))
         # Use account_id from the most recent transaction — bills reliably come from the same account
         most_recent = max(items, key=lambda t: t["date"])
         results.append({
@@ -494,9 +502,15 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
     _today = _date.today()
 
+    # Build confirmed income map for schedule-aware detection
+    _confirmed_income_map: dict = {}
+    for _s in (prefs.get("income_streams") or []):
+        if _s.get("status") == "confirmed" and _s.get("schedule"):
+            _confirmed_income_map[_s["key"]] = _s
+
     recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
-    recurring_income = _detect_recurring(credits, today=_today, is_income=True, pay_period_config=pay_period_config)
+    recurring_income = _detect_recurring(credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
 
     heuristic_keys = {r["key"] for r in recurring_spend}
@@ -599,11 +613,16 @@ async def at_risk_count(user: dict = Depends(current_user)):
     resp = await _build_cashflow_response(cached, uid=user["email"])
 
     from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
+    from app.services.income import get_confirmed_payday as _get_confirmed_payday
     from datetime import date as _date_cls
     _user_prefs = await preferences_col.find_one({"user_id": user["email"]}) or {}
     _pay_cfg    = _user_prefs.get("pay_period_config", {"type": "calendar_month"})
     _today_d    = _date_cls.today()
-    _next_pay   = _calc_next_payday(_today_d, _pay_cfg)
+    _confirmed_result = _get_confirmed_payday(_user_prefs, _today_d)
+    if _confirmed_result:
+        _next_pay, _ = _confirmed_result
+    else:
+        _next_pay = _calc_next_payday(_today_d, _pay_cfg)
     _days_to_pay = (_next_pay - _today_d).days
     window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] < _days_to_pay]
     window_income = [i for i in resp["upcoming_income"] if i["days_away"] < _days_to_pay]
@@ -713,6 +732,40 @@ async def restore_recurring(body: dict, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+def _validate_schedule(schedule: dict) -> dict | None:
+    """Validate a user-provided schedule dict. Returns cleaned dict or None if invalid."""
+    if not isinstance(schedule, dict):
+        return None
+    t = schedule.get("type")
+    if t not in ("weekly", "biweekly", "day_of_month", "last_weekday"):
+        return None
+    if t in ("weekly", "last_weekday"):
+        wd = schedule.get("weekday")
+        if not isinstance(wd, int) or not (0 <= wd <= 6):
+            return None
+        return {"type": t, "weekday": wd}
+    if t == "biweekly":
+        wd = schedule.get("weekday")
+        if not isinstance(wd, int) or not (0 <= wd <= 6):
+            return None
+        anchor_str = schedule.get("anchor", "")
+        try:
+            anchor_date = _date.fromisoformat(str(anchor_str))
+        except (ValueError, TypeError):
+            anchor_date = _date.today()
+        # Shift anchor to the nearest matching weekday (forward)
+        delta = (wd - anchor_date.weekday()) % 7
+        if delta != 0:
+            anchor_date = anchor_date + timedelta(days=delta)
+        return {"type": t, "weekday": wd, "anchor": anchor_date.isoformat()}
+    if t == "day_of_month":
+        day = schedule.get("day")
+        if not isinstance(day, int) or not (1 <= day <= 31):
+            return None
+        return {"type": t, "day": day}
+    return None
+
+
 @router.post("/cashflow/edit-upcoming")
 async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
     """Override a single upcoming occurrence's date and/or amount."""
@@ -785,6 +838,153 @@ async def clear_override(body: dict, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@router.post("/cashflow/preview-rule")
+async def preview_rule(body: dict, user: dict = Depends(current_user)):
+    """Parse plain-English recurrence description via Haiku → return schedule + next 3 dates."""
+    from datetime import date as _d_today
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    text = (body.get("text") or "").strip()
+    anchor_str = (body.get("anchor_date") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    if not text:
+        raise HTTPException(400, "text required")
+    if len(text) > 200:
+        raise HTTPException(400, "text too long (max 200 chars)")
+    try:
+        anchor_date = _date.fromisoformat(anchor_str)
+    except (ValueError, TypeError):
+        anchor_date = _date.today()
+
+    today_iso = _date.today().isoformat()
+    prompt = (
+        f"Today is {today_iso}. The recurring item is: \"{key}\". "
+        f"The anchor date (last known occurrence) is: {anchor_date.isoformat()}.\n\n"
+        "The user describes when a recurring payment happens, in plain English. "
+        "Map it to EXACTLY one of these JSON schedules (weekday: 0=Monday … 6=Sunday):\n"
+        "{\"type\":\"weekly\",\"weekday\":N} — e.g. \"every Sunday\"\n"
+        "{\"type\":\"biweekly\",\"weekday\":N,\"anchor\":\"YYYY-MM-DD\"} — e.g. \"every other Friday\"; "
+        "use the anchor date provided, adjusted to the nearest matching weekday\n"
+        "{\"type\":\"day_of_month\",\"day\":N} — e.g. \"the 15th of each month\" (day 1-31)\n"
+        "{\"type\":\"last_weekday\",\"weekday\":N} — e.g. \"last Friday of the month\"\n"
+        "If the description can't be expressed as one of these, reply {\"error\":\"<short plain-English reason>\"}.\n"
+        "Reply ONLY with the JSON object.\n\n"
+        f"User description: \"{text}\""
+    )
+
+    _soft_error = {"ok": False, "error": "Couldn't understand that — try something like 'every Sunday' or 'last Friday of the month'"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
+                      "messages": [{"role": "user", "content": prompt}]},
+            )
+        if r.status_code != 200:
+            return _soft_error
+        content = r.json()["choices"][0]["message"]["content"].strip()
+        m = re.search(r"\{.*\}", content, re.DOTALL)
+        if not m:
+            return _soft_error
+        raw_sched = json.loads(m.group(0))
+    except Exception:
+        return _soft_error
+
+    if raw_sched.get("error"):
+        return {"ok": False, "error": raw_sched["error"]}
+
+    schedule = _validate_schedule(raw_sched)
+    if schedule is None:
+        return _soft_error
+
+    # Build label (never 500)
+    try:
+        label = _schedule_label_svc(schedule)
+    except Exception:
+        t = schedule["type"]
+        wd_names = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        if t == "weekly":
+            label = f"every {wd_names[schedule['weekday']]}"
+        elif t == "biweekly":
+            label = f"every other {wd_names[schedule['weekday']]}"
+        elif t == "day_of_month":
+            label = f"around the {schedule['day']} each month"
+        elif t == "last_weekday":
+            label = f"the last {wd_names[schedule['weekday']]} each month"
+        else:
+            label = "on a regular schedule"
+
+    # Compute next 3 occurrences (today counts if it matches)
+    from datetime import timedelta as _td2
+    d = _next_occ_svc(schedule, _date.today() - timedelta(days=1))
+    next_dates = [d]
+    for _ in range(2):
+        d = _next_occ_svc(schedule, d)
+        next_dates.append(d)
+
+    return {
+        "ok": True,
+        "schedule": schedule,
+        "label": label,
+        "next_dates": [d.isoformat() for d in next_dates],
+    }
+
+
+@router.post("/cashflow/apply-rule")
+async def apply_rule(body: dict, user: dict = Depends(current_user)):
+    """Persist a validated recurrence rule for an upcoming item."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    schedule = _validate_schedule(body.get("schedule") or {})
+    if schedule is None:
+        raise HTTPException(400, "invalid schedule")
+
+    try:
+        label = _schedule_label_svc(schedule)
+    except Exception:
+        label = "on a regular schedule"
+
+    doc = {
+        "uid": uid,
+        "key": key,
+        "schedule": schedule,
+        "label": label,
+        "created_at": datetime.now(),
+    }
+    await upcoming_rules_col.update_one(
+        {"uid": uid, "key": key},
+        {"$set": doc},
+        upsert=True,
+    )
+    # Delete all overrides for this key — rule is the new source of truth
+    await upcoming_overrides_col.delete_many({"uid": uid, "key": key})
+    # Touch cache rebuild timestamp
+    await cashflow_cache_col.update_one(
+        {"_id": uid},
+        {"$set": {"_override_rebuild": datetime.now()}},
+    )
+    return {"ok": True, "label": label}
+
+
+@router.post("/cashflow/clear-rule")
+async def clear_rule(body: dict, user: dict = Depends(current_user)):
+    """Remove a user-defined recurrence rule for an upcoming item."""
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    await upcoming_rules_col.delete_many({"uid": uid, "key": key})
+    await cashflow_cache_col.update_one(
+        {"_id": uid},
+        {"$set": {"_override_rebuild": datetime.now()}},
+    )
+    return {"ok": True}
+
+
 async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict:
     """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost."""
     today = datetime.now()
@@ -800,19 +1000,50 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict
     if uid:
         overrides = await upcoming_overrides_col.find({"uid": uid}).to_list(None)
 
+    # Load confirmed income schedules so _occurrences can step correctly
+    confirmed_income: dict[str, dict] = {}
+    if uid:
+        _prefs_doc = await preferences_col.find_one({"user_id": uid}) or {}
+        for s in (_prefs_doc.get("income_streams") or []):
+            if s.get("status") == "confirmed" and s.get("schedule"):
+                confirmed_income[s["key"]] = s
+
+    # Load user-defined AI recurrence rules (highest priority)
+    rules: dict[str, dict] = {}
+    if uid:
+        for rdoc in await upcoming_rules_col.find({"uid": uid}).to_list(None):
+            rules[rdoc["key"]] = rdoc
+
     def _parse_date(s: str) -> datetime:
         return datetime.fromisoformat(s)
 
     def _occurrences(r: dict) -> list[datetime]:
         interval = float(r.get("avg_interval") or 30)
+        key = r.get("key", "")
+        confirmed_sched = confirmed_income.get(key, {}).get("schedule") if confirmed_income else None
+
+        # User rule takes TOP precedence — generate directly from the rule schedule
+        if rule := rules.get(key):
+            sched = rule["schedule"]
+            d_date = _next_occ_svc(sched, today.date() - timedelta(days=1))
+            out: list[datetime] = []
+            while d_date <= window_end.date() and len(out) < 12:
+                out.append(datetime(d_date.year, d_date.month, d_date.day))
+                d_date = _next_occ_svc(sched, d_date)
+            return out
+
         d = _parse_date(r["next_date"])
-        out: list[datetime] = []
+        out = []
         for _ in range(12):  # guard: at most 12 projections per pattern
             if d.date() > window_end.date():
                 break
             if d.date() >= today.date():
                 out.append(d)
-            if 28 <= interval <= 33:
+            # Step to next occurrence
+            if confirmed_sched:
+                next_d = _next_occ_svc(confirmed_sched, d.date())
+                d = datetime(next_d.year, next_d.month, next_d.day)
+            elif 28 <= interval <= 33:
                 # Monthly bills anchor to day-of-month (same rule as detection)
                 year  = d.year + (1 if d.month == 12 else 0)
                 month = 1 if d.month == 12 else d.month + 1
@@ -889,21 +1120,31 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict
                 "account_balance": r.get("account_balance"),
                 "category":        r.get("category"),
                 "edited":          edited,
+                "rule_label":      rules.get(r["key"], {}).get("label"),
             })
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
 
-    upcoming_income = sorted([
-        {
-            "name":          r["key"],
-            "amount":        r["avg_amount"],
-            "expected_date": occ.date().isoformat(),
-            "days_away":     (occ.date() - today.date()).days,
-            "category":      r.get("category"),
-            "edited":        False,
-        }
-        for r in income_patterns
-        for occ in _occurrences(r)
-    ], key=lambda x: x["days_away"])
+    raw_income = []
+    for r in income_patterns:
+        for occ in _occurrences(r):
+            occ_date_str = occ.date().isoformat()
+            final_date, final_amount, edited = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            final_date_obj = _date.fromisoformat(final_date)
+            days_away = (final_date_obj - today.date()).days
+            if final_date_obj > window_end.date():
+                continue
+            if final_date_obj < today.date():
+                continue
+            raw_income.append({
+                "name":          r["key"],
+                "amount":        final_amount,
+                "expected_date": final_date,
+                "days_away":     days_away,
+                "category":      r.get("category"),
+                "edited":        edited,
+                "rule_label":    rules.get(r["key"], {}).get("label"),
+            })
+    upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
 
     avg_daily = cached.get("avg_daily_spend", 0)
     weeks = []
@@ -931,6 +1172,28 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict
 _CACHE_TTL_HOURS = 6
 
 
+async def _get_txn_dates_for_income_key(uid: str, key: str) -> list:
+    """Fetch sorted transaction dates for a given income stream key."""
+    from datetime import timedelta as _td
+    cutoff = datetime.now() - _td(days=90)
+    proj = {"merchant_name": 1, "description": 1, "date": 1, "transaction_type": 1}
+    raw = await transactions_col.find(
+        {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
+    ).to_list(None)
+    raw += await yapily_transactions_col.find(
+        {"user_id": uid, "date": {"$gte": cutoff}, "transaction_type": "credit"}, proj
+    ).to_list(None)
+    dates = []
+    for t in raw:
+        t_key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+        if t_key == key:
+            d = t["date"]
+            if isinstance(d, datetime):
+                d = d.date()
+            dates.append(d)
+    return sorted(dates)
+
+
 @router.get("/cashflow")
 async def get_cashflow(user: dict = Depends(current_user)):
     uid    = user["email"]
@@ -941,13 +1204,64 @@ async def get_cashflow(user: dict = Depends(current_user)):
         computed_at = cached.get("computed_at")
         if computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:
             asyncio.create_task(compute_and_cache_cashflow(uid))
-        return await _build_cashflow_response(cached, uid=uid)
+        resp = await _build_cashflow_response(cached, uid=uid)
+        data = cached
+    else:
+        # No cache yet — compute live, store, then return
+        data = await _compute_cashflow_patterns(uid)
+        data["computed_at"] = datetime.now()
+        await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
+        resp = await _build_cashflow_response(data, uid=uid)
 
-    # No cache yet — compute live, store, then return
-    data = await _compute_cashflow_patterns(uid)
-    data["computed_at"] = datetime.now()
-    await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
-    return await _build_cashflow_response(data, uid=uid)
+    # Augment with payday info
+    from app.services.income import get_confirmed_payday as _gcp, derive_schedule as _ds, schedule_label as _sl, next_occurrence as _no
+    from app.services.pay_period import _next_payday as _calc_np
+    _prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    _pay_cfg = _prefs.get("pay_period_config", {"type": "calendar_month"})
+    _today_d = _date.today()
+
+    _confirmed = _gcp(_prefs, _today_d)
+    if _confirmed:
+        resp["next_payday"] = _confirmed[0].isoformat()
+        resp["payday_source"] = "confirmed"
+    elif _pay_cfg.get("type", "calendar_month") != "calendar_month":
+        resp["next_payday"] = _calc_np(_today_d, _pay_cfg).isoformat()
+        resp["payday_source"] = "period"
+    else:
+        resp["next_payday"] = None
+        resp["payday_source"] = None
+
+    # income_suggestion: largest mature un-rejected unconfirmed stream
+    _dismissed = set(_prefs.get("dismissed_recurring") or [])
+    _stored_map = {s["key"]: s for s in (_prefs.get("income_streams") or [])}
+    _income_patterns = data.get("recurring_income", [])
+
+    _candidates = []
+    for p in _income_patterns:
+        k = p["key"]
+        if k in _dismissed:
+            continue
+        st = _stored_map.get(k, {}).get("status")
+        if st in ("confirmed", "rejected"):
+            continue
+        if int(p.get("occurrences", 0)) < 2:
+            continue
+        _candidates.append(p)
+
+    if _candidates and not _confirmed:
+        _primary = max(_candidates, key=lambda x: x["avg_amount"])
+        _txn_dates = await _get_txn_dates_for_income_key(uid, _primary["key"])
+        _sug_sched = _ds(_txn_dates) if len(_txn_dates) >= 2 else None
+        resp["income_suggestion"] = {
+            "key": _primary["key"],
+            "avg_amount": round(_primary["avg_amount"], 2),
+            "schedule_label": _sl(_sug_sched) if _sug_sched else None,
+            "next_date": _primary["next_date"],
+        }
+    else:
+        resp["income_suggestion"] = None
+
+    return resp
 
 
 def _parse_saving_amount(estimate: str | None) -> float:

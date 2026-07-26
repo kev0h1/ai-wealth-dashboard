@@ -368,6 +368,7 @@ export default function SpendPage() {
     type: "bill" | "income";
     category?: string | null;
     edited?: boolean;
+    rule_label?: string | null;
   }>(null);
   // When the shortfall callout's "Review" is tapped, scroll the flagged bill
   // into view on the Upcoming tab and briefly ring it, then clear the highlight.
@@ -902,11 +903,11 @@ export default function SpendPage() {
               const paydayLabel = nextPayday.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
               // Sort chronologically: income before bills on same day.
-              // Clip to the end of the current pay period.
+              // Clip to the first day of the next pay period (payday inclusive).
               const rawItems = [
                 ...cashflow.upcoming_income.map(b => ({ ...b, type: "income" as const })),
                 ...cashflow.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
-              ].filter(b => new Date(b.expected_date) <= periodEnd)
+              ].filter(b => new Date(b.expected_date).getTime() <= nextPaydayMidnight.getTime())
                .sort((a, b) => {
                 if (a.days_away !== b.days_away) return a.days_away - b.days_away;
                 if (a.type !== b.type) return a.type === "income" ? -1 : 1;
@@ -921,30 +922,9 @@ export default function SpendPage() {
                 );
               }
 
-              // Find the payday milestone: the largest income item within 2 days of nextPayday.
-              let paydayMilestone: (typeof rawItems[0]) | null = null;
-              if (!isCalendarMonth) {
-                const candidates = rawItems.filter(item => {
-                  if (item.type !== "income") return false;
-                  const d = new Date(item.expected_date);
-                  const diffDays = Math.abs(Math.round((d.getTime() - nextPaydayMidnight.getTime()) / 86400000));
-                  return diffDays <= 2;
-                });
-                if (candidates.length > 0) {
-                  paydayMilestone = candidates.reduce((best, c) => c.amount > best.amount ? c : best, candidates[0]);
-                }
-              }
-
-              // Remove payday milestone from inline list
-              const milestoneKey = paydayMilestone ? `${paydayMilestone.type}-${paydayMilestone.name}-${paydayMilestone.expected_date}` : null;
-              const filteredItems = rawItems.filter(item => {
-                const k = `${item.type}-${item.name}-${item.expected_date}`;
-                return k !== milestoneKey;
-              });
-
               // Running balance projection
               let running = cashflow.available_balance ?? 0;
-              const items = filteredItems.map(item => {
+              const items = rawItems.map(item => {
                 if (item.type === "income") {
                   running += item.amount;
                   return { ...item, balance_after: running, at_risk: false, account_short: false, is_credit_card: false };
@@ -958,7 +938,7 @@ export default function SpendPage() {
               });
 
               // Compute runway = available_balance - sum of bills before nextPayday
-              const billsBeforePayday = filteredItems.filter(item => {
+              const billsBeforePayday = rawItems.filter(item => {
                 if (item.type !== "bill") return false;
                 const d = new Date(item.expected_date);
                 return d < nextPaydayMidnight;
@@ -968,10 +948,6 @@ export default function SpendPage() {
               const runwayNegative = runway < 0;
 
               const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
-
-              // Split items into before/after payday
-              const beforePayday = items.filter(item => new Date(item.expected_date) < nextPaydayMidnight);
-              const afterPayday = items.filter(item => new Date(item.expected_date) >= nextPaydayMidnight);
 
               // Group by day label helper
               function groupByDay(list: typeof items) {
@@ -985,8 +961,7 @@ export default function SpendPage() {
                 return groups;
               }
 
-              const beforeGroups = groupByDay(beforePayday);
-              const afterGroups = groupByDay(afterPayday);
+              const groups = groupByDay(items);
 
               // Format date helper
               function formatItemDate(iso: string) {
@@ -1019,10 +994,11 @@ export default function SpendPage() {
                         type: item.type,
                         category: item.category,
                         edited: item.edited,
+                        rule_label: item.rule_label,
                       })}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited }); } }}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label }); } }}
                       aria-label={`Edit ${item.name}`}
                       className={`rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${
                         flagged
@@ -1136,12 +1112,6 @@ export default function SpendPage() {
                               ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
                               : ` · ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
                           </p>
-                          {/* Salary landing line — only when a payday milestone income exists */}
-                          {!isCalendarMonth && paydayMilestone && (
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                              then +{sym}{paydayMilestone.amount.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} salary lands
-                            </p>
-                          )}
                         </div>
                         {accountShortfalls.length > 0 && (
                           <span className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
@@ -1156,43 +1126,10 @@ export default function SpendPage() {
                     Based on your typical spending — last 90 days
                   </p>
 
-                  {/* ── Before payday section ───────────────────────────────── */}
-                  {beforeGroups.length > 0 && (
+                  {/* ── Upcoming items ───────────────────────────────────────── */}
+                  {groups.length > 0 && (
                     <div className="space-y-3">
-                      {!isCalendarMonth && (
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-1">Before payday</p>
-                      )}
-                      {renderGroups(beforeGroups)}
-                    </div>
-                  )}
-
-                  {/* ── Payday milestone row ─────────────────────────────────── */}
-                  {!isCalendarMonth && (beforeGroups.length > 0 || afterGroups.length > 0) && (
-                    <div className="flex items-center gap-3 py-1">
-                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
-                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-                        <span className="text-base" aria-hidden="true">💰</span>
-                        <div className="text-center">
-                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Payday</span>
-                          <span className="text-xs text-emerald-600 dark:text-emerald-400 ml-1.5">{paydayLabel}</span>
-                          {paydayMilestone && (
-                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 ml-1.5">
-                              +{sym}{paydayMilestone.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
-                    </div>
-                  )}
-
-                  {/* ── After payday section ─────────────────────────────────── */}
-                  {afterGroups.length > 0 && (
-                    <div className="space-y-3">
-                      {!isCalendarMonth && beforeGroups.length > 0 && (
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-1">After payday</p>
-                      )}
-                      {renderGroups(afterGroups)}
+                      {renderGroups(groups)}
                     </div>
                   )}
                 </div>

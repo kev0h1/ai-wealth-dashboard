@@ -71,6 +71,31 @@ export type UpcomingBill = {
   account_balance?: number | null;
   category?: string | null;
   edited?: boolean;
+  rule_label?: string | null;
+};
+
+export type IncomeSuggestion = {
+  key: string;
+  avg_amount: number;
+  schedule_label: string | null;
+  next_date: string;
+};
+
+export type IncomeSchedule = {
+  type: "weekly" | "biweekly" | "day_of_month" | "last_weekday";
+  weekday?: number;
+  day?: number;
+  anchor?: string;
+};
+
+export type IncomeStream = {
+  key: string;
+  avg_amount: number;
+  occurrences: number;
+  schedule: IncomeSchedule | null;
+  schedule_label: string | null;
+  next_date: string | null;
+  status: "confirmed" | "rejected" | "suggested";
 };
 
 export type CashflowData = {
@@ -79,6 +104,9 @@ export type CashflowData = {
   upcoming_income: UpcomingBill[];
   avg_daily_spend: number;
   available_balance: number;
+  next_payday: string | null;
+  payday_source: "confirmed" | "period" | null;
+  income_suggestion: IncomeSuggestion | null;
 };
 
 export type TransportMode = {
@@ -416,6 +444,12 @@ export const api = {
     post<{ ok: boolean }>("/cashflow/edit-upcoming", params),
   clearUpcomingOverride: (params: { key: string; date: string }) =>
     post<{ ok: boolean }>("/cashflow/clear-override", params),
+  previewUpcomingRule: (params: { key: string; text: string; anchor_date: string }) =>
+    post<{ ok: boolean; schedule?: Record<string, unknown>; label?: string; next_dates?: string[]; error?: string }>("/cashflow/preview-rule", params),
+  applyUpcomingRule: (params: { key: string; schedule: Record<string, unknown> }) =>
+    post<{ ok: boolean; label?: string }>("/cashflow/apply-rule", params),
+  clearUpcomingRule: (params: { key: string }) =>
+    post<{ ok: boolean }>("/cashflow/clear-rule", params),
   deleteUserAccount: async (): Promise<{ deleted: boolean }> => {
     const res = await fetch(`${API_BASE}/account`, {
       method: "DELETE",
@@ -888,6 +922,19 @@ export const api = {
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
+
+  getIncomeStreams: () => get<IncomeStream[]>("/income/streams"),
+  confirmIncomeStream: (key: string) =>
+    post<IncomeStream>("/income/streams/confirm", { key }),
+  rejectIncomeStream: (key: string) =>
+    post<{ ok: boolean }>("/income/streams/reject", { key }),
+  setManualIncome: (schedule: IncomeSchedule, amount?: number) =>
+    post<IncomeStream>("/income/streams/manual", { schedule, amount }),
+  deleteIncomeStream: (key: string) =>
+    fetch(`${API_BASE}/income/streams/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
 
   debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
     burndown: {

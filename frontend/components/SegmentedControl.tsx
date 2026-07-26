@@ -75,6 +75,7 @@ export default function SegmentedControl({
         return (
           <button
             key={o.value}
+            type="button"
             role="tab"
             aria-selected={selected}
             data-seg-value={o.value}

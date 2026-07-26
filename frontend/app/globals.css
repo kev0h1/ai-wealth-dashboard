@@ -229,3 +229,17 @@ a:focus-visible,
 @media (prefers-reduced-motion: reduce) {
   [style*="slideUpSheet"] { animation: none !important; }
 }
+
+/* iOS Safari renders type=date as a UA value chip that ignores width/background.
+   Normalise so it fills its container and inherits the themed field styling. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+}
