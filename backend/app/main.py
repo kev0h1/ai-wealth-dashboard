@@ -25,7 +25,7 @@ from app.routers import (
     analytics, budget, debt, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
-    goals, logos, finexer,
+    goals, logos, finexer, income,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -55,6 +55,7 @@ for router in [
     manual_accounts.router, profile.router, money_basics.router,
     fuel.router, baskets.router, subscription_router.router, transport.router,
     webhooks.router, goals.router, logos.router, finexer.router,
+    income.router,
 ]:
     app.include_router(router)
 
