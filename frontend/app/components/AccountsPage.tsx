@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary } from "@/lib/api";
 import AccountMiniCard, { BANK_META, accountBrand } from "@/components/AccountMiniCard";
@@ -49,7 +49,11 @@ const MANUAL_TYPES: { value: ManualAccountType; label: string; Icon: typeof Wall
 
 export default function AccountsPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const router = useRouter();
+  // Set to true for exactly one effect run after we strip ?id= via router.replace
+  // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
+  const consumedDeepLink = useRef(false);
   const { hideNetWorth, region } = usePreferences();
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -208,23 +212,53 @@ export default function AccountsPage() {
     loadAccounts();
   }, [loadAccounts]);
 
-  // Keep selectedAccountId in lockstep with the ?id= deep link. Deliberately
-  // separate from loadAccounts (which also runs after in-page mutations like
-  // deleting a transaction) — if this lived there, it would only ever *set*
-  // selectedAccountId and never clear it, so a stale detail view could stick
-  // around after Next.js reuses this route's cached component instance on a
-  // quick Home → Accounts → Home → Manage round trip.
+  // Keep selectedAccountId in lockstep with the ?id= deep link.
+  //
+  // WHY window.location.search instead of searchParams.get():
+  // Next.js App Router caches RSC payloads per URL. On the round-trip
+  //   Home → /accounts?id=X  (mini-card)  → Home → /accounts  (Manage button)
+  // the router reuses the cached component instance. When it does, the
+  // `searchParams` object reference React delivers may be the *same* reference
+  // it delivered during a prior visit to /accounts (no ?id), so the effect dep
+  // hasn't changed and React skips re-running it — leaving selectedAccountId
+  // stuck at the value set during the ?id=X visit.
+  // Reading window.location.search bypasses the stale hook value entirely and
+  // always reflects the real URL at effect-run time.
+  // (Doc: instant-navigation.md §"client-side hooks behave differently";
+  //  use-search-params.md §"Good to know: not supported in Server Components
+  //  to prevent stale values during partial rendering")
+  //
+  // WHY pathname in deps:
+  // Pairing `pathname` with `searchParams` in the dep array ensures the effect
+  // re-fires whenever the router records a navigation to this pathname, even
+  // when the searchParams reference is stable.
+  //
+  // WHY consumedDeepLink ref:
+  // After we consume ?id=X we immediately call router.replace("/accounts") to
+  // strip the param. That replace triggers one more effect run with
+  // window.location.search === "" — without the guard the else-branch would
+  // clear selectedAccountId right after we just set it. The ref skips the
+  // clear for exactly that one follow-up run.
   useEffect(() => {
-    const deepId = searchParams.get("id");
+    if (consumedDeepLink.current) {
+      consumedDeepLink.current = false;
+      return;
+    }
+    // Use the live URL, not the potentially-stale hook value.
+    const deepId = new URLSearchParams(window.location.search).get("id");
     if (deepId) {
       setSelectedAccountId(deepId);
       setSegment("Transactions");
       setPage(1);
       setLoadingTxns(deepId);
+      // Strip the param so no cache node retains ?id=X. Mark the ref first so
+      // the replace-triggered re-run of this effect skips the else-branch.
+      consumedDeepLink.current = true;
+      router.replace("/accounts", { scroll: false });
     } else {
       setSelectedAccountId(null);
     }
-  }, [searchParams]);
+  }, [pathname, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When redirected back from TrueLayer, poll until accounts appear then clear the flag
   useEffect(() => {
@@ -378,17 +412,18 @@ export default function AccountsPage() {
   function handleBack() {
     if (window.history.state?.accountDetail) {
       // Consume the history entry pushed on open — popstate closes the view,
-      // keeping the in-app arrow and the system back gesture in sync
+      // keeping the in-app arrow and the system back gesture in sync.
+      // For in-page opens (handleSelectAccount) this returns to the list.
+      // For deep-linked opens the effect already stripped ?id= via router.replace,
+      // so this entry's URL is /accounts — back returns to wherever the user
+      // came from (e.g. Home).
       window.history.back();
     } else {
-      // Deep-linked or post-delete: no pushed entry to consume. Scrub the
-      // ?id= param too, so the URL matches what's on screen — otherwise a
-      // cached revisit of this route could reopen the same account.
+      // Post-delete or any case where no pushState entry was recorded.
+      // ?id= was already stripped by the effect's router.replace, so no
+      // URL scrub needed here — just clear state.
       setSelectedAccountId(null);
       setSelectedTx(null);
-      if (searchParams.get("id")) {
-        router.replace("/accounts");
-      }
     }
   }
 
