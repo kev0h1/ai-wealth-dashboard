@@ -2,9 +2,11 @@ import Constants from "expo-constants";
 import { getToken } from "./storage";
 import type {
   Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
+  GoalSummary, SavingsInsight, CashflowData, HomePreferences,
 } from "./shared";
 export type {
   Account, Transaction, KPIs, DebtInsights, BudgetItem, InvestmentAccount,
+  GoalSummary, SavingsInsight, CashflowData, HomePreferences,
 } from "./shared";
 
 const API_BASE: string =
@@ -147,4 +149,17 @@ export const api = {
 
   syncAll: () =>
     post<{ message: string; total_accounts: number }>("/accounts/sync", {}),
+
+  goalsSummary: () => get<{ goals: GoalSummary[] }>("/goals/summary"),
+
+  getSpotlightInsight: () => get<SavingsInsight | null>("/savings-insights/spotlight"),
+
+  dismissSpotlightInsight: (id: string) =>
+    post<{ dismissed: boolean }>(`/savings-insights/${id}/dismiss`),
+
+  transactionsDays: (days: number) =>
+    get<Transaction[]>(`/transactions?days=${days}`),
+
+  getHomePreferences: () =>
+    get<HomePreferences>("/preferences"),
 };

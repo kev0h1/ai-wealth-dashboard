@@ -13,6 +13,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="auth-complete" />
+            <Stack.Screen name="web" options={{ headerShown: false }} />
           </Stack>
         </ThemeProvider>
       </AuthProvider>

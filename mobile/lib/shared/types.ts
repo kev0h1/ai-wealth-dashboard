@@ -330,3 +330,49 @@ export interface SubscriptionInfo {
   usage: SubscriptionUsage;
   prices: Record<string, TierPrice>;
 }
+
+export interface GoalSummary {
+  pillar: "debt" | "savings" | "budget";
+  label: string;
+  detail: string;
+  pct: number;
+  done: boolean;
+  at_risk?: boolean;
+  url: string;
+}
+
+export interface UpcomingBill {
+  name: string;
+  amount: number;
+  expected_date: string;
+  days_away: number;
+  account_id?: string | null;
+  account_name?: string | null;
+  category?: string | null;
+}
+
+export interface CashflowWeek {
+  week: string;
+  income: number;
+  spend: number;
+  net: number;
+}
+
+export interface CashflowData {
+  weekly_projection: CashflowWeek[];
+  upcoming_bills: UpcomingBill[];
+  upcoming_income: UpcomingBill[];
+  avg_daily_spend: number;
+  available_balance: number;
+  next_payday: string | null;
+  payday_source: "confirmed" | "period" | null;
+  income_suggestion: unknown | null;
+}
+
+export interface HomePreferences {
+  hide_net_worth: boolean;
+  dark_mode?: boolean;
+  region?: string;
+  home_pinned_accounts?: string[];
+  home_pinned_widget?: string;
+}
