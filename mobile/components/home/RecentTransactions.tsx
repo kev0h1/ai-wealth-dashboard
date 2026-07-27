@@ -27,7 +27,7 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
   const dividerColor = dark ? "#1e293b" : "#f8fafc";
 
   const filtered = transactions
-    .filter((t) => !(t.category === "Transfer" || t.category === "Transfers") || Math.abs(t.amount) >= 1)
+    .filter(t => !(t.category === "Transfer" && t.amount < 1))
     .slice(0, 6);
 
   return (
@@ -81,7 +81,7 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
                       {merchant}
                     </Text>
                     <Text style={[styles.txDate, { color: "#94a3b8" }]}>
-                      {formatDate(tx.date)}
+                      {formatDate(tx.date)}{tx.category ? ` · ${tx.category}` : ""}
                     </Text>
                   </View>
                   <Text style={[styles.txAmount, { color: amountColor }]}>

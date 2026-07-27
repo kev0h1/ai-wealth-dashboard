@@ -1,4 +1,5 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
+import { CalendarClock } from "lucide-react-native";
 import type { CashflowData } from "@/lib/shared";
 import { fmtBalance } from "@/lib/format";
 
@@ -9,26 +10,34 @@ interface Props {
   onPress: () => void;
 }
 
+type Part = { label: string; urgent: boolean };
+
 export function ComingUpCard({ cashflow, loading, dark, onPress }: Props) {
   if (loading || !cashflow) return null;
 
-  const bills14 = cashflow.upcoming_bills.filter((b) => b.days_away <= 14);
-  if (bills14.length === 0) return null;
+  const all = [
+    ...(cashflow.upcoming_bills ?? []),
+    ...(cashflow.upcoming_income ?? []),
+  ].filter((b) => b.days_away <= 14);
 
-  const today = bills14.filter((b) => b.days_away === 0);
-  const tomorrow = bills14.filter((b) => b.days_away === 1);
-  const later = bills14.filter((b) => b.days_away > 1);
-  const totalAmount = bills14.reduce((s, b) => s + b.amount, 0);
+  if (all.length === 0) return null;
 
-  const parts: string[] = [];
-  if (today.length > 0) parts.push(`${today.length} today`);
-  if (tomorrow.length > 0) parts.push(`${tomorrow.length} tomorrow`);
-  if (later.length > 0) parts.push(`${later.length} later`);
-  const summary = parts.join(" · ");
+  const today = all.filter((b) => b.days_away === 0);
+  const tomorrow = all.filter((b) => b.days_away === 1);
+  const later = all.filter((b) => b.days_away > 1);
+
+  const parts: Part[] = [];
+  if (today.length > 0) parts.push({ label: `${today.length} due today`, urgent: true });
+  if (tomorrow.length > 0) parts.push({ label: `${tomorrow.length} due tomorrow`, urgent: true });
+  if (later.length > 0) parts.push({ label: `${later.length} bills over the next 2 weeks`, urgent: false });
+
+  const totalBillAmount = (cashflow.upcoming_bills ?? [])
+    .filter((b) => b.days_away <= 14)
+    .reduce((s, b) => s + b.amount, 0);
 
   const cardBg = dark ? "#1e293b" : "#ffffff";
   const borderColor = dark ? "#334155" : "#f1f5f9";
-  const inkColor = dark ? "#f1f5f9" : "#0f172a";
+  const mutedColor = dark ? "#cbd5e1" : "#475569";
 
   return (
     <Pressable
@@ -45,7 +54,7 @@ export function ComingUpCard({ cashflow, loading, dark, onPress }: Props) {
     >
       {/* Left icon */}
       <View style={styles.iconChip}>
-        <Text style={styles.iconEmoji}>⏰</Text>
+        <CalendarClock size={20} color="#f59e0b" />
       </View>
 
       {/* Center */}
@@ -53,18 +62,32 @@ export function ComingUpCard({ cashflow, loading, dark, onPress }: Props) {
         <Text style={[styles.label, { color: dark ? "#94a3b8" : "#64748b" }]}>
           Coming up · 14 days
         </Text>
-        <Text style={[styles.summary, { color: inkColor }]}>{summary}</Text>
-        {(today.length > 0 || tomorrow.length > 0) && (
-          <Text style={styles.urgent}>
-            {today.length > 0 ? "Due today!" : "Due tomorrow"}
-          </Text>
-        )}
+        <View style={styles.partsRow}>
+          {parts.map((part, idx) => (
+            <Text
+              key={idx}
+              style={[
+                styles.partText,
+                { color: part.urgent ? "#f59e0b" : mutedColor },
+                part.urgent && styles.partTextBold,
+              ]}
+            >
+              {part.label}
+              {idx < parts.length - 1 ? "  " : ""}
+            </Text>
+          ))}
+        </View>
       </View>
 
-      {/* Right amount */}
-      <Text style={[styles.amount, { color: inkColor }]}>
-        {fmtBalance(totalAmount)}
-      </Text>
+      {/* Right: total out */}
+      <View style={styles.rightCol}>
+        <Text style={[styles.totalOutLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>
+          total out
+        </Text>
+        <Text style={[styles.totalOutAmount, { color: dark ? "#f1f5f9" : "#0f172a" }]}>
+          {fmtBalance(totalBillAmount)}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -90,12 +113,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconEmoji: {
-    fontSize: 22,
-  },
   center: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   label: {
     fontSize: 11,
@@ -103,17 +123,26 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-  summary: {
-    fontSize: 14,
-    fontWeight: "600",
+  partsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
-  urgent: {
-    color: "#f59e0b",
-    fontSize: 12,
+  partText: {
+    fontSize: 13,
+  },
+  partTextBold: {
+    fontWeight: "700",
+  },
+  rightCol: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  totalOutLabel: {
+    fontSize: 10,
     fontWeight: "500",
   },
-  amount: {
-    fontSize: 16,
+  totalOutAmount: {
+    fontSize: 15,
     fontWeight: "700",
   },
 });

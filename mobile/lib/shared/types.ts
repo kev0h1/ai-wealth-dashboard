@@ -376,3 +376,10 @@ export interface HomePreferences {
   home_pinned_accounts?: string[];
   home_pinned_widget?: string;
 }
+
+export interface ValueDelivered {
+  insights_acted_on: number;
+  total_monthly_saving: number;
+  verified_monthly_saving?: number;
+  breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
+}

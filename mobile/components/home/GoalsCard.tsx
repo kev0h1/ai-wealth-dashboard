@@ -25,7 +25,7 @@ function goalDetailColor(goal: GoalSummary, dark: boolean): string {
 
 function humanizeBudgetDetail(goal: GoalSummary): string {
   if (goal.pillar === "budget" && goal.at_risk) {
-    const match = goal.detail.match(/(\d+)/);
+    const match = goal.detail.match(/^(\d+)\s+over$/);
     if (match) return `${match[1]} categories over budget`;
   }
   return goal.detail;
@@ -77,14 +77,11 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
             >
               <View style={styles.goalHeader}>
                 <Text style={[styles.goalLabel, { color: inkColor }]}>{goal.label}</Text>
-                <Text style={[styles.goalPct, { color: dark ? "#94a3b8" : "#64748b" }]}>
-                  {Math.round(goal.pct)}%
+                <Text style={[styles.goalPct, { color: goalDetailColor(goal, dark) }]}>
+                  {humanizeBudgetDetail(goal)}
                 </Text>
               </View>
-              <ProgressBar value={goal.pct / 100} color={goalBarColor(goal)} height={5} />
-              <Text style={[styles.goalDetail, { color: goalDetailColor(goal, dark) }]}>
-                {humanizeBudgetDetail(goal)}
-              </Text>
+              <ProgressBar value={goal.pct / 100} color={goalBarColor(goal)} height={8} />
             </Pressable>
           ))}
         </View>

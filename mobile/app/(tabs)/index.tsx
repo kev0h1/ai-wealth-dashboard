@@ -9,6 +9,7 @@ import {
   Pressable,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Sparkles } from "lucide-react-native";
 import { useAuth } from "@/lib/AuthContext";
 import { useTheme } from "@/lib/ThemeContext";
 import DashboardWebView from "@/components/DashboardWebView";
@@ -22,6 +23,7 @@ import { AccountsGrid } from "@/components/home/AccountsGrid";
 import { RecentTransactions } from "@/components/home/RecentTransactions";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "@/lib/api";
+import type { ValueDelivered } from "@/lib/api";
 
 function ErrorCard({ onRetry, dark }: { onRetry: () => void; dark: boolean }) {
   return (
@@ -44,6 +46,43 @@ function ErrorCard({ onRetry, dark }: { onRetry: () => void; dark: boolean }) {
         <Text style={styles.retryBtnText}>Retry</Text>
       </Pressable>
     </View>
+  );
+}
+
+function ValueDeliveredRow({
+  valueDelivered,
+  onPress,
+}: {
+  valueDelivered: ValueDelivered | null;
+  onPress: () => void;
+}) {
+  if (
+    !valueDelivered ||
+    (valueDelivered.total_monthly_saving === 0 && !valueDelivered.verified_monthly_saving)
+  ) {
+    return null;
+  }
+
+  const verified = valueDelivered.verified_monthly_saving ?? 0;
+  const monthly = valueDelivered.total_monthly_saving;
+  const n = valueDelivered.insights_acted_on;
+
+  const label =
+    verified > 0
+      ? `£${verified}/mo saved · £${monthly}/mo more possible`
+      : `£${monthly}/mo potential savings across ${n} insight${n === 1 ? "" : "s"}`;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.valueDeliveredRow,
+        { opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      <Sparkles size={11} color="#818cf8" />
+      <Text style={styles.valueDeliveredText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -96,6 +135,7 @@ function NativeHomeScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <HomeHeader
+            firstName={data?.userName?.split(" ")[0]?.trim()}
             syncing={syncing}
             syncError={syncError}
             onSync={handleSync}
@@ -112,6 +152,11 @@ function NativeHomeScreen() {
                 dark={dark}
                 hidden={hideBalances}
                 onToggleHide={toggleHideBalances}
+              />
+
+              <ValueDeliveredRow
+                valueDelivered={data?.valueDelivered ?? null}
+                onPress={() => router.navigate("/(tabs)/insights" as any)}
               />
 
               <GoalsCard
@@ -218,5 +263,17 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "600",
     fontSize: 14,
+  },
+  valueDeliveredRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: -8,
+    paddingHorizontal: 4,
+  },
+  valueDeliveredText: {
+    color: "#818cf8",
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

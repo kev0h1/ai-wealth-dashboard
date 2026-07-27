@@ -11,7 +11,7 @@ import {
   StyleSheet,
   type ColorValue,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 
@@ -23,8 +23,6 @@ const BG_DARK = "#0f172a";
 export default function TabLayout() {
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
   const { dark: darkMode } = useTheme();
-  const insets = useSafeAreaInsets();
-
   const tryUnlock = useCallback(async () => {
     try {
       const pref = await SecureStore.getItemAsync("biometric_lock");
@@ -79,9 +77,6 @@ export default function TabLayout() {
           backgroundColor: darkMode ? "#0f172a" : "#ffffff",
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: darkMode ? "#334155" : "#f1f5f9",
-          height: 56 + insets.bottom,
-          paddingBottom: Math.max(insets.bottom, 8),
-          paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 10,

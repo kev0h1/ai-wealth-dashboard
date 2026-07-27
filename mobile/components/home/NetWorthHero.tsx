@@ -14,10 +14,10 @@ interface Props {
 function formatRunway(runway: number): { text: string; amber: boolean } {
   if (runway < 1) {
     const days = Math.round(runway * 30);
-    return { text: `${days}d runway`, amber: days < 7 };
+    return { text: `~${days} days`, amber: days < 7 };
   }
-  const months = runway.toFixed(1);
-  return { text: `${months}mo runway`, amber: false };
+  const months = Math.round(runway);
+  return { text: `~${months} months`, amber: false };
 }
 
 export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Props) {
@@ -81,7 +81,7 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
         <Text
           style={[
             styles.mainFigure,
-            { color: isPositive ? (dark ? "#f1f5f9" : "#0f172a") : "#f59e0b" },
+            { color: dark ? "#f1f5f9" : "#0f172a" },
           ]}
         >
           {hidden ? "••••••" : fmtBalance(netWorth)}
@@ -97,7 +97,7 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
           </Text>
         </View>
         <View style={[styles.chip, { backgroundColor: dark ? "#334155" : "#f8fafc" }]}>
-          <Text style={[styles.chipLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Runway</Text>
+          <Text style={[styles.chipLabel, { color: dark ? "#94a3b8" : "#64748b" }, { textDecorationLine: "underline", textDecorationStyle: "dotted" }]}>Cash runway</Text>
           <Text
             style={[
               styles.chipValue,
@@ -170,8 +170,6 @@ const styles = StyleSheet.create({
   chipLabel: {
     fontSize: 11,
     fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
   },
   chipValue: {
     fontSize: 15,

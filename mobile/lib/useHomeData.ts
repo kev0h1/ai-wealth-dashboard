@@ -4,7 +4,7 @@ import * as SecureStore from "expo-secure-store";
 import { api } from "./api";
 import type {
   Account, KPIs, InvestmentAccount, Transaction,
-  CashflowData, GoalSummary, SavingsInsight, HomePreferences,
+  CashflowData, GoalSummary, SavingsInsight, HomePreferences, ValueDelivered,
 } from "./shared";
 
 export interface HomeData {
@@ -18,6 +18,8 @@ export interface HomeData {
   preferences: HomePreferences | null;
   pinnedAccountIds: string[];
   region: string;
+  valueDelivered: ValueDelivered | null;
+  userName: string;
 }
 
 interface CachedData {
@@ -46,11 +48,12 @@ export function useHomeData() {
     setError(false);
 
     try {
-      // Parallel fetch: accounts, kpis, investmentAccounts
-      const [accountsRes, kpisRes, investRes] = await Promise.allSettled([
+      // Parallel fetch: accounts, kpis, investmentAccounts, session
+      const [accountsRes, kpisRes, investRes, validateRes] = await Promise.allSettled([
         api.accounts(),
         api.kpis(),
         api.getInvestmentAccounts(),
+        api.validateSession(),
       ]);
 
       const accounts = accountsRes.status === "fulfilled" ? accountsRes.value : [];
@@ -69,6 +72,8 @@ export function useHomeData() {
         updated_at: "",
       }));
 
+      const userName = validateRes.status === "fulfilled" ? (validateRes.value.name ?? "") : "";
+
       // If both accounts AND kpis fail → error state
       if (accountsRes.status === "rejected" && kpisRes.status === "rejected") {
         setError(true);
@@ -84,12 +89,13 @@ export function useHomeData() {
       }
 
       // Parallel fetch remaining
-      const [cashflowRes, goalsRes, spotlightRes, prefsRes, hideRes] = await Promise.allSettled([
+      const [cashflowRes, goalsRes, spotlightRes, prefsRes, hideRes, valueDeliveredRes] = await Promise.allSettled([
         api.cashflow() as unknown as Promise<CashflowData>,
         api.goalsSummary(),
         api.getSpotlightInsight(),
         api.getHomePreferences(),
         SecureStore.getItemAsync("hide_balances"),
+        api.valueDelivered(),
       ]);
 
       const cashflow = cashflowRes.status === "fulfilled" ? cashflowRes.value : null;
@@ -97,6 +103,7 @@ export function useHomeData() {
       const spotlightInsight = spotlightRes.status === "fulfilled" ? spotlightRes.value : null;
       const preferences = prefsRes.status === "fulfilled" ? prefsRes.value : null;
       const hideVal = hideRes.status === "fulfilled" ? hideRes.value : null;
+      const valueDelivered = valueDeliveredRes.status === "fulfilled" ? valueDeliveredRes.value : null;
 
       if (!background) {
         setHideBalancesState(hideVal === "1");
@@ -116,6 +123,8 @@ export function useHomeData() {
         preferences,
         pinnedAccountIds,
         region,
+        valueDelivered,
+        userName,
       };
 
       cache = { data: homeData, timestamp: Date.now() };

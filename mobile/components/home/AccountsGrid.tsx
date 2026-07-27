@@ -46,26 +46,50 @@ const LOGO_DOMAINS: Record<string, string> = {
   FIRST_DIRECT: "firstdirect.com",
   TSB:          "tsb.co.uk",
   HSBC:         "hsbc.co.uk",
+  BARCLAYS:     "barclays.co.uk",
+  NATWEST:      "natwest.com",
+  STARLING:     "starlingbank.com",
+  LLOYDS:       "lloydsbank.com",
+  AMEX:         "americanexpress.com",
 };
 
 // Finexer alias map
 const FINEXER_ALIAS: Record<string, string> = {
-  natwest:           "NATWEST",
-  chase_uk:          "CHASE",
-  amex:              "AMEX",
-  first_direct:      "FIRST_DIRECT",
-  barclays_personal: "BARCLAYS",
-  barclays:          "BARCLAYS",
-  hsbc_personal:     "HSBC",
-  hsbc:              "HSBC",
-  monzo:             "MONZO",
-  starling:          "STARLING",
-  lloyds:            "LLOYDS",
-  revolut:           "REVOLUT",
-  santander:         "SANTANDER",
-  halifax:           "HALIFAX",
-  nationwide:        "NATIONWIDE",
-  tsb:               "TSB",
+  natwest:               "NATWEST",
+  natwest_bankline:      "NATWEST",
+  natwest_clearspend:    "NATWEST",
+  rbs:                   "NATWEST",
+  rbs_bankline:          "NATWEST",
+  rbs_clearspend:        "NATWEST",
+  chase_uk:              "CHASE",
+  amex:                  "AMEX",
+  first_direct:          "FIRST_DIRECT",
+  barclays_personal:     "BARCLAYS",
+  barclays:              "BARCLAYS",
+  barclays_business:     "BARCLAYS",
+  barclays_corporate:    "BARCLAYS",
+  barclays_wealth:       "BARCLAYS",
+  barclaycard_uk:        "BARCLAYS",
+  barclaycard_bcp:       "BARCLAYS",
+  hsbc_personal:         "HSBC",
+  hsbc:                  "HSBC",
+  hsbc_business:         "HSBC",
+  hsbc_kinetic:          "HSBC",
+  hsbc_net:              "HSBC",
+  hsbc_ms:               "HSBC",
+  monzo:                 "MONZO",
+  starling:              "STARLING",
+  lloyds:                "LLOYDS",
+  lloyds_personal:       "LLOYDS",
+  lloyds_business:       "LLOYDS",
+  lloyds_commercial:     "LLOYDS",
+  revolut:               "REVOLUT",
+  santander:             "SANTANDER",
+  santander_business:    "SANTANDER",
+  santander_corporate:   "SANTANDER",
+  halifax:               "HALIFAX",
+  nationwide:            "NATIONWIDE",
+  tsb:                   "TSB",
 };
 
 function bankKey(account: Account): string {
@@ -99,19 +123,29 @@ function isExpired(account: Account): boolean {
   return account.status === "expired" || account.status === "reconnect_required";
 }
 
-function topPickAccounts(
-  accounts: Account[],
-  pinnedIds: string[],
-  max = 3,
-): Account[] {
-  const expired = accounts.filter((a) => isExpired(a));
-  const pinned = accounts.filter((a) => !isExpired(a) && pinnedIds.includes(a.id));
-  const rest = accounts
-    .filter((a) => !isExpired(a) && !pinnedIds.includes(a.id))
-    .filter((a) => a.type === "current" || a.type === "savings")
-    .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+function typeLabel(account: Account): string {
+  const type = account.type.toLowerCase();
+  const sub = (account.subtype ?? "").toLowerCase();
+  if (type.includes("credit") || sub.includes("credit")) return "Credit";
+  if (sub.includes("isa")) return "ISA";
+  if (sub.includes("saving")) return "Savings";
+  return "Current";
+}
 
-  return [...expired, ...pinned, ...rest].slice(0, max);
+function topPickAccounts(accounts: Account[], pinnedIds: string[], max = 3): Account[] {
+  const picks: Account[] = [];
+  const seen = new Set<string>();
+  const add = (a?: Account) => {
+    if (a && !seen.has(a.id)) { seen.add(a.id); picks.push(a); }
+  };
+  accounts.filter(a => isExpired(a)).forEach(add);
+  pinnedIds.forEach(id => add(accounts.find(a => a.id === id)));
+  const isSavings = (a: Account) => (a.subtype ?? "").toLowerCase().includes("saving");
+  const isCredit = (a: Account) => a.type.toLowerCase().includes("credit") || (a.subtype ?? "").toLowerCase().includes("credit");
+  const current = accounts.filter(a => !isSavings(a) && !isCredit(a)).sort((x, y) => y.balance - x.balance);
+  const savings = accounts.filter(isSavings).sort((x, y) => y.balance - x.balance);
+  for (const a of [...current, ...savings]) { if (picks.length >= max) break; add(a); }
+  return picks.slice(0, max);
 }
 
 interface MiniCardProps {
@@ -126,6 +160,7 @@ function AccountMiniCard({ account, dark: _dark, hidden, onPress }: MiniCardProp
   const logoUrl = getLogoUrl(account);
   const initials = getInitials(account);
   const expired = isExpired(account);
+  const label = typeLabel(account);
 
   return (
     <Pressable
@@ -141,34 +176,39 @@ function AccountMiniCard({ account, dark: _dark, hidden, onPress }: MiniCardProp
         end={{ x: 1, y: 1 }}
         style={styles.miniCard}
       >
-        {/* Provider badge */}
-        <View style={styles.miniCardHeader}>
-          {logoUrl ? (
-            <Image
-              source={{ uri: logoUrl }}
-              style={styles.logo}
-            />
-          ) : (
-            <View style={styles.logoFallback}>
-              <Text style={styles.logoInitials}>{initials}</Text>
-            </View>
-          )}
+        {/* Top row: logo left, type badge right */}
+        <View style={styles.miniCardTopRow}>
+          <View style={styles.logoContainer}>
+            {logoUrl ? (
+              <Image
+                source={{ uri: logoUrl }}
+                style={styles.logo}
+              />
+            ) : (
+              <View style={styles.logoFallback}>
+                <Text style={styles.logoInitials}>{initials}</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>{label}</Text>
+          </View>
+        </View>
+
+        {/* Provider + account name */}
+        <View style={styles.miniCardMiddle}>
           <Text style={styles.miniCardProvider} numberOfLines={1}>
             {account.provider}
           </Text>
+          <Text style={styles.miniCardName} numberOfLines={1}>
+            {account.name}
+          </Text>
         </View>
 
-        {/* Balance */}
+        {/* Balance bottom */}
         <Text style={styles.miniCardBalance}>
           {hidden ? "••••" : fmtBalance(account.balance)}
         </Text>
-
-        {/* Type badge */}
-        <View style={styles.typeBadge}>
-          <Text style={styles.typeBadgeText}>
-            {account.type === "current" ? "Current" : account.type === "savings" ? "Savings" : account.type}
-          </Text>
-        </View>
 
         {/* Expired overlay */}
         {expired && (
@@ -198,7 +238,7 @@ export function AccountsGrid({
 
   const picks = topPickAccounts(accounts, pinnedIds, 3);
   const firstInv = investmentAccounts[0] ?? null;
-  const hiddenCount = Math.max(0, accounts.length - picks.length);
+  const hiddenCount = Math.max(0, accounts.length - picks.length) + Math.max(0, investmentAccounts.length - 1);
 
   // Build grid items: picks + investment card
   const gridItems: ("inv" | Account)[] = [...picks];
@@ -292,8 +332,11 @@ export function AccountsGrid({
                 },
               ]}
             >
-              <Text style={[styles.moreText, { color: dark ? "#94a3b8" : "#64748b" }]}>
-                +{hiddenCount} more
+              <Text style={[styles.moreCount, { color: dark ? "#f1f5f9" : "#0f172a" }]}>
+                +{hiddenCount}
+              </Text>
+              <Text style={[styles.moreLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>
+                more accounts
               </Text>
             </Pressable>
           )}
@@ -357,43 +400,39 @@ const styles = StyleSheet.create({
     height: CARD_HEIGHT,
     justifyContent: "space-between",
   },
-  miniCardHeader: {
+  miniCardTopRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  logoContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.95)",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "center",
+    overflow: "hidden",
   },
   logo: {
-    width: 20,
-    height: 20,
+    width: 28,
+    height: 28,
     borderRadius: 4,
   },
   logoFallback: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
   logoInitials: {
     color: "#ffffff",
-    fontSize: 8,
+    fontSize: 12,
     fontWeight: "700",
-  },
-  miniCardProvider: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 11,
-    fontWeight: "600",
-    flex: 1,
-  },
-  miniCardBalance: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "700",
-    letterSpacing: -0.3,
   },
   typeBadge: {
-    alignSelf: "flex-start",
     backgroundColor: "rgba(255,255,255,0.2)",
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -401,8 +440,30 @@ const styles = StyleSheet.create({
   },
   typeBadgeText: {
     color: "rgba(255,255,255,0.9)",
+    fontSize: 9,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  miniCardMiddle: {
+    gap: 1,
+  },
+  miniCardProvider: {
+    color: "rgba(255,255,255,0.6)",
     fontSize: 10,
     fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  miniCardName: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+  },
+  miniCardBalance: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: -0.3,
   },
   expiredOverlay: {
     ...StyleSheet.absoluteFill,
@@ -450,9 +511,14 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",
+    gap: 4,
   },
-  moreText: {
-    fontSize: 14,
-    fontWeight: "600",
+  moreCount: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  moreLabel: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });
