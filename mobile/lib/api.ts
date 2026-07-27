@@ -133,4 +133,18 @@ export const api = {
     }[]>("/investment/accounts"),
 
   deleteAccount: (accountId: string) => del<{ deleted: string }>(`/accounts/${encodeURIComponent(accountId)}`),
+
+  transactionsByDays: (days: number) =>
+    get<Transaction[]>(`/transactions?days=${days}`),
+
+  cashflow: () =>
+    get<{
+      monthly: { month: string; income: number; spend: number; net: number }[];
+      avg_income: number;
+      avg_spend: number;
+      avg_net: number;
+    }>("/cashflow"),
+
+  syncAll: () =>
+    post<{ message: string; total_accounts: number }>("/accounts/sync", {}),
 };
