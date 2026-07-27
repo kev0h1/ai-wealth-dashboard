@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { StyleSheet, BackHandler, View, ActivityIndicator, Platform } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { WebView, WebViewMessageEvent, WebViewNavigation } from "react-native-webview";
 import {
   GoogleSignin,
@@ -73,6 +73,19 @@ const POST_LOAD_JS = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auth', token: token }));
     }
   } catch (e) {}
+
+  // Route reporting: patch history API and popstate to report SPA navigations
+  (function() {
+    function reportRoute() {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'route', path: location.pathname }));
+    }
+    var _pushState = history.pushState.bind(history);
+    history.pushState = function() { _pushState.apply(history, arguments); reportRoute(); };
+    var _replaceState = history.replaceState.bind(history);
+    history.replaceState = function() { _replaceState.apply(history, arguments); reportRoute(); };
+    window.addEventListener('popstate', reportRoute);
+    reportRoute();
+  })();
 })();
 true;
 `;
@@ -116,6 +129,22 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
   const canGoBackRef = useRef(false);
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const router = useRouter();
+
+  // Derive this tab's top-level section from initialPath
+  const mySection = (!initialPath || initialPath === "/") ? "/" : `/${initialPath.split("/").filter(Boolean)[0]}`;
+
+  const SECTION_TO_TAB: Record<string, string> = {
+    "/": "/(tabs)/",
+    "/spend": "/(tabs)/spend",
+    "/budget": "/(tabs)/budget",
+    "/insights": "/(tabs)/insights",
+    "/settings": "/(tabs)/settings",
+  };
+
+  const lastHandledSection = useRef<string | null>(null);
+  const lastHandledTime = useRef<number>(0);
 
   const buildUrl = useCallback((tok: string | null) => {
     const path = initialPath && !initialPath.startsWith("/") ? `/${initialPath}` : initialPath;
@@ -214,6 +243,22 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
       if (msg.type === "update") setDarkMode(!!msg.dark);
+      else if (msg.type === "route" && typeof msg.path === "string") {
+        const incoming = msg.path;
+        // Compute top-level section: "/x/y" → "/x", "/" → "/"
+        const parts = incoming.split("/").filter(Boolean);
+        const section = parts.length > 0 ? `/${parts[0]}` : "/";
+        const tabHref = SECTION_TO_TAB[section];
+        if (tabHref && section !== mySection) {
+          // Debounce: ignore same section within 300ms
+          const now = Date.now();
+          if (section === lastHandledSection.current && now - lastHandledTime.current < 300) return;
+          lastHandledSection.current = section;
+          lastHandledTime.current = now;
+          router.navigate(tabHref as any);
+          webViewRef.current?.injectJavaScript("history.back(); true;");
+        }
+      }
       else if (msg.type === "geo:request") handleGeoRequest(msg.id, msg.options);
       else if (msg.type === "camera:request") handleCameraRequest(msg.id);
       else if (msg.type === "biometrics:get") handleBiometricsGet(msg.id);
