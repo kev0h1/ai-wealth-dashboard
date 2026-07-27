@@ -1,4 +1,5 @@
 import { View, Text, Pressable, Image, StyleSheet } from "react-native";
+import { TrendingUp } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { WhisperLabel } from "@/components/ui/WhisperLabel";
 import type { Account, InvestmentAccount } from "@/lib/shared";
@@ -91,6 +92,27 @@ const FINEXER_ALIAS: Record<string, string> = {
   nationwide:            "NATIONWIDE",
   tsb:                   "TSB",
 };
+
+// Investment provider gradient colours [from, to]
+const INV_META: Record<string, [string, string]> = {
+  VANGUARD:              ["#8b0000","#c0392b"],
+  WEALTHIFY:             ["#006d6d","#00a896"],
+  "HARGREAVES LANSDOWN": ["#002d72","#0057c2"],
+  HL:                    ["#002d72","#0057c2"],
+  FIDELITY:              ["#7b3f00","#c0602a"],
+  "AJ BELL":             ["#003087","#c0932a"],
+  NUTMEG:                ["#1a1a2e","#e94560"],
+  MONEYBOX:              ["#1b4f72","#2e86c1"],
+  TRADING212:            ["#006400","#228b22"],
+  FREETRADE:             ["#1a0a4a","#5e35b1"],
+};
+
+const INV_DEFAULT: [string, string] = ["#3730a3","#4f46e5"];
+
+function investmentGradient(provider: string): [string, string] {
+  const key = provider.toUpperCase().replace(/[\s-]+/g, " ").trim();
+  return INV_META[key] ?? INV_DEFAULT;
+}
 
 function bankKey(account: Account): string {
   const pid = (account.provider_id ?? "").toLowerCase();
@@ -287,25 +309,42 @@ export function AccountsGrid({
                 <Pressable
                   key="inv"
                   onPress={onInvestmentsPress}
-                  style={({ pressed }) => [
-                    styles.invCard,
-                    {
-                      backgroundColor: cardBg,
-                      borderColor,
-                      transform: [{ scale: pressed ? 0.95 : 1 }],
-                      shadowOpacity: dark ? 0 : 0.06,
-                    },
-                  ]}
+                  style={({ pressed }) => ({
+                    transform: [{ scale: pressed ? 0.95 : 1 }],
+                    width: "47%",
+                  })}
                 >
-                  <Text style={[styles.invProvider, { color: dark ? "#94a3b8" : "#64748b" }]}>
-                    {firstInv.provider}
-                  </Text>
-                  <Text style={[styles.invValue, { color: inkColor }]}>
-                    {hidden ? "••••" : fmtBalance(firstInv.total_value)}
-                  </Text>
-                  <Text style={[styles.invType, { color: "#94a3b8" }]}>
-                    {firstInv.account_type}
-                  </Text>
+                  <LinearGradient
+                    colors={investmentGradient(firstInv.provider)}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.invGradientCard}
+                  >
+                    {/* Top row */}
+                    <View style={styles.invTopRow}>
+                      <View style={styles.invIconBox}>
+                        <TrendingUp size={18} color="#ffffff" />
+                      </View>
+                      <View style={styles.invBadge}>
+                        <Text style={styles.invBadgeText}>
+                          {firstInv.account_type || "Investment"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Provider name */}
+                    <Text style={styles.invProviderName} numberOfLines={1}>
+                      {firstInv.provider}
+                    </Text>
+
+                    {/* Value */}
+                    <Text style={styles.invValueText}>
+                      {hidden ? "••••" : fmtBalance(firstInv.total_value)}
+                    </Text>
+
+                    {/* Decorative circle */}
+                    <View style={styles.invDecoCircle} pointerEvents="none" />
+                  </LinearGradient>
                 </Pressable>
               );
             }
@@ -477,31 +516,64 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 13,
   },
-  invCard: {
-    width: "47%",
+  invGradientCard: {
+    width: "100%",
     height: CARD_HEIGHT,
     borderRadius: 16,
     padding: 14,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    elevation: 2,
     justifyContent: "space-between",
+    overflow: "hidden",
+    position: "relative",
   },
-  invProvider: {
-    fontSize: 11,
-    fontWeight: "600",
+  invTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  invIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invBadge: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  invBadgeText: {
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
-  invValue: {
+  invProviderName: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 10,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  invValueText: {
+    color: "#ffffff",
     fontSize: 18,
     fontWeight: "700",
     letterSpacing: -0.3,
   },
-  invType: {
-    fontSize: 11,
+  invDecoCircle: {
+    position: "absolute",
+    bottom: -20,
+    right: -20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#ffffff",
+    opacity: 0.1,
   },
   moreCard: {
     width: "47%",

@@ -67,10 +67,11 @@ function ValueDeliveredRow({
   const monthly = valueDelivered.total_monthly_saving;
   const n = valueDelivered.insights_acted_on;
 
+  const gbp = (num: number) => num.toLocaleString("en-GB", { maximumFractionDigits: 0 });
   const label =
     verified > 0
-      ? `£${verified}/mo saved · £${monthly}/mo more possible`
-      : `£${monthly}/mo potential savings across ${n} insight${n === 1 ? "" : "s"}`;
+      ? `£${gbp(verified)}/mo saved · £${gbp(monthly)}/mo more possible`
+      : `£${gbp(monthly)}/mo potential savings across ${n} insight${n === 1 ? "" : "s"}`;
 
   return (
     <Pressable

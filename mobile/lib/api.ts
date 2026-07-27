@@ -13,6 +13,8 @@ const API_BASE: string =
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   "https://wealth.auriqltd.co.uk/api";
 
+export const logoUrl = (domain: string) => `${API_BASE}/logo/${encodeURIComponent(domain)}`;
+
 async function authHeaders(): Promise<HeadersInit> {
   const token = await getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};

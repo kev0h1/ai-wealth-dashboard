@@ -45,9 +45,9 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
       <View style={styles.titleRow}>
         <View style={styles.titleLeft}>
           {isPositive ? (
-            <TrendingUp size={18} color="#10b981" />
+            <TrendingUp size={16} color="#10b981" />
           ) : (
-            <TrendingDown size={18} color="#f59e0b" />
+            <TrendingDown size={16} color="#f59e0b" />
           )}
           <Text style={[styles.titleText, { color: dark ? "#94a3b8" : "#64748b" }]}>
             Net Worth
@@ -134,10 +134,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   titleText: {
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+    fontSize: 14,
+    fontWeight: "500",
   },
   eyeBtn: {
     width: 44,
@@ -146,7 +144,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verdict: {
-    fontSize: 13,
+    fontSize: 14,
   },
   skeleton: {
     height: 40,
