@@ -16,6 +16,7 @@ import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { useAuth } from "@/lib/AuthContext";
+import { useTheme } from "@/lib/ThemeContext";
 
 const DASHBOARD_URL = "https://wealth.auriqltd.co.uk";
 const NATIVE_AUTH_URL = `${DASHBOARD_URL}/api/auth/google/native`;
@@ -127,11 +128,11 @@ interface Props {
 
 export default function DashboardWebView({ initialPath = "" }: Props) {
   const { token: contextToken, setToken } = useAuth();
+  const { dark: darkMode, setDark } = useTheme();
   const webViewRef = useRef<WebView>(null);
   const loggingIn = useRef(false);
   const firstLoadDone = useRef(false);
   const canGoBackRef = useRef(false);
-  const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const insets = useSafeAreaInsets();
   const [focused, setFocused] = useState(false);
@@ -170,6 +171,16 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
       webViewRef.current.injectJavaScript(`window.location.assign(${JSON.stringify(full)}); true;`);
     }
   }, []);
+
+  // Native→web: propagate context dark value into this WebView
+  useEffect(() => {
+    if (!firstLoadDone.current) return;
+    const jsClass = darkMode
+      ? `document.documentElement.classList.add('dark');`
+      : `document.documentElement.classList.remove('dark');`;
+    const jsStorage = `try{localStorage.setItem('wd_dark','${darkMode ? "1" : "0"}');}catch(e){}`;
+    webViewRef.current?.injectJavaScript(`${jsClass}${jsStorage}true;`);
+  }, [darkMode]);
 
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -252,7 +263,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
   function onMessage(e: WebViewMessageEvent) {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
-      if (msg.type === "update") setDarkMode(!!msg.dark);
+      if (msg.type === "update") setDark(!!msg.dark);
       else if (msg.type === "route" && typeof msg.path === "string") {
         const incoming = msg.path;
         // Compute top-level section: "/x/y" → "/x", "/" → "/"

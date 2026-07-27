@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Tabs } from "expo-router";
 import { Home, PieChart, Target, Lightbulb, Settings } from "lucide-react-native";
+import { useTheme } from "@/lib/ThemeContext";
 import {
   View,
   Text,
@@ -20,8 +21,7 @@ const BG_DARK = "#0f172a";
 
 export default function TabLayout() {
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
-  // Simplified: gate always renders in light mode; full dark tracking lives inside DashboardWebView
-  const darkMode = false;
+  const { dark: darkMode } = useTheme();
   const insets = useSafeAreaInsets();
 
   const tryUnlock = useCallback(async () => {
@@ -75,9 +75,9 @@ export default function TabLayout() {
         tabBarActiveTintColor: ACTIVE,
         tabBarInactiveTintColor: INACTIVE,
         tabBarStyle: {
-          backgroundColor: "#ffffff",
+          backgroundColor: darkMode ? "#0f172a" : "#ffffff",
           borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: "#f1f5f9",
+          borderTopColor: darkMode ? "#334155" : "#f1f5f9",
           height: 56 + insets.bottom,
           paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 8,
