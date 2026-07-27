@@ -54,7 +54,7 @@ export function ComingUpCard({ cashflow, loading, dark, onPress }: Props) {
     >
       {/* Left icon */}
       <View style={styles.iconChip}>
-        <CalendarClock size={20} color="#f59e0b" />
+        <CalendarClock size={17} color="#f59e0b" />
       </View>
 
       {/* Center */}
@@ -69,7 +69,6 @@ export function ComingUpCard({ cashflow, loading, dark, onPress }: Props) {
               style={[
                 styles.partText,
                 { color: part.urgent ? "#f59e0b" : mutedColor },
-                part.urgent && styles.partTextBold,
               ]}
             >
               {part.label}
@@ -106,8 +105,8 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   iconChip: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: 12,
     backgroundColor: "#fef3c726",
     alignItems: "center",
@@ -118,31 +117,27 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   label: {
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
+    fontSize: 12,
+    fontWeight: "500",
   },
   partsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
   },
   partText: {
-    fontSize: 13,
-  },
-  partTextBold: {
-    fontWeight: "700",
+    fontSize: 14,
+    fontWeight: "600",
   },
   rightCol: {
     alignItems: "flex-end",
     gap: 2,
   },
   totalOutLabel: {
-    fontSize: 10,
-    fontWeight: "500",
+    fontSize: 12,
+    fontWeight: "400",
   },
   totalOutAmount: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
   },
 });

@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 100,
-    gap: 16,
+    gap: 20,
   },
   errorCard: {
     borderRadius: 16,

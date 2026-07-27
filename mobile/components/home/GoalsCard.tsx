@@ -49,9 +49,9 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.iconChip}>
-          <Target size={16} color="#4f46e5" />
+          <Target size={13} color="#4f46e5" />
         </View>
-        <Text style={[styles.headerLabel, { color: inkColor }]}>Your goals</Text>
+        <Text style={[styles.headerLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Your goals</Text>
       </View>
 
       {goals.length === 0 ? (
@@ -81,7 +81,7 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
                   {humanizeBudgetDetail(goal)}
                 </Text>
               </View>
-              <ProgressBar value={goal.pct / 100} color={goalBarColor(goal)} height={8} />
+              <ProgressBar value={goal.pct / 100} color={goalBarColor(goal)} height={8} dark={dark} />
             </Pressable>
           ))}
         </View>
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     elevation: 2,
-    gap: 14,
+    gap: 10,
   },
   header: {
     flexDirection: "row",
@@ -107,16 +107,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   iconChip: {
-    width: 30,
-    height: 30,
+    width: 24,
+    height: 24,
     borderRadius: 8,
     backgroundColor: "#eef2ff",
     alignItems: "center",
     justifyContent: "center",
   },
   headerLabel: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "500",
   },
   skeleton: {
     height: 80,
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   goalsList: {
-    gap: 14,
+    gap: 12,
   },
   goalRow: {
     gap: 6,
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   goalPct: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
   },
   goalDetail: {

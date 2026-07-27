@@ -388,15 +388,15 @@ export function AccountsGrid({
 const CARD_HEIGHT = 112;
 
 const styles = StyleSheet.create({
-  section: { gap: 10 },
+  section: { gap: 12 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   manageLink: {
-    color: "#4f46e5",
-    fontSize: 13,
+    color: "#6366f1",
+    fontSize: 12,
     fontWeight: "600",
   },
   grid: {
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
   },
   miniCard: {
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
     height: CARD_HEIGHT,
     justifyContent: "space-between",
   },
@@ -447,21 +447,21 @@ const styles = StyleSheet.create({
   logoContainer: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.95)",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
   logo: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     borderRadius: 4,
   },
   logoFallback: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
@@ -473,13 +473,13 @@ const styles = StyleSheet.create({
   },
   typeBadge: {
     backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 9999,
   },
   typeBadgeText: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.4,
@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
   },
   miniCardBalance: {
     color: "#ffffff",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     letterSpacing: -0.3,
   },
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: CARD_HEIGHT,
     borderRadius: 16,
-    padding: 14,
+    padding: 16,
     justifyContent: "space-between",
     overflow: "hidden",
     position: "relative",
@@ -546,7 +546,7 @@ const styles = StyleSheet.create({
   },
   invBadgeText: {
     color: "#ffffff",
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.4,
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
   },
   invValueText: {
     color: "#ffffff",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     letterSpacing: -0.3,
   },

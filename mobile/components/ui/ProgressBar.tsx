@@ -5,6 +5,7 @@ interface Props {
   color?: string;
   height?: number;
   paceMarker?: number; // 0–1 position for a tick mark
+  dark?: boolean;
 }
 
 export function ProgressBar({
@@ -12,6 +13,7 @@ export function ProgressBar({
   color = "#4f46e5",
   height = 6,
   paceMarker,
+  dark = false,
 }: Props) {
   const clamped = Math.min(1, Math.max(0, value));
   const fillPct = `${(clamped * 100).toFixed(1)}%`;
@@ -24,7 +26,7 @@ export function ProgressBar({
     <View
       style={{
         height,
-        backgroundColor: "#f1f5f9",
+        backgroundColor: dark ? "#334155" : "#f1f5f9",
         borderRadius: height / 2,
         overflow: "hidden",
       }}

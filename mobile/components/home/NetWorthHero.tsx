@@ -62,9 +62,9 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
           accessibilityLabel={hidden ? "Show balances" : "Hide balances"}
         >
           {hidden ? (
-            <EyeOff size={20} color="#94a3b8" />
+            <EyeOff size={16} color="#94a3b8" />
           ) : (
-            <Eye size={20} color="#94a3b8" />
+            <Eye size={16} color="#94a3b8" />
           )}
         </Pressable>
       </View>
@@ -115,7 +115,7 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
 const styles = StyleSheet.create({
   card: {
     borderRadius: 24,
-    padding: 20,
+    padding: 24,
     borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -151,26 +151,27 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   mainFigure: {
-    fontSize: 30,
+    fontSize: 36,
     fontWeight: "700",
     letterSpacing: -0.75,
   },
   chipsRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
   chip: {
     flex: 1,
     borderRadius: 12,
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     gap: 2,
   },
   chipLabel: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "500",
   },
   chipValue: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

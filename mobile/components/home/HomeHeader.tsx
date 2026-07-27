@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   greeting: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
     letterSpacing: -0.4,
   },
