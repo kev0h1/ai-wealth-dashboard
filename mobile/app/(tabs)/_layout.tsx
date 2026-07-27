@@ -95,6 +95,7 @@ export default function TabLayout() {
               typeof props.style === "function"
                 ? (props.style as (state: { pressed: boolean }) => any)(state)
                 : props.style,
+              { flex: 1, alignItems: "center", justifyContent: "center" },
               state.pressed && { opacity: 0.7 },
             ] as any}
           />
