@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Tabs } from "expo-router";
+import { PlatformPressable } from "expo-router/build/react-navigation/elements";
 import { Home, PieChart, Target, Lightbulb, Settings } from "lucide-react-native";
 import { useTheme } from "@/lib/ThemeContext";
 import {
@@ -86,6 +87,19 @@ export default function TabLayout() {
           fontSize: 10,
           fontWeight: "600",
         },
+        tabBarButton: (props) => (
+          <PlatformPressable
+            {...(props as any)}
+            android_ripple={{ color: "transparent" }}
+            style={(state: { pressed: boolean }) => [
+              typeof props.style === "function"
+                ? (props.style as (state: { pressed: boolean }) => any)(state)
+                : props.style,
+              state.pressed && { opacity: 0.7 },
+            ] as any}
+          />
+        ),
+        sceneStyle: { backgroundColor: bgColor },
         lazy: true,
       }}
     >

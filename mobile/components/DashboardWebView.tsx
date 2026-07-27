@@ -423,7 +423,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
       <WebView
         ref={webViewRef}
         source={{ uri: sourceUri }}
-        style={styles.webview}
+        style={[styles.webview, { backgroundColor: bgColor }]}
         javaScriptEnabled
         domStorageEnabled
         geolocationEnabled
