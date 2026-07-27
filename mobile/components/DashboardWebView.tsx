@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { StyleSheet, BackHandler, View, ActivityIndicator, Platform } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { WebView, WebViewMessageEvent, WebViewNavigation } from "react-native-webview";
 import {
   GoogleSignin,
@@ -54,6 +56,8 @@ const POST_LOAD_JS = `
 (function() {
   var s = document.createElement('style');
   s.textContent = [
+    '[style*="env(safe-area-inset-top"]{padding-top:0!important}',
+    '.safe-top{padding-top:0!important}',
     '[style*="env(safe-area-inset-bottom"]{padding-bottom:0!important}',
     'nav.lg\\\\:hidden{display:none!important}',
     'body{padding-bottom:0!important;margin-bottom:0!important}'
@@ -129,6 +133,8 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
   const canGoBackRef = useRef(false);
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const insets = useSafeAreaInsets();
+  const [focused, setFocused] = useState(false);
 
   const router = useRouter();
 
@@ -186,6 +192,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      setFocused(true);
       const sub = BackHandler.addEventListener("hardwareBackPress", () => {
         if (canGoBackRef.current && webViewRef.current) {
           webViewRef.current.goBack();
@@ -193,7 +200,10 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
         }
         return false;
       });
-      return () => sub.remove();
+      return () => {
+        sub.remove();
+        setFocused(false);
+      };
     }, []),
   );
 
@@ -398,7 +408,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: bgColor }]}>
       <WebView
         ref={webViewRef}
         source={{ uri: sourceUri }}
@@ -424,6 +434,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
           <ActivityIndicator size="large" color="#4f46e5" />
         </View>
       )}
+      {focused && <StatusBar style={darkMode ? "light" : "dark"} />}
     </View>
   );
 }
