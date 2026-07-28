@@ -1,4 +1,4 @@
-import { View, Text, Pressable, Image, StyleSheet } from "react-native";
+import { View, Text, Pressable, Image, StyleSheet, useWindowDimensions } from "react-native";
 import { TrendingUp, ChevronRight } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { WhisperLabel } from "@/components/ui/WhisperLabel";
@@ -122,12 +122,57 @@ function bankKey(account: Account): string {
   return norm in BANK_META ? norm : "DEFAULT";
 }
 
+/** Parse "#RRGGBB" or "#RGB" → [r,g,b] 0-255. Returns null on failure. */
+function hexToRgb(hex: string): [number, number, number] | null {
+  const h = hex.replace("#", "");
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+    return [r, g, b];
+  }
+  if (h.length === 6) {
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+    return [r, g, b];
+  }
+  return null;
+}
+
+/** Darken RGB triple by factor (0-1). Returns "rgb(r,g,b)" string. */
+function darkenRgb([r, g, b]: [number, number, number], factor: number): string {
+  return `rgb(${Math.round(r * factor)},${Math.round(g * factor)},${Math.round(b * factor)})`;
+}
+
+/**
+ * Resolve gradient colours for a bank card.
+ * Priority (mirrors web AccountMiniCard.tsx accountBrand()):
+ *   1. Curated BANK_META (vivid brand gradients) — when bankKey resolves to a known non-DEFAULT key.
+ *   2. Finexer bg_colors[0..1] — when >= 2 dynamic colours provided.
+ *   3. Finexer bg_colors[0] darkened — when exactly 1 dynamic colour provided.
+ *   4. BANK_META.DEFAULT fallback.
+ */
 function getGradient(account: Account): [string, string] {
+  // 1. Curated brand entry (BANK_META priority, same as web)
+  const key = bankKey(account);
+  if (key !== "DEFAULT" && BANK_META[key]) {
+    return BANK_META[key];
+  }
+  // 2. Finexer dynamic bg_colors — two stops
   if (account.bg_colors && account.bg_colors.length >= 2) {
     return [account.bg_colors[0], account.bg_colors[1]];
   }
-  const key = bankKey(account);
-  return BANK_META[key] ?? BANK_META.DEFAULT;
+  // 3. Finexer dynamic bg_colors — single colour, derive darker second stop
+  if (account.bg_colors && account.bg_colors.length === 1) {
+    const rgb = hexToRgb(account.bg_colors[0]);
+    const darker = rgb ? darkenRgb(rgb, 0.62) : account.bg_colors[0];
+    return [account.bg_colors[0], darker];
+  }
+  // 4. Default
+  return BANK_META.DEFAULT;
 }
 
 function getLogoUrl(account: Account): string | null {
@@ -176,9 +221,10 @@ interface MiniCardProps {
   dark: boolean;
   hidden: boolean;
   onPress: () => void;
+  cellWidth?: number;
 }
 
-function AccountMiniCard({ account, dark: _dark, hidden, onPress }: MiniCardProps) {
+function AccountMiniCard({ account, dark: _dark, hidden, onPress, cellWidth }: MiniCardProps) {
   const [from, to] = getGradient(account);
   const logoUrl = getLogoUrl(account);
   const initials = getInitials(account);
@@ -190,6 +236,7 @@ function AccountMiniCard({ account, dark: _dark, hidden, onPress }: MiniCardProp
       onPress={onPress}
       style={({ pressed }) => [
         styles.miniCardWrapper,
+        cellWidth !== undefined ? { width: cellWidth } : undefined,
         { transform: [{ scale: pressed ? 0.95 : 1 }] },
       ]}
     >
@@ -258,6 +305,9 @@ export function AccountsGrid({
   const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
   const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
 
+  const { width: winW } = useWindowDimensions();
+  const cellW = (winW - tw.space[4] * 2 - tw.space[3]) / 2;
+
   const picks = topPickAccounts(accounts, pinnedIds, 3);
   const firstInv = investmentAccounts[0] ?? null;
   const hiddenCount = Math.max(0, accounts.length - picks.length) + Math.max(0, investmentAccounts.length - 1);
@@ -287,7 +337,7 @@ export function AccountsGrid({
           {[0, 1, 2, 3].map((i) => (
             <View
               key={i}
-              style={[styles.skeletonCard, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200 }]}
+              style={[styles.skeletonCard, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200, width: cellW }]}
             />
           ))}
         </View>
@@ -314,7 +364,7 @@ export function AccountsGrid({
                   onPress={onInvestmentsPress}
                   style={({ pressed }) => ({
                     transform: [{ scale: pressed ? 0.95 : 1 }],
-                    width: "47%",
+                    width: cellW,
                   })}
                 >
                   <LinearGradient
@@ -362,6 +412,7 @@ export function AccountsGrid({
                 dark={dark}
                 hidden={hidden}
                 onPress={() => onAccountPress(account.id)}
+                cellWidth={cellW}
               />
             );
           })}
@@ -373,6 +424,7 @@ export function AccountsGrid({
                 styles.moreCard,
                 {
                   borderColor: dark ? tw.color.cardBorderDark : tw.color.slate200,
+                  width: cellW,
                   transform: [{ scale: pressed ? 0.95 : 1 }],
                 },
               ]}
@@ -415,7 +467,6 @@ const styles = StyleSheet.create({
     gap: tw.space[3],
   },
   skeletonCard: {
-    width: "47%",
     minHeight: CARD_MIN,
     borderRadius: tw.radius["2xl"],
   },
@@ -440,13 +491,12 @@ const styles = StyleSheet.create({
     fontWeight: tw.weight.semibold,
     ...tw.text.sm,
   },
-  miniCardWrapper: {
-    width: "47%",
-  },
+  miniCardWrapper: {},
   miniCard: {
     borderRadius: tw.radius["2xl"],
     padding: tw.space[4],
     minHeight: CARD_MIN,
+    overflow: "hidden",
   },
   miniCardTopRow: {
     flexDirection: "row",
@@ -594,8 +644,7 @@ const styles = StyleSheet.create({
     opacity: 0.1,
   },
   moreCard: {
-    width: "47%",
-    minHeight: 112,
+    minHeight: CARD_MIN,
     borderRadius: tw.radius["2xl"],
     borderWidth: 2,
     borderStyle: "dashed",

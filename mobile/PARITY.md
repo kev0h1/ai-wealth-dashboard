@@ -43,3 +43,9 @@ literals for those values in StyleSheet calls. Every `<Text>` component MUST hav
 - Set `lineHeight` on every `<Text>` — use the spread `...tw.text.*` which includes it.
 - Replace all web margin sequences literally (do NOT collapse multiple `mb-*`/`mt-*` into a single `gap`).
 - Verify with `npx tsc --noEmit` (must be clean) and `npx expo export --platform android` (must complete without errors).
+
+## Session gotchas
+
+- **CSS grid vs RN flex-wrap cell heights**: CSS `grid-cols-2` stretches every cell in a row to equal height; RN `flex-wrap` does NOT — wrapped cells keep their own content height. To match, give sibling cards the same `minHeight` (e.g. a shared `CARD_MIN`) and pad shorter cards deliberately. Also: RN `gap` between wrapped cells is reserved space, so a plain `width: "50%"` overflows — compute cell width from window width minus page gutters minus the gap, divided by columns (`cellW = (winW - gutterL - gutterR - gap) / 2`) for an exact 2-up grid that never overflows.
+
+- **LinearGradient must BE the painted surface itself**: Any `backgroundColor` set on the `<LinearGradient>` element, or an opaque `View` overlaying it, hides the gradient and the card renders flat. Equally important: resolve gradient colours in the SAME priority order as web (curated brand map first, dynamic `bg_colors` second) — a flat-looking card is often correct code painting a flatter colour source, not a broken gradient. Add `overflow: "hidden"` so the gradient clips to rounded corners on Android. Device screenshots are the acceptance test — never close a gradient bug from code-reading alone.

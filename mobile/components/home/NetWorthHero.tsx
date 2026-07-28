@@ -60,6 +60,7 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
             styles.eyeBtn,
             { transform: [{ scale: pressed ? 0.95 : 1 }] },
           ]}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityLabel={hidden ? "Show balances" : "Hide balances"}
         >
           {hidden ? (
@@ -132,15 +133,15 @@ const styles = StyleSheet.create({
   titleLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: tw.space[1.5],
+    gap: tw.space[2],
   },
   titleText: {
     ...tw.text.sm,
     fontWeight: tw.weight.medium,
   },
   eyeBtn: {
-    width: 44,
-    height: 44,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -164,9 +165,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: tw.space[3],
     alignItems: "flex-start",
+    flexWrap: "wrap",
   },
   chip: {
-    flex: 1,
     borderRadius: tw.radius.xl,
     paddingHorizontal: tw.space[4],
     paddingVertical: tw.space[2],
