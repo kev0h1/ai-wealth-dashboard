@@ -155,8 +155,7 @@ const styles = StyleSheet.create({
     marginBottom: tw.space[4],
   },
   mainFigure: {
-    fontSize: 36,
-    lineHeight: tw.leadingNone(36),
+    ...tw.text["4xl"],
     fontWeight: tw.weight.bold,
     letterSpacing: tw.tracking(tw.trackingEm.tight, 36),
     marginBottom: tw.space[4],
