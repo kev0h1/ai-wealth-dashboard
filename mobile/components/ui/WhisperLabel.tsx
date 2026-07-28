@@ -1,4 +1,5 @@
 import { Text, TextProps, StyleSheet } from "react-native";
+import { tw } from "@/lib/tw";
 
 interface Props extends TextProps {
   children: React.ReactNode;
@@ -14,10 +15,10 @@ export function WhisperLabel({ children, style, ...props }: Props) {
 
 const styles = StyleSheet.create({
   label: {
-    fontSize: 11,
-    fontWeight: "600",
+    ...tw.text["11"],
+    fontWeight: tw.weight.semibold,
     textTransform: "uppercase",
-    letterSpacing: 0.8,
-    color: "#94a3b8",
+    letterSpacing: tw.tracking(tw.trackingEm.wide, 11),
+    color: tw.color.slate400,
   },
 });

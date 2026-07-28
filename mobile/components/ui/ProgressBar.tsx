@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { tw } from "@/lib/tw";
 
 interface Props {
   value: number; // 0–1
@@ -10,7 +11,7 @@ interface Props {
 
 export function ProgressBar({
   value,
-  color = "#4f46e5",
+  color = tw.color.indigo600,
   height = 6,
   paceMarker,
   dark = false,
@@ -26,7 +27,7 @@ export function ProgressBar({
     <View
       style={{
         height,
-        backgroundColor: dark ? "#334155" : "#f1f5f9",
+        backgroundColor: dark ? tw.color.slate700 : tw.color.slate100,
         borderRadius: height / 2,
         overflow: "hidden",
       }}
@@ -51,7 +52,7 @@ export function ProgressBar({
             top: 0,
             bottom: 0,
             width: 2,
-            backgroundColor: "#94a3b8",
+            backgroundColor: tw.color.slate400,
           }}
         />
       )}

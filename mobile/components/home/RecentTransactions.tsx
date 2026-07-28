@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { View, Text, StyleSheet, Image } from "react-native";
 import { Pressable } from "react-native";
+import { ChevronRight } from "lucide-react-native";
 import { WhisperLabel } from "@/components/ui/WhisperLabel";
 import { logoUrl } from "@/lib/api";
 import type { Transaction } from "@/lib/shared";
+import { tw, HAIRLINE } from "@/lib/tw";
 
 // Merchant-chip fallback colour. Transcribed verbatim from the web source of
 // truth (frontend/lib/categories.ts CATEGORY_COLOURS). The web chip derives its
@@ -160,10 +162,10 @@ function formatDate(dateStr: string): string {
 }
 
 export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Props) {
-  const cardBg = dark ? "#1e293b" : "#ffffff";
-  const borderColor = dark ? "#334155" : "#f1f5f9";
-  const inkColor = dark ? "#f1f5f9" : "#0f172a";
-  const dividerColor = dark ? "#1e293b" : "#f8fafc";
+  const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
+  const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
+  const inkColor = dark ? tw.color.slate100 : tw.color.slate900;
+  const dividerColor = dark ? tw.color.slate700 : tw.color.slate50;
 
   const filtered = transactions
     .filter(t => !(t.category === "Transfer" && t.amount < 1))
@@ -173,12 +175,15 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
     <View style={styles.section}>
       {/* Header */}
       <View style={styles.sectionHeader}>
-        <WhisperLabel style={{ color: dark ? "#94a3b8" : "#64748b" }}>Recent Transactions</WhisperLabel>
+        <WhisperLabel style={{ color: dark ? tw.color.slate400 : tw.color.slate500 }}>Recent Transactions</WhisperLabel>
         <Pressable
           onPress={onSeeAll}
           style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
         >
-          <Text style={styles.seeAllLink}>See all →</Text>
+          <View style={styles.seeAllRow}>
+            <Text style={[styles.seeAllText, { color: dark ? tw.color.indigo400 : tw.color.indigo500 }]}>See all</Text>
+            <ChevronRight size={13} color={dark ? tw.color.indigo400 : tw.color.indigo500} />
+          </View>
         </Pressable>
       </View>
 
@@ -193,16 +198,16 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
             {[0, 1, 2, 3, 4].map((i) => (
               <View
                 key={i}
-                style={[styles.skeletonRow, { backgroundColor: dark ? "#334155" : "#e2e8f0" }]}
+                style={[styles.skeletonRow, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200 }]}
               />
             ))}
           </View>
         ) : filtered.length === 0 ? (
-          <Text style={[styles.emptyText, { color: "#94a3b8" }]}>No transactions yet</Text>
+          <Text style={[styles.emptyText, { color: tw.color.slate400 }]}>No transactions yet</Text>
         ) : (
           filtered.map((tx, idx) => {
             const isIncome = tx.transaction_type === "credit";
-            const amountColor = isIncome ? "#10b981" : (dark ? "#f1f5f9" : "#0f172a");
+            const amountColor = isIncome ? tw.color.emerald500 : (dark ? tw.color.slate100 : tw.color.slate900);
             const merchant = tx.merchant_name || tx.description;
 
             return (
@@ -219,7 +224,7 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
                     >
                       {merchant}
                     </Text>
-                    <Text style={[styles.txDate, { color: "#94a3b8" }]}>
+                    <Text style={[styles.txDate, { color: tw.color.slate400 }]}>
                       {formatDate(tx.date)}{tx.category ? ` · ${tx.category}` : ""}
                     </Text>
                   </View>
@@ -237,19 +242,23 @@ export function RecentTransactions({ transactions, loading, dark, onSeeAll }: Pr
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 10 },
+  section: { gap: tw.space[2.5] },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  seeAllLink: {
-    color: "#4f46e5",
-    fontSize: 13,
-    fontWeight: "600",
+  seeAllRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tw.space[1],
+  },
+  seeAllText: {
+    ...tw.text.xs,
+    fontWeight: tw.weight.semibold,
   },
   card: {
-    borderRadius: 16,
+    borderRadius: tw.radius["2xl"],
     borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -258,49 +267,49 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   loadingRows: {
-    padding: 16,
-    gap: 12,
+    padding: tw.space[4],
+    gap: tw.space[3],
   },
   skeletonRow: {
     height: 36,
-    borderRadius: 8,
+    borderRadius: tw.radius.lg,
   },
   emptyText: {
-    padding: 24,
+    padding: tw.space[6],
     textAlign: "center",
-    fontSize: 14,
+    ...tw.text.sm,
   },
   divider: {
-    height: 1,
-    marginHorizontal: 16,
+    height: HAIRLINE,
+    marginHorizontal: tw.space[4],
   },
   txRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: tw.space[3],
+    paddingHorizontal: tw.space[4],
+    paddingVertical: tw.space[3],
   },
   txCenter: {
     flex: 1,
-    gap: 2,
+    gap: tw.space[0.5],
   },
   txMerchant: {
-    fontSize: 14,
-    fontWeight: "500",
+    ...tw.text.sm,
+    fontWeight: tw.weight.medium,
   },
   txDate: {
-    fontSize: 12,
+    ...tw.text.xs,
   },
   txAmount: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...tw.text.sm,
+    fontWeight: tw.weight.semibold,
   },
   merchantChipLogo: {
     width: 36,
     height: 36,
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
+    borderRadius: tw.radius.xl,
+    backgroundColor: tw.color.white,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -312,13 +321,13 @@ const styles = StyleSheet.create({
   merchantChipFallback: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
     alignItems: "center",
     justifyContent: "center",
   },
   merchantInitial: {
-    color: "#ffffff",
-    fontWeight: "700",
-    fontSize: 14,
+    color: tw.color.white,
+    fontWeight: tw.weight.bold,
+    ...tw.text.sm,
   },
 });

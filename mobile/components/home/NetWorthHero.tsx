@@ -2,6 +2,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react-native";
 import type { KPIs } from "@/lib/shared";
 import { fmtBalance } from "@/lib/format";
+import { tw } from "@/lib/tw";
 
 interface Props {
   kpis: KPIs | null;
@@ -31,8 +32,8 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
     ? "Tracking in the right direction"
     : "Building towards net-positive — stay the course";
 
-  const cardBg = dark ? "#1e293b" : "#ffffff";
-  const borderColor = dark ? "#334155" : "#f1f5f9";
+  const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
+  const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
 
   return (
     <View
@@ -45,11 +46,11 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
       <View style={styles.titleRow}>
         <View style={styles.titleLeft}>
           {isPositive ? (
-            <TrendingUp size={16} color="#10b981" />
+            <TrendingUp size={16} color={tw.color.emerald500} />
           ) : (
-            <TrendingDown size={16} color="#f59e0b" />
+            <TrendingDown size={16} color={tw.color.amber500} />
           )}
-          <Text style={[styles.titleText, { color: dark ? "#94a3b8" : "#64748b" }]}>
+          <Text style={[styles.titleText, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>
             Net Worth
           </Text>
         </View>
@@ -62,26 +63,26 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
           accessibilityLabel={hidden ? "Show balances" : "Hide balances"}
         >
           {hidden ? (
-            <EyeOff size={16} color="#94a3b8" />
+            <EyeOff size={16} color={tw.color.slate400} />
           ) : (
-            <Eye size={16} color="#94a3b8" />
+            <Eye size={16} color={tw.color.slate400} />
           )}
         </Pressable>
       </View>
 
       {/* Verdict */}
-      <Text style={[styles.verdict, { color: dark ? "#94a3b8" : "#64748b" }]}>
+      <Text style={[styles.verdict, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>
         {verdictText}
       </Text>
 
       {/* Main figure */}
       {loading ? (
-        <View style={[styles.skeleton, { backgroundColor: dark ? "#334155" : "#e2e8f0" }]} />
+        <View style={[styles.skeleton, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200 }]} />
       ) : (
         <Text
           style={[
             styles.mainFigure,
-            { color: dark ? "#f1f5f9" : "#0f172a" },
+            { color: dark ? tw.color.slate100 : tw.color.slate900 },
           ]}
         >
           {hidden ? "••••••" : fmtBalance(netWorth)}
@@ -90,18 +91,18 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
 
       {/* Chips row */}
       <View style={styles.chipsRow}>
-        <View style={[styles.chip, { backgroundColor: dark ? "#334155" : "#f8fafc" }]}>
-          <Text style={[styles.chipLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Cash</Text>
-          <Text style={[styles.chipValue, { color: dark ? "#f1f5f9" : "#0f172a" }]}>
+        <View style={[styles.chip, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate50 }]}>
+          <Text style={[styles.chipLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>Cash</Text>
+          <Text style={[styles.chipValue, { color: dark ? tw.color.slate100 : tw.color.slate900 }]}>
             {hidden ? "••••" : fmtBalance(cash)}
           </Text>
         </View>
-        <View style={[styles.chip, { backgroundColor: dark ? "#334155" : "#f8fafc" }]}>
-          <Text style={[styles.chipLabel, { color: dark ? "#94a3b8" : "#64748b" }, { textDecorationLine: "underline", textDecorationStyle: "dotted" }]}>Cash runway</Text>
+        <View style={[styles.chip, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate50 }]}>
+          <Text style={[styles.chipLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }, { textDecorationLine: "underline", textDecorationStyle: "dotted" }]}>Cash runway</Text>
           <Text
             style={[
               styles.chipValue,
-              { color: runwayFmt.amber ? "#f59e0b" : (dark ? "#f1f5f9" : "#0f172a") },
+              { color: runwayFmt.amber ? tw.color.amber500 : (dark ? tw.color.slate100 : tw.color.slate900) },
             ]}
           >
             {runwayFmt.text}
@@ -114,28 +115,28 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: tw.radius["3xl"],
+    padding: tw.space[6],
     borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     elevation: 2,
-    gap: 10,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: tw.space[1],
   },
   titleLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: tw.space[1.5],
   },
   titleText: {
-    fontSize: 14,
-    fontWeight: "500",
+    ...tw.text.sm,
+    fontWeight: tw.weight.medium,
   },
   eyeBtn: {
     width: 44,
@@ -144,34 +145,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   verdict: {
-    fontSize: 14,
+    ...tw.text.sm,
+    marginTop: tw.space[1],
+    marginBottom: tw.space[2],
   },
   skeleton: {
     height: 40,
-    borderRadius: 8,
+    borderRadius: tw.radius.lg,
+    marginBottom: tw.space[4],
   },
   mainFigure: {
     fontSize: 36,
-    fontWeight: "700",
-    letterSpacing: -0.75,
+    lineHeight: tw.leadingNone(36),
+    fontWeight: tw.weight.bold,
+    letterSpacing: tw.tracking(tw.trackingEm.tight, 36),
+    marginBottom: tw.space[4],
   },
   chipsRow: {
     flexDirection: "row",
-    gap: 12,
+    gap: tw.space[3],
+    alignItems: "flex-start",
   },
   chip: {
     flex: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 2,
+    borderRadius: tw.radius.xl,
+    paddingHorizontal: tw.space[4],
+    paddingVertical: tw.space[2],
   },
   chipLabel: {
-    fontSize: 12,
-    fontWeight: "500",
+    ...tw.text.xs,
+    fontWeight: tw.weight.medium,
+    marginBottom: tw.space[0.5],
   },
   chipValue: {
-    fontSize: 16,
-    fontWeight: "600",
+    ...tw.text.base,
+    fontWeight: tw.weight.semibold,
   },
 });

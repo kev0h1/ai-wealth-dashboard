@@ -1,9 +1,10 @@
 import { View, Text, Pressable, Image, StyleSheet } from "react-native";
-import { TrendingUp } from "lucide-react-native";
+import { TrendingUp, ChevronRight } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { WhisperLabel } from "@/components/ui/WhisperLabel";
 import type { Account, InvestmentAccount } from "@/lib/shared";
 import { fmtBalance } from "@/lib/format";
+import { tw, HAIRLINE } from "@/lib/tw";
 
 interface Props {
   accounts: Account[];
@@ -254,9 +255,8 @@ export function AccountsGrid({
   onAccountPress,
   onInvestmentsPress,
 }: Props) {
-  const inkColor = dark ? "#f1f5f9" : "#0f172a";
-  const cardBg = dark ? "#1e293b" : "#ffffff";
-  const borderColor = dark ? "#334155" : "#f1f5f9";
+  const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
+  const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
 
   const picks = topPickAccounts(accounts, pinnedIds, 3);
   const firstInv = investmentAccounts[0] ?? null;
@@ -270,12 +270,15 @@ export function AccountsGrid({
     <View style={styles.section}>
       {/* Header */}
       <View style={styles.sectionHeader}>
-        <WhisperLabel style={{ color: dark ? "#94a3b8" : "#64748b" }}>Accounts</WhisperLabel>
+        <WhisperLabel style={{ color: dark ? tw.color.slate400 : tw.color.slate500 }}>Accounts</WhisperLabel>
         <Pressable
           onPress={onManage}
           style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
         >
-          <Text style={styles.manageLink}>Manage →</Text>
+          <View style={styles.manageRow}>
+            <Text style={[styles.manageText, { color: dark ? tw.color.indigo400 : tw.color.indigo500 }]}>Manage</Text>
+            <ChevronRight size={14} color={dark ? tw.color.indigo400 : tw.color.indigo500} />
+          </View>
         </Pressable>
       </View>
 
@@ -284,13 +287,13 @@ export function AccountsGrid({
           {[0, 1, 2, 3].map((i) => (
             <View
               key={i}
-              style={[styles.skeletonCard, { backgroundColor: dark ? "#334155" : "#e2e8f0" }]}
+              style={[styles.skeletonCard, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200 }]}
             />
           ))}
         </View>
       ) : accounts.length === 0 ? (
         <View style={[styles.emptyCard, { backgroundColor: cardBg, borderColor }]}>
-          <Text style={[styles.emptyText, { color: "#94a3b8" }]}>Connect your first bank</Text>
+          <Text style={[styles.emptyText, { color: tw.color.slate400 }]}>Connect your first bank</Text>
           <Pressable
             onPress={onManage}
             style={({ pressed }) => [
@@ -323,7 +326,7 @@ export function AccountsGrid({
                     {/* Top row */}
                     <View style={styles.invTopRow}>
                       <View style={styles.invIconBox}>
-                        <TrendingUp size={18} color="#ffffff" />
+                        <TrendingUp size={18} color={tw.color.white} />
                       </View>
                       <View style={styles.invBadge}>
                         <Text style={styles.invBadgeText}>
@@ -366,15 +369,15 @@ export function AccountsGrid({
               style={({ pressed }) => [
                 styles.moreCard,
                 {
-                  borderColor: dark ? "#334155" : "#e2e8f0",
+                  borderColor: dark ? tw.color.cardBorderDark : tw.color.slate200,
                   transform: [{ scale: pressed ? 0.95 : 1 }],
                 },
               ]}
             >
-              <Text style={[styles.moreCount, { color: dark ? "#f1f5f9" : "#0f172a" }]}>
+              <Text style={[styles.moreCount, { color: dark ? tw.color.slate100 : tw.color.slate900 }]}>
                 +{hiddenCount}
               </Text>
-              <Text style={[styles.moreLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>
+              <Text style={[styles.moreLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>
                 more accounts
               </Text>
             </Pressable>
@@ -385,69 +388,73 @@ export function AccountsGrid({
   );
 }
 
-const CARD_HEIGHT = 112;
+const CARD_MIN = 124;
 
 const styles = StyleSheet.create({
-  section: { gap: 12 },
+  section: { gap: tw.space[3] },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  manageLink: {
-    color: "#6366f1",
-    fontSize: 12,
-    fontWeight: "600",
+  manageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tw.space[1],
+  },
+  manageText: {
+    ...tw.text.xs,
+    fontWeight: tw.weight.semibold,
   },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: tw.space[3],
   },
   skeletonCard: {
     width: "47%",
-    height: CARD_HEIGHT,
-    borderRadius: 16,
+    minHeight: CARD_MIN,
+    borderRadius: tw.radius["2xl"],
   },
   emptyCard: {
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: tw.radius["2xl"],
+    padding: tw.space[6],
     borderWidth: 1,
     alignItems: "center",
-    gap: 12,
+    gap: tw.space[3],
   },
   emptyText: {
-    fontSize: 14,
+    ...tw.text.sm,
   },
   ctaBtn: {
-    backgroundColor: "#4f46e5",
+    backgroundColor: tw.color.indigo600,
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
   },
   ctaBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14,
+    color: tw.color.white,
+    fontWeight: tw.weight.semibold,
+    ...tw.text.sm,
   },
   miniCardWrapper: {
     width: "47%",
   },
   miniCard: {
-    borderRadius: 16,
-    padding: 16,
-    height: CARD_HEIGHT,
-    justifyContent: "space-between",
+    borderRadius: tw.radius["2xl"],
+    padding: tw.space[4],
+    minHeight: CARD_MIN,
   },
   miniCardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    marginBottom: tw.space[3],
   },
   logoContainer: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
     backgroundColor: "rgba(255,255,255,0.95)",
     alignItems: "center",
     justifyContent: "center",
@@ -461,67 +468,69 @@ const styles = StyleSheet.create({
   logoFallback: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
     backgroundColor: "rgba(255,255,255,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
   logoInitials: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "700",
+    color: tw.color.white,
+    ...tw.text.xs,
+    fontWeight: tw.weight.bold,
   },
   typeBadge: {
     backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 9999,
+    paddingHorizontal: tw.space[2],
+    paddingVertical: tw.space[0.5],
+    borderRadius: tw.radius.full,
   },
   typeBadgeText: {
     color: "rgba(255,255,255,0.9)",
-    fontSize: 10,
-    fontWeight: "700",
+    ...tw.text["10"],
+    fontWeight: tw.weight.bold,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: tw.tracking(tw.trackingEm.wide, 10),
   },
   miniCardMiddle: {
-    gap: 1,
+    marginBottom: tw.space[0.5],
   },
   miniCardProvider: {
     color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    fontWeight: "600",
+    ...tw.text["10"],
+    fontWeight: tw.weight.semibold,
     textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: tw.tracking(tw.trackingEm.widest, 10),
+    marginBottom: tw.space[0.5],
   },
   miniCardName: {
     color: "rgba(255,255,255,0.75)",
-    fontSize: 11,
+    ...tw.text["11"],
+    marginBottom: tw.space[1],
   },
   miniCardBalance: {
-    color: "#ffffff",
+    color: tw.color.white,
     fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: -0.3,
+    lineHeight: tw.leadingNone(20),
+    fontWeight: tw.weight.bold,
+    letterSpacing: tw.tracking(tw.trackingEm.tight, 20),
   },
   expiredOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: 16,
+    borderRadius: tw.radius["2xl"],
     alignItems: "center",
     justifyContent: "center",
   },
   expiredText: {
-    color: "#f59e0b",
-    fontWeight: "700",
-    fontSize: 13,
+    color: tw.color.amber500,
+    fontWeight: tw.weight.bold,
+    ...tw.text.sm,
   },
   invGradientCard: {
     width: "100%",
-    height: CARD_HEIGHT,
-    borderRadius: 16,
-    padding: 16,
-    justifyContent: "space-between",
+    minHeight: CARD_MIN,
+    borderRadius: tw.radius["2xl"],
+    padding: tw.space[4],
     overflow: "hidden",
     position: "relative",
   },
@@ -529,41 +538,43 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    marginBottom: tw.space[3],
   },
   invIconBox: {
     width: 36,
     height: 36,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
     backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
   invBadge: {
     backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    borderRadius: tw.radius.full,
+    paddingHorizontal: tw.space[2],
+    paddingVertical: tw.space[0.5],
   },
   invBadgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "700",
+    color: tw.color.white,
+    ...tw.text["10"],
+    fontWeight: tw.weight.bold,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
+    letterSpacing: tw.tracking(tw.trackingEm.wide, 10),
   },
   invProviderName: {
     color: "rgba(255,255,255,0.6)",
-    fontSize: 10,
-    fontWeight: "600",
+    ...tw.text["10"],
+    fontWeight: tw.weight.semibold,
     textTransform: "uppercase",
-    letterSpacing: 1,
-    marginBottom: 2,
+    letterSpacing: tw.tracking(tw.trackingEm.widest, 10),
+    marginBottom: tw.space[0.5],
   },
   invValueText: {
-    color: "#ffffff",
+    color: tw.color.white,
     fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: -0.3,
+    lineHeight: tw.leadingNone(20),
+    fontWeight: tw.weight.bold,
+    letterSpacing: tw.tracking(tw.trackingEm.tight, 20),
   },
   invDecoCircle: {
     position: "absolute",
@@ -572,25 +583,28 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: "#ffffff",
+    backgroundColor: tw.color.white,
     opacity: 0.1,
   },
   moreCard: {
     width: "47%",
-    height: CARD_HEIGHT,
-    borderRadius: 16,
+    minHeight: 112,
+    borderRadius: tw.radius["2xl"],
     borderWidth: 2,
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: tw.space[1],
   },
   moreCount: {
-    fontSize: 20,
-    fontWeight: "700",
+    ...tw.text.lg,
+    fontWeight: tw.weight.bold,
   },
   moreLabel: {
-    fontSize: 12,
-    fontWeight: "500",
+    ...tw.text.xs,
+    fontWeight: tw.weight.medium,
   },
 });
+
+// suppress unused import warning — HAIRLINE is re-exported for consumers
+void HAIRLINE;

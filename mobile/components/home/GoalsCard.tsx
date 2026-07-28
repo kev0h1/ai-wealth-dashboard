@@ -2,6 +2,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Target } from "lucide-react-native";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { GoalSummary } from "@/lib/shared";
+import { tw } from "@/lib/tw";
 
 interface Props {
   goals: GoalSummary[];
@@ -11,16 +12,16 @@ interface Props {
 }
 
 function goalBarColor(goal: GoalSummary): string {
-  if (goal.done) return "#10b981";
-  if (goal.at_risk) return "#f59e0b";
-  if (goal.pillar === "savings") return "#10b981";
-  return "#4f46e5";
+  if (goal.done) return tw.color.emerald500;
+  if (goal.at_risk) return tw.color.amber500;
+  if (goal.pillar === "savings") return tw.color.emerald500;
+  return tw.color.indigo600;
 }
 
 function goalDetailColor(goal: GoalSummary, dark: boolean): string {
-  if (goal.done) return "#10b981";
-  if (goal.at_risk) return "#f59e0b";
-  return dark ? "#94a3b8" : "#64748b";
+  if (goal.done) return tw.color.emerald500;
+  if (goal.at_risk) return tw.color.amber500;
+  return dark ? tw.color.slate400 : tw.color.slate500;
 }
 
 function humanizeBudgetDetail(goal: GoalSummary): string {
@@ -32,14 +33,14 @@ function humanizeBudgetDetail(goal: GoalSummary): string {
 }
 
 export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
-  const cardBg = dark ? "#1e293b" : "#ffffff";
-  const borderColor = dark ? "#334155" : "#f1f5f9";
-  const inkColor = dark ? "#f1f5f9" : "#0f172a";
+  const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
+  const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
+  const inkColor = dark ? tw.color.slate100 : tw.color.slate900;
 
   if (loading) {
     return (
       <View style={[styles.card, { backgroundColor: cardBg, borderColor }]}>
-        <View style={[styles.skeleton, { backgroundColor: dark ? "#334155" : "#e2e8f0" }]} />
+        <View style={[styles.skeleton, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate200 }]} />
       </View>
     );
   }
@@ -49,14 +50,14 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.iconChip}>
-          <Target size={13} color="#4f46e5" />
+          <Target size={13} color={tw.color.indigo500} />
         </View>
-        <Text style={[styles.headerLabel, { color: dark ? "#94a3b8" : "#64748b" }]}>Your goals</Text>
+        <Text style={[styles.headerLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>Your goals</Text>
       </View>
 
       {goals.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={[styles.emptyText, { color: "#94a3b8" }]}>No goals set yet...</Text>
+          <Text style={[styles.emptyText, { color: tw.color.slate400 }]}>No goals set yet...</Text>
           <Pressable
             onPress={() => onNavigate("/debt")}
             style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
@@ -92,69 +93,68 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: tw.radius["2xl"],
+    paddingHorizontal: tw.space[4],
+    paddingVertical: tw.space[3],
     borderWidth: 1,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     elevation: 2,
-    gap: 10,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: tw.space[2],
+    marginBottom: tw.space[2.5],
   },
   iconChip: {
     width: 24,
     height: 24,
-    borderRadius: 8,
-    backgroundColor: "#eef2ff",
+    borderRadius: tw.radius.lg,
+    backgroundColor: tw.color.indigo50,
     alignItems: "center",
     justifyContent: "center",
   },
   headerLabel: {
-    fontSize: 12,
-    fontWeight: "500",
+    ...tw.text.xs,
+    fontWeight: tw.weight.medium,
   },
   skeleton: {
     height: 80,
-    borderRadius: 8,
+    borderRadius: tw.radius.lg,
   },
   emptyState: {
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
+    gap: tw.space[2],
+    paddingVertical: tw.space[2],
   },
   emptyText: {
-    fontSize: 14,
+    ...tw.text.sm,
   },
   link: {
-    color: "#4f46e5",
-    fontSize: 14,
-    fontWeight: "600",
+    color: tw.color.indigo600,
+    ...tw.text.sm,
+    fontWeight: tw.weight.semibold,
   },
   goalsList: {
-    gap: 12,
+    gap: tw.space[3],
   },
   goalRow: {
-    gap: 6,
+    gap: tw.space[1.5],
   },
   goalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: tw.space[1.5],
   },
   goalLabel: {
-    fontSize: 14,
-    fontWeight: "600",
+    ...tw.text.sm,
+    fontWeight: tw.weight.semibold,
   },
   goalPct: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  goalDetail: {
-    fontSize: 12,
+    ...tw.text["11"],
+    fontWeight: tw.weight.medium,
   },
 });

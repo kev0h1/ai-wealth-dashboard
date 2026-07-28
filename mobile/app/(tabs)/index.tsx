@@ -24,16 +24,17 @@ import { RecentTransactions } from "@/components/home/RecentTransactions";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "@/lib/api";
 import type { ValueDelivered } from "@/lib/api";
+import { tw } from "@/lib/tw";
 
 function ErrorCard({ onRetry, dark }: { onRetry: () => void; dark: boolean }) {
   return (
     <View
       style={[
         styles.errorCard,
-        { backgroundColor: dark ? "#1e293b" : "#ffffff", borderColor: dark ? "#334155" : "#f1f5f9" },
+        { backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight, borderColor: dark ? tw.color.cardBorderDark : tw.color.cardBorderLight },
       ]}
     >
-      <Text style={[styles.errorCardText, { color: "#94a3b8" }]}>
+      <Text style={[styles.errorCardText, { color: tw.color.slate400 }]}>
         Couldn't load your dashboard
       </Text>
       <Pressable
@@ -81,7 +82,7 @@ function ValueDeliveredRow({
         { opacity: pressed ? 0.7 : 1 },
       ]}
     >
-      <Sparkles size={11} color="#818cf8" />
+      <Sparkles size={11} color={tw.color.indigo400} />
       <Text style={styles.valueDeliveredText}>{label}</Text>
     </Pressable>
   );
@@ -102,7 +103,7 @@ function NativeHomeScreen() {
     toggleHideBalances,
   } = useHomeData();
 
-  const canvasColor = dark ? "#0f172a" : "#f0f2f7";
+  const canvasColor = dark ? tw.color.canvasDark : tw.color.canvasLight;
 
   const handleDismissInsight = useCallback(async () => {
     if (!data?.spotlightInsight) return;
@@ -129,7 +130,7 @@ function NativeHomeScreen() {
             <RefreshControl
               refreshing={loading && !data}
               onRefresh={refresh}
-              tintColor={dark ? "#f1f5f9" : "#4f46e5"}
+              tintColor={dark ? tw.color.slate100 : tw.color.indigo600}
             />
           }
           showsVerticalScrollIndicator={false}
@@ -212,12 +213,12 @@ export default function HomeTab() {
   const { token, isLoading } = useAuth();
   const { dark } = useTheme();
 
-  const canvasColor = dark ? "#0f172a" : "#f0f2f7";
+  const canvasColor = dark ? tw.color.canvasDark : tw.color.canvasLight;
 
   if (isLoading) {
     return (
       <View style={[styles.loadingScreen, { backgroundColor: canvasColor }]}>
-        <ActivityIndicator size="large" color="#4f46e5" />
+        <ActivityIndicator size="large" color={tw.color.indigo600} />
       </View>
     );
   }
@@ -239,42 +240,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: tw.space[4],
+    paddingTop: tw.space[4],
     paddingBottom: 100,
-    gap: 20,
+    gap: tw.space[5],
   },
   errorCard: {
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: tw.radius["2xl"],
+    padding: tw.space[6],
     borderWidth: 1,
     alignItems: "center",
-    gap: 12,
+    gap: tw.space[3],
   },
   errorCardText: {
-    fontSize: 14,
+    ...tw.text.sm,
   },
   retryBtn: {
-    backgroundColor: "#4f46e5",
+    backgroundColor: tw.color.indigo600,
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: tw.radius.xl,
   },
   retryBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14,
+    color: tw.color.white,
+    fontWeight: tw.weight.semibold,
+    ...tw.text.sm,
   },
   valueDeliveredRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     marginTop: -8,
-    paddingHorizontal: 4,
+    paddingHorizontal: tw.space[1],
   },
   valueDeliveredText: {
-    color: "#818cf8",
-    fontSize: 12,
-    fontWeight: "500",
+    color: tw.color.indigo400,
+    ...tw.text.xs,
+    fontWeight: tw.weight.medium,
   },
 });
