@@ -306,7 +306,8 @@ export function AccountsGrid({
   const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
 
   const { width: winW } = useWindowDimensions();
-  const cellW = (winW - tw.space[4] * 2 - tw.space[3]) / 2;
+  const gutter = Math.max(0, (winW - 430) / 2) + tw.space[4];
+  const cellW = (winW - gutter * 2 - tw.space[3]) / 2;
 
   const picks = topPickAccounts(accounts, pinnedIds, 3);
   const firstInv = investmentAccounts[0] ?? null;

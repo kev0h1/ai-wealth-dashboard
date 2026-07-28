@@ -21,7 +21,7 @@ function goalBarColor(goal: GoalSummary): string {
 function goalDetailColor(goal: GoalSummary, dark: boolean): string {
   if (goal.done) return tw.color.emerald500;
   if (goal.at_risk) return tw.color.amber500;
-  return dark ? tw.color.slate400 : tw.color.slate500;
+  return dark ? tw.color.slate500 : tw.color.slate400;
 }
 
 function humanizeBudgetDetail(goal: GoalSummary): string {
@@ -35,7 +35,7 @@ function humanizeBudgetDetail(goal: GoalSummary): string {
 export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
   const cardBg = dark ? tw.color.cardDark : tw.color.cardLight;
   const borderColor = dark ? tw.color.cardBorderDark : tw.color.cardBorderLight;
-  const inkColor = dark ? tw.color.slate100 : tw.color.slate900;
+  const inkColor = dark ? tw.color.slate200 : tw.color.slate700;
 
   if (loading) {
     return (
@@ -49,10 +49,10 @@ export function GoalsCard({ goals, loading, dark, onNavigate }: Props) {
     <View style={[styles.card, { backgroundColor: cardBg, borderColor, shadowOpacity: dark ? 0 : 0.06 }]}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.iconChip}>
-          <Target size={13} color={tw.color.indigo500} />
+        <View style={[styles.iconChip, { backgroundColor: dark ? "rgba(49,46,129,0.3)" : tw.color.indigo50 }]}>
+          <Target size={13} color={dark ? tw.color.indigo400 : tw.color.indigo500} />
         </View>
-        <Text style={[styles.headerLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }]}>Your goals</Text>
+        <Text style={[styles.headerLabel, { color: dark ? tw.color.slate500 : tw.color.slate400 }]}>Your goals</Text>
       </View>
 
       {goals.length === 0 ? (
@@ -112,7 +112,6 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: tw.radius.lg,
-    backgroundColor: tw.color.indigo50,
     alignItems: "center",
     justifyContent: "center",
   },

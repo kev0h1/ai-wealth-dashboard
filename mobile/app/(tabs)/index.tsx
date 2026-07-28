@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   Pressable,
+  useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Sparkles } from "lucide-react-native";
@@ -91,6 +92,8 @@ function ValueDeliveredRow({
 function NativeHomeScreen() {
   const { dark } = useTheme();
   const router = useRouter();
+  const { width: winW } = useWindowDimensions();
+  const gutter = Math.max(0, (winW - 430) / 2) + tw.space[4];
   const {
     data,
     loading,
@@ -134,7 +137,7 @@ function NativeHomeScreen() {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: gutter }]}
         >
           <HomeHeader
             firstName={data?.userName?.split(" ")[0]?.trim()}
@@ -240,7 +243,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: tw.space[4],
     paddingTop: tw.space[4],
     paddingBottom: 100,
     gap: tw.space[5],
