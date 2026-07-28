@@ -85,14 +85,8 @@ export default function TabLayout() {
         tabBarButton: (props) => (
           <PlatformPressable
             {...(props as any)}
-            android_ripple={{ color: "transparent" }}
-            style={(state: { pressed: boolean }) => [
-              typeof props.style === "function"
-                ? (props.style as (state: { pressed: boolean }) => any)(state)
-                : props.style,
-              { flex: 1, alignItems: "center", justifyContent: "center" },
-              state.pressed && { opacity: 0.7 },
-            ] as any}
+            pressColor="transparent"
+            pressOpacity={0.7}
           />
         ),
         sceneStyle: { backgroundColor: bgColor },

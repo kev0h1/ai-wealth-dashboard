@@ -340,6 +340,9 @@ export function AccountsGrid({
                       {firstInv.provider}
                     </Text>
 
+                    {/* Height spacer — mirrors miniCardName row so both cards are identical height */}
+                    <Text style={styles.invNameSpacer} />
+
                     {/* Value */}
                     <Text style={styles.invValueText}>
                       {hidden ? "••••" : fmtBalance(firstInv.total_value)}
@@ -568,6 +571,10 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: tw.tracking(tw.trackingEm.widest, 10),
     marginBottom: tw.space[0.5],
+  },
+  invNameSpacer: {
+    ...tw.text["11"],
+    marginBottom: tw.space[1],
   },
   invValueText: {
     color: tw.color.white,
