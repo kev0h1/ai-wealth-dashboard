@@ -6,7 +6,7 @@ import DashboardWebView from "@/components/DashboardWebView";
 import { useTheme } from "@/lib/ThemeContext";
 
 export default function WebScreen() {
-  const { path, title } = useLocalSearchParams<{ path: string; title: string }>();
+  const { path, title, tutorial } = useLocalSearchParams<{ path: string; title: string; tutorial?: string }>();
   const router = useRouter();
   const { dark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -44,7 +44,7 @@ export default function WebScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <DashboardWebView initialPath={path ?? ""} />
+      <DashboardWebView initialPath={path ?? ""} startTutorial={tutorial === "1"} />
     </View>
   );
 }

@@ -144,6 +144,7 @@ function NativeHomeScreen() {
             syncing={syncing}
             syncError={syncError}
             onSync={handleSync}
+            onTutorial={() => router.push({ pathname: "/web", params: { path: "/", title: "Guide", tutorial: "1" } } as any)}
             dark={dark}
           />
 

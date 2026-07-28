@@ -280,6 +280,8 @@ function AccountMiniCard({ account, dark: _dark, hidden, onPress, cellWidth }: M
           {hidden ? "••••" : fmtBalance(account.balance)}
         </Text>
 
+        <View style={styles.miniCardDecoCircle} pointerEvents="none" />
+
         {/* Expired overlay */}
         {expired && (
           <View style={styles.expiredOverlay}>
@@ -635,6 +637,16 @@ const styles = StyleSheet.create({
     letterSpacing: tw.tracking(tw.trackingEm.tight, 20),
   },
   invDecoCircle: {
+    position: "absolute",
+    bottom: -20,
+    right: -20,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: tw.color.white,
+    opacity: 0.1,
+  },
+  miniCardDecoCircle: {
     position: "absolute",
     bottom: -20,
     right: -20,

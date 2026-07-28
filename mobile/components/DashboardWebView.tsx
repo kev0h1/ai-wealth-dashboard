@@ -122,11 +122,17 @@ const GEO_POLYFILL_JS = `
 true;
 `;
 
+const TUTORIAL_TRIGGER_JS = `
+(function(){ try { window.localStorage.setItem('wealth_tutorial_pending','1'); } catch(e){} })();
+true;
+`;
+
 interface Props {
   initialPath?: string;
+  startTutorial?: boolean;
 }
 
-export default function DashboardWebView({ initialPath = "" }: Props) {
+export default function DashboardWebView({ initialPath = "", startTutorial = false }: Props) {
   const { token: contextToken, setToken } = useAuth();
   const { dark: darkMode, setDark } = useTheme();
   const webViewRef = useRef<WebView>(null);
@@ -418,6 +424,11 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
     return true;
   }
 
+  const beforeLoadJs = [
+    Platform.OS === "ios" ? GEO_POLYFILL_JS : "",
+    startTutorial ? TUTORIAL_TRIGGER_JS : "",
+  ].filter(Boolean).join("\n") || undefined;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, backgroundColor: bgColor }]}>
       <WebView
@@ -429,7 +440,7 @@ export default function DashboardWebView({ initialPath = "" }: Props) {
         geolocationEnabled
         thirdPartyCookiesEnabled
         sharedCookiesEnabled
-        injectedJavaScriptBeforeContentLoaded={Platform.OS === "ios" ? GEO_POLYFILL_JS : undefined}
+        injectedJavaScriptBeforeContentLoaded={beforeLoadJs}
         injectedJavaScript={POST_LOAD_JS}
         onMessage={onMessage}
         onNavigationStateChange={(nav) => { canGoBackRef.current = nav.canGoBack; }}

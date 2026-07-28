@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react-native";
 import type { KPIs } from "@/lib/shared";
@@ -27,6 +28,7 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
   const cash = kpis?.cash ?? 0;
   const runway = kpis?.runway ?? 0;
   const runwayFmt = formatRunway(runway);
+  const [runwayExpanded, setRunwayExpanded] = useState(false);
 
   const verdictText = isPositive
     ? "Tracking in the right direction"
@@ -99,7 +101,13 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
           </Text>
         </View>
         <View style={[styles.chip, { backgroundColor: dark ? tw.color.cardBorderDark : tw.color.slate50 }]}>
-          <Text style={[styles.chipLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }, { textDecorationLine: "underline", textDecorationStyle: "dotted" }]}>Cash runway</Text>
+          <Pressable
+            onPress={() => setRunwayExpanded(v => !v)}
+            accessibilityRole="button"
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Text style={[styles.chipLabel, { color: dark ? tw.color.slate400 : tw.color.slate500 }, { textDecorationLine: "underline", textDecorationStyle: "dotted" }]}>Cash runway</Text>
+          </Pressable>
           <Text
             style={[
               styles.chipValue,
@@ -110,6 +118,11 @@ export function NetWorthHero({ kpis, loading, dark, hidden, onToggleHide }: Prop
           </Text>
         </View>
       </View>
+      {runwayExpanded && (
+        <Text style={[styles.runwayExplainer, { color: dark ? tw.color.slate500 : tw.color.slate400 }]}>
+          Cash runway = all cash ÷ average monthly outgoings · based on your last 90 days of spending
+        </Text>
+      )}
     </View>
   );
 }
@@ -180,5 +193,9 @@ const styles = StyleSheet.create({
   chipValue: {
     ...tw.text.base,
     fontWeight: tw.weight.semibold,
+  },
+  runwayExplainer: {
+    ...tw.text["11"],
+    marginTop: tw.space[2],
   },
 });

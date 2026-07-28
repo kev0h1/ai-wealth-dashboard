@@ -1,5 +1,5 @@
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
-import { RefreshCw } from "lucide-react-native";
+import { RefreshCw, HelpCircle } from "lucide-react-native";
 import { tw } from "@/lib/tw";
 
 interface Props {
@@ -7,10 +7,11 @@ interface Props {
   syncing: boolean;
   syncError: boolean;
   onSync: () => void;
+  onTutorial: () => void;
   dark: boolean;
 }
 
-export function HomeHeader({ firstName, syncing, syncError, onSync, dark }: Props) {
+export function HomeHeader({ firstName, syncing, syncError, onSync, onTutorial, dark }: Props) {
   const greeting = firstName ? `Hi, ${firstName}` : "Welcome back";
 
   return (
@@ -19,26 +20,42 @@ export function HomeHeader({ firstName, syncing, syncError, onSync, dark }: Prop
         <Text style={[styles.greeting, { color: dark ? tw.color.slate100 : tw.color.slate900 }]}>
           {greeting}
         </Text>
-        <Pressable
-          onPress={onSync}
-          disabled={syncing}
-          style={({ pressed }) => [
-            styles.syncBtn,
-            {
-              backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight,
-              borderColor: dark ? tw.color.cardBorderDark : tw.color.cardBorderLight,
-              opacity: syncing ? 0.6 : 1,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-          accessibilityLabel="Sync accounts"
-        >
-          {syncing ? (
-            <ActivityIndicator size={18} color={tw.color.indigo600} />
-          ) : (
-            <RefreshCw size={16} color={tw.color.slate500} />
-          )}
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable
+            onPress={onTutorial}
+            style={({ pressed }) => [
+              styles.syncBtn,
+              {
+                backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight,
+                borderColor: dark ? tw.color.cardBorderDark : tw.color.cardBorderLight,
+                transform: [{ scale: pressed ? 0.95 : 1 }],
+              },
+            ]}
+            accessibilityLabel="Open tutorial"
+          >
+            <HelpCircle size={16} color={tw.color.slate500} />
+          </Pressable>
+          <Pressable
+            onPress={onSync}
+            disabled={syncing}
+            style={({ pressed }) => [
+              styles.syncBtn,
+              {
+                backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight,
+                borderColor: dark ? tw.color.cardBorderDark : tw.color.cardBorderLight,
+                opacity: syncing ? 0.6 : 1,
+                transform: [{ scale: pressed ? 0.95 : 1 }],
+              },
+            ]}
+            accessibilityLabel="Sync accounts"
+          >
+            {syncing ? (
+              <ActivityIndicator size={18} color={tw.color.indigo600} />
+            ) : (
+              <RefreshCw size={16} color={tw.color.slate500} />
+            )}
+          </Pressable>
+        </View>
       </View>
       {syncError && (
         <View style={styles.errorBanner}>
@@ -73,6 +90,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 3,
     elevation: 2,
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: tw.space[2],
   },
   errorBanner: {
     backgroundColor: tw.color.amber50,
