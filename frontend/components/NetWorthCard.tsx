@@ -9,13 +9,14 @@ interface NetWorthCardProps {
   kpis: KPIs | null;
   loading?: boolean;
   compact?: boolean;
+  compactRow?: boolean;
 }
 
 function fmt(n: number, sym = "£"): string {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-export default function NetWorthCard({ kpis, loading, compact }: NetWorthCardProps) {
+export default function NetWorthCard({ kpis, loading, compact, compactRow }: NetWorthCardProps) {
   const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
   const [runwayExpanded, setRunwayExpanded] = useState(false);
   const sym = region === "Kenya" ? "KES " : "£";
@@ -23,6 +24,37 @@ export default function NetWorthCard({ kpis, loading, compact }: NetWorthCardPro
   const isNegative = netWorth < 0;
   const cash = kpis?.cash ?? 0;
   const runway = kpis?.runway ?? 0;
+
+  // compactRow — borderless row for the unified index block
+  if (compactRow) {
+    if (loading) {
+      return <div className="min-h-[44px] flex items-center"><div className="h-4 w-48 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" /></div>;
+    }
+    return (
+      <div className="min-h-[44px] flex items-center justify-between">
+        {/* Left */}
+        <div className="flex items-center gap-2">
+          {isNegative
+            ? <TrendingDown size={15} strokeWidth={2} className="text-slate-400 dark:text-slate-400 flex-shrink-0" />
+            : <TrendingUp size={15} strokeWidth={2} className="text-slate-400 dark:text-slate-400 flex-shrink-0" />}
+          <span className="text-sm font-medium text-slate-600 dark:text-slate-300">Net worth</span>
+        </div>
+        {/* Right */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 num" aria-label={hidden ? "Balance hidden" : undefined}>
+            {hidden ? <span aria-hidden="true">••••••</span> : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+          </span>
+          <button
+            onClick={() => setHideNetWorth(!hidden)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            aria-label={hidden ? "Show balance" : "Hide balance"}
+          >
+            {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Compact strip mode — single-line summary used when SafeToSpend is the hero
   if (compact) {

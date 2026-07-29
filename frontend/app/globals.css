@@ -268,3 +268,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     transform: none;
   }
 }
+
+/* ── Hero instrument arrival (Safe to Spend) ── */
+@keyframes heroArrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hero-arrive { animation: heroArrive 250ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-arrive { animation: none; opacity: 1; transform: none; }
+}

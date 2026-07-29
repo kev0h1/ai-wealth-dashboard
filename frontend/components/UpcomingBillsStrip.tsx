@@ -29,7 +29,7 @@ export default function UpcomingBillsStrip() {
   if (status === "loading") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm animate-pulse" />
+        <div className="h-16 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 animate-pulse" />
       </div>
     );
   }
@@ -37,11 +37,11 @@ export default function UpcomingBillsStrip() {
   if (status === "failed") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
+        <div className="rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 flex items-center gap-3">
           <p className="text-sm text-slate-400 dark:text-slate-500 flex-1">Couldn&apos;t load upcoming bills</p>
           <button
             onClick={fetch}
-            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 active:opacity-70 transition-opacity"
+            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150"
           >
             Retry
           </button>
@@ -76,11 +76,11 @@ export default function UpcomingBillsStrip() {
   return (
     <div className="px-4 lg:px-0 fade-in">
       <button
-        className="w-full bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left"
+        className="w-full rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 flex items-center gap-3 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 text-left"
         onClick={() => router.push("/spend?view=upcoming")}
       >
         <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-          <CalendarClock size={17} className="text-amber-500" />
+          <CalendarClock size={17} aria-hidden="true" className="text-amber-500" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Coming up · 14 days</p>

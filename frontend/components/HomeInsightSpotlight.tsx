@@ -72,7 +72,7 @@ export default function HomeInsightSpotlight() {
   if (!loaded) {
     return (
       <div className="mx-4 lg:mx-0">
-        <div className="h-32 bg-white dark:bg-slate-800 rounded-2xl shadow-sm animate-pulse" />
+        <div className="h-32 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 animate-pulse" />
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function HomeInsightSpotlight() {
     <div className="mx-4 lg:mx-0 fade-in">
       <div
         ref={cardRef}
-        className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden touch-pan-y"
+        className="relative rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 overflow-hidden touch-pan-y"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -110,7 +110,7 @@ export default function HomeInsightSpotlight() {
 
         <button
           onClick={() => router.push(`/insights?tab=save&insight=${encodeURIComponent(insight.id)}`)}
-          className="w-full text-left p-4 active:scale-[0.99] transition-transform"
+          className="w-full text-left p-4 active:scale-[0.98] transition-transform duration-150"
         >
           {/* Topic chip + new badge — chip uses Penny gradient as it IS an AI surface */}
           <div className="flex items-center gap-2 mb-3 pr-8">

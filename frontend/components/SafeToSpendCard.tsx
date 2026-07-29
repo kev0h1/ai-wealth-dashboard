@@ -25,8 +25,8 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   // Loading skeleton
   if (loading) {
     return (
-      <div className="rounded-3xl p-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+      <div className="rounded-3xl p-5 border border-slate-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/60 shadow-sm dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
           Safe to Spend
         </p>
         <div className="h-6 w-56 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-3" />
@@ -80,10 +80,10 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   // ── Bridge figure colour ─────────────────────────────────────────────────
   const freeClass =
     state === "comfortable"
-      ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+      ? "text-emerald-600 dark:text-emerald-400"
       : state === "tight"
-      ? "text-amber-500 dark:text-amber-400 font-semibold"
-      : "text-red-500 dark:text-red-400 font-semibold";
+      ? "text-amber-500 dark:text-amber-400"
+      : "text-red-500 dark:text-red-400";
 
   const hasSpendableNow = spendable_now != null;
   const hasPaydayIncome = (payday_income ?? 0) > 0;
@@ -101,14 +101,14 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   const creditLineIsInteractive = hasCardDebt && !debtCTAVisible;
 
   return (
-    <div className="rounded-3xl p-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
+    <div className="hero-arrive rounded-3xl p-5 border border-slate-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/60 shadow-sm dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
       {/* Whisper label */}
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
         Safe to Spend
       </p>
 
       {/* ── 1. Verdict headline ── */}
-      <div className="flex items-start gap-2 mb-3">
+      <div className="flex items-start gap-2 mb-4">
         <StateIcon
           size={18}
           className={`${stateIconClass} flex-shrink-0 mt-0.5`}
@@ -122,30 +122,33 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
         </h2>
       </div>
 
-      {/* ── 2. Coherence bridge ── */}
+      {/* ── 2. 3-column instrument readout ── */}
       {hasSpendableNow && (
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mb-3">
-          <span className="text-sm text-slate-500 dark:text-slate-400 num">
-            {hidden ? "••" : fmt(spendable_now!)} now
-          </span>
-          <span className="text-slate-300 dark:text-slate-600 text-sm">·</span>
-          <span className="text-sm text-slate-500 dark:text-slate-400 num">
-            −{hidden ? "••" : fmt(bills_total)} bills
-          </span>
-          <span className="text-slate-300 dark:text-slate-600 text-sm">·</span>
-          <span className={`text-sm num ${freeClass}`}>
-            {state === "short"
-              ? `= −${hidden ? "••" : fmt(gap)}`
-              : `= ${hidden ? "••" : fmt(safe_to_spend)} free`}
-          </span>
-
-          {/* Payday pill */}
-          {hasPaydayIncome && (
-            <span className="inline-flex items-center bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 rounded-full px-2 py-0.5 text-xs font-medium num">
-              Payday {weekday} +{hidden ? "••" : fmt(payday_income!)}
+        <div className="grid grid-cols-3 gap-2 mb-4 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+          {/* NOW */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Now</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">{hidden ? "£••••" : fmt(spendable_now!)}</span>
+          </div>
+          {/* BILLS */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Bills</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">−{hidden ? "£••••" : fmt(bills_total)}</span>
+          </div>
+          {/* FREE */}
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Free</span>
+            <span className={`text-base font-semibold tabular-nums num ${freeClass}`}>
+              {state === "short" ? `−${hidden ? "£••••" : fmt(gap)}` : (hidden ? "£••••" : fmt(safe_to_spend))}
             </span>
-          )}
+          </div>
         </div>
+      )}
+      {/* Payday muted line — replaces emerald pill */}
+      {hasPaydayIncome && (
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 num">
+          Payday {weekday} · +{hidden ? "••" : fmt(payday_income!)} lands
+        </p>
       )}
 
       {/* ── 3. Credit acknowledgment ── */}
@@ -171,7 +174,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
       {showSpendCTA && !suppressCTA && (
         <button
           onClick={() => router.push("/spend?view=upcoming")}
-          className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+          className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
         >
           See what&apos;s due →
         </button>
@@ -179,7 +182,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
       {debtCTAVisible && (
         <button
           onClick={() => router.push("/debt")}
-          className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+          className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
         >
           See your cards →
         </button>

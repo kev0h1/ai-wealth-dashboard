@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { ChevronRight, AlertTriangle } from "lucide-react";
+import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
 import { api, Account, Transaction, KPIs, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
@@ -216,7 +216,7 @@ export default function HomePage() {
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
         {/* ── Left column: brief, KPIs, accounts, donut ── */}
-        <div className="space-y-5">
+        <div>
 
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
@@ -241,7 +241,7 @@ export default function HomePage() {
                 </p>
                 <button
                   onClick={() => { setLoading(true); setLoadError(false); loadData(); }}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
                 >
                   Try again
                 </button>
@@ -251,13 +251,13 @@ export default function HomePage() {
 
           {/* ── WHERE YOU STAND ── */}
           {!loadError && (
-            <div className="rise-in px-4 lg:px-0" style={{ "--rise-index": 1 } as React.CSSProperties}>
+            <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Chapter whisper label */}
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
                 Where you stand
               </p>
 
-              {/* SafeToSpendCard — suppress CTA when there's a move item */}
+              {/* Verdict card */}
               {(() => {
                 const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
                 const hasMoveItem = companionItems.some(i => i.type === "move");
@@ -267,37 +267,44 @@ export default function HomePage() {
                 return null;
               })()}
 
-              {/* Compact net worth + value stat — quiet footnote lines */}
+              {/* Unified index block — net worth + savings + mirror */}
               {!loading && (
-                <div className="mt-3 space-y-2">
-                  <NetWorthCard kpis={kpis} loading={loading} compact />
-                  <ValueDeliveredStat plain />
-                </div>
-              )}
+                <div className="mt-3 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4">
+                  <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {/* Row 1: Net worth */}
+                    <NetWorthCard kpis={kpis} loading={loading} compactRow />
 
-              {/* Mirror link — quiet text, no box */}
-              {!loading && (
-                <button
-                  onClick={() => router.push("/mirror")}
-                  className="mt-3 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-                >
-                  The Mirror — how your money behaves →
-                </button>
+                    {/* Row 2: Potential savings */}
+                    <ValueDeliveredStat />
+
+                    {/* Row 3: The Mirror */}
+                    <button
+                      onClick={() => router.push("/mirror")}
+                      className="w-full min-h-[44px] flex items-center justify-between hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <ScanFace size={15} aria-hidden="true" className="text-slate-400 flex-shrink-0" />
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">How your money behaves</span>
+                      </div>
+                      <span className="text-sm text-slate-400 dark:text-slate-500">›</span>
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
 
           {/* Reauth banners */}
           {expiredProviders.map(({ provider, provider_id }) => (
-            <div key={provider} className="mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
-              <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
+            <div key={provider} className="mt-4 mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
+              <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
                 <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-tight">Transactions have stopped syncing.</p>
               </div>
               <button
                 onClick={() => handleReconnect(provider_id)}
-                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
+                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-[transform,background-color] text-white px-3 py-1.5 rounded-lg"
               >
                 Reconnect
               </button>
@@ -306,15 +313,17 @@ export default function HomePage() {
 
           {/* ── YOUR MONEY ── */}
           {!loadError && (
-            <div className="rise-in" style={{ "--rise-index": 2 } as React.CSSProperties}>
-              <div className="px-4 lg:px-0 mb-1">
+            <div className="rise-in mt-10" style={{ "--rise-index": 2 } as React.CSSProperties}>
+              <div className="px-4 lg:px-0 mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Your money
                 </p>
               </div>
-              <GoalsStrip />
-              <UpcomingBillsStrip />
-              <HomeInsightSpotlight />
+              <div className="space-y-3">
+                <GoalsStrip />
+                <UpcomingBillsStrip />
+                <HomeInsightSpotlight />
+              </div>
             </div>
           )}
 
@@ -351,9 +360,9 @@ export default function HomePage() {
               <button
                 data-tutorial-id="tutorial-manage-link"
                 onClick={() => router.push("/accounts")}
-                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
-                Manage <ChevronRight size={14} />
+                Manage <ChevronRight size={14} aria-hidden="true" />
               </button>
             </div>
             {loading ? (
@@ -372,7 +381,7 @@ export default function HomePage() {
                 </p>
                 <button
                   onClick={() => handleReconnect()}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
                 >
                   Connect a bank
                 </button>
@@ -400,7 +409,7 @@ export default function HomePage() {
                 {hiddenAccountCount > 0 && (
                   <button
                     onClick={() => router.push("/accounts")}
-                    className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 active:scale-95 transition-transform min-h-[7rem]"
+                    className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 hover:opacity-80 active:scale-95 transition-[transform,opacity] min-h-[7rem]"
                   >
                     <span className="text-lg font-bold">+{hiddenAccountCount}</span>
                     <span className="text-xs font-medium">more accounts</span>
@@ -419,9 +428,9 @@ export default function HomePage() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
                 onClick={() => router.push("/spend?view=list")}
-                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
-                See all <ChevronRight size={13} />
+                See all <ChevronRight size={13} aria-hidden="true" />
               </button>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">

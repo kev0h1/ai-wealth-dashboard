@@ -49,7 +49,7 @@ export default function GoalsStrip() {
   if (status === "loading") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="h-28 bg-white dark:bg-slate-800 rounded-2xl shadow-sm animate-pulse" />
+        <div className="h-28 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 animate-pulse" />
       </div>
     );
   }
@@ -57,11 +57,11 @@ export default function GoalsStrip() {
   if (status === "failed") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3">
+        <div className="rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 flex items-center gap-3">
           <p className="text-sm text-slate-400 dark:text-slate-500 flex-1">Couldn&apos;t load goals</p>
           <button
             onClick={fetch}
-            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 active:opacity-70 transition-opacity"
+            className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150"
           >
             Retry
           </button>
@@ -73,10 +73,10 @@ export default function GoalsStrip() {
   if (goals.length === 0) {
     return (
       <div className="px-4 lg:px-0">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-4">
+        <div className="rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
-              <Target size={13} className="text-indigo-500 dark:text-indigo-400" />
+              <Target size={13} aria-hidden="true" className="text-indigo-500 dark:text-indigo-400" />
             </span>
             <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Your goals</p>
           </div>
@@ -85,10 +85,10 @@ export default function GoalsStrip() {
           </p>
           <button
             onClick={() => router.push("/debt")}
-            className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 active:opacity-70 transition-opacity"
+            className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150"
           >
             Start with debt payoff
-            <ChevronRight size={13} />
+            <ChevronRight size={13} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -97,10 +97,10 @@ export default function GoalsStrip() {
 
   return (
     <div className="px-4 lg:px-0">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm px-4 py-3 fade-in">
+      <div className="rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 fade-in">
         <div className="flex items-center gap-2 mb-2.5">
           <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
-            <Target size={13} className="text-indigo-500 dark:text-indigo-400" />
+            <Target size={13} aria-hidden="true" className="text-indigo-500 dark:text-indigo-400" />
           </span>
           <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Your goals</p>
         </div>
@@ -111,14 +111,14 @@ export default function GoalsStrip() {
               <button
                 key={g.pillar}
                 onClick={() => router.push(g.url)}
-                className="w-full active:opacity-70 transition-opacity text-left"
+                className="w-full hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 text-left"
               >
                 <div className="flex items-baseline justify-between gap-3 mb-1.5">
-                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate min-w-0">
                     {g.label}
                   </span>
                   <span className={`text-[11px] font-medium flex-shrink-0 ${
-                    g.done ? "text-emerald-500" : g.at_risk ? "text-amber-500" : "text-slate-400 dark:text-slate-500"
+                    g.done ? "text-emerald-500" : g.at_risk ? "text-slate-500 dark:text-slate-400" : "text-slate-400 dark:text-slate-500"
                   }`}>
                     {humaniseDetail(g)}
                   </span>
