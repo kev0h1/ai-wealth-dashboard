@@ -95,3 +95,9 @@ locks_col               = db["locks"]
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]
+
+# Behavioural portrait cache (The Mirror)
+behaviour_portrait_col  = db["behaviour_portraits"]
+
+# Companion spine — today-engine items + dismissals
+companion_items_col     = db["companion_items"]

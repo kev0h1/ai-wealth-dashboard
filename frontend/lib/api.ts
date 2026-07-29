@@ -152,6 +152,41 @@ export type ValueDelivered = {
   breakdown: { title: string; monthly_saving: number; estimate_label: string }[];
 };
 
+export type MirrorTrait = {
+  id: string;
+  title: string;
+  narrative: string;
+  evidence: string[];
+  kind: "structure" | "habit" | "pleasure" | "hygiene";
+  choice: "keep" | "change" | null;
+};
+
+export type MirrorPortrait =
+  | { status: "insufficient_data" }
+  | {
+      status: "ok";
+      computed_at: string;
+      window_days: number;
+      traits: MirrorTrait[];
+    };
+
+export type SafeToSpend =
+  | { status: "insufficient_data" }
+  | {
+      status: "ok";
+      safe_to_spend: number;
+      next_payday: string;
+      days_until_payday: number;
+      bills_total: number;
+      income_before_payday: number;
+      buffer: number;
+      state: "comfortable" | "tight" | "short";
+      estimated: boolean;
+      spendable_now?: number;
+      payday_income?: number;
+      card_debt?: number;
+    };
+
 export type MoneyBasic = {
   id: string;
   topic: string;
@@ -160,6 +195,25 @@ export type MoneyBasic = {
   body: string;
   takeaway?: string;
   tax_year: string;
+};
+
+export type CompanionAction = {
+  label: string;
+  route: string;
+};
+
+export type CompanionItem = {
+  id: string;
+  type: "move" | "rhythm" | "celebration" | "info";
+  headline: string;
+  body: string;
+  action: CompanionAction | null;
+  estimated: boolean;
+};
+
+export type TodayResponse = {
+  status: "ok";
+  items: CompanionItem[];
 };
 
 export type DebtPlanMilestone = {
@@ -432,8 +486,13 @@ export const api = {
   accountCategories: (accountId: string) =>
     get<AccountCategorySummary[]>(`/accounts/${accountId}/categories`),
   kpis: () => get<KPIs>("/kpis"),
+  safeToSpend: () => get<SafeToSpend>("/safe-to-spend"),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
+  getMirror: (refresh = false) =>
+    get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
+  setMirrorChoice: (trait_id: string, choice: "keep" | "change") =>
+    post<{ ok: boolean; trait_id: string; choice: string }>("/mirror/choice", { trait_id, choice }),
   transportSummary: () => get<TransportSummary>("/transport/summary"),
   oldestTransaction: () => get<{ date: string | null }>("/transactions/oldest"),
   goalsSummary: () => get<{ goals: GoalSummary[] }>("/goals/summary"),
@@ -955,4 +1014,9 @@ export const api = {
     has_rates: boolean;
     start_date: string;
   }>(`/debt/burndown?${new URLSearchParams({ ...(targetMonths !== undefined ? { target_months: String(targetMonths) } : {}), ...(strategy ? { strategy } : {}), ...(startDate ? { start_date: startDate } : {}) }).toString()}`),
+
+  getToday: () => get<TodayResponse>("/today"),
+
+  dismissTodayItem: (item_id: string) =>
+    post<{ ok: boolean }>("/today/dismiss", { item_id }),
 };
