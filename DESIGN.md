@@ -155,6 +155,7 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 - **Title** (600, 14px): Row primaries, button labels.
 - **Body** (400-500, 13-14px): Descriptions, chat text, explanatory copy.
 - **Label** (600, 10-11px, +0.05em, UPPERCASE): Section markers ("PAY PERIOD", "YOUR GOALS"), metric captions. Always muted (#94a3b8), never ink.
+- **Prose** (400–500, 15px, relaxed leading): the companion's spoken voice (briefs, narrated advice). Reserved for Penny speech, not UI copy.
 
 ### Named Rules
 **The Numbers Lead Rule.** On any card the money figure is the visually heaviest element; its label sits above or beside it in whisper-label style. If a label outweighs its number, the hierarchy is wrong.
