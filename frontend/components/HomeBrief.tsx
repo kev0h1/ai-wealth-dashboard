@@ -14,6 +14,7 @@ interface HomeBriefProps {
   syncError: boolean;
   onSync: () => void;
   onHelp?: () => void;
+  hideNetWorth?: boolean;
 }
 
 function BriefSkeleton() {
@@ -38,9 +39,10 @@ interface BriefBodyProps {
   items: CompanionItem[];
   safeToSpend: SafeToSpend | null;
   router: ReturnType<typeof useRouter>;
+  hideNetWorth?: boolean;
 }
 
-function BriefBody({ items, safeToSpend, router }: BriefBodyProps) {
+function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBodyProps) {
   if (items.length === 0) {
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
@@ -58,8 +60,15 @@ function BriefBody({ items, safeToSpend, router }: BriefBodyProps) {
   }
 
   const moveItem = items.find(i => i.type === "move");
+  const needleItem = items.find(i => i.type === "needle");
   const celebrationItems = items.filter(i => i.type === "celebration");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle");
+
+  // Mask £ figures in a string when hideNetWorth is on
+  function maskAmounts(text: string): string {
+    if (!hideNetWorth) return text;
+    return text.replace(/£[\d,]+/g, "£••••");
+  }
 
   return (
     <>
@@ -77,6 +86,44 @@ function BriefBody({ items, safeToSpend, router }: BriefBodyProps) {
           ))}
         </div>
       )}
+
+      {/* Needle item — the month-close reward */}
+      {needleItem && (() => {
+        // card_delta < 0 means cards shrank → earns emerald accent on movement line
+        // The field _card_delta is extra metadata; absent means neutral
+        const cardDelta = (needleItem as any)._card_delta ?? 0;
+        const cardsShrankOrSteady = cardDelta <= 0;
+        // Split body: movement line is first sentence (ends with period), rest is cash + streak
+        const bodyParts = needleItem.body.split(". ").filter(Boolean);
+        const movementText = bodyParts[0] ? bodyParts[0] + "." : "";
+        const restText = bodyParts.slice(1).join(". ");
+        const maskedMovement = maskAmounts(movementText);
+        const maskedRest = maskAmounts(restText);
+
+        return (
+          <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+            <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug mb-2">
+              {needleItem.headline}
+            </p>
+            <div className="space-y-1">
+              {maskedMovement && (
+                <p className={`text-[14px] leading-relaxed ${
+                  cardsShrankOrSteady
+                    ? "text-emerald-700 dark:text-emerald-400"
+                    : "text-slate-600 dark:text-slate-400"
+                }`}>
+                  {maskedMovement}
+                </p>
+              )}
+              {maskedRest && (
+                <p className="text-[14px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                  {maskedRest}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {otherItems.map(item => (
         <p key={item.id} className="text-[15px] text-slate-700 dark:text-slate-300 leading-relaxed max-w-prose">
@@ -114,7 +161,7 @@ function BriefBody({ items, safeToSpend, router }: BriefBodyProps) {
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth }: HomeBriefProps) {
   const router = useRouter();
 
   const hour = new Date().getHours();
@@ -150,7 +197,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} />
         )}
       </div>
     </div>

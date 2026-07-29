@@ -99,5 +99,8 @@ finexer_customers_col  = db["finexer_customers"]
 # Behavioural portrait cache (The Mirror)
 behaviour_portrait_col  = db["behaviour_portraits"]
 
+# Month-close needle history
+needle_history_col      = db["needle_history"]
+
 # Companion spine — today-engine items + dismissals
 companion_items_col     = db["companion_items"]

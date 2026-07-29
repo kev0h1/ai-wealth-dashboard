@@ -204,7 +204,7 @@ export type CompanionAction = {
 
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle";
   headline: string;
   body: string;
   action: CompanionAction | null;

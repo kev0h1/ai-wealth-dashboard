@@ -289,3 +289,36 @@ async def send_period_digest(user_id: str) -> None:
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"last_digest_period": start.isoformat()}}, upsert=True,
     )
+
+    # Needle push — fired on period boundary, gated by period_digest pref (same gate).
+    # Deduped: only once per (uid, period_end) via needle_history_col.pushed flag.
+    try:
+        from app.services.needle import compute_needle
+        from app.services.pay_period import prev_pay_period as _prev_period
+        from app.db.collections import needle_history_col
+
+        prev_start, prev_end = _prev_period(start, pay_config)
+        needle_id = f"{user_id}:{prev_end.isoformat()}"
+        stored = await needle_history_col.find_one({"_id": needle_id})
+        already_pushed = stored.get("pushed", False) if stored else False
+
+        if not already_pushed:
+            if stored and "lines" in stored:
+                needle_doc = stored
+            else:
+                needle_doc = await compute_needle(user_id, prev_start, prev_end)
+
+            lines = needle_doc.get("lines", {})
+            push_headline = lines.get("headline", "Your month, closed.")
+            push_body = lines.get("movement", "")
+            if push_body and len(push_body) > 130:
+                push_body = push_body[:127] + "…"
+            if push_body:
+                await send_push_to_user(user_id, push_headline, push_body, "/")
+            await needle_history_col.update_one(
+                {"_id": needle_id},
+                {"$set": {"pushed": True, "pushed_at": datetime.utcnow().isoformat()}},
+                upsert=True,
+            )
+    except Exception as _needle_push_exc:
+        log.warning("needle push failed for %s: %s", user_id, _needle_push_exc)

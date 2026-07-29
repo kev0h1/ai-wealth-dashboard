@@ -4,6 +4,7 @@ Computes up to 3 items (moves first) for a user's home screen.
 Zero LLM calls — all copy is deterministic from live data.
 Zero hardcodes — computed generically for any user.
 """
+import logging
 import math
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -15,7 +16,10 @@ from app.db.collections import (
     preferences_col,
     behaviour_portrait_col,
     companion_items_col,
+    needle_history_col,
 )
+
+log = logging.getLogger(__name__)
 from app.routers.analytics import _build_cashflow_response
 
 
@@ -478,8 +482,59 @@ async def compute_today_items(uid: str) -> list[dict]:
                             "estimated": False,
                         })
 
+    # ── 8b. NEEDLE item (period close reward) ──────────────────────────────
+    needle_items: list[dict] = []
+    try:
+        from app.services.needle import compute_needle
+        from app.services.pay_period import get_pay_period_for_date, prev_pay_period as _prev_pay_period
+
+        # Check if today is within 3 days AFTER a period close
+        # i.e., the current period started 0-2 days ago
+        curr_start, curr_end = get_pay_period_for_date(today_d, pay_cfg)
+        days_into_period = (today_d - curr_start).days  # 0 = first day of period
+
+        if 0 <= days_into_period <= 2:
+            # The just-closed period
+            closed_start, closed_end = _prev_pay_period(curr_start, pay_cfg)
+            needle_id = f"needle:{closed_end.isoformat()}"
+            if needle_id not in dismissed:
+                # Try stored needle first (idempotent)
+                stored_needle = await needle_history_col.find_one({"_id": f"{uid}:{closed_end.isoformat()}"})
+                if stored_needle and "lines" in stored_needle:
+                    needle_doc = stored_needle
+                else:
+                    needle_doc = await compute_needle(uid, closed_start, closed_end)
+
+                lines = needle_doc.get("lines", {})
+                headline_txt = lines.get("headline", "Your month, closed.")
+                body_parts = []
+                if lines.get("movement"):
+                    body_parts.append(lines["movement"])
+                if lines.get("cash"):
+                    body_parts.append(lines["cash"])
+                if lines.get("streak"):
+                    body_parts.append(lines["streak"])
+                body_txt = " ".join(body_parts)
+
+                # Store card_delta so frontend can apply correct accent colour
+                needle_items.append({
+                    "id": needle_id,
+                    "type": "needle",
+                    "headline": headline_txt,
+                    "body": body_txt,
+                    "action": None,
+                    "estimated": False,
+                    # Extra metadata for frontend accent — won't break existing CompanionItem shape
+                    # (frontend ignores unknown fields gracefully)
+                    "_card_delta": needle_doc.get("card_delta", 0),
+                    "_period_end": closed_end.isoformat(),
+                })
+    except Exception as _needle_exc:
+        log.warning("needle item failed for %s: %s", uid, _needle_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
-    result = items[:2] + celebration_items[:1] + rhythm_items
+    # needle is priority above rhythm but below moves/celebrations
+    result = items[:2] + celebration_items[:1] + needle_items[:1] + rhythm_items
     return result[:3]
 
 
