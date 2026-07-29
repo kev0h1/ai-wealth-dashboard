@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { RefreshCw, ChevronRight, AlertTriangle } from "lucide-react";
-import { api, Account, Transaction, KPIs, InvestmentAccount } from "@/lib/api";
+import { ChevronRight, AlertTriangle } from "lucide-react";
+import { api, Account, Transaction, KPIs, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import NetWorthCard from "@/components/NetWorthCard";
+import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import InvestmentMiniCard from "@/components/InvestmentMiniCard";
 import TransactionRow from "@/components/TransactionRow";
@@ -14,7 +15,6 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
-import TutorialTrigger from "@/components/TutorialTrigger";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
@@ -26,6 +26,8 @@ import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
+import HomeBrief from "@/components/HomeBrief";
+// kept-for-future: import CompanionStack from "@/components/CompanionStack";
 
 // Token is guaranteed by AuthProvider before this component mounts
 async function ensureAuth() {}
@@ -40,6 +42,7 @@ export default function HomePage() {
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
+  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -48,15 +51,18 @@ export default function HomePage() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [pinnedWidget, setPinnedWidget] = useState<string | null>(null);
   const { pinned: pinnedCards } = useHomePinnedCards();
+  const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
 
   const loadData = useCallback(async () => {
     setLoadError(false);
     try {
       await ensureAuth();
-      const [accs, kpiData, invAccs] = await Promise.allSettled([
+      const [accs, kpiData, invAccs, safeData, todayData] = await Promise.allSettled([
         api.accounts(),
         api.kpis(),
         api.getInvestmentAccounts(),
+        api.safeToSpend(),
+        api.getToday(),
       ]);
 
       // If both the accounts fetch and the kpis fetch failed, surface an error
@@ -70,6 +76,8 @@ export default function HomePage() {
       setAccounts(loadedAccounts);
       if (kpiData.status === "fulfilled") setKpis(kpiData.value);
       if (invAccs.status === "fulfilled") setInvestmentAccounts(invAccs.value);
+      if (safeData.status === "fulfilled") setSafeToSpend(safeData.value);
+      if (todayData.status === "fulfilled") setCompanionItems(todayData.value.items);
 
       if (loadedAccounts.length > 0) {
         // One bulk call (already server-sorted) instead of one per account
@@ -189,7 +197,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8">
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-36 lg:pb-8">
       {/* Sticky desktop header — appears when greeting scrolls out of view */}
       {stickyHeaderVisible && (
         <div className="hidden lg:flex fixed top-0 z-40 items-center gap-3 px-6 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 fade-in"
@@ -207,41 +215,26 @@ export default function HomePage() {
       {/* Desktop 2-col grid wrapper */}
       <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
 
-        {/* ── Left column: header, KPIs, accounts, donut ── */}
+        {/* ── Left column: brief, KPIs, accounts, donut ── */}
         <div className="space-y-5">
-          {/* ── ZONE 1: State — greeting, net worth, value stat, reauth banners ── */}
+
+          {/* ── THE BRIEF ── */}
           <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                  {firstName ? `Hi, ${firstName}` : "Welcome back"}
-                </h1>
-              </div>
-              <div className="flex items-center gap-2">
-                <TutorialTrigger variant="dark-on-white" />
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  aria-label={syncing ? "Syncing…" : "Sync accounts"}
-                  className="w-11 h-11 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-                >
-                  <RefreshCw
-                    size={16}
-                    color="#64748b"
-                    className={syncing ? "animate-spin" : ""}
-                  />
-                </button>
-              </div>
-            </div>
-            {/* Sync failure notice — compact amber, auto-clears after 6s */}
-            {syncError && (
-              <div className="flex items-center gap-2 mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
-                <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
-                <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
-              </div>
-            )}
-            {loadError ? (
-              <div className="mt-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
+            <HomeBrief
+              items={companionItems}
+              firstName={firstName}
+              safeToSpend={safeToSpend}
+              loading={loading}
+              syncing={syncing}
+              syncError={syncError}
+              onSync={handleSync}
+            />
+          </div>
+
+          {/* Load error fallback */}
+          {loadError && (
+            <div className="px-4 lg:px-0 mt-4">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
                   Couldn&apos;t load your data — check your connection.
                 </p>
@@ -252,15 +245,48 @@ export default function HomePage() {
                   Try again
                 </button>
               </div>
-            ) : (
-              <>
-                <NetWorthCard kpis={kpis} loading={loading} />
-                {!loading && <ValueDeliveredStat />}
-              </>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Reauth banners — still part of Zone 1 (state alerts) */}
+          {/* ── WHERE YOU STAND ── */}
+          {!loadError && (
+            <div className="rise-in px-4 lg:px-0" style={{ "--rise-index": 1 } as React.CSSProperties}>
+              {/* Chapter whisper label */}
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
+                Where you stand
+              </p>
+
+              {/* SafeToSpendCard — suppress CTA when there's a move item */}
+              {(() => {
+                const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
+                const hasMoveItem = companionItems.some(i => i.type === "move");
+                if (loading || hasRealData) {
+                  return <SafeToSpendCard data={safeToSpend} loading={loading} suppressCTA={hasMoveItem} />;
+                }
+                return null;
+              })()}
+
+              {/* Compact net worth + value stat — quiet footnote lines */}
+              {!loading && (
+                <div className="mt-3 space-y-2">
+                  <NetWorthCard kpis={kpis} loading={loading} compact />
+                  <ValueDeliveredStat plain />
+                </div>
+              )}
+
+              {/* Mirror link — quiet text, no box */}
+              {!loading && (
+                <button
+                  onClick={() => router.push("/mirror")}
+                  className="mt-3 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex items-center gap-1 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                >
+                  The Mirror — how your money behaves →
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Reauth banners */}
           {expiredProviders.map(({ provider, provider_id }) => (
             <div key={provider} className="mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
               <AlertTriangle size={15} className="text-amber-500 flex-shrink-0" />
@@ -277,14 +303,19 @@ export default function HomePage() {
             </div>
           ))}
 
-          {/* ── ZONE 2: Signals — goals + upcoming bills ── */}
-          {/* Each strip self-manages its skeleton; render immediately so layout
-              is stable from the first paint rather than popping in after load. */}
-          {!loadError && <GoalsStrip />}
-          {!loadError && <UpcomingBillsStrip />}
-
-          {/* ── ZONE 3: Action — the single CTA spotlight ── */}
-          {!loadError && <HomeInsightSpotlight />}
+          {/* ── YOUR MONEY ── */}
+          {!loadError && (
+            <div className="rise-in" style={{ "--rise-index": 2 } as React.CSSProperties}>
+              <div className="px-4 lg:px-0 mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  Your money
+                </p>
+              </div>
+              <GoalsStrip />
+              <UpcomingBillsStrip />
+              <HomeInsightSpotlight />
+            </div>
+          )}
 
           {/* ── Below zones: demoted supporting content ── */}
 
@@ -313,7 +344,7 @@ export default function HomePage() {
           })()}
 
           {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
-          <div className="px-4 lg:px-0">
+          <div className="rise-in px-4 lg:px-0" style={{ "--rise-index": 3 } as React.CSSProperties}>
             <div className="flex items-center justify-between mb-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Accounts</p>
               <button
@@ -381,7 +412,7 @@ export default function HomePage() {
         </div>
 
         {/* ── Right column: recent transactions ── */}
-        <div>
+        <div className="rise-in" style={{ "--rise-index": 4 } as React.CSSProperties}>
           <div className="mx-4 mb-4 lg:mx-0 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
             <div className="flex items-center justify-between mb-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
@@ -447,4 +478,3 @@ export default function HomePage() {
     </div>
   );
 }
-

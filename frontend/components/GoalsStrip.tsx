@@ -123,13 +123,16 @@ export default function GoalsStrip() {
                     {humaniseDetail(g)}
                   </span>
                 </div>
+                {/* 6px slim track per DESIGN.md Progress Bar spec — even an
+                    over-budget/at-risk amber fill reads as a sliver, not a
+                    chunky block dominating the Home screen */}
                 <div
                   role="progressbar"
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Math.round(Math.min(g.pct, 100))}
                   aria-label={g.label}
-                  className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"
+                  className="h-1.5 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"
                 >
                   <div
                     className="h-full rounded-full bar-sweep"

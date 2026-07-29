@@ -8,13 +8,14 @@ import { usePreferences } from "@/components/PreferencesContext";
 interface NetWorthCardProps {
   kpis: KPIs | null;
   loading?: boolean;
+  compact?: boolean;
 }
 
 function fmt(n: number, sym = "£"): string {
   return `${sym}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
+export default function NetWorthCard({ kpis, loading, compact }: NetWorthCardProps) {
   const { hideNetWorth: hidden, setHideNetWorth, region } = usePreferences();
   const [runwayExpanded, setRunwayExpanded] = useState(false);
   const sym = region === "Kenya" ? "KES " : "£";
@@ -23,8 +24,46 @@ export default function NetWorthCard({ kpis, loading }: NetWorthCardProps) {
   const cash = kpis?.cash ?? 0;
   const runway = kpis?.runway ?? 0;
 
-  // Neutral surface; the sign carries through the trend icon tint and a
-  // subtle red only on the figure when negative
+  // Compact strip mode — single-line summary used when SafeToSpend is the hero
+  if (compact) {
+    if (loading) {
+      return <div className="rounded-2xl h-11 bg-white dark:bg-slate-800 shadow-sm animate-pulse" />;
+    }
+    return (
+      <div className="rounded-2xl px-4 py-3 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-between gap-3">
+        {/* Left: small trend icon + muted label */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {/* Direction conveyed by icon shape; colour is neutral so the compact
+              strip doesn't add to the amber/red signal count on Home */}
+          {isNegative
+            ? <TrendingDown size={13} strokeWidth={2} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+            : <TrendingUp size={13} strokeWidth={2} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />}
+          <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">Net worth</span>
+        </div>
+        {/* Right: figure + eye toggle */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span
+            className="text-base font-semibold text-slate-900 dark:text-slate-100 num"
+            aria-label={hidden ? "Balance hidden" : undefined}
+          >
+            {hidden
+              ? <span aria-hidden="true">••••••</span>
+              : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
+          </span>
+          <button
+            onClick={() => setHideNetWorth(!hidden)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full"
+            aria-label={hidden ? "Show balance" : "Hide balance"}
+          >
+            {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Neutral surface; direction is conveyed by the trend icon shape alone —
+  // the figure stays slate so Net Worth never reads as a risk signal
   return (
     <div className="rounded-3xl p-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
       {/* Title row */}
