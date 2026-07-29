@@ -1299,6 +1299,179 @@ def _parse_saving_amount(estimate: str | None) -> float:
     return round(amount / 12, 2)
 
 
+@router.get("/safe-to-spend")
+async def get_safe_to_spend(user: dict = Depends(current_user)):
+    """Headline verdict: how much can the user safely spend before their next payday?
+
+    Algorithm (pooled):
+    1. Compute next_payday from pay_period_config / confirmed income schedule.
+    2. Load cashflow cache; if absent → insufficient_data.
+    3. Sum LIVE balances of spendable current accounts only.
+       Exclusion rules (mirrors HomePage.tsx isSavings / isCredit heuristics):
+         - subtype contains "SAVING" (case-insensitive) → savings account
+         - type contains "credit" OR subtype contains "CREDIT" → credit card
+         - balance < 0 → negative (credit card) — excluded
+       If subtype is unavailable for an account we fall back to including all
+       non-credit bank accounts so the figure is never silently zero.
+    4. Walk a chronological timeline today → next_payday applying upcoming bills
+       (negative) and pre-payday non-salary income (positive). Pool all accounts
+       into one running balance seeded at the spendable cash sum.
+    5. Track the MINIMUM running balance across the window — this is the safe floor.
+    6. safe_to_spend = min_running_balance − buffer.
+    7. Compute state: comfortable / tight / short.
+    8. estimated = True when history is thin (n_months < 2).
+    """
+    from datetime import date as _date_cls, timedelta as _td
+    from app.services.income import get_confirmed_payday as _gcp
+    from app.services.pay_period import _next_payday as _calc_next_payday
+    from app.services.cashflow import monthly_cashflow as _monthly_cashflow
+    from app.services.region import get_user_region as _get_region
+    from bson import ObjectId
+
+    uid = user["email"]
+
+    # ── 1. Payday ──────────────────────────────────────────────────────────────
+    _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
+    _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
+    _today_d  = _date_cls.today()
+
+    _confirmed = _gcp(_prefs, _today_d)
+    if _confirmed:
+        next_payday = _confirmed[0]
+    else:
+        next_payday = _calc_next_payday(_today_d, _pay_cfg)
+    days_until_payday = (next_payday - _today_d).days
+
+    # ── 2. Cashflow cache ─────────────────────────────────────────────────────
+    cached = await cashflow_cache_col.find_one({"_id": uid})
+    if not cached:
+        return {"status": "insufficient_data"}
+
+    resp = await _build_cashflow_response(cached, uid=uid)
+    upcoming_bills  = resp.get("upcoming_bills", [])
+    upcoming_income = resp.get("upcoming_income", [])
+
+    # ── 3. Spendable current-account balance ───────────────────────────────────
+    def _is_savings(acc: dict) -> bool:
+        return "saving" in (acc.get("subtype") or "").lower()
+
+    def _is_credit(acc: dict) -> bool:
+        return (
+            "credit" in acc.get("type", "").lower()
+            or "credit" in (acc.get("subtype") or "").lower()
+        )
+
+    def _try_oid(v: str):
+        try:
+            return ObjectId(v)
+        except Exception:
+            return v
+
+    # Fetch live accounts from both providers
+    all_accs_raw = await accounts_col.find(
+        {"user_id": uid}, {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
+    ).to_list(None)
+    all_accs_raw += await yapily_accounts_col.find(
+        {"user_id": uid}, {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
+    ).to_list(None)
+
+    spendable_cash = 0.0
+    card_debt_total = 0.0
+    for acc in all_accs_raw:
+        # GBP only
+        if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
+            continue
+        bal = float(acc.get("balance") or 0)
+        if _is_savings(acc):
+            continue
+        if _is_credit(acc):
+            # Credit cards: accumulate outstanding debt (negative balance = owe money)
+            if bal < 0:
+                card_debt_total += abs(bal)
+            continue
+        if bal < 0:
+            # Negative-balance current account — treat as card-like debt
+            card_debt_total += abs(bal)
+            continue
+        spendable_cash += bal
+    card_debt = round(card_debt_total, 2)
+
+    # ── 4. Build chronological event timeline today → next_payday ─────────────
+    window_bills = [
+        b for b in upcoming_bills
+        if 0 <= b["days_away"] < days_until_payday
+    ]
+    # Pre-payday income: exclude items that look like the salary itself
+    # (we identify the payday salary as income arriving ON or AFTER next_payday;
+    # any income strictly before that day can legitimately boost the balance)
+    window_income = [
+        i for i in upcoming_income
+        if 0 <= i["days_away"] < days_until_payday
+    ]
+
+    bills_total    = round(sum(b["amount"] for b in window_bills), 2)
+    income_before  = round(sum(i["amount"] for i in window_income), 2)
+    payday_income  = round(sum(
+        i["amount"] for i in upcoming_income
+        if i["days_away"] == days_until_payday
+    ), 2)
+
+    # ── 5. Walk timeline; track minimum running balance ────────────────────────
+    events: list[tuple[int, float]] = []   # (days_away, delta)  — positive = income
+    for b in window_bills:
+        events.append((b["days_away"], -float(b["amount"])))
+    for i in window_income:
+        events.append((i["days_away"], float(i["amount"])))
+    # Income before bills on the same day (same as at_risk_count logic)
+    events.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+
+    running = spendable_cash
+    min_running = running
+    for _days, delta in events:
+        running += delta
+        if running < min_running:
+            min_running = running
+
+    # ── 6. safe_to_spend = min_running − buffer ────────────────────────────────
+    buffer = float(_prefs.get("safe_to_spend_buffer", 0.0))
+    safe_to_spend = round(min_running - buffer, 2)
+
+    # ── 7. State: comfortable / tight / short ─────────────────────────────────
+    # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
+    # whichever is higher — calibrated to be meaningful but not alarmist.
+    _region = await _get_region(uid)
+    from datetime import datetime as _dt
+    _cutoff = _dt.now() - _td(days=90)
+    _cf = await _monthly_cashflow(uid, _region, _cutoff)
+    monthly_spend = _cf.get("spending", 0.0)
+    tight_threshold = max(100.0, monthly_spend * 0.10)
+
+    if safe_to_spend <= 0:
+        state = "short"
+    elif safe_to_spend < tight_threshold:
+        state = "tight"
+    else:
+        state = "comfortable"
+
+    # ── 8. estimated flag ────────────────────────────────────────────────────
+    estimated = _cf.get("n_months", 3) < 2
+
+    return {
+        "status":              "ok",
+        "safe_to_spend":       safe_to_spend,
+        "next_payday":         next_payday.isoformat(),
+        "days_until_payday":   days_until_payday,
+        "bills_total":         bills_total,
+        "income_before_payday": income_before,
+        "buffer":              buffer,
+        "state":               state,
+        "estimated":           estimated,
+        "spendable_now":       round(spendable_cash, 2),
+        "payday_income":       payday_income,
+        "card_debt":           card_debt,
+    }
+
+
 @router.get("/value-delivered")
 async def get_value_delivered(user: dict = Depends(current_user)):
     """Return how much monthly saving the user has unlocked by acting on insights."""
