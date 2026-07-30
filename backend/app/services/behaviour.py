@@ -238,17 +238,87 @@ async def compute_portrait(uid: str) -> dict:
                 })
 
     # ── TRAIT 3: Saving habit ─────────────────────────────────────────────────
-    saving_txns = [t for t in txns if t["category"] == "Savings" and t["is_debit"]]
-    # Also count deposits into savings-subtype accounts
+    #
+    # ONE-MOVEMENT-ONE-COUNT RULE
+    # A transfer to savings produces two transaction records: a debit on the
+    # source (current) account and a credit on the destination (savings) account.
+    # We count each real saving movement exactly once:
+    #
+    #   Type 1 — Debits categorised "Savings" on NON-savings accounts (current /
+    #             credit accounts).  These are the originating leg of the transfer.
+    #
+    #   Type 2 — CREDITS on savings-subtype accounts.  These are the receiving
+    #             leg.  We include a type-2 credit only if NO type-1 debit already
+    #             accounts for it (amount within £0.02, date within 2 calendar
+    #             days).  This catches direct deposits that have no matching
+    #             Savings-category debit on a current account.
+    #
+    # We never count DEBITS on savings accounts — those are withdrawals, the
+    # opposite of saving.
+
     saving_acc_ids = {
         str(a.get("account_id") or a.get("id") or a.get("_id"))
         for a in raw_accounts
         if (a.get("account_subtype") or a.get("subtype") or "").lower() in
            ("savings", "isa", "cash isa", "stocks isa")
     }
-    saving_txns_ext = [t for t in txns if t["account_id"] in saving_acc_ids and t["is_debit"]]
-    all_saving = {id(t): t for t in saving_txns + saving_txns_ext}
-    saving_list = list(all_saving.values())
+
+    # Type 1: Savings-category debits on current/non-savings accounts
+    saving_type1 = [
+        t for t in txns
+        if t["category"] == "Savings"
+        and t["is_debit"]
+        and t["account_id"] not in saving_acc_ids
+    ]
+
+    # Type 2: Credits received by savings-subtype accounts, deduped against type-1
+    def _date_to_ord(date_str: str) -> int:
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").toordinal()
+        except Exception:
+            return 0
+
+    all_savings_credits = []
+    saving_type2 = []
+    for t in txns:
+        if t["account_id"] not in saving_acc_ids:
+            continue
+        if t["is_debit"]:
+            # Debit on savings account = withdrawal — never count as saving
+            continue
+        # Collect ALL credits on savings accounts (before dedupe) for external-check
+        all_savings_credits.append(t)
+        # Credit on savings account — include in type-2 only if no matching type-1 exists
+        t_ord = _date_to_ord(t["date"])
+        t_amt = abs(t["amount"])
+        matched = any(
+            abs(abs(t1["amount"]) - t_amt) <= 0.02
+            and abs(_date_to_ord(t1["date"]) - t_ord) <= 2
+            for t1 in saving_type1
+        )
+        if not matched:
+            saving_type2.append(t)
+
+    # Debits on savings accounts = withdrawals excluded from saving total
+    saving_withdrawals = [
+        t for t in txns
+        if t["account_id"] in saving_acc_ids
+        and t["is_debit"]
+    ]
+    outflow = round(sum(abs(t["amount"]) for t in saving_withdrawals), 2)
+
+    saving_list = saving_type1 + saving_type2
+
+    def _t1_is_external(t1, all_credits):
+        t1_ord = _date_to_ord(t1["date"])
+        t1_amt = abs(t1["amount"])
+        for t2 in all_credits:
+            if abs(abs(t2["amount"]) - t1_amt) <= 0.02 and abs(_date_to_ord(t2["date"]) - t1_ord) <= 2:
+                return False
+        return True
+
+    external_type1 = [t for t in saving_type1 if _t1_is_external(t, all_savings_credits)]
+    external_setaside = round(sum(abs(t["amount"]) for t in external_type1), 2)
 
     if saving_list:
         # Group by ISO week
@@ -279,21 +349,30 @@ async def compute_portrait(uid: str) -> dict:
                 cur_streak = 1
 
         saving_total = sum(abs(t["amount"]) for t in saving_list)
+        kept = round(saving_total - outflow, 2)
 
         if max_streak >= 8 and saving_freq >= 0.8:
             title = "The Daily Saver"
-            evidence = [
-                f"{len(saving_list)} saving transactions over {span_days} days",
-                f"£{saving_total:.0f} saved in the window",
-                f"{max_streak}-week saving streak",
-            ]
-            fallback = f"Saving is a consistent weekly habit — you've kept it up for {max_streak} consecutive weeks."
+            # Build evidence lines — omit a line when value is 0 or data-absent
+            ev_line1 = f"{len(saving_list)} deposits over {span_days} days · {max_streak}-week streak"
+            if outflow > 0:
+                ev_line2 = f"£{saving_total:.0f} set aside · £{outflow:.0f} drawn back when the month needed it"
+            else:
+                ev_line2 = f"£{saving_total:.0f} set aside"
+            evidence = [ev_line1, ev_line2]
+            if external_setaside > 0:
+                evidence.append(f"£{external_setaside:.0f} of it went to investments or external destinations")
+            fallback = "You set money aside almost every day — some builds up, some works as a buffer you draw on through the month."
         elif saving_freq >= 0.5 or weeks_with_saving >= 8:
             title = "Regular Saver"
-            evidence = [
-                f"Saving in {weeks_with_saving} of {total_weeks} weeks",
-                f"£{saving_total:.0f} saved in the window",
-            ]
+            ev_line1 = f"{len(saving_list)} deposits over {span_days} days · {max_streak}-week streak"
+            if outflow > 0:
+                ev_line2 = f"£{saving_total:.0f} set aside · £{outflow:.0f} drawn back when the month needed it"
+            else:
+                ev_line2 = f"£{saving_total:.0f} set aside"
+            evidence = [ev_line1, ev_line2]
+            if external_setaside > 0:
+                evidence.append(f"£{external_setaside:.0f} of it went to investments or external destinations")
             fallback = f"You save regularly — across {weeks_with_saving} of the {total_weeks} weeks tracked."
         else:
             title = None
