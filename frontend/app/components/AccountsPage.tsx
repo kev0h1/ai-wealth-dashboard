@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary } from "@/lib/api";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary, KPIs } from "@/lib/api";
 import AccountMiniCard, { BANK_META, accountBrand } from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
@@ -54,7 +54,8 @@ export default function AccountsPage() {
   // Set to true for exactly one effect run after we strip ?id= via router.replace
   // so the else-branch (clear selectedAccountId) doesn't fire on our own replace.
   const consumedDeepLink = useRef(false);
-  const { hideNetWorth, region } = usePreferences();
+  const { hideNetWorth, setHideNetWorth, region } = usePreferences();
+  const [kpis, setKpis] = useState<KPIs | null>(null);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -164,16 +165,18 @@ export default function AccountsPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const [accs, invAccs, manuals, mrules] = await Promise.all([
+      const [accs, invAccs, manuals, mrules, kpiResult] = await Promise.all([
         api.accounts().catch(() => [] as Account[]),
         api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
         api.manualAccounts().catch(() => [] as ManualAccount[]),
         api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
+        api.kpis().catch(() => null),
       ]);
       setAccounts(accs);
       setInvestmentAccounts(invAccs);
       setManualAccounts(manuals);
       setRules(mrules);
+      setKpis(kpiResult);
 
       // Validate reconnect: check if the newly connected account matches what was expected
       const raw = localStorage.getItem("reconnect_expected");
@@ -1413,6 +1416,46 @@ export default function AccountsPage() {
       >
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Accounts</h1>
+          {kpis && (
+            <>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mt-3">Net worth</p>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-3xl font-bold tracking-tight num text-slate-900 dark:text-slate-100"
+                  aria-label={hideNetWorth ? "Balance hidden" : undefined}
+                >
+                  {hideNetWorth
+                    ? "••••••"
+                    : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                </span>
+                {kpis.net_worth < 0
+                  ? <TrendingDown size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-500" />
+                  : <TrendingUp size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-500" />}
+                <button
+                  onClick={() => setHideNetWorth(!hideNetWorth)}
+                  aria-label={hideNetWorth ? "Show balance" : "Hide balance"}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  {hideNetWorth ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {(() => {
+                const cardTotal = accounts
+                  .filter(a => {
+                    const t = (a.type ?? "").toLowerCase();
+                    const s = (a.subtype ?? "").toLowerCase();
+                    return t.includes("credit") || s.includes("credit");
+                  })
+                  .reduce((sum, a) => sum + Math.abs(Math.min(a.balance, 0)), 0);
+                return cardTotal > 0 ? (
+                  <p className="text-base font-semibold num text-slate-700 dark:text-slate-200 mt-0.5">
+                    {hideNetWorth ? "−£••••" : `−£${cardTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 ml-1.5">across cards</span>
+                  </p>
+                ) : null;
+              })()}
+            </>
+          )}
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {bankAccounts.length} bank · {investmentAccounts.length} investment
             {manualAccounts.length > 0 && ` · ${manualAccounts.length} offline`}

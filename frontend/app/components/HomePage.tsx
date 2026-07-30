@@ -2,9 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
-import { api, Account, Transaction, KPIs, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
+import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
-import NetWorthCard from "@/components/NetWorthCard";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountMiniCard from "@/components/AccountMiniCard";
 import InvestmentMiniCard from "@/components/InvestmentMiniCard";
@@ -18,7 +17,7 @@ import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
-import GoalsStrip from "@/components/GoalsStrip";
+import ThisMonthStrip from "@/components/ThisMonthStrip";
 import MoneyAdvisorChat from "@/components/MoneyAdvisorChat";
 import { PinnedWidgetCard } from "@/components/SpendTrends";
 import { useColours } from "@/components/ColourProvider";
@@ -41,7 +40,6 @@ export default function HomePage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [kpis, setKpis] = useState<KPIs | null>(null);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -57,24 +55,20 @@ export default function HomePage() {
     setLoadError(false);
     try {
       await ensureAuth();
-      const [accs, kpiData, invAccs, safeData, todayData] = await Promise.allSettled([
+      const [accs, invAccs, safeData, todayData] = await Promise.allSettled([
         api.accounts(),
-        api.kpis(),
         api.getInvestmentAccounts(),
         api.safeToSpend(),
         api.getToday(),
       ]);
 
-      // If both the accounts fetch and the kpis fetch failed, surface an error
-      // rather than showing a permanently blank page.
-      if (accs.status === "rejected" && kpiData.status === "rejected") {
+      if (accs.status === "rejected") {
         setLoadError(true);
         return;
       }
 
       const loadedAccounts = accs.status === "fulfilled" ? accs.value : [];
       setAccounts(loadedAccounts);
-      if (kpiData.status === "fulfilled") setKpis(kpiData.value);
       if (invAccs.status === "fulfilled") setInvestmentAccounts(invAccs.value);
       if (safeData.status === "fulfilled") setSafeToSpend(safeData.value);
       if (todayData.status === "fulfilled") setCompanionItems(todayData.value.items);
@@ -197,7 +191,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-36 lg:pb-8">
+    <div className="relative isolate min-h-dvh pb-36 lg:pb-8">
       {/* Sticky desktop header — appears when greeting scrolls out of view */}
       {stickyHeaderVisible && (
         <div className="hidden lg:flex fixed top-0 z-40 items-center gap-3 px-6 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 fade-in"
@@ -205,11 +199,6 @@ export default function HomePage() {
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {firstName ? `Hi, ${firstName}` : "Welcome back"}
           </p>
-          {kpis && !hideNetWorth && (
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full num">
-              {kpis.net_worth < 0 ? "-" : ""}£{Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
-            </span>
-          )}
         </div>
       )}
       {/* Desktop 2-col grid wrapper */}
@@ -252,11 +241,6 @@ export default function HomePage() {
           {/* ── WHERE YOU STAND ── */}
           {!loadError && (
             <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
-              {/* Chapter whisper label */}
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
-                Where you stand
-              </p>
-
               {/* Verdict card */}
               {(() => {
                 const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
@@ -267,17 +251,14 @@ export default function HomePage() {
                 return null;
               })()}
 
-              {/* Unified index block — net worth + savings + mirror */}
+              {/* Unified index block — savings + mirror */}
               {!loading && (
-                <div className="mt-3 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4">
+                <div className="mt-3 rounded-2xl glass-card px-4">
                   <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {/* Row 1: Net worth */}
-                    <NetWorthCard kpis={kpis} loading={loading} compactRow />
-
-                    {/* Row 2: Potential savings */}
+                    {/* Row 1: Potential savings */}
                     <ValueDeliveredStat />
 
-                    {/* Row 3: The Mirror */}
+                    {/* Row 2: The Mirror */}
                     <button
                       onClick={() => router.push("/mirror")}
                       className="w-full min-h-[44px] flex items-center justify-between hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset rounded-lg"
@@ -313,15 +294,15 @@ export default function HomePage() {
 
           {/* ── YOUR MONEY ── */}
           {!loadError && (
-            <div className="rise-in mt-10" style={{ "--rise-index": 2 } as React.CSSProperties}>
+            <div className="rise-in mt-8" style={{ "--rise-index": 2 } as React.CSSProperties}>
               <div className="px-4 lg:px-0 mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Your money
                 </p>
               </div>
               <div className="space-y-3">
-                <GoalsStrip />
                 <UpcomingBillsStrip />
+                <ThisMonthStrip />
                 <HomeInsightSpotlight />
               </div>
             </div>
@@ -329,41 +310,41 @@ export default function HomePage() {
 
           {/* ── Below zones: demoted supporting content ── */}
 
-          {/* User-pinned insight cards (fuel prices, grocery baskets) */}
-          {!loading && pinnedCards.includes("fuel") && (
-            <div className="px-4 lg:px-0"><FuelSavingsCard /></div>
+          {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
+          {!loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (pinnedWidget && homeTxns.length > 0)) && (
+            <div className="mt-8 space-y-3 px-4 lg:px-0">
+              {pinnedCards.includes("fuel") && <FuelSavingsCard />}
+              {pinnedCards.includes("groceries") && <GroceryBasketCard />}
+              {pinnedWidget && homeTxns.length > 0 && (() => {
+                const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+                return (
+                  <PinnedWidgetCard
+                    id={pinnedWidget}
+                    transactions={homeTxns}
+                    periodStart={ps}
+                    periodEnd={pe}
+                    payPeriodConfig={payPeriodConfig}
+                    colours={colours}
+                    onOpen={() => router.push("/spend?view=trends")}
+                  />
+                );
+              })()}
+            </div>
           )}
-          {!loading && pinnedCards.includes("groceries") && (
-            <div className="px-4 lg:px-0"><GroceryBasketCard /></div>
-          )}
-
-          {/* Pinned chart widget — user-chosen from the Spend Trends tab */}
-          {!loading && pinnedWidget && homeTxns.length > 0 && (() => {
-            const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-            return (
-              <PinnedWidgetCard
-                id={pinnedWidget}
-                transactions={homeTxns}
-                periodStart={ps}
-                periodEnd={pe}
-                payPeriodConfig={payPeriodConfig}
-                colours={colours}
-                onOpen={() => router.push("/spend?view=trends")}
-              />
-            );
-          })()}
 
           {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
-          <div className="rise-in px-4 lg:px-0" style={{ "--rise-index": 3 } as React.CSSProperties}>
+          <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 3 } as React.CSSProperties}>
             <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Accounts</p>
-              <button
-                data-tutorial-id="tutorial-manage-link"
-                onClick={() => router.push("/accounts")}
-                className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-              >
-                Manage <ChevronRight size={14} aria-hidden="true" />
-              </button>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
+              <div className="flex items-center gap-2">
+                <button
+                  data-tutorial-id="tutorial-manage-link"
+                  onClick={() => router.push("/accounts")}
+                  className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                >
+                  Manage <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              </div>
             </div>
             {loading ? (
               <div className="grid grid-cols-2 gap-3">
@@ -393,6 +374,8 @@ export default function HomePage() {
                     key={acc.id}
                     account={acc}
                     grid
+                    calm
+                    glass
                     hidden={hideNetWorth}
                     onClick={() => router.push(`/accounts?id=${acc.id}`)}
                   />
@@ -402,6 +385,8 @@ export default function HomePage() {
                     key={inv.id}
                     account={inv}
                     grid
+                    calm
+                    glass
                     hidden={hideNetWorth}
                     onClick={() => router.push("/accounts?tab=Investments")}
                   />
@@ -423,7 +408,7 @@ export default function HomePage() {
 
         {/* ── Right column: recent transactions ── */}
         <div className="rise-in" style={{ "--rise-index": 4 } as React.CSSProperties}>
-          <div className="mx-4 mb-4 lg:mx-0 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
+          <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0" data-tutorial-id="tutorial-recent-transactions">
             <div className="flex items-center justify-between mb-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
@@ -433,7 +418,7 @@ export default function HomePage() {
                 See all <ChevronRight size={13} aria-hidden="true" />
               </button>
             </div>
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
+            <div className="glass-card rounded-2xl overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
               {loading ? (
                 <div className="p-4 space-y-3">
                   {[1, 2, 3, 4, 5].map((i) => (

@@ -426,6 +426,39 @@ export type BasketInsights = {
   headline: string | null;
 };
 
+export type NeedleClosed = {
+  period_start: string;
+  period_end: string;
+  card_delta: number;
+  month_end_cash: number;
+  lines: { headline: string; movement: string; cash: string; streak?: string };
+};
+
+export type NeedleSummary = {
+  status: string;
+  last_closed: NeedleClosed | null;
+  current: { card_delta_so_far: number; cash_now: number; days_to_payday: number; days_into_period: number };
+};
+
+export type CardsStoryCard = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+  delta: number;
+  apr: number | null;
+};
+
+export type CardsStory = {
+  status: string;
+  period: { start: string; end: string; days_elapsed: number };
+  movement: { delta: number; new_spend: number; payments: number };
+  per_card: CardsStoryCard[];
+  drivers: { category: string; total: number }[];
+  pattern_line: string | null;
+  trajectory: { period_end: string; delta: number }[];
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -1016,6 +1049,8 @@ export const api = {
   }>(`/debt/burndown?${new URLSearchParams({ ...(targetMonths !== undefined ? { target_months: String(targetMonths) } : {}), ...(strategy ? { strategy } : {}), ...(startDate ? { start_date: startDate } : {}) }).toString()}`),
 
   getToday: () => get<TodayResponse>("/today"),
+  getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
+  getCardsStory: () => get<CardsStory>("/cards/story"),
 
   dismissTodayItem: (item_id: string) =>
     post<{ ok: boolean }>("/today/dismiss", { item_id }),

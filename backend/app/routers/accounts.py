@@ -28,6 +28,15 @@ from app.routers.analytics import compute_and_cache_cashflow
 router = APIRouter(tags=["accounts"])
 
 
+async def _attach_aprs(uid: str, result: List[Account]) -> List[Account]:
+    rates = await account_rates_col.find({"user_id": uid}).to_list(None)
+    rate_map = {r["account_id"]: r.get("apr") for r in rates}
+    for acc in result:
+        if acc.id in rate_map:
+            acc.apr = rate_map[acc.id]
+    return result
+
+
 def _manual_to_account(a: dict, currency: str) -> Account:
     at = a.get("account_type", "savings")
     if at == "credit_card":
@@ -81,7 +90,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 connection_id="",
             ))
         result.extend(await _manual_accounts(uid, "KES"))
-        return result
+        return await _attach_aprs(uid, result)
 
     docs = await accounts_col.find({"user_id": uid}).to_list(None)
     result = [Account(id=d["_id"], **{k: v for k, v in d.items() if k != "_id"}) for d in docs]
@@ -109,7 +118,7 @@ async def get_accounts(user: dict = Depends(current_user)):
                 connection_id=a.get("consent", ""),
             ))
     result.extend(await _manual_accounts(uid, "GBP"))
-    return result
+    return await _attach_aprs(uid, result)
 
 
 @router.post("/accounts/sync")

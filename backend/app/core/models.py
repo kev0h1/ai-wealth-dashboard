@@ -20,6 +20,7 @@ class Account(BaseModel):
     manual: bool = False
     logo_url: Optional[str] = None
     bg_colors: Optional[list] = None
+    apr: Optional[float] = None
 
 
 class Transaction(BaseModel):

@@ -16,6 +16,7 @@ export interface Account {
   manual?: boolean;
   logo_url?: string;
   bg_colors?: string[];
+  apr?: number | null;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";
