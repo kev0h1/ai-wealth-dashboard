@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, ShieldCheck, AlertCircle, AlertTriangle } from "lucide-react";
+import { ShieldCheck, AlertCircle, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -25,12 +25,16 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   // Loading skeleton
   if (loading) {
     return (
-      <div className="rounded-3xl p-5 border border-slate-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/60 shadow-sm dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <div className="rounded-3xl p-5 glass-hero">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
           Safe to Spend
         </p>
         <div className="h-6 w-56 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-3" />
-        <div className="h-4 w-64 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+        <div className="grid grid-cols-3 gap-2">
+          <div className="h-14 bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse" />
+          <div className="h-14 bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse" />
+          <div className="h-14 bg-slate-100 dark:bg-slate-700 rounded-xl animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -89,56 +93,55 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   const hasPaydayIncome = (payday_income ?? 0) > 0;
   const hasCardDebt = (card_debt ?? 0) >= 1000;
 
-  // ── CTA / credit-link dedup logic ────────────────────────────────────────
-  // Rule: avoid two /debt links. If tight+card_debt we show CTA "See your cards →"
-  // and make the credit acknowledgment line non-interactive text (no button).
-  // If short, CTA goes to /spend?view=upcoming; credit line (if shown) is non-interactive.
-  // If comfortable, no CTA; credit line (if shown) is interactive.
+  // ── CTA logic ────────────────────────────────────────────────────────────
+  // If tight+card_debt: show "See your cards ›" CTA — taps through to /cards story.
+  // If short: CTA goes to /spend?view=upcoming.
+  // If comfortable: no CTA.
   const showDebtCTA = state === "tight" && hasCardDebt;
   const showSpendCTA = state === "short";
   const debtCTAVisible = showDebtCTA && !suppressCTA;
-  // Credit acknowledgment is interactive when there's card debt but no visible /debt CTA
-  const creditLineIsInteractive = hasCardDebt && !debtCTAVisible;
 
   return (
-    <div className="hero-arrive rounded-3xl p-5 border border-slate-100 dark:border-slate-700 bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-800/60 shadow-sm dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-      {/* Whisper label */}
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">
-        Safe to Spend
-      </p>
-
-      {/* ── 1. Verdict headline ── */}
-      <div className="flex items-start gap-2 mb-4">
+    <div className="hero-arrive rounded-3xl p-5 glass-hero">
+      {/* Whisper label + state icon */}
+      <div className="flex items-center gap-1.5 mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Safe to Spend
+        </p>
         <StateIcon
-          size={18}
-          className={`${stateIconClass} flex-shrink-0 mt-0.5`}
+          size={14}
+          className={`${stateIconClass} flex-shrink-0`}
           aria-hidden="true"
         />
-        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 leading-snug">
-          {verdictText}
-          {estimated && (
-            <span className="text-slate-400 dark:text-slate-500 font-normal text-sm"> · estimated</span>
-          )}
-        </h2>
       </div>
+
+      {/* ── 1–4. Content stack ── */}
+      <div className="space-y-3">
+      {/* ── 1. Verdict headline ── */}
+      <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 leading-snug">
+        {verdictText}
+        {estimated && (
+          <span className="text-slate-400 dark:text-slate-500 font-normal text-sm"> · estimated</span>
+        )}
+      </h2>
 
       {/* ── 2. 3-column instrument readout ── */}
       {hasSpendableNow && (
-        <div className="grid grid-cols-3 gap-2 mb-4 rounded-2xl bg-slate-50 dark:bg-slate-700/40 border border-slate-100 dark:border-slate-700/60 p-3">
+        <div className="grid grid-cols-3 gap-2">
           {/* NOW */}
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Now</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">{hidden ? "£••••" : fmt(spendable_now!)}</span>
+          <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Now</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{hidden ? "£••••" : fmt(spendable_now!)}</span>
           </div>
           {/* BILLS */}
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Bills</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">−{hidden ? "£••••" : fmt(bills_total)}</span>
+          <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Bills</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">−{hidden ? "£••••" : fmt(bills_total)}</span>
           </div>
           {/* FREE */}
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Free</span>
-            <span className={`text-base font-semibold tabular-nums num ${freeClass}`}>
+          <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Free</span>
+            <span className={`text-base font-semibold tabular-nums num text-left ${freeClass}`}>
               {state === "short" ? `−${hidden ? "£••••" : fmt(gap)}` : (hidden ? "£••••" : fmt(safe_to_spend))}
             </span>
           </div>
@@ -146,47 +149,29 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
       )}
       {/* Payday muted line — replaces emerald pill */}
       {hasPaydayIncome && (
-        <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 num">
+        <p className="text-sm text-slate-500 dark:text-slate-400 num">
           Payday {weekday} · +{hidden ? "••" : fmt(payday_income!)} lands
         </p>
       )}
 
-      {/* ── 3. Credit acknowledgment ── */}
-      {hasCardDebt && (
-        creditLineIsInteractive ? (
-          <button
-            onClick={() => router.push("/debt")}
-            className="flex items-center gap-1.5 text-sm text-slate-400 dark:text-slate-500 mb-3 hover:text-slate-600 dark:hover:text-slate-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-          >
-            <CreditCard size={13} aria-hidden="true" />
-            <span className="num">{hidden ? "••" : fmt(card_debt!)} across cards</span>
-            <span className="text-slate-300 dark:text-slate-600">›</span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-1.5 text-sm text-slate-400 dark:text-slate-500 mb-3">
-            <CreditCard size={13} aria-hidden="true" />
-            <span className="num">{hidden ? "••" : fmt(card_debt!)} across cards</span>
-          </div>
-        )
-      )}
-
-      {/* ── 4. Single CTA ── */}
+      {/* ── 3. Single CTA ── */}
       {showSpendCTA && !suppressCTA && (
         <button
           onClick={() => router.push("/spend?view=upcoming")}
           className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
         >
-          See what&apos;s due →
+          See what&apos;s due ›
         </button>
       )}
       {debtCTAVisible && (
         <button
-          onClick={() => router.push("/debt")}
+          onClick={() => router.push("/cards")}
           className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
         >
-          See your cards →
+          See your cards ›
         </button>
       )}
+      </div>
     </div>
   );
 }

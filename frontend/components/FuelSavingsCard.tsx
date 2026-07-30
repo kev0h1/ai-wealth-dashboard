@@ -107,7 +107,7 @@ export default function FuelSavingsCard() {
     : null;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
+    <div className="glass-card rounded-2xl p-5">
       <div className="flex items-center gap-1">
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -194,7 +194,7 @@ export default function FuelSavingsCard() {
           {error && <p className="text-xs text-rose-500 mb-2">{error}</p>}
 
           {needsLocation && !stations && (
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 p-3 text-center">
+            <div className="glass-tile rounded-xl p-3 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">We need your location to find nearby stations.</p>
               <button
                 onClick={() => getDeviceLocation(grade)}

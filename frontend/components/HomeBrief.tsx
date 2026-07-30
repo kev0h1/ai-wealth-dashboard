@@ -47,24 +47,16 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
   if (items.length === 0) {
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
-      fallbackText = "Nothing needs you today.";
+      fallbackText = "Nothing needs you today. I'm keeping an eye on the bills — just check back later.";
     } else if (safeToSpend.state === "tight") {
-      fallbackText = "Nothing needs you today — payday's close.";
+      fallbackText = "Nothing needs you today — payday's close. The first week's bills are already mapped, so just cruise.";
     } else if (safeToSpend.state === "short") {
-      fallbackText = "One thing worth a look below.";
+      fallbackText = "One thing's worth a look below — otherwise I've got the rest mapped.";
     } else {
-      fallbackText = "Nothing needs you today.";
+      fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills — enjoy it.";
     }
-    // The 24px wrapper equals the first line box of 15px/leading-relaxed prose, so the dot stays
-    // vertically centred on line ONE even when the paragraph wraps — a bare `self-center` dot
-    // would drift to mid-paragraph on multi-line text.
     return (
-      <div className="flex items-baseline gap-2">
-        <span className="self-start h-[24px] flex items-center flex-shrink-0" aria-hidden="true">
-          <span className="w-[7px] h-[7px] rounded-full bg-gradient-to-br from-indigo-500 to-violet-600" />
-        </span>
-        <p className="flex-1 min-w-0 text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">{fallbackText}</p>
-      </div>
+      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">{fallbackText}</p>
     );
   }
 
@@ -79,15 +71,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
     return text.replace(/£[\d,]+/g, "£••••");
   }
 
-  // The 24px wrapper equals the first line box of 15px/leading-relaxed prose, so the dot stays
-  // vertically centred on line ONE even when the paragraph wraps — a bare `self-center` dot
-  // would drift to mid-paragraph on multi-line text.
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="self-start h-[24px] flex items-center flex-shrink-0" aria-hidden="true">
-        <span className="w-[7px] h-[7px] rounded-full bg-gradient-to-br from-indigo-500 to-violet-600" />
-      </span>
-      <div className="flex-1 min-w-0 space-y-3">
+    <div className="space-y-3">
         {celebrationItems.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {celebrationItems.map(item => (
@@ -173,7 +158,6 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
             )}
           </div>
         )}
-      </div>
     </div>
   );
 }

@@ -29,7 +29,7 @@ export default function UpcomingBillsStrip() {
   if (status === "loading") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="h-16 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 animate-pulse" />
+        <div className="h-16 rounded-2xl glass-card animate-pulse" />
       </div>
     );
   }
@@ -37,7 +37,7 @@ export default function UpcomingBillsStrip() {
   if (status === "failed") {
     return (
       <div className="px-4 lg:px-0">
-        <div className="rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 flex items-center gap-3">
+        <div className="rounded-2xl glass-card px-4 py-3 flex items-center gap-3">
           <p className="text-sm text-slate-400 dark:text-slate-500 flex-1">Couldn&apos;t load upcoming bills</p>
           <button
             onClick={fetch}
@@ -76,7 +76,7 @@ export default function UpcomingBillsStrip() {
   return (
     <div className="px-4 lg:px-0 fade-in">
       <button
-        className="w-full rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 px-4 py-3 flex items-center gap-3 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 text-left"
+        className="w-full rounded-2xl glass-card px-4 py-3 flex items-center gap-3 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 text-left"
         onClick={() => router.push("/spend?view=upcoming")}
       >
         <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">

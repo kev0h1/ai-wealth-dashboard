@@ -40,7 +40,7 @@ export default function DebtPlanCard({
 }) {
   if (!plan) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+      <div className="glass-card rounded-2xl p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${accent}1a` }}>
             <Target className="w-5 h-5" style={{ color: accent }} />
@@ -68,7 +68,7 @@ export default function DebtPlanCard({
   const nextIdx = plan.milestones.findIndex(m => !m.done);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">

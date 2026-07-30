@@ -302,7 +302,7 @@ function SpeechBlock({
         onClick={() => router.push("/debt")}
         className="text-indigo-600 dark:text-indigo-400 font-medium active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
-        Want me to show your cards? →
+        Want me to show your cards? ›
       </button>
     );
   } else if (state === "short") {
@@ -311,7 +311,7 @@ function SpeechBlock({
         onClick={() => router.push("/spend?view=upcoming")}
         className="text-indigo-600 dark:text-indigo-400 font-medium active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
-        Want to see what&apos;s due? →
+        Want to see what&apos;s due? ›
       </button>
     );
   } else if (firstItem?.action) {
@@ -320,7 +320,7 @@ function SpeechBlock({
         onClick={() => router.push(firstItem.action!.route)}
         className="text-indigo-600 dark:text-indigo-400 font-medium active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
-        {firstItem.action.label} →
+        {firstItem.action.label} ›
       </button>
     );
   }

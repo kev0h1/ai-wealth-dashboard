@@ -66,9 +66,8 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-slate-900 z-50"
+      className="lg:hidden fixed bottom-0 inset-x-0 bg-white/80 dark:bg-slate-900/75 backdrop-blur-md border-t border-slate-200/60 dark:border-white/[0.08] z-50"
       style={{
-        boxShadow: "0 -1px 0 rgba(0,0,0,0.08)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}
     >

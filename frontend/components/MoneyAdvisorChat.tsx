@@ -41,6 +41,29 @@ export interface MoneyAdvisorChatHandle {
 export const BRAND = "#4f46e5";
 export const BRAND_GRADIENT = "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)";
 
+interface PennyFabProps {
+  onClick: () => void;
+  ariaLabel?: string;
+  dataTutorialId?: string;
+  style?: React.CSSProperties;
+}
+
+export function PennyFab({ onClick, ariaLabel = "Chat with Penny", dataTutorialId, style }: PennyFabProps) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={ariaLabel}
+      data-tutorial-id={dataTutorialId}
+      className="fixed z-[60] w-14 h-14 rounded-full p-[2px] shadow-[0_4px_24px_rgba(99,102,241,0.45)] dark:shadow-[0_4px_20px_rgba(99,102,241,0.35)] dark:ring-2 dark:ring-white/80 transition-transform active:scale-95"
+      style={{ background: BRAND_GRADIENT, ...style }}
+    >
+      <span className="penny-fab-disc w-full h-full rounded-full bg-white/60 dark:bg-white/[0.14] backdrop-blur-md flex items-center justify-center text-indigo-600 dark:text-indigo-200">
+        <MessageCircle className="w-6 h-6" />
+      </span>
+    </button>
+  );
+}
+
 interface Props {
   insights: DebtInsights | null;
   sym: string;
@@ -161,14 +184,11 @@ const MoneyAdvisorChat = forwardRef<MoneyAdvisorChatHandle, Props>(function Mone
     <>
       {/* Chat FAB — hidden when any sheet/modal locks body scroll */}
       {!hidden && !bodyLocked && (
-        <button
+        <PennyFab
           onClick={() => setChatOpen(true)}
-          className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-xl ring-2 ring-white/40 dark:ring-white/25 text-white"
-          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: BRAND_GRADIENT }}
-          aria-label="Chat with Penny"
-        >
-          <MessageCircle className="w-6 h-6" />
-        </button>
+          ariaLabel="Chat with Penny"
+          style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px" }}
+        />
       )}
 
       {chatOpen && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, ArrowRight, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, TrendingUp } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, TrendingUp } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, DebtPlan, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby } from "@/lib/api";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -263,7 +263,7 @@ function LabelledBillsPanel({
   if (labels.length === 0) return null;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <button
         className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left"
         onClick={() => setOpen(v => !v)}
@@ -544,7 +544,7 @@ function WorkflowDrawer({
                   onClick={() => setStep(s => s + 1)}
                   className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold flex items-center justify-center gap-2"
                 >
-                  Next <ArrowRight size={16} />
+                  Next <ChevronRight size={16} />
                 </button>
               ) : (
                 <button
@@ -636,7 +636,7 @@ function InsightCard({
     <>
       <div
         id={`insight-card-${insight.id}`}
-        className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden scroll-mt-24 transition-shadow"
+        className="glass-card rounded-2xl overflow-hidden scroll-mt-24 transition-shadow"
       >
         <div className="p-4 flex flex-col gap-3">
           {/* Category + badges + pin */}
@@ -1093,7 +1093,7 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, o
   const [first, ...rest] = steps.slice(0, 3);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <button className="w-full text-left px-4 py-3" onClick={() => setOpen(!open)} aria-expanded={open}>
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -1114,7 +1114,7 @@ function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues, o
           onClick={() => onOpenChat(first.ctaPrompt)}
           className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
         >
-          {first.ctaLabel} →
+          {first.ctaLabel} ›
         </button>
       </div>
       {open && rest.length > 0 && (
@@ -1169,7 +1169,7 @@ function PlanCard({
 }) {
   if (!plan) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+      <div className="glass-card rounded-2xl p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${accent}1a` }}>
             <Target className="w-5 h-5" style={{ color: accent }} />
@@ -1197,7 +1197,7 @@ function PlanCard({
   const nextIdx = plan.milestones.findIndex(m => !m.done);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
@@ -1411,7 +1411,7 @@ function SafetyNetCard({
     const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
     const customInvalid = targetChoice === "custom" && (!Number(customAmount) || Number(customAmount) <= 0);
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+      <div className="glass-card rounded-2xl p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100 dark:bg-emerald-900/30">
             <Shield className="w-5 h-5 text-emerald-600" />
@@ -1550,7 +1550,7 @@ function SafetyNetCard({
   })();
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <div className="p-4">
         {/* Header row: ring + verdict + Edit */}
         <div className="flex items-start gap-4">
@@ -1658,7 +1658,7 @@ function SavingsPlanCard({
 }) {
   if (!plan) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+      <div className="glass-card rounded-2xl p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${accent}1a` }}>
             <Target className="w-5 h-5" style={{ color: accent }} />
@@ -1686,7 +1686,7 @@ function SavingsPlanCard({
   const nextIdx = plan.milestones.findIndex(m => !m.done);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <div className="p-4 flex items-center gap-4">
         <ProgressRing pct={pct} accent={accent} />
         <div className="flex-1 min-w-0">
@@ -1990,7 +1990,7 @@ export default function InsightsPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-28 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — compact, one primary stat max. Neutral while loading so the
           Savings copy never flashes before flipping to Debt. */}
       {loading ? (
@@ -1999,7 +1999,7 @@ export default function InsightsPage() {
       /* Neutral hero prototype: calm surface, colour in the icon chip and stat —
          Penny's gradient stays the only loud element */
       <div
-        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
+        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero"
         data-tutorial-id="tutorial-debt-header"
       >
         {heroMode === "tax" ? (
@@ -2072,7 +2072,7 @@ export default function InsightsPage() {
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : !insights ? (
           <>
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+            <div className="glass-card rounded-2xl p-8 text-center">
               <p className="text-slate-500 dark:text-slate-400 text-sm">Could not load your money summary</p>
             </div>
             <SavingsInsightsSection />

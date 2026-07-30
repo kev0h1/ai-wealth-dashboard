@@ -358,7 +358,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
             : "bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none"
         }`}
       >
-        {bankAdded ? "Let's go →" : "Connect a bank"}
+        {bankAdded ? "Let's go ›" : "Connect a bank"}
       </button>
 
       {!bankAdded && (

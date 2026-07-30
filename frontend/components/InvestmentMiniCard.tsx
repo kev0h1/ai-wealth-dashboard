@@ -20,17 +20,59 @@ function providerKey(provider: string) {
   return provider.toUpperCase().replace(/[\s-]+/g, " ").trim();
 }
 
+export function investmentBrandBg(provider: string): string {
+  return (PROVIDER_META[providerKey(provider)] ?? { bg: "linear-gradient(135deg,#3730a3,#4f46e5)" }).bg;
+}
+
 interface Props {
   grid?: boolean;
   account: InvestmentAccount;
   onClick?: () => void;
   hidden?: boolean;
+  /** Calm/quiet variant for the Home grid — whisper surfaces, no brand flood */
+  calm?: boolean;
+  /** Liquid-glass surface — requires calm=true */
+  glass?: boolean;
 }
 
-export default function InvestmentMiniCard({ account, onClick, hidden, grid }: Props) {
+export default function InvestmentMiniCard({ account, onClick, hidden, grid, calm, glass }: Props) {
   const meta = PROVIDER_META[providerKey(account.provider)] ?? { bg: "linear-gradient(135deg,#3730a3,#4f46e5)" };
   const value = account.total_value;
   const valueStr = `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+  // ── Calm variant (Home grid) ─────────────────────────────────────────────
+  if (calm) {
+    return (
+      <button
+        onClick={onClick}
+        className={`w-full rounded-2xl p-4 text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} active:scale-95 transition-transform overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+      >
+        {/* Top row: branded chip + neutral type pill */}
+        <div className="flex items-start justify-between mb-3">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center ring-1 ring-black/[0.06] dark:ring-white/[0.12]"
+            style={{ background: meta.bg }}
+          >
+            <TrendingUp size={18} color="white" />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+            {account.account_type || "Investment"}
+          </span>
+        </div>
+
+        {/* Provider name */}
+        <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate mb-0.5">
+          {account.provider}
+        </p>
+
+        {/* Value */}
+        <p className="text-base font-semibold text-slate-900 dark:text-slate-100 num">
+          {hidden ? "••••" : valueStr}
+        </p>
+      </button>
+    );
+  }
+  // ── End calm variant ─────────────────────────────────────────────────────
 
   return (
     <button
@@ -40,7 +82,7 @@ export default function InvestmentMiniCard({ account, onClick, hidden, grid }: P
     >
       {/* Top row: icon + account type chip */}
       <div className="flex items-start justify-between mb-3">
-        <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "rgba(255,255,255,0.2)" }}>
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center ring-1 ring-black/[0.06] dark:ring-white/[0.12]" style={{ background: "rgba(255,255,255,0.2)" }}>
           <TrendingUp size={18} color="white" />
         </div>
         <span className="text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5" style={{ background: "rgba(255,255,255,0.2)", color: "#fff" }}>

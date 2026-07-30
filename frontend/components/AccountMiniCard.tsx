@@ -14,6 +14,10 @@ interface AccountMiniCardProps {
   pinned?: boolean;
   onTogglePin?: () => void;
   hidden?: boolean;
+  /** Calm/quiet variant for the Home grid — whisper surfaces, no brand flood */
+  calm?: boolean;
+  /** Liquid-glass surface — requires calm=true */
+  glass?: boolean;
 }
 
 export interface BankMeta {
@@ -257,11 +261,14 @@ export function BankBadge({
   initials,
   initialsSize,
   altText,
+  brandBg,
 }: {
   logoSrc: string | null;
   initials: string;
   initialsSize?: string;
   altText: string;
+  /** When provided, use this as the chip background for the initials fallback (calm branch). */
+  brandBg?: string;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -271,7 +278,7 @@ export function BankBadge({
         src={logoSrc}
         alt={altText}
         onError={() => setImgFailed(true)}
-        className="w-9 h-9 rounded-xl object-contain bg-white p-0.5"
+        className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]"
       />
     );
   }
@@ -281,21 +288,98 @@ export function BankBadge({
 
   return (
     <div
-      className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white"
-      style={{ background: "rgba(255,255,255,0.25)", fontSize }}
+      className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white ring-1 ring-black/[0.06] dark:ring-white/[0.12]"
+      style={{ background: brandBg ?? "rgba(255,255,255,0.25)", fontSize }}
     >
       {text}
     </div>
   );
 }
 
-export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin }: AccountMiniCardProps) {
+export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass }: AccountMiniCardProps) {
   const brand = accountBrand(account);
   const isCredit = account.type.toLowerCase().includes("credit");
   const balance = account.balance;
   const currSym = account.currency === "KES" ? "KES " : "£";
   const balanceStr = `${currSym}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   const tc = brand.textOnBrand;
+
+  // ── Calm variant (Home grid) ─────────────────────────────────────────────
+  // Quiet-card surface: no brand flood, no shadow. Brand colour lives only in
+  // the 36px chip — the rest is neutral slate ink on white/slate-800 glass.
+  if (calm) {
+    return (
+      <button
+        onClick={onClick}
+        className={`w-full rounded-2xl p-4 text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} active:scale-95 transition-transform overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+      >
+        {/* Top row: brand chip + type badge */}
+        <div className="flex items-start justify-between mb-3">
+          <BankBadge
+            logoSrc={brand.logoSrc}
+            initials={brand.initials}
+            altText={brand.label}
+            brandBg={brand.background}
+          />
+          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+            {typeLabel(account)}
+          </span>
+        </div>
+
+        {/* Provider name */}
+        <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate mb-0.5">
+          {brand.label}
+        </p>
+
+        {/* Account name */}
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate mb-1">
+          {account.name.trim()}
+        </p>
+
+        {/* Balance — neutral ink even when negative (Red Is Risk rule) */}
+        <p className="text-base font-semibold text-slate-900 dark:text-slate-100 num">
+          {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
+        </p>
+
+        {/* APR chip — credit cards only, when rate is known */}
+        {isCredit && account.apr != null && (
+          <span className="inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
+            {account.apr}% APR
+          </span>
+        )}
+
+        {/* Pin toggle */}
+        {onTogglePin && account.status !== "expired" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+            title={pinned ? "Unpin from Home" : "Pin to Home"}
+            className={`absolute bottom-3 right-3 flex items-center justify-center w-7 h-7 rounded-lg transition-transform active:scale-95 ${
+              pinned
+                ? "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400"
+                : "bg-slate-100 dark:bg-slate-700 text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <Pin size={12} className={pinned ? "fill-current" : ""} />
+          </button>
+        )}
+
+        {/* Reconnect */}
+        {onReconnect && account.status === "expired" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onReconnect(); }}
+            title="Reconnect this bank"
+            className={`absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-transform active:scale-95 ${
+              fullWidth || grid ? "bottom-3 right-3" : "top-2 right-2"
+            } bg-amber-500 hover:bg-amber-600 text-white`}
+          >
+            <RefreshCw size={10} />
+            <span>Reconnect</span>
+          </button>
+        )}
+      </button>
+    );
+  }
+  // ── End calm variant ─────────────────────────────────────────────────────
 
   return (
     <button

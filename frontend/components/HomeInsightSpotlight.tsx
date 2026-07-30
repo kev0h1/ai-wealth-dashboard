@@ -71,8 +71,8 @@ export default function HomeInsightSpotlight() {
   // Once loaded, dismissed/no-insight still returns null exactly as before.
   if (!loaded) {
     return (
-      <div className="mx-4 lg:mx-0">
-        <div className="h-32 rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 animate-pulse" />
+      <div className="px-4 lg:px-0">
+        <div className="h-32 rounded-2xl glass-card animate-pulse" />
       </div>
     );
   }
@@ -90,10 +90,10 @@ export default function HomeInsightSpotlight() {
 
   // AI-surface card — identity via icon chip gradient (Penny Gradient Rule), no side rail
   return (
-    <div className="mx-4 lg:mx-0 fade-in">
+    <div className="px-4 lg:px-0 fade-in">
       <div
         ref={cardRef}
-        className="relative rounded-2xl bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60 overflow-hidden touch-pan-y"
+        className="relative rounded-2xl glass-card overflow-hidden touch-pan-y"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

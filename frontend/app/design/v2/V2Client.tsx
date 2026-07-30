@@ -334,7 +334,7 @@ export default function V2Client() {
                     onClick={() => router.push("/spend?view=upcoming")}
                     className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                   >
-                    See what&apos;s due →
+                    See what&apos;s due ›
                   </button>
                 )}
                 {showDebtCTA && (
@@ -342,7 +342,7 @@ export default function V2Client() {
                     onClick={() => router.push("/debt")}
                     className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                   >
-                    See your cards →
+                    See your cards ›
                   </button>
                 )}
               </>

@@ -122,7 +122,7 @@ export default function GroceryBasketCard() {
   const hasTrends = !!insights && (insights.item_trends.length > 0 || insights.store_prices.length > 0);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm">
+    <div className="glass-card rounded-2xl p-5">
       <div className="flex items-center gap-1">
         <button
           onClick={() => setCardOpen((v) => !v)}
@@ -156,7 +156,7 @@ export default function GroceryBasketCard() {
       {!cardOpen ? (
         <div
           className={`flex items-center gap-2 mt-2 px-3 py-2 rounded-xl ${
-            insights?.headline ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-slate-50 dark:bg-slate-900/60"
+            insights?.headline ? "bg-emerald-50 dark:bg-emerald-900/30" : "glass-tile"
           }`}
         >
           {insights?.headline ? (

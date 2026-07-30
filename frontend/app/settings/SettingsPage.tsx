@@ -249,8 +249,8 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
+    <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-hero">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
@@ -263,7 +263,7 @@ export default function SettingsPage() {
       <div className="px-4 pt-4 space-y-3">
 
         {/* ── Display ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Display</p>
           </div>
@@ -281,7 +281,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Notifications ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notifications</p>
           </div>
@@ -365,7 +365,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Financial profile ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Financial profile</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Self-declared — unlocks personalised tax insights</p>
@@ -442,7 +442,7 @@ export default function SettingsPage() {
 
         {/* ── Security (app shell only) ── */}
         {bioState?.supported && (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+          <div className="glass-card rounded-2xl overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Security</p>
             </div>
@@ -461,7 +461,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Data ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Data</p>
           </div>
@@ -483,7 +483,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Account ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Account</p>
             {user?.email && <p className="text-xs text-slate-500 dark:text-slate-400">{user.email}</p>}
@@ -537,7 +537,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Danger zone ── */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-red-100 dark:border-red-900/40">
+        <div className="glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
           <div className="px-4 py-3">
             <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-1">Danger zone</p>
             <button

@@ -488,7 +488,7 @@ export default function SpendPage() {
     })}`;
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div className="px-4 pt-6 pb-2">
         <div className="flex items-center justify-between mb-4">
@@ -509,7 +509,7 @@ export default function SpendPage() {
 
         {/* Period nav + summary chips: stacked on mobile, side-by-side on desktop */}
         <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:items-stretch">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+        <div className="glass-card rounded-2xl p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
           <div className="flex items-center justify-between">
             <button
               onClick={handlePrev}
@@ -548,14 +548,14 @@ export default function SpendPage() {
           <div className="mt-3 lg:mt-0 space-y-2">
             <div className="grid grid-cols-3 gap-2">
               {/* Spent */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center">
+              <div className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center">
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Spent</span>
                 <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.spent)}</span>
               </div>
               {/* Income — tappable to expand drill-down */}
               <button
                 onClick={() => setIncomeExpanded(v => !v)}
-                className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center active:opacity-70 transition-opacity"
+                className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center active:opacity-70 transition-opacity"
               >
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5 flex items-center gap-0.5">
                   Income {incomeExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
@@ -563,7 +563,7 @@ export default function SpendPage() {
                 <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.income)}</span>
               </button>
               {/* Net */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 px-3 py-2.5 flex flex-col items-center">
+              <div className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center">
                 <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net</span>
                 <span
                   className={`text-sm font-bold ${
@@ -579,7 +579,7 @@ export default function SpendPage() {
             </div>
             {/* Income drill-down — shown below the pills when expanded */}
             {incomeExpanded && incomeTxns.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+              <div className="glass-card rounded-xl overflow-hidden">
                 <div className="px-4 pt-2.5 pb-1">
                   <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Income this period</p>
                 </div>
@@ -696,7 +696,7 @@ export default function SpendPage() {
                 <Spinner size={32} />
               </div>
             ) : categories.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+              <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">No spending in this period</p>
               </div>
             ) : (
@@ -708,7 +708,7 @@ export default function SpendPage() {
                     <button
                       key={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
+                      className="glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
                     >
                       <div className="flex items-center gap-2.5">
                         {/* tinted icon chip — the card's single colour-identity cue */}
@@ -754,7 +754,7 @@ export default function SpendPage() {
           <>
             <button
               onClick={() => setUntrackedOpen(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm"
+              className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-2xl"
             >
               <div className="text-left">
                 <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Untracked</p>
@@ -781,7 +781,7 @@ export default function SpendPage() {
                     <button
                       key={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
+                      className="glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
                     >
                       <div className="flex items-center gap-2.5">
                         <span
@@ -827,13 +827,13 @@ export default function SpendPage() {
                 <Spinner size={32} />
               </div>
             ) : displayTxns.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+              <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">
                   {largeOnly ? "No payments over £250 in this period" : "No transactions in this period"}
                 </p>
               </div>
             ) : (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden divide-y divide-slate-50 dark:divide-slate-700 lg:max-h-[640px] lg:overflow-y-auto">
+              <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-50 dark:divide-slate-700 lg:max-h-[640px] lg:overflow-y-auto">
                 {displayTxns.map((tx) => (
                   <TransactionRow
                     key={tx.id}
@@ -916,7 +916,7 @@ export default function SpendPage() {
 
               if (rawItems.length === 0) {
                 return (
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+                  <div className="glass-card rounded-2xl p-8 text-center">
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
                   </div>
                 );
@@ -1000,10 +1000,10 @@ export default function SpendPage() {
                       tabIndex={0}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label }); } }}
                       aria-label={`Edit ${item.name}`}
-                      className={`rounded-2xl shadow-sm px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${
+                      className={`rounded-2xl px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${
                         flagged
                           ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
-                          : "bg-white dark:bg-slate-800"
+                          : "glass-card"
                       }${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
                     >
                       {/* Icon chip */}
@@ -1085,10 +1085,10 @@ export default function SpendPage() {
                 <div className="space-y-4">
                   {/* ── Runway summary card ─────────────────────────────────── */}
                   {cashflow.available_balance != null && (
-                    <div className={`rounded-2xl px-4 py-4 shadow-sm ${
+                    <div className={`rounded-2xl px-4 py-4 ${
                       runwayNegative
                         ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
-                        : "bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700"
+                        : "glass-card"
                     }`}>
                       {/* Hero verdict */}
                       <div className="flex items-start justify-between gap-2">

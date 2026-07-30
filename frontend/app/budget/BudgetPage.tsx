@@ -18,7 +18,7 @@ function useIsDark() {
 }
 import { MessageCircle, X, Send, Loader2, Plus, Trash2, RotateCcw, ChevronDown, Flag, ChevronLeft, ChevronRight, Sparkles, BarChart2, TrendingUp } from "lucide-react";
 import SwipeToDelete from "@/components/SwipeToDelete";
-import { BRAND, BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import { BRAND, BRAND_GRADIENT, PennyFab } from "@/components/MoneyAdvisorChat";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { ComposedChart, Area, Line, BarChart, Bar, Cell, Tooltip, ResponsiveContainer, XAxis, YAxis, ReferenceLine, ReferenceDot } from "recharts";
 import { api } from "@/lib/api";
@@ -504,7 +504,7 @@ export default function BudgetPage() {
   const periodSwipe = usePeriodSwipe({ onPrev: goPrev, onNext: goNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* (a) Plain page title */}
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Budgets</h1>
@@ -512,7 +512,7 @@ export default function BudgetPage() {
 
       {/* (b) Period-nav card — mirrors SpendPage structure */}
       <div className="px-4">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+        <div className="glass-card rounded-2xl p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
           <div className="flex items-center justify-between">
             <button
               onClick={goPrev}
@@ -547,7 +547,7 @@ export default function BudgetPage() {
         const remaining = totalBudget - totalSpent;
         return (
           <div className="px-4 pt-3">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+            <div className="glass-hero rounded-2xl p-4">
               {remaining >= 0 ? (
                 <>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Left in your budget</p>
@@ -610,7 +610,7 @@ export default function BudgetPage() {
           <div className="space-y-3 lg:col-span-3">
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
             {prefsLoaded && widgets.includes("pacing_curve") && paceChartData.length > 1 && budgets.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+              <div className="glass-card rounded-2xl p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-base font-bold text-slate-700 dark:text-slate-200">Spending vs budget</p>
                   <button
@@ -758,7 +758,7 @@ export default function BudgetPage() {
                 .filter(d => d.dailySpend !== null)
                 .map(d => ({ ...d, displaySpend: Math.max(d.dailySpend ?? 0, LOG_FLOOR) }));
               return (
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+                <div className="glass-card rounded-2xl p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
                   <div className={`w-full flex items-center justify-between ${showDaily ? "mb-3" : ""}`}>
                     <button
                       onClick={() => setShowDaily(v => !v)}
@@ -854,13 +854,13 @@ export default function BudgetPage() {
             {/* Budget cards */}
             {budgets.length === 0 ? (
               <>
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+                <div className="glass-card rounded-2xl p-8 text-center">
                   <p className="text-slate-600 dark:text-slate-300 text-sm font-medium mb-1">No budgets set yet</p>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Budgets roll over each pay period automatically once set.</p>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Add a category below or tap the chat button to let AI suggest budgets based on your spending.</p>
                 </div>
                 {/* Empty state: show add form directly */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                <div className="glass-card rounded-2xl p-4">
                   <p className="text-base font-bold text-slate-700 dark:text-slate-200 mb-3">Set a budget limit</p>
                   <div className="flex gap-2 mb-2">
                     <CustomSelect
@@ -895,7 +895,7 @@ export default function BudgetPage() {
               </>
             ) : (
               <>
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                <div className="glass-card rounded-2xl overflow-hidden">
                   <div className="px-4 pt-2.5 pb-1">
                     <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/40 rounded-lg px-3 py-2">
                       <p className="text-[11px] text-slate-600 dark:text-slate-300">
@@ -1026,7 +1026,7 @@ export default function BudgetPage() {
 
                         {/* Expanded: transactions */}
                         {isExpanded && (
-                          <div id={`budget-txns-${b.category}`} className="border-t border-slate-50 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-700/20">
+                          <div id={`budget-txns-${b.category}`} className="border-t border-slate-50 dark:border-slate-700 glass-tile">
                             {txns.length === 0 ? (
                               <p className="text-xs text-slate-500 dark:text-slate-400 text-center py-4">No transactions this period</p>
                             ) : (
@@ -1099,7 +1099,7 @@ export default function BudgetPage() {
                     <Plus size={15} /> Add a budget
                   </button>
                 ) : null) : (
-                  <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4">
+                  <div className="glass-card rounded-2xl p-4">
                     <p className="text-base font-bold text-slate-700 dark:text-slate-200 mb-3">Set a budget limit</p>
                     <div className="flex gap-2 mb-2">
                       <CustomSelect
@@ -1146,15 +1146,12 @@ export default function BudgetPage() {
       </div>
 
       {/* AI Chat button */}
-      <button
-        data-tutorial-id="tutorial-budget-chat"
+      <PennyFab
+        dataTutorialId="tutorial-budget-chat"
         onClick={() => setChatOpen(true)}
-        className="fixed z-[60] flex items-center justify-center w-14 h-14 rounded-full shadow-xl ring-2 ring-white/40 dark:ring-white/25 text-white"
-        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px", background: BRAND_GRADIENT }}
-        aria-label="Chat with Penny"
-      >
-        <MessageCircle className="w-6 h-6" />
-      </button>
+        ariaLabel="Chat with Penny"
+        style={{ bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "16px" }}
+      />
 
       {/* AI Chat panel */}
       {chatOpen && (

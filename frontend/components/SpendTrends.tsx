@@ -622,8 +622,8 @@ function WidgetCard({
         zIndex: isDragging ? 30 : undefined,
         position: "relative",
       }}
-      className={`bg-white dark:bg-slate-800 rounded-2xl p-4 ${
-        isDragging ? "shadow-xl ring-2 ring-indigo-300 dark:ring-indigo-500/50 scale-[1.02]" : "shadow-sm"
+      className={`glass-card rounded-2xl p-4 ${
+        isDragging ? "shadow-xl ring-2 ring-indigo-300 dark:ring-indigo-500/50 scale-[1.02]" : ""
       }`}
     >
       <div className="flex items-center justify-between mb-3">
@@ -749,7 +749,7 @@ export default function SpendTrends(props: {
   return (
     <div className="px-4 pt-4 space-y-3">
       {prefsLoaded && widgets.length === 0 && (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+        <div className="glass-card rounded-2xl p-8 text-center">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             No charts yet — add one below to start visualising your spending.
           </p>
@@ -865,10 +865,10 @@ export function PinnedWidgetCard({
   };
 
   return (
-    <div className="mx-4 mb-5 lg:mx-0">
+    <div className="lg:mx-0">
       <button
         onClick={onOpen}
-        className="w-full bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-[0.99] transition-transform"
+        className="w-full glass-card rounded-2xl p-4 text-left active:scale-[0.99] transition-transform"
       >
         <div className="flex items-center justify-between mb-2.5">
           <p className="text-base font-bold text-slate-800 dark:text-slate-100">

@@ -67,7 +67,7 @@ export function DebtGrowingCard({ insights, hideNetWorth, sym, targetMonths }: {
   const maxBar = Math.max(insights.monthly_income, insights.monthly_spending);
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
+    <div className="glass-card rounded-2xl p-4 space-y-4">
       <div className="rounded-2xl p-4 text-white" style={{ background: "#b91c1c", boxShadow: "0 2px 12px rgba(185,28,28,0.35)" }}>
         <p className="text-base font-bold leading-tight mb-1">⚠️ Debt is Growing</p>
         <p className="text-sm opacity-85">
@@ -227,9 +227,9 @@ export default function DebtPage() {
     : (insights && insights.total_debt > 0 ? insights.total_debt / effectiveTargetMonths : 0);
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700" data-tutorial-id="tutorial-debt-header">
+      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero" data-tutorial-id="tutorial-debt-header">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 min-w-0">
             <button
@@ -287,14 +287,14 @@ export default function DebtPage() {
         {loading ? (
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : !insights ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+          <div className="glass-card rounded-2xl p-8 text-center">
             <p className="text-slate-400 dark:text-slate-500 text-sm">Could not load debt data</p>
           </div>
         ) : (
           <>
             {/* Payoff progress disclosure */}
             {hasDebt && burndown && burndown.burndown.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700/60">
+              <div className="glass-card rounded-2xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setProgressOpen(v => !v)}
@@ -344,7 +344,7 @@ export default function DebtPage() {
 
             {/* Story card */}
             {!hasDebt ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 space-y-4">
+              <div className="glass-card rounded-2xl p-4 space-y-4">
                 {insights.monthly_surplus >= 0 ? (
                   <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-2.5">
                     <span className="text-lg">✅</span>
@@ -396,7 +396,7 @@ export default function DebtPage() {
 
             {/* Debt payments this period */}
             {debtPayments.length > 0 && (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700/60">
+              <div className="glass-card rounded-2xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setDebtPaymentsOpen(v => !v)}
@@ -523,7 +523,7 @@ export function CreditCardsCard({ accounts, totalDebt, hideNetWorth, sym, onRate
     : accounts;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <button
         type="button"
         onClick={() => collapsible && setOpen(v => !v)}
