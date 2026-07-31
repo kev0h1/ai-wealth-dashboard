@@ -887,6 +887,7 @@ async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
             {"_id": uid},
             {"$set": {"_override_rebuild": datetime.now()}},
         )
+    response_cache.invalidate(uid)
     return {"ok": True}
 
 
@@ -901,6 +902,7 @@ async def clear_override(body: dict, user: dict = Depends(current_user)):
     if not date_str:
         raise HTTPException(400, "date required")
     await upcoming_overrides_col.delete_many({"uid": uid, "key": key, "date": date_str})
+    response_cache.invalidate(uid)
     return {"ok": True}
 
 
@@ -1033,6 +1035,7 @@ async def apply_rule(body: dict, user: dict = Depends(current_user)):
         {"_id": uid},
         {"$set": {"_override_rebuild": datetime.now()}},
     )
+    response_cache.invalidate(uid)
     return {"ok": True, "label": label}
 
 
@@ -1048,6 +1051,7 @@ async def clear_rule(body: dict, user: dict = Depends(current_user)):
         {"_id": uid},
         {"$set": {"_override_rebuild": datetime.now()}},
     )
+    response_cache.invalidate(uid)
     return {"ok": True}
 
 
