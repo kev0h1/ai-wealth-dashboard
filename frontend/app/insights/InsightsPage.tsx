@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, TrendingUp } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, DebtPlan, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby } from "@/lib/api";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
@@ -375,6 +377,7 @@ function WorkflowDrawer({
   onSaved: () => void;
 }) {
   useLockBodyScroll();
+  useSheetOpen();
   const titleId = useId();
   const stepLabelId = useId();
   const drawerRef = useSheetA11y<HTMLDivElement>(onClose);
@@ -417,11 +420,11 @@ function WorkflowDrawer({
             <button
               key={opt}
               onClick={() => set(s.id, opt)}
-              className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all
-                ${values[s.id] === opt
-                  ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium"
-                  : "border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-slate-700 dark:text-slate-300"
-                }`}
+              className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-[transform,background-color,color,border-color] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                values[s.id] === opt
+                  ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 font-medium"
+                  : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
+              }`}
             >
               {opt}
             </button>
@@ -441,7 +444,7 @@ function WorkflowDrawer({
           onChange={e => set(s.id, e.target.value)}
           placeholder={s.placeholder ?? ""}
           aria-labelledby={labelId}
-          className={`w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-base text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${s.type === "currency" ? "pl-8" : ""}`}
+          className={`w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-base text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${s.type === "currency" ? "pl-8" : ""}`}
         />
         {s.unit && (
           <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">{s.unit}</span>
@@ -450,14 +453,14 @@ function WorkflowDrawer({
     );
   }
 
-  return (
-    <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40" onClick={onClose}>
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="bg-white dark:bg-slate-900 rounded-t-3xl max-h-[90dvh] flex flex-col"
+        className="glass-sheet rounded-t-3xl max-h-[90dvh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Handle */}
@@ -494,7 +497,7 @@ function WorkflowDrawer({
             <>
               {/* What we already see — grounds the questions in their own data */}
               {topTrigger && (
-                <div className="mb-4 px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/25 text-[11px] text-indigo-700 dark:text-indigo-300">
+                <div className="mb-4 px-3 py-2.5 rounded-xl border border-indigo-100/80 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 text-[11px] text-indigo-700 dark:text-indigo-300">
                   We can already see <span className="font-semibold">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
                   <span className="font-semibold">{topTrigger.display_name}</span> — {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
                 </div>
@@ -527,7 +530,7 @@ function WorkflowDrawer({
         {/* Navigation — fixed outside scroll area so always visible */}
         {!done && (
           <div
-            className="flex-shrink-0 px-5 pt-3 pb-6 border-t border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-900"
+            className="flex-shrink-0 px-5 pt-3 pb-6 border-t border-slate-100 dark:border-slate-700/50"
             style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom, 24px))" }}
           >
             <div className="flex gap-3">
@@ -569,7 +572,8 @@ function WorkflowDrawer({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

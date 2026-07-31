@@ -8,7 +8,9 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
 import { api } from "@/lib/api";
+import { createPortal } from "react-dom";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 
 interface Rule {
@@ -190,6 +192,8 @@ function ColourDot({ cat, colour, onChange, onReset, isModified }: {
 
 export default function CategoryManagerSheet({ onClose }: { onClose: () => void }) {
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   // Upcoming-payments forecasting config (lives here with the other
   // category/rule controls; the forecaster reads it from preferences)
   const RECURRING_CATEGORY_OPTIONS = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt", "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping", "Travel", "Beauty", "Charity", "Other"];
@@ -219,6 +223,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
   const [dismissedOpen, setDismissedOpen] = useState(false);
 
   useLockBodyScroll();
+  useSheetOpen();
   const { colours, setColour, resetColour, resetAllColours } = useColours();
   const [confirmReset, setConfirmReset] = useState(false);
   const { customCategories, addCategory, deleteCategory } = useCategories();
@@ -289,7 +294,9 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
     }
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       <div className="fixed inset-0 bg-black/40 z-[65]" onClick={onClose} />
       <div
@@ -591,6 +598,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
 
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

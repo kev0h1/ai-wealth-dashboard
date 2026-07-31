@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X, Search, ChevronRight, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 
 interface Bank {
   id: string;
@@ -19,6 +21,7 @@ interface BankPickerSheetProps {
 
 export default function BankPickerSheet({ onClose, onConnecting }: BankPickerSheetProps) {
   useLockBodyScroll();
+  useSheetOpen();
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -76,7 +79,7 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
     }
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div
@@ -183,6 +186,7 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

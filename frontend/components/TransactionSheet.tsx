@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "lucide-react";
 import { Transaction, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import { BankBadge, BANK_META } from "@/components/AccountMiniCard";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
@@ -30,6 +32,9 @@ export default function TransactionSheet({
   account,
 }: TransactionSheetProps) {
   useLockBodyScroll();
+  useSheetOpen();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [category, setCategory] = useState(transaction.category ?? "Other");
   const [scope, setScope] = useState<Scope>("single");
   const [similar, setSimilar] = useState<Transaction[] | null>(null);
@@ -129,7 +134,9 @@ export default function TransactionSheet({
 
   const allChecked = similar !== null && similar.length > 0 && selected.size === similar.length;
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
@@ -339,6 +346,7 @@ export default function TransactionSheet({
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

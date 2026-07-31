@@ -168,6 +168,11 @@ Flat plus one soft shadow. Light mode separates cards from the canvas with a sin
 ### Named Rules
 **The One Shadow Rule.** Resting cards get `shadow-sm` or nothing. If a design needs a heavier shadow to feel separated, fix the tone contrast instead.
 
+### Liquid Glass surfaces
+Four glass tiers, implemented in `frontend/app/globals.css`: `.glass-hero` (screen anchor), `.glass-card` (standard panel), `.glass-tile` (nested stat — translucent fill only), `.glass-sheet` (bottom sheets and modals — solid, no blur). Blur lives on the page layer (`#app-shell.sheet-open`) not the sheet. Every other tier flattens to solid surfaces under `prefers-reduced-transparency` or when `backdrop-filter` is unsupported.
+
+**The Glass Sheet.** When a sheet or modal opens, the page behind it blurs (8px + slight dim) — the world becomes atmosphere. The sheet itself is a SOLID surface (white / #0f172a) with a top hairline: paper floating over blurred glass. Sheets never use backdrop-filter; readability is absolute. Native OS pickers never appear; selection lists render as in-sheet rows.
+
 ## 5. Components
 
 Soft, tactile, confident: generous radii, thumb-sized targets, immediate press feedback.

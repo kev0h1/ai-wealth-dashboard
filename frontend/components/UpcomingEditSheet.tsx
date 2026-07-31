@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import SegmentedControl from "@/components/SegmentedControl";
 
@@ -29,6 +30,7 @@ interface UpcomingEditSheetProps {
 
 export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }: UpcomingEditSheetProps) {
   useLockBodyScroll();
+  useSheetOpen();
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
 
   const [mounted, setMounted] = useState(false);

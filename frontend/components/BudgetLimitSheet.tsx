@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 
 interface BudgetLimitSheetProps {
@@ -27,6 +28,7 @@ export default function BudgetLimitSheet({
   onSave,
 }: BudgetLimitSheetProps) {
   useLockBodyScroll();
+  useSheetOpen();
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
 
   const [mounted, setMounted] = useState(false);

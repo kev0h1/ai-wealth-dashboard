@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
@@ -12,6 +13,7 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import TransactionRow from "@/components/TransactionRow";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
+import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 
 interface Props {
@@ -27,6 +29,9 @@ interface Props {
 
 export default function CategorySheet({ name, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro }: Props) {
   useLockBodyScroll();
+  useSheetOpen();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const colour = colours[name] ?? CATEGORY_COLOURS[name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
@@ -49,7 +54,9 @@ export default function CategorySheet({ name, total, count, transactions, onClos
     }).catch(() => {});
   }, [name]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
       <div
@@ -178,6 +185,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
           ))}
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
