@@ -61,7 +61,7 @@ export default function ThisMonthStrip() {
   return (
     <div className="px-4 lg:px-0">
       <button
-        onClick={() => router.push("/cards")}
+        onClick={() => router.push(useClosedVariant ? "/month?which=last" : "/cards")}
         className="w-full text-left rounded-2xl glass-card px-4 py-3 fade-in hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         {/* Whisper label */}

@@ -185,7 +185,7 @@ async def _maybe_bill_shortfall(user_id: str, region: str) -> None:
     cached = await cashflow_cache_col.find_one({"_id": user_id})
     if not cached:
         return
-    resp = _build_cashflow_response(cached)
+    resp = await _build_cashflow_response(cached)
     upcoming_bills = resp.get("upcoming_bills") or []
 
     at_risk = [
@@ -314,7 +314,7 @@ async def send_period_digest(user_id: str) -> None:
             if push_body and len(push_body) > 130:
                 push_body = push_body[:127] + "…"
             if push_body:
-                await send_push_to_user(user_id, push_headline, push_body, "/")
+                await send_push_to_user(user_id, push_headline, push_body, "/month/story?which=last")
             await needle_history_col.update_one(
                 {"_id": needle_id},
                 {"$set": {"pushed": True, "pushed_at": datetime.utcnow().isoformat()}},

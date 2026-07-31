@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { api, CardsStory } from "@/lib/api";
+import { goBack } from "@/lib/goBack";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
@@ -97,7 +98,7 @@ export default function CardsPage() {
         <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
           {/* Back button */}
           <button
-            onClick={() => router.back()}
+            onClick={() => goBack(router)}
             className="flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 active:opacity-70 active:scale-[0.98] transition-[transform,opacity] mb-5"
           >
             <ChevronLeft size={15} />
@@ -161,7 +162,7 @@ export default function CardsPage() {
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
           {/* Back nav */}
           <button
-            onClick={() => router.back()}
+            onClick={() => goBack(router)}
             className="flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 active:opacity-70 active:scale-[0.98] transition-[transform,opacity] mb-5"
           >
             <ChevronLeft size={15} />
@@ -198,6 +199,15 @@ export default function CardsPage() {
                 New spend {mask(fmtGBP(new_spend))} · Payments {mask(fmtGBP(payments))}
               </p>
             )}
+
+            {/* Clarifying sentence — contextualises the headline */}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 leading-snug">
+              {deltaAbs < 20
+                ? `Your balances barely moved — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                : delta >= 20
+                ? `Your balances grew by ${mask(fmtGBP(delta))} — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                : `Your balances shrank by ${mask(fmtGBP(deltaAbs))} — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`}
+            </p>
           </div>
         </div>
 

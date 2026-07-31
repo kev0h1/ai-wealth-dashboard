@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, RefreshCw, Sparkles } from "lucide-react";
 import { api, MirrorPortrait, MirrorTrait } from "@/lib/api";
+import { goBack } from "@/lib/goBack";
 import BottomNav from "@/components/BottomNav";
 
 // Kind → colour chip accent (Category Voice Rule: ~15% tint bg + full-strength icon)
@@ -158,7 +159,7 @@ export default function MirrorPage() {
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
           {/* Back nav */}
           <button
-            onClick={() => router.back()}
+            onClick={() => goBack(router)}
             className="flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-[transform,opacity] mb-5"
           >
             <ChevronLeft size={15} />
