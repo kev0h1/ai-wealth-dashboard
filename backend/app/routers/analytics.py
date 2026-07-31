@@ -446,8 +446,29 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 next_date = last_date + timedelta(days=round(avg_interval))
                 while next_date <= _today:
                     next_date += timedelta(days=round(avg_interval))
-        # Use account_id from the most recent transaction — bills reliably come from the same account
+        # Attribute the pattern to the account its transactions actually landed
+        # in: majority account across occurrences, tie-broken by recency.
+        # (Bills reliably come from one account, so majority == most-recent for
+        # them; income can wander between accounts — majority is the truth a
+        # per-account simulation may rely on.)
         most_recent = max(items, key=lambda t: t["date"])
+        _acct_counts: dict[str, int] = {}
+        for _t in items:
+            _a = str(_t.get("account_id", "") or "")
+            if _a:
+                _acct_counts[_a] = _acct_counts.get(_a, 0) + 1
+        _recent_acct = str(most_recent.get("account_id", "") or "")
+        attributed_acct = (
+            max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
+            if _acct_counts else None
+        )
+        # Amounts of the most recent (up to) 3 occurrences — used by
+        # income_credit_ok to judge whether a prediction is stable enough
+        # for per-account planning arithmetic.
+        amounts_recent = [
+            round(abs(float(_t.get("amount", 0))), 2)
+            for _t in sorted(items, key=lambda t: t["date"])[-3:]
+        ]
         results.append({
             "key":          key,
             "avg_interval": round(avg_interval, 1),
@@ -455,10 +476,42 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             "last_date":    last_date,
             "next_date":    next_date,
             "occurrences":  len(items),
-            "account_id":   str(most_recent.get("account_id", "")) or None,
+            "account_id":   attributed_acct,
+            "amounts_recent": amounts_recent,
             "category":     bucket_cat,
         })
     return results
+
+
+def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozenset = frozenset()) -> bool:
+    """Whether a predicted income may be credited to `account_id` inside a
+    PER-ACCOUNT balance simulation (cover plans, at-risk badge, source walks).
+
+    Plans promise safety, so an income only counts when BOTH hold:
+      1. Attribution — its matched history actually landed in this account
+         (majority landing account, carried on the item as `account_id`).
+         Broadcast-crediting predicted income to every account is how a
+         self-transfer that historically landed in one bank silently
+         underwrote another bank's cover plan.
+      2. Reliability — the prediction is solid: a user-confirmed income
+         stream, or 3+ occurrences with stable recent amounts
+         (max/min ≤ 1.5 over the last 3). Two-occurrence self-transfer
+         patterns ("From <own name>") fail this gate by construction.
+
+    Items from stale caches missing this metadata are excluded outright —
+    deliberately conservative: per-account arithmetic never leans on money
+    that might land elsewhere. POOLED views still count every income.
+    """
+    if not account_id or str(item.get("account_id") or "") != str(account_id):
+        return False
+    if item.get("name") in confirmed_keys:
+        return True
+    if (item.get("occurrences") or 0) < 3:
+        return False
+    amts = [float(a) for a in (item.get("amounts_recent") or []) if a and float(a) > 0]
+    if len(amts) < 2:
+        return False
+    return max(amts) / min(amts) <= 1.5
 
 
 async def _compute_cashflow_patterns(uid: str) -> dict:
@@ -496,6 +549,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
     credits = [t for t in raw if t.get("transaction_type") == "credit"
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
+    income_credits = [t for t in credits if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
@@ -511,7 +565,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
 
     recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
-    recurring_income = _detect_recurring(credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
+    recurring_income = _detect_recurring(income_credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
 
     heuristic_keys = {r["key"] for r in recurring_spend}
@@ -572,7 +626,10 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
 
     return {
         "recurring_spend":  [_serialise_pattern(r) for r in recurring_spend],
-        "recurring_income": [{"key": r["key"], "avg_amount": r["avg_amount"], "avg_interval": r.get("avg_interval"), "next_date": r["next_date"].isoformat(), "category": r.get("category")} for r in recurring_income],
+        "recurring_income": [
+            {**_serialise_pattern(r), "occurrences": r.get("occurrences"), "amounts_recent": r.get("amounts_recent")}
+            for r in recurring_income
+        ],
         "avg_daily_spend":  round(avg_daily_spend, 2),
         "available_balance": available_balance,
     }
@@ -680,30 +737,26 @@ async def at_risk_count(user: dict = Depends(current_user)):
             running[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
 
     # Merge bills and income into a single timeline, sorted by days_away.
-    # Income carries no account_id in the current schema, so credit it to every
-    # account proportionally would be wrong — instead we credit the shared pot for
-    # each account that has the same account_id as the income occurrence (unknown
-    # here, so income without an account_id is applied to "__unknown__" only).
+    # Income is credited ONLY to the account its history actually landed in,
+    # and only when the prediction is reliable — see income_credit_ok.
+    _confirmed_keys = {
+        s.get("key") for s in (_user_prefs.get("income_streams") or [])
+        if s.get("status") == "confirmed"
+    }
     events: list[tuple[int, str, float, bool]] = []  # (days_away, acct_id, amount, is_income)
     for b in assessable_bills:
         events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False))
     for i in window_income:
-        # income_patterns don't carry account_id; broadcast credit to all seeded accounts
-        for acct in list(running.keys()):
+        acct = str(i.get("account_id") or "")
+        if acct in running and income_credit_ok(i, acct, _confirmed_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True))
 
     events.sort(key=lambda e: (e[0], 0 if e[3] else 1))  # income before bills on the same day
 
     at_risk = 0
-    # Track which (days_away, acct) bills we've already assessed so that
-    # broadcast income isn't double-applied when multiple bills share one account.
-    processed_income: set[tuple[int, str]] = set()
     for days_away, acct, amount, is_income in events:
         if is_income:
-            key = (days_away, acct)
-            if key not in processed_income:
-                running[acct] = running.get(acct, 0.0) + amount
-                processed_income.add(key)
+            running[acct] = running.get(acct, 0.0) + amount
         else:
             bal = running.get(acct, 0.0)
             if bal >= amount:
@@ -1214,6 +1267,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "category":      r.get("category"),
                 "edited":        edited,
                 "rule_label":    rules.get(r["key"], {}).get("label"),
+                "account_id":      r.get("account_id"),
+                "account_name":    r.get("account_name"),
+                "account_bank":    _bank_label(r.get("account_bank")),
+                "account_balance": r.get("account_balance"),
+                "occurrences":     r.get("occurrences"),
+                "amounts_recent":  r.get("amounts_recent"),
             })
     upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
 

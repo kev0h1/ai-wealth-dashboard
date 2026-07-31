@@ -254,9 +254,21 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
                   );
                 })()}
 
+                {/* Source-safety guarantee — rendered only when every source leg passed the min-running check */}
+                {moveItem.sources_safe && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">
+                    Every account above still covers its own bills this window.
+                  </p>
+                )}
+
                 {/* d) Residual line */}
                 {moveItem.residual && (
                   <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">{maskAmounts(moveItem.residual)}</p>
+                )}
+
+                {/* e) Excluded-income honesty note */}
+                {moveItem.income_note && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">{maskAmounts(moveItem.income_note)}</p>
                 )}
               </>
             ) : (

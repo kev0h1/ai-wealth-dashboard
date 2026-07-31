@@ -247,8 +247,11 @@ export type CompanionItem = {
   moves?: PlanMove[];
   summary?: string;
   residual?: string;
+  income_note?: string;
+  assumed_incomes?: { name: string; amount: number; expected_date: string }[];
   plan_dest?: PlanDest;
   covered?: boolean;
+  sources_safe?: boolean;
   amount?: number;
 };
 

@@ -22,7 +22,7 @@ from app.db.collections import (
 )
 
 log = logging.getLogger(__name__)
-from app.routers.analytics import _build_cashflow_response
+from app.routers.analytics import _build_cashflow_response, income_credit_ok
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -93,6 +93,10 @@ async def compute_today_items(uid: str) -> list[dict]:
         return []
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    confirmed_income_keys = {
+        s.get("key") for s in (prefs.get("income_streams") or [])
+        if s.get("status") == "confirmed"
+    }
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
     # ── 2. Determine pay window ─────────────────────────────────────────────
@@ -145,12 +149,20 @@ async def compute_today_items(uid: str) -> list[dict]:
         if acct not in running:
             running[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
 
+    # Income is credited ONLY to the account its history actually landed in,
+    # and only when the prediction is reliable (income_credit_ok) — a cover
+    # plan's arithmetic must never lean on money that might land elsewhere.
+    # credited_incomes records what each account's walk actually assumed, so
+    # plans can disclose it (assumed_incomes) and note what they excluded.
     events: list[tuple[int, str, float, bool, dict]] = []
+    credited_incomes: dict[str, list[dict]] = {}
     for b in assessable_bills:
         events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, b))
     for i in window_income:
-        for acct in list(running.keys()):
+        acct = str(i.get("account_id") or "")
+        if acct in running and income_credit_ok(i, acct, confirmed_income_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
+            credited_incomes.setdefault(acct, []).append(i)
 
     events.sort(key=lambda e: (e[0], 0 if e[3] else 1))
 
@@ -158,14 +170,10 @@ async def compute_today_items(uid: str) -> list[dict]:
     min_running: dict[str, float] = {k: v for k, v in running.items()}
     # Track the first bill that caused a shortfall per account
     shortfall_bill: dict[str, dict] = {}
-    processed_income: set[tuple[int, str]] = set()
 
     for days_away, acct, amount, is_income, item in events:
         if is_income:
-            key = (days_away, acct)
-            if key not in processed_income:
-                running[acct] = running.get(acct, 0.0) + amount
-                processed_income.add(key)
+            running[acct] = running.get(acct, 0.0) + amount
         else:
             bal = running.get(acct, 0.0)
             if bal >= amount:
@@ -213,15 +221,44 @@ async def compute_today_items(uid: str) -> list[dict]:
         shortfalls.append((bill["days_away"], abs(min_bal), dest_acct, bill))
     shortfalls.sort(key=lambda t: (t[0], -t[1]))  # most urgent, then largest
 
-    # Step 2: Track remaining source capacity across successive moves
+    # Step 2: Track remaining source capacity across successive moves.
+    # SOURCE SAFETY — capacity is min-running-based, not sum-based: simulate the
+    # source's OWN full window (its bills debited on their days, its
+    # own-attributed incomes credited on theirs). A contribution debited at
+    # day 0 shifts the whole trajectory down linearly, so the max safe
+    # contribution that keeps the source's running minimum ≥ £10 is
+    # (min_running − 10); the £10 buffer is applied at candidate-build time,
+    # for current and savings sources alike. Incomes are credited only when
+    # attributed to this source AND reliable (income_credit_ok) — a source's
+    # contribution never leans on money that might land elsewhere.
+    def _source_min_running(sid: str, start_balance: float) -> float:
+        ev: list[tuple[int, float]] = [
+            (b["days_away"], -float(b["amount"]))
+            for b in assessable_bills
+            if (b["account_id"] or "__unknown__") == sid
+        ]
+        ev += [
+            (i["days_away"], float(i["amount"]))
+            for i in window_income
+            if income_credit_ok(i, sid, confirmed_income_keys)
+        ]
+        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+        run = start_balance
+        mn = run
+        for _d, delta in ev:
+            run += delta
+            mn = min(mn, run)
+        return mn
+
     source_capacity: dict[str, float] = {}
+    source_min_run: dict[str, float] = {}
     for acc in all_uk_accounts:
         sid = acc["_str_id"]
         bal = live_balances.get(sid, float(acc.get("balance") or 0))
-        if _is_current(acc):
-            source_capacity[sid] = bal - acct_bills_total.get(sid, 0.0)
-        elif _is_savings(acc):
-            source_capacity[sid] = bal
+        if _is_current(acc) or _is_savings(acc):
+            mn = _source_min_running(sid, bal)
+            source_min_run[sid] = mn
+            source_capacity[sid] = mn
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
@@ -252,7 +289,9 @@ async def compute_today_items(uid: str) -> list[dict]:
         # Fan-in destination summary: ALL of this account's in-window bills that land
         # before its first income event (income sorts before bills on the same day,
         # so a bill on the income day is excluded — income covers it).
-        first_income_day = min((i["days_away"] for i in window_income), default=None)
+        first_income_day = min(
+            (i["days_away"] for i in credited_incomes.get(dest_acct, [])), default=None
+        )
         dest_bills = sorted(
             (
                 b for b in assessable_bills
@@ -317,7 +356,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             if sid == dest_acct:
                 continue
             if _is_savings(acc):
-                headroom = source_capacity.get(sid, 0.0)
+                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
                 if headroom >= 5:
                     candidate_sources.append(("savings", sid, acc, headroom))
 
@@ -372,6 +411,71 @@ async def compute_today_items(uid: str) -> list[dict]:
                 "bill_weekday": bill_weekday,
                 "shortfall": shortfall,
             })
+
+    # SOURCE SAFETY guarantee: with each source's TOTAL contribution debited at
+    # day 0, its own running balance must stay ≥ £10 through the full window.
+    # The trajectory shifts down linearly, so min_after = min_running − total.
+    contrib_by_source: dict[str, float] = {}
+    for leg in covered:
+        _src = leg["move_map"]["from"]["account_id"]
+        contrib_by_source[_src] = contrib_by_source.get(_src, 0.0) + float(leg["amount"])
+    sources_safe = bool(covered) and all(
+        source_min_run.get(_src, 0.0) - _total_c >= 10 - 1e-6
+        for _src, _total_c in contrib_by_source.items()
+    )
+
+    # Excluded-income honesty: if a predicted income was kept OUT of a
+    # shortfall destination's arithmetic (wrong landing account or too shaky
+    # to plan around), and crediting it would have raised that account's
+    # window minimum, say so calmly — the plan stands without it.
+    _credited_ids = {id(i) for lst in credited_incomes.values() for i in lst}
+    _excluded_incomes = [i for i in window_income if id(i) not in _credited_ids]
+
+    def _walk_min(dest: str, extra_income: dict | None = None) -> float:
+        ev = [
+            (b["days_away"], -float(b["amount"]))
+            for b in assessable_bills
+            if (b["account_id"] or "__unknown__") == dest
+        ]
+        ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
+        if extra_income is not None:
+            ev.append((extra_income["days_away"], float(extra_income["amount"])))
+        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+        run = live_balances.get(dest, 0.0)
+        mn = run
+        for _d, _delta in ev:
+            run += _delta
+            mn = min(mn, run)
+        return mn
+
+    income_note: str | None = None
+    _note_candidates: list[tuple[float, dict, str]] = []  # (amount, income, dest_name)
+    for _da, _sa, _dest, _bill in shortfalls:
+        _base_min = _walk_min(_dest)
+        for _inc in _excluded_incomes:
+            if _walk_min(_dest, _inc) > _base_min + 0.5:
+                _dn = next(
+                    (a.get("name", _dest) for a in all_uk_accounts if a["_str_id"] == _dest), _dest
+                )
+                _note_candidates.append((float(_inc["amount"]), _inc, _dn))
+    if _note_candidates:
+        _amt, _inc, _dest_nm = max(_note_candidates, key=lambda t: t[0])
+        _when = date.fromisoformat(_inc["expected_date"]).strftime("%-d %b")
+        _landing = " ".join(
+            x for x in [_inc.get("account_bank"), _inc.get("account_name")] if x
+        ).strip()
+        if str(_inc.get("account_id") or "") and _landing:
+            income_note = (
+                f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
+                f"around {_when} — it has landed in {_landing}, not {_dest_nm.strip()}. "
+                f"If it does arrive, you'll simply need less."
+            )
+        else:
+            income_note = (
+                f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
+                f"around {_when} — it hasn't been steady enough to plan around. "
+                f"If it lands, you'll simply need less."
+            )
 
     # Step 4: Residual honesty — replicate pooled verdict maths
     def _sts_is_savings(acc):
@@ -480,6 +584,12 @@ async def compute_today_items(uid: str) -> list[dict]:
                 item_doc["plan_dest"] = dest_summaries[dest_acct]
                 item_doc["covered"] = partially_covered_gap <= 0.5
                 item_doc["amount"] = m["amount"]
+                item_doc["sources_safe"] = sources_safe
+                item_doc["assumed_incomes"] = [
+                    {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
+                    for i in credited_incomes.get(dest_acct, [])
+                ]
+                item_doc["income_note"] = income_note
                 await companion_items_col.update_one(
                     {"_id": item_id, "uid": uid},
                     {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
@@ -499,6 +609,10 @@ async def compute_today_items(uid: str) -> list[dict]:
                 emit["plan_dest"] = dest_summaries[dest_acct]
                 emit["covered"] = partially_covered_gap <= 0.5
                 emit["amount"] = m["amount"]
+                emit["sources_safe"] = sources_safe
+                emit["assumed_incomes"] = item_doc["assumed_incomes"]
+                if income_note is not None:
+                    emit["income_note"] = income_note
                 items.append(emit)
 
     elif n_covered >= 2:
@@ -532,6 +646,14 @@ async def compute_today_items(uid: str) -> list[dict]:
                     item_doc["residual"] = residual
                 item_doc["plan_dest"] = dest_summaries[covered[0]["dest_acct"]]
                 item_doc["covered"] = fully_covered
+                item_doc["sources_safe"] = sources_safe
+                _plan_dests = sorted({m["dest_acct"] for m in covered})
+                item_doc["assumed_incomes"] = [
+                    {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
+                    for d in _plan_dests
+                    for i in credited_incomes.get(d, [])
+                ]
+                item_doc["income_note"] = income_note
                 await companion_items_col.update_one(
                     {"_id": item_id, "uid": uid},
                     {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
@@ -551,6 +673,10 @@ async def compute_today_items(uid: str) -> list[dict]:
                     emit["residual"] = residual
                 emit["plan_dest"] = dest_summaries[covered[0]["dest_acct"]]
                 emit["covered"] = fully_covered
+                emit["sources_safe"] = sources_safe
+                emit["assumed_incomes"] = item_doc["assumed_incomes"]
+                if income_note is not None:
+                    emit["income_note"] = income_note
                 items.append(emit)
 
     # Uncovered shortfalls: emit "no easy cover" variant, capped so len(items) < 2
