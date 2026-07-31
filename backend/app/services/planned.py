@@ -80,9 +80,15 @@ async def settle_planned_expenses(uid: str) -> bool:
         for col in (transactions_col, yapily_transactions_col):
             txns = await col.find(
                 txn_query,
-                {"_id": 1, "amount": 1, "date": 1},
+                {"_id": 1, "amount": 1, "date": 1, "category": 1, "custom_category": 1},
             ).to_list(None)
             candidates.extend(txns)
+
+        # A Transfer is the user's own money moving — it can never settle a planned expense.
+        candidates = [
+            t for t in candidates
+            if (t.get("custom_category") or t.get("category")) != "Transfer"
+        ]
 
         # Filter by amount tolerance and exclude already-claimed txns
         eligible = []
