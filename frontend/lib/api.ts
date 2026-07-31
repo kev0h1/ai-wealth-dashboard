@@ -202,6 +202,35 @@ export type CompanionAction = {
   route: string;
 };
 
+export type MoveMapAccount = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+};
+
+export type MoveMap = {
+  from: MoveMapAccount & { safe_note: string };
+  to: MoveMapAccount & { incoming: string };
+};
+
+export type PlanMove = {
+  headline: string;
+  amount?: number;
+  move_map: MoveMap;
+};
+
+export type PlanDestBill = { label: string; amount: number };
+export type PlanDest = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+  needs_total: number;
+  needs_by: string;
+  bills: PlanDestBill[];
+};
+
 export type CompanionItem = {
   id: string;
   type: "move" | "rhythm" | "celebration" | "info" | "needle";
@@ -209,6 +238,13 @@ export type CompanionItem = {
   body: string;
   action: CompanionAction | null;
   estimated: boolean;
+  move_map?: MoveMap;
+  moves?: PlanMove[];
+  summary?: string;
+  residual?: string;
+  plan_dest?: PlanDest;
+  covered?: boolean;
+  amount?: number;
 };
 
 export type TodayResponse = {
@@ -458,6 +494,67 @@ export type CardsStory = {
   pattern_line: string | null;
   trajectory: { period_end: string; delta: number }[];
 };
+
+export interface CycleStoryPeriod {
+  start: string;
+  end: string;
+  closed: boolean;
+  days_elapsed: number;
+  days_to_payday: number;
+}
+
+export interface CycleStoryChapters {
+  opening: { income_in: number; count: number };
+  cliff: { week1_spend: number; period_spend: number; week1_pct: number; commitments: { payee: string; total: number }[] } | null;
+  switch?: { week1_card_pct: number; rest_card_pct: number; switch_day: string | null } | null;
+  spending?: {
+    total_spend: number;
+    income_in: number;
+    top_categories: { category: string; total: number }[];
+  };
+  cards?: {
+    present: boolean;
+    material: boolean;
+    new_spend: number;
+    payments: number;
+    delta: number;
+    share_of_spend: number;
+  };
+  moves: Record<"card_feeding" | "ritual_saving" | "deliberate_saving" | "buffer_draws" | "other_shuffles", { count: number; total: number }>;
+  keeping: { set_aside: number; drawn_back: number; external: number; kept: number };
+  close: { month_end_cash: number; card_delta: number; streak_weeks: number | null } | null;
+  self_facts: { traits: { id: string; title: string; choice: string | null }[]; fired: Record<string, boolean> };
+}
+
+export interface CycleStoryNarrative {
+  opening: string;
+  month: string;
+  moves: string;
+  keeping: string;
+  close: string;
+  self: string;
+  source: string;
+}
+
+export interface CycleStoryTomorrow {
+  push_title: string;
+  push_body: string;
+  brief_headline: string;
+  brief_body: string;
+}
+
+export interface CycleStory {
+  status: "ok" | "no_data";
+  early_days?: boolean;
+  period?: CycleStoryPeriod;
+  chapters?: CycleStoryChapters;
+  narrative?: CycleStoryNarrative;
+  cards_link?: boolean;
+  tomorrow?: CycleStoryTomorrow;
+  is_preview?: boolean;
+  persona?: string;
+  is_demo?: boolean;
+}
 
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
@@ -1050,7 +1147,13 @@ export const api = {
 
   getToday: () => get<TodayResponse>("/today"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
-  getCardsStory: () => get<CardsStory>("/cards/story"),
+  getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
+  getCycleStory: (which: "current" | "last", preview?: boolean, persona?: string) =>
+    get<CycleStory>(
+      persona
+        ? `/cycle/story?which=${which}&persona=${encodeURIComponent(persona)}`
+        : `/cycle/story?which=${which}${preview ? "&preview_close=1" : ""}`
+    ),
 
   dismissTodayItem: (item_id: string) =>
     post<{ ok: boolean }>("/today/dismiss", { item_id }),

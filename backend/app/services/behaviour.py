@@ -83,6 +83,84 @@ async def _llm_narrate(trait_id: str, title: str, evidence: list[str], fallback:
     return fallback
 
 
+def savings_account_ids(raw_accounts: list) -> set:
+    """Return set of account_ids where subtype is a savings variant."""
+    return {
+        str(a.get("account_id") or a.get("id") or a.get("_id"))
+        for a in raw_accounts
+        if (a.get("account_subtype") or a.get("subtype") or "").lower() in
+           ("savings", "isa", "cash isa", "stocks isa")
+    }
+
+
+def _date_to_ord(date_str: str) -> int:
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").toordinal()
+    except Exception:
+        return 0
+
+
+def _t1_is_external(t1: dict, all_credits: list) -> bool:
+    t1_ord = _date_to_ord(t1["date"])
+    t1_amt = abs(t1["amount"])
+    for t2 in all_credits:
+        if abs(abs(t2["amount"]) - t1_amt) <= 0.02 and abs(_date_to_ord(t2["date"]) - t1_ord) <= 2:
+            return False
+    return True
+
+
+def classify_saving_flow(txns: list, saving_acc_ids: set) -> dict:
+    """Classify transactions into saving-flow buckets.
+
+    Returns:
+        type1             — Savings-category debits on non-savings accounts
+        type2             — Credits on savings accounts not matched to type1
+        withdrawals       — Debits on savings accounts
+        external_type1    — type1 debits with no matching savings-account credit
+        all_savings_credits — All credits received by savings accounts (pre-dedupe)
+    """
+    # Type 1: Savings-category debits on current/non-savings accounts
+    type1 = [
+        t for t in txns
+        if t["category"] == "Savings"
+        and t["is_debit"]
+        and t["account_id"] not in saving_acc_ids
+    ]
+
+    all_savings_credits: list = []
+    type2: list = []
+    for t in txns:
+        if t["account_id"] not in saving_acc_ids:
+            continue
+        if t["is_debit"]:
+            continue
+        all_savings_credits.append(t)
+        t_ord = _date_to_ord(t["date"])
+        t_amt = abs(t["amount"])
+        matched = any(
+            abs(abs(t1["amount"]) - t_amt) <= 0.02
+            and abs(_date_to_ord(t1["date"]) - t_ord) <= 2
+            for t1 in type1
+        )
+        if not matched:
+            type2.append(t)
+
+    withdrawals = [
+        t for t in txns
+        if t["account_id"] in saving_acc_ids and t["is_debit"]
+    ]
+
+    external_t1 = [t for t in type1 if _t1_is_external(t, all_savings_credits)]
+
+    return {
+        "type1": type1,
+        "type2": type2,
+        "withdrawals": withdrawals,
+        "external_type1": external_t1,
+        "all_savings_credits": all_savings_credits,
+    }
+
+
 async def compute_portrait(uid: str) -> dict:
     """
     Compute the behavioural portrait for a user over ~180 days.
@@ -256,68 +334,16 @@ async def compute_portrait(uid: str) -> dict:
     # We never count DEBITS on savings accounts — those are withdrawals, the
     # opposite of saving.
 
-    saving_acc_ids = {
-        str(a.get("account_id") or a.get("id") or a.get("_id"))
-        for a in raw_accounts
-        if (a.get("account_subtype") or a.get("subtype") or "").lower() in
-           ("savings", "isa", "cash isa", "stocks isa")
-    }
+    saving_acc_ids = savings_account_ids(raw_accounts)
+    flow = classify_saving_flow(txns, saving_acc_ids)
+    saving_type1 = flow["type1"]
+    saving_type2 = flow["type2"]
+    saving_withdrawals = flow["withdrawals"]
+    all_savings_credits = flow["all_savings_credits"]
+    external_type1 = flow["external_type1"]
 
-    # Type 1: Savings-category debits on current/non-savings accounts
-    saving_type1 = [
-        t for t in txns
-        if t["category"] == "Savings"
-        and t["is_debit"]
-        and t["account_id"] not in saving_acc_ids
-    ]
-
-    # Type 2: Credits received by savings-subtype accounts, deduped against type-1
-    def _date_to_ord(date_str: str) -> int:
-        try:
-            return datetime.strptime(date_str, "%Y-%m-%d").toordinal()
-        except Exception:
-            return 0
-
-    all_savings_credits = []
-    saving_type2 = []
-    for t in txns:
-        if t["account_id"] not in saving_acc_ids:
-            continue
-        if t["is_debit"]:
-            # Debit on savings account = withdrawal — never count as saving
-            continue
-        # Collect ALL credits on savings accounts (before dedupe) for external-check
-        all_savings_credits.append(t)
-        # Credit on savings account — include in type-2 only if no matching type-1 exists
-        t_ord = _date_to_ord(t["date"])
-        t_amt = abs(t["amount"])
-        matched = any(
-            abs(abs(t1["amount"]) - t_amt) <= 0.02
-            and abs(_date_to_ord(t1["date"]) - t_ord) <= 2
-            for t1 in saving_type1
-        )
-        if not matched:
-            saving_type2.append(t)
-
-    # Debits on savings accounts = withdrawals excluded from saving total
-    saving_withdrawals = [
-        t for t in txns
-        if t["account_id"] in saving_acc_ids
-        and t["is_debit"]
-    ]
     outflow = round(sum(abs(t["amount"]) for t in saving_withdrawals), 2)
-
     saving_list = saving_type1 + saving_type2
-
-    def _t1_is_external(t1, all_credits):
-        t1_ord = _date_to_ord(t1["date"])
-        t1_amt = abs(t1["amount"])
-        for t2 in all_credits:
-            if abs(abs(t2["amount"]) - t1_amt) <= 0.02 and abs(_date_to_ord(t2["date"]) - t1_ord) <= 2:
-                return False
-        return True
-
-    external_type1 = [t for t in saving_type1 if _t1_is_external(t, all_savings_credits)]
     external_setaside = round(sum(abs(t["amount"]) for t in external_type1), 2)
 
     if saving_list:

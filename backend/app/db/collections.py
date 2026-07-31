@@ -102,5 +102,8 @@ behaviour_portrait_col  = db["behaviour_portraits"]
 # Month-close needle history
 needle_history_col      = db["needle_history"]
 
+# Cycle (pay-period) story cache
+cycle_story_col         = db["cycle_stories"]
+
 # Companion spine — today-engine items + dismissals
 companion_items_col     = db["companion_items"]

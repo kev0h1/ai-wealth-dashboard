@@ -380,3 +380,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
   .dark .penny-fab-disc { background: #1e293b; }
 }
+
+/* ── Story slide transition ──────────────────────────────────────────────── */
+@keyframes storySlideIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+.story-slide-in { animation: storySlideIn 200ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .story-slide-in { animation: none; } }
