@@ -3,8 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
-import type { CompanionItem, SafeToSpend } from "@/lib/api";
+import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
+import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 
 interface HomeBriefProps {
   items: CompanionItem[];
@@ -34,6 +35,22 @@ function SyncErrorBanner() {
       <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
     </div>
   );
+}
+
+function resolveBankChip(provider: string) {
+  const key = bankKey({ provider });
+  const meta = BANK_META[key];
+  return {
+    logoSrc: meta?.logoFile
+      ? `/banks/${meta.logoFile}`
+      : meta?.domain
+      ? `https://www.google.com/s2/favicons?domain=${meta.domain}&sz=64`
+      : null,
+    initials: meta?.initials ?? (provider || "?").slice(0, 2).toUpperCase(),
+    label: meta?.label ?? (provider || "Bank"),
+    bg: meta?.bg,
+    initialsSize: meta?.initialsSize,
+  };
 }
 
 interface BriefBodyProps {
@@ -144,10 +161,110 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
                 ✦ Penny
               </span>
             </div>
-            <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-              <strong className="text-slate-900 dark:text-slate-100 font-semibold">{moveItem.headline}.</strong>{" "}
-              {moveItem.body}
-            </p>
+            {moveItem.plan_dest ? (
+              <>
+                {/* Headline */}
+                <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+                  <strong className="text-slate-900 dark:text-slate-100 font-semibold">{moveItem.headline}.</strong>
+                </p>
+
+                {/* a) Destination tile */}
+                {(() => {
+                  const dest: PlanDest = moveItem.plan_dest!;
+                  const destChip = resolveBankChip(dest.provider);
+                  return (
+                    <div className="glass-tile rounded-xl p-3 mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <BankBadge
+                          logoSrc={destChip.logoSrc}
+                          initials={destChip.initials}
+                          initialsSize={destChip.initialsSize}
+                          altText={destChip.label}
+                          brandBg={destChip.bg}
+                        />
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1">{dest.name}</span>
+                        <span className="num text-sm font-medium text-slate-400 dark:text-slate-500 flex-shrink-0">
+                          {hideNetWorth ? "£•••• held" : `£${Math.round(dest.balance).toLocaleString("en-GB")} held`}
+                        </span>
+                      </div>
+                      <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug mt-1.5">
+                        {maskAmounts(`needs £${dest.needs_total.toLocaleString("en-GB")} by ${dest.needs_by} — ${dest.bills.map(b => `£${b.amount.toLocaleString("en-GB")} ${b.label}`).join(" + ")}`)}
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* b+c) Sources ledger tile */}
+                {(() => {
+                  type LegEntry = { provider: string; name: string; amount: number };
+                  let legs: LegEntry[];
+                  if (moveItem.moves && moveItem.moves.length > 0) {
+                    legs = moveItem.moves.map(m => ({
+                      provider: m.move_map.from.provider,
+                      name: m.move_map.from.name,
+                      amount: m.amount ?? 0,
+                    }));
+                  } else if (moveItem.move_map) {
+                    legs = [{
+                      provider: moveItem.move_map.from.provider,
+                      name: moveItem.move_map.from.name,
+                      amount: moveItem.amount ?? 0,
+                    }];
+                  } else {
+                    legs = [];
+                  }
+                  const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
+                  const dest = moveItem.plan_dest!;
+                  return (
+                    <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
+                      {legs.map((leg, idx) => {
+                        const chip = resolveBankChip(leg.provider);
+                        return (
+                          <div key={idx} className="flex items-center gap-2.5 px-3 min-h-[44px]">
+                            <BankBadge
+                              logoSrc={chip.logoSrc}
+                              initials={chip.initials}
+                              initialsSize={chip.initialsSize}
+                              altText={chip.label}
+                              brandBg={chip.bg}
+                            />
+                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1">{leg.name}</span>
+                            <span className="num text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                              {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {/* Total row */}
+                      <div className="flex items-center justify-between gap-2.5 px-3 min-h-[44px]">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          Moving <span className="num">{hideNetWorth ? "£••••" : `£${Math.round(totalAmount).toLocaleString("en-GB")}`}</span>
+                        </span>
+                        {moveItem.covered && (
+                          <span className="text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
+                            {dest.bills.length === 1
+                              ? "✓ payment clears"
+                              : dest.bills.length === 2
+                              ? "✓ both payments clear"
+                              : "✓ payments clear"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* d) Residual line */}
+                {moveItem.residual && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">{maskAmounts(moveItem.residual)}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+                <strong className="text-slate-900 dark:text-slate-100 font-semibold">{moveItem.headline}.</strong>{" "}
+                {moveItem.body}
+              </p>
+            )}
             {moveItem.action && (
               <button
                 onClick={() => router.push(moveItem.action!.route)}
