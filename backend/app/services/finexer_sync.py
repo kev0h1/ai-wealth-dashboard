@@ -13,7 +13,7 @@ from app.db.collections import (
     finexer_consents_col, finexer_customers_col,
     accounts_col, transactions_col,
 )
-from app.services.categorisation import rule_categorise
+from app.services.categorisation import rule_categorise, user_identity, is_own_transfer
 from app.services.notifications import notify_after_sync
 
 
@@ -146,6 +146,7 @@ async def _upsert_finexer_transactions(
     txns: list,
     account_id: str,
     user_id: str,
+    identity: dict | None = None,
 ) -> list:
     """Upsert transactions into unified transactions_col. Returns list of new-txn summary dicts."""
     new_txns = []
@@ -173,7 +174,15 @@ async def _upsert_finexer_transactions(
 
         is_credit = txn_type == "credit"
         if is_credit:
-            category = rule_categorise(merchant, description) or "Income"
+            # Incoming money: try user rules first, then identity corroboration.
+            # A credit whose description carries the user's OWN name is their own
+            # transfer (e.g. "From Kevin Maingi"), not income. Peer payments don't
+            # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
+            # tags) is unaffected.
+            category = rule_categorise(merchant, description) or (
+                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity)
+                else "Income"
+            )
         else:
             category = rule_categorise(merchant, description) or None
 
@@ -217,6 +226,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
     """
     all_new_txns: list = []
     fetched_account_ids: list = []
+    identity = await user_identity(user_id)
 
     async with _client() as client:
         # Verify consent status
@@ -355,7 +365,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                     logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
                     first_txn_logged = True
 
-                new = await _upsert_finexer_transactions(txns, account_id, user_id)
+                new = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
                 all_new_txns.extend(new)
 
                 paging = txn_data.get("paging") or {}

@@ -66,10 +66,17 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
         is_credit   = (txn["amount"] < 0) if is_card else (txn["amount"] > 0)
 
         if is_credit:
-            # Incoming money: try user rules first; fall back to Income.
-            # Don't trust the raw TRANSFER tag for credits — peer payments
-            # (e.g. Monzo requests) get tagged TRANSFER by TrueLayer but are Income.
-            category = rule_categorise(merchant, description) or "Income"
+            # Incoming money: try user rules first, then identity corroboration.
+            # A credit whose description carries the user's OWN name is their own
+            # transfer (e.g. "From Kevin Maingi"), not income. Peer payments don't
+            # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
+            # tags) is unaffected. Don't trust the raw TRANSFER tag for credits —
+            # peer payments (e.g. Monzo requests) get tagged TRANSFER by TrueLayer
+            # but are Income.
+            category = rule_categorise(merchant, description) or (
+                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity)
+                else "Income"
+            )
         elif raw_cat == "TRANSFER":
             # Same distrust for debits: TrueLayer tags any P2P faster payment
             # TRANSFER, including money sent to other people. Only accept it
