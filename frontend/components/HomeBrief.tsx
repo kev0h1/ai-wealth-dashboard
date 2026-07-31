@@ -151,7 +151,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
         ))}
 
         {moveItem && (
-          <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 p-4">
+          <div className="glass-card rounded-2xl p-4">
             {/* Penny gradient chip — marks this as a proactive advice surface */}
             <div className="flex items-center gap-2 mb-3">
               <span
@@ -172,6 +172,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
                 {(() => {
                   const dest: PlanDest = moveItem.plan_dest!;
                   const destChip = resolveBankChip(dest.provider);
+                  const billCount = dest.bills.length;
+                  const billWord = billCount === 1 ? "payment" : "payments";
                   return (
                     <div className="glass-tile rounded-xl p-3 mb-2">
                       <div className="flex items-center gap-2.5">
@@ -187,9 +189,24 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
                           {hideNetWorth ? "£•••• held" : `£${Math.round(dest.balance).toLocaleString("en-GB")} held`}
                         </span>
                       </div>
+                      {/* Summary line */}
                       <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug mt-1.5">
-                        {maskAmounts(`needs £${dest.needs_total.toLocaleString("en-GB")} by ${dest.needs_by} — ${dest.bills.map(b => `£${b.amount.toLocaleString("en-GB")} ${b.label}`).join(" + ")}`)}
+                        {maskAmounts(`needs £${dest.needs_total.toLocaleString("en-GB")} by ${dest.needs_by} · ${billCount} ${billWord}`)}
                       </p>
+                      {/* Bill rows — hairline separator */}
+                      <div className="border-t border-white/[0.06] dark:border-white/[0.06] mt-2 pt-2 space-y-1">
+                        {dest.bills.slice(0, 6).map((b, i) => (
+                          <div key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-[12px] text-slate-500 dark:text-slate-400 truncate">{b.label}</span>
+                            <span className="num text-[12px] text-slate-500 dark:text-slate-400 flex-shrink-0">
+                              {hideNetWorth ? "£••••" : `£${b.amount.toLocaleString("en-GB")}`}
+                            </span>
+                          </div>
+                        ))}
+                        {dest.bills.length > 6 && (
+                          <p className="text-[12px] text-slate-400 dark:text-slate-500">+{dest.bills.length - 6} more</p>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -254,22 +271,20 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
                   );
                 })()}
 
-                {/* Source-safety guarantee — rendered only when every source leg passed the min-running check */}
-                {moveItem.sources_safe && (
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">
-                    Every account above still covers its own bills this window.
-                  </p>
-                )}
-
-                {/* d) Residual line */}
-                {moveItem.residual && (
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">{maskAmounts(moveItem.residual)}</p>
-                )}
-
-                {/* e) Excluded-income honesty note */}
-                {moveItem.income_note && (
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">{maskAmounts(moveItem.income_note)}</p>
-                )}
+                {/* Footer — guarantee line + residual, each on its own line */}
+                <div className="mt-3 space-y-1.5">
+                  {moveItem.sources_safe && (
+                    <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
+                      Every account above still covers its own bills this window.
+                    </p>
+                  )}
+                  {moveItem.residual && (
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(moveItem.residual)}</p>
+                  )}
+                  {moveItem.income_note && (
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(moveItem.income_note)}</p>
+                  )}
+                </div>
               </>
             ) : (
               <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">

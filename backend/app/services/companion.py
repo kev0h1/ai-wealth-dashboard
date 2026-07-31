@@ -32,17 +32,75 @@ def _weekday_name(d: date) -> str:
     return _WEEKDAYS[d.weekday()]
 
 
-def _humanise_bill_name(name: str) -> str:
-    """Human-friendly bill name for display: strip long references.
+# Industry display aliases (applied before general cleanup)
+_BILL_ALIASES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bB/CARD\b", re.IGNORECASE), "Barclaycard"),
+    (re.compile(r"\bDDR\b", re.IGNORECASE), ""),
+    (re.compile(r"\bDD\b(?=\s|$)", re.IGNORECASE), ""),
+    (re.compile(r"\bSTO\b(?=\s|$)", re.IGNORECASE), ""),
+]
 
-    'MTG 77243755'-style mortgage references render as 'mortgage payment';
-    generically, digit-runs of 6+ chars are removed and whitespace tidied.
+
+def _humanise_bill_name(name: str) -> str:
+    """Human-friendly bill name for display.
+
+    Rules (applied in order):
+    1. MTG <digits> → "mortgage payment" (keep existing rule).
+    2. If the name is already mixed-case (has both upper and lower letters),
+       only strip card-fragment patterns and long digit runs — leave the rest.
+    3. Otherwise (bank ALL-CAPS names):
+       a. Apply industry aliases (B/CARD, DDR, DD suffix, STO suffix).
+       b. Strip digit runs of ≥4 chars.
+       c. Strip card-fragment patterns like "3766–32000" / "3766-32000".
+       d. Strip trailing account-ref tokens (1–2 char ALL-CAPS at end).
+       e. Collapse whitespace; trim dangling separators (-, /, ·, –, —, _).
+       f. Title-case remaining ALL-CAPS words (≥3 chars).
     """
     raw = (name or "").strip()
+    if not raw:
+        return "bill"
+
+    # Rule 1: mortgage shorthand
     if re.fullmatch(r"MTG[\s\-]*\d+", raw, re.IGNORECASE):
         return "mortgage payment"
-    cleaned = re.sub(r"\d{6,}", "", raw)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—_/").strip()
+
+    # Rule 2: mixed-case pass-through — only strip noise, don't recase
+    has_lower = bool(re.search(r"[a-z]", raw))
+    has_upper = bool(re.search(r"[A-Z]", raw))
+    if has_lower and has_upper:
+        # Just strip long digit runs and card-fragment patterns, tidy whitespace
+        cleaned = re.sub(r"\d{4,}", "", raw)
+        cleaned = re.sub(r"\b\d{4}[\s\-–—]\d{2,}\b", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—_/·").strip()
+        return cleaned or "bill"
+
+    # Rule 3: ALL-CAPS bank names — full normalisation pipeline
+    cleaned = raw
+
+    # 3a. Industry aliases
+    for pattern, replacement in _BILL_ALIASES:
+        cleaned = pattern.sub(replacement, cleaned)
+
+    # 3b. Strip digit runs ≥4 chars
+    cleaned = re.sub(r"\d{4,}", "", cleaned)
+
+    # 3c. Strip card-fragment patterns (e.g. "3766–32000", "3766-32000")
+    cleaned = re.sub(r"\b\d{4}[\s\-–—]\d{2,}\b", "", cleaned)
+
+    # 3d. Strip trailing 1–2 char ALL-CAPS tokens (the "VG", "D" residue)
+    cleaned = re.sub(r"\s+[A-Z]{1,2}$", "", cleaned)
+
+    # 3e. Collapse whitespace; trim dangling separators
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—_/·").strip()
+
+    # 3f. Title-case ALL-CAPS words ≥3 chars (MAN, FEE etc title-case; 1-2 char tokens
+    #     like "DD", "VG" are already stripped in step 3d before reaching here).
+    def _title_word(m: re.Match) -> str:
+        w = m.group(0)
+        return w.title() if len(w) >= 3 and w.isupper() else w
+
+    cleaned = re.sub(r"[A-Za-z]+", _title_word, cleaned)
+
     return cleaned or "bill"
 
 
