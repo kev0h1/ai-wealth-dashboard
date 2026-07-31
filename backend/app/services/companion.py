@@ -4,6 +4,7 @@ Computes up to 3 items (moves first) for a user's home screen.
 Zero LLM calls — all copy is deterministic from live data.
 Zero hardcodes — computed generically for any user.
 """
+import hashlib
 import logging
 import math
 import re
@@ -48,6 +49,17 @@ def _humanise_bill_name(name: str) -> str:
 def _ceil5(amount: float) -> int:
     """Round up to nearest £5."""
     return math.ceil(amount / 5) * 5
+
+
+def _shortfall_fingerprint(shortfall_tuples: list[tuple[str, int]]) -> str:
+    """Stable 10-char hex fingerprint over sorted (account_id, bucketed_amount) pairs.
+
+    bucketed_amount = nearest £50, preventing identity churn from £1-level drift
+    while distinct problems produce distinct ids.
+    """
+    sorted_pairs = sorted(shortfall_tuples)
+    raw = repr(sorted_pairs).encode()
+    return hashlib.sha1(raw).hexdigest()[:10]
 
 
 async def _live_balance(account_id: str) -> float | None:
@@ -413,12 +425,21 @@ async def compute_today_items(uid: str) -> list[dict]:
             f"— one payment may need a different plan."
         )
 
+    # Build per-dest bucketed amounts for fingerprinting
+    dest_bucketed: dict[str, int] = {}
+    for _da, _sa, dest_acct_fp, _bill in shortfalls:
+        _amount_needed_fp = _ceil5(abs(min_running[dest_acct_fp])) + 10
+        dest_bucketed[dest_acct_fp] = round(_amount_needed_fp / 50) * 50
+
+    plan_fp = _shortfall_fingerprint([(d, b) for d, b in dest_bucketed.items()])
+
     # Step 5: Emission
     n_covered = len(covered)
     if n_covered == 1:
         m = covered[0]
         dest_acct = m["dest_acct"]
-        item_id = f"move:{dest_acct}:{window_end.isoformat()}"
+        _move_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+        item_id = f"move:{dest_acct}:{window_end.isoformat()}:{_move_fp}"
         if item_id not in dismissed:
             existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
             if not (existing and existing.get("status") == "done"):
@@ -481,7 +502,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                 items.append(emit)
 
     elif n_covered >= 2:
-        item_id = f"plan:{window_end.isoformat()}"
+        item_id = f"plan:{window_end.isoformat()}:{plan_fp}"
         if item_id not in dismissed:
             existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
             if not (existing and existing.get("status") == "done"):
@@ -542,7 +563,8 @@ async def compute_today_items(uid: str) -> list[dict]:
         bill_name = u["bill_name"]
         bill_amount = u["bill_amount"]
         bill_weekday = u["bill_weekday"]
-        item_id = f"move:{dest_acct}:{window_end.isoformat()}"
+        _move_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+        item_id = f"move:{dest_acct}:{window_end.isoformat()}:{_move_fp}"
         if item_id in dismissed:
             continue
         existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
