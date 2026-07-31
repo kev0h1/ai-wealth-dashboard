@@ -25,6 +25,7 @@ from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
+from app.services.planned import settle_planned_expenses
 
 router = APIRouter(tags=["accounts"])
 
@@ -162,6 +163,7 @@ async def sync_all(user: dict = Depends(current_user)):
         )
         if has_new:
             await compute_and_cache_cashflow(u)
+        await settle_planned_expenses(u)
         # Categorisation/rules may have shifted things even without new txns
         response_cache.invalidate(u)
     asyncio.create_task(_post_sync(uid, total_new_txns > 0))
@@ -205,6 +207,7 @@ async def sync_history(user: dict = Depends(current_user)):
         )
         if has_new:
             await compute_and_cache_cashflow(u)
+        await settle_planned_expenses(u)
         response_cache.invalidate(u)
     asyncio.create_task(_post_sync(uid, total_new_txns > 0))
     response_cache.invalidate(uid)

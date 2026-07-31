@@ -42,11 +42,17 @@ async def _state(user_id: str) -> dict:
     return await notification_state_col.find_one({"_id": user_id}) or {}
 
 
+async def _maybe_settle_planned(user_id: str) -> None:
+    from app.services.planned import settle_planned_expenses
+    await settle_planned_expenses(user_id)
+
+
 async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
     """Run every preference-gated check after a sync brought new transactions."""
     if not user_id or user_id == "unknown":
         return
     for label, coro in (
+        ("planned_settlement", _maybe_settle_planned(user_id)),
         ("transactions", _maybe_transactions(user_id, new_txns)),
         ("budget_alerts", _maybe_budget_exceeded(user_id, region)),
         ("goal_milestones", _maybe_goal_funded(user_id, region)),

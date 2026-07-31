@@ -107,3 +107,6 @@ cycle_story_col         = db["cycle_stories"]
 
 # Companion spine — today-engine items + dismissals
 companion_items_col     = db["companion_items"]
+
+# Planned one-off expenses (user-declared future payments)
+planned_expenses_col    = db["planned_expenses"]

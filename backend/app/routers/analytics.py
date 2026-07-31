@@ -19,7 +19,7 @@ from app.db.collections import (
     statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
-    upcoming_rules_col,
+    upcoming_rules_col, planned_expenses_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
@@ -1138,6 +1138,61 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
             })
+    # ── Merge planned one-off expenses ─────────────────────────────────────────
+    if uid:
+        from bson import ObjectId as _ObjId
+
+        def _try_oid_inner(v: str):
+            try:
+                return _ObjId(v)
+            except Exception:
+                return v
+
+        planned_docs = await planned_expenses_col.find(
+            {"user_id": uid, "status": "planned"}
+        ).to_list(None)
+        for pdoc in planned_docs:
+            pdate = pdoc["date"]
+            if isinstance(pdate, datetime):
+                pdate_d = pdate.date()
+            else:
+                pdate_d = pdate
+            if not (today.date() <= pdate_d <= window_end.date()):
+                continue
+            days_away = (pdate_d - today.date()).days
+            acc_name = None
+            acc_bank = None
+            acc_balance = None
+            acc_id = pdoc.get("account_id")
+            if acc_id:
+                _acct_doc = None
+                for _col in (accounts_col, yapily_accounts_col):
+                    _acct_doc = await _col.find_one(
+                        {"_id": _try_oid_inner(acc_id)},
+                        {"name": 1, "provider": 1, "balance": 1},
+                    )
+                    if _acct_doc:
+                        break
+                if _acct_doc:
+                    acc_name = _acct_doc.get("name")
+                    acc_bank = _bank_label(_acct_doc.get("provider"))
+                    acc_balance = float(_acct_doc["balance"]) if _acct_doc.get("balance") is not None else None
+            raw_bills.append({
+                "name":            pdoc["name"],
+                "amount":          float(pdoc["amount"]),
+                "expected_date":   pdate_d.isoformat(),
+                "days_away":       days_away,
+                "account_id":      acc_id,
+                "account_name":    acc_name,
+                "account_bank":    acc_bank,
+                "account_balance": acc_balance,
+                "category":        "Planned",
+                "edited":          False,
+                "rule_label":      None,
+                "planned":         True,
+                "planned_id":      str(pdoc["_id"]),
+            })
+
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
 
     raw_income = []
@@ -1315,9 +1370,10 @@ def _parse_saving_amount(estimate: str | None) -> float:
     return round(amount / 12, 2)
 
 
-@router.get("/safe-to-spend")
-async def get_safe_to_spend(user: dict = Depends(current_user)):
-    """Headline verdict: how much can the user safely spend before their next payday?
+async def compute_safe_to_spend(uid: str) -> dict:
+    """Compute the safe-to-spend verdict for `uid` without touching the response cache.
+
+    All logic lives here; the HTTP endpoint is a thin cache wrapper around this.
 
     Algorithm (pooled):
     1. Compute next_payday from pay_period_config / confirmed income schedule.
@@ -1343,13 +1399,6 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
     from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
     from app.services.region import get_user_region as _get_region
     from bson import ObjectId
-
-    uid = user["email"]
-
-    # ── 0. Short-TTL response cache (90 s; invalidated on sync/recompute) ─────
-    _cached_resp = response_cache.get("safe_to_spend", uid)
-    if _cached_resp is not None:
-        return _cached_resp
 
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
@@ -1477,7 +1526,7 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
-    result = {
+    return {
         "status":              "ok",
         "safe_to_spend":       safe_to_spend,
         "next_payday":         next_payday.isoformat(),
@@ -1491,7 +1540,21 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
         "payday_income":       payday_income,
         "card_debt":           card_debt,
     }
-    response_cache.put("safe_to_spend", uid, result)
+
+
+@router.get("/safe-to-spend")
+async def get_safe_to_spend(user: dict = Depends(current_user)):
+    """Headline verdict: how much can the user safely spend before their next payday?"""
+    uid = user["email"]
+
+    # ── 0. Short-TTL response cache (90 s; invalidated on sync/recompute) ─────
+    _cached_resp = response_cache.get("safe_to_spend", uid)
+    if _cached_resp is not None:
+        return _cached_resp
+
+    result = await compute_safe_to_spend(uid)
+    if result.get("status") == "ok":
+        response_cache.put("safe_to_spend", uid, result)
     return result
 
 

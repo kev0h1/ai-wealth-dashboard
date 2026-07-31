@@ -72,7 +72,12 @@ export type UpcomingBill = {
   category?: string | null;
   edited?: boolean;
   rule_label?: string | null;
+  planned?: boolean;
+  planned_id?: string;
 };
+
+export type PlannedExpense = { id: string; name: string; amount: number; date: string; account_id?: string | null; created_at?: string };
+export type PlannedImpact = { safe_to_spend_before: number | null; safe_to_spend_after: number | null; state_after: "comfortable" | "tight" | "short" | null };
 
 export type IncomeSuggestion = {
   key: string;
@@ -1157,4 +1162,11 @@ export const api = {
 
   dismissTodayItem: (item_id: string) =>
     post<{ ok: boolean }>("/today/dismiss", { item_id }),
+
+  // Planned one-off expenses
+  addPlanned: (params: { name: string; amount: number; date: string; account_id?: string }) =>
+    post<{ planned: PlannedExpense; impact: PlannedImpact }>("/planned", params),
+  getPlanned: () => get<PlannedExpense[]>("/planned"),
+  deletePlanned: (id: string) =>
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ ok: boolean }>,
 };

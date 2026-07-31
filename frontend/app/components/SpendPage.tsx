@@ -33,6 +33,7 @@ import SpendTrends from "@/components/SpendTrends";
 import CustomSelect from "@/components/CustomSelect";
 import SegmentedControl from "@/components/SegmentedControl";
 import UpcomingEditSheet from "@/components/UpcomingEditSheet";
+import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 
 async function ensureAuth() {}
 
@@ -361,6 +362,7 @@ export default function SpendPage() {
   const listSectionRef = useRef<HTMLDivElement>(null);
   const [highlightBill, setHighlightBill] = useState<string | null>(null);
   const [largeOnly, setLargeOnly] = useState(false);
+  const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const [editItem, setEditItem] = useState<null | {
     name: string;
     amount: number;
@@ -916,8 +918,16 @@ export default function SpendPage() {
 
               if (rawItems.length === 0) {
                 return (
-                  <div className="glass-card rounded-2xl p-8 text-center">
-                    <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
+                  <div className="space-y-3">
+                    <div className="glass-card rounded-2xl p-8 text-center">
+                      <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
+                    </div>
+                    <button
+                      onClick={() => setPlanSheetOpen(true)}
+                      className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    >
+                      + Plan a one-off
+                    </button>
                   </div>
                 );
               }
@@ -969,9 +979,26 @@ export default function SpendPage() {
                 return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
               }
 
+              // Delete a planned expense optimistically then reconcile
+              async function handleDeletePlanned(plannedId: string) {
+                setCashflow(prev => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    upcoming_bills: prev.upcoming_bills.filter(b => b.planned_id !== plannedId),
+                  };
+                });
+                try {
+                  await api.deletePlanned(plannedId);
+                } catch { /* ignore — re-fetch regardless */ } finally {
+                  api.cashflow().then(setCashflow).catch(() => {});
+                }
+              }
+
               // Row renderer
               function renderRow(item: typeof items[0]) {
-                const flagged = item.type === "bill"
+                const isPlanned = item.type === "bill" && item.planned;
+                const flagged = !isPlanned && item.type === "bill"
                   ? atRiskBills.some(r => r.name === item.name && r.expected_date === item.expected_date)
                   : false;
                 const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
@@ -979,6 +1006,56 @@ export default function SpendPage() {
                 const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
                 const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
                 const Icon = getCategoryIcon(catName, iconOverrides);
+
+                // Planned rows: no swipe-dismiss, no UpcomingEditSheet, just a delete button
+                if (isPlanned) {
+                  return (
+                    <div
+                      key={rowKey}
+                      data-bill-key={rowKey}
+                      className={`rounded-2xl px-4 py-3 flex items-center gap-3 glass-card${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
+                    >
+                      {/* Icon chip */}
+                      <span
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: `${colour}26` }}
+                        aria-hidden="true"
+                      >
+                        <Icon size={15} style={{ color: colour }} />
+                      </span>
+
+                      {/* Name + details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className="text-sm font-medium truncate text-slate-800 dark:text-slate-100">
+                            {item.name}
+                          </p>
+                          <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">planned</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
+                      </div>
+
+                      {/* Amount + running balance */}
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-base font-bold text-slate-800 dark:text-slate-100">
+                          −{sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className={`text-[11px] font-medium ${item.balance_after >= 0 ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
+                          {item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })} left
+                        </p>
+                      </div>
+
+                      {/* Delete button */}
+                      <button
+                        aria-label={`Remove ${item.name}`}
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors flex-shrink-0"
+                        onClick={(e) => { e.stopPropagation(); handleDeletePlanned(item.planned_id!); }}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                }
 
                 return (
                   <SwipeDismissRow
@@ -1126,6 +1203,13 @@ export default function SpendPage() {
                     Based on your typical spending — last 90 days
                   </p>
 
+                  <button
+                    onClick={() => setPlanSheetOpen(true)}
+                    className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    + Plan a one-off
+                  </button>
+
                   {/* ── Upcoming items ───────────────────────────────────────── */}
                   {groups.length > 0 && (
                     <div className="space-y-3">
@@ -1270,6 +1354,15 @@ export default function SpendPage() {
               setCashflow(fresh);
             } catch {}
           }}
+        />
+      )}
+
+      {/* PlanOneOffSheet */}
+      {planSheetOpen && (
+        <PlanOneOffSheet
+          accounts={accounts}
+          onClose={() => setPlanSheetOpen(false)}
+          onSaved={() => { api.cashflow().then(setCashflow).catch(() => {}); }}
         />
       )}
 
