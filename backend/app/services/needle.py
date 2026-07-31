@@ -269,11 +269,8 @@ def _headline(delta: float, cash: float, cash_history: list[float], history_cred
     return "Your month, closed."
 
 
-async def compute_needle(uid: str, period_start: date, period_end: date) -> dict:
-    """Compute the month-close needle for a CLOSED pay period.
-
-    Returns a doc suitable for storage in needle_history_col.
-    """
+async def _compute_needle_facts(uid: str, period_start: date, period_end: date) -> dict:
+    """Compute needle facts WITHOUT writing to needle_history_col."""
     # ── Credit-card delta ────────────────────────────────────────────────────
     cc_ids = await _credit_card_account_ids(uid)
     cc_txns = await _txns_for_period(uid, period_start, period_end, cc_ids) if cc_ids else []
@@ -353,11 +350,10 @@ async def compute_needle(uid: str, period_start: date, period_end: date) -> dict
         for trait in portrait.get("traits", []):
             if trait.get("id") == "saving_habit":
                 for ev in trait.get("evidence", []):
-                    if "saving streak" in ev:
-                        try:
-                            streak_weeks = int(ev.split("-week")[0].strip())
-                        except Exception:
-                            pass
+                    m = re.search(r"(\d+)-week", ev)
+                    if m:
+                        streak_weeks = int(m.group(1))
+                        break
                 break
 
     # ── Copy lines ───────────────────────────────────────────────────────────
@@ -390,6 +386,40 @@ async def compute_needle(uid: str, period_start: date, period_end: date) -> dict
         "lines": lines,
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    return doc  # NO update_one here
+
+
+def _build_tomorrow_strings(lines: dict) -> dict:
+    """Build the push + brief copy for a needle close — reusable by preview."""
+    push_title = lines.get("headline", "Your month, closed.")
+    push_body = lines.get("movement", "")
+    if push_body and len(push_body) > 130:
+        push_body = push_body[:127] + "…"
+
+    brief_parts = []
+    if lines.get("movement"):
+        brief_parts.append(lines["movement"])
+    if lines.get("cash"):
+        brief_parts.append(lines["cash"])
+    if lines.get("streak"):
+        brief_parts.append(lines["streak"])
+    brief_body = " ".join(brief_parts)
+
+    return {
+        "push_title": push_title,
+        "push_body": push_body,
+        "brief_headline": push_title,
+        "brief_body": brief_body,
+    }
+
+
+async def compute_needle(uid: str, period_start: date, period_end: date) -> dict:
+    """Compute the month-close needle for a CLOSED pay period.
+
+    Returns a doc suitable for storage in needle_history_col.
+    """
+    doc = await _compute_needle_facts(uid, period_start, period_end)
 
     # Idempotent upsert
     await needle_history_col.update_one(
