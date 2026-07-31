@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.services import response_cache
 from app.services.companion import compute_today_items, dismiss_item
 from app.db.collections import needle_history_col, preferences_col
 from app.services.pay_period import get_pay_period_for_date
@@ -19,8 +20,14 @@ router = APIRouter(tags=["companion"])
 @router.get("/today")
 async def get_today(user: dict = Depends(current_user)):
     uid = user["email"]
+    # Short-TTL response cache (90 s; invalidated on dismiss and after sync)
+    cached = response_cache.get("today", uid)
+    if cached is not None:
+        return cached
     items = await compute_today_items(uid)
-    return {"status": "ok", "items": items}
+    payload = {"status": "ok", "items": items}
+    response_cache.put("today", uid, payload)
+    return payload
 
 
 @router.post("/today/dismiss")
@@ -31,6 +38,7 @@ async def dismiss_today_item(body: dict, user: dict = Depends(current_user)):
         from fastapi import HTTPException
         raise HTTPException(400, "item_id required")
     await dismiss_item(uid, item_id)
+    response_cache.invalidate(uid, "today")
     return {"ok": True}
 
 

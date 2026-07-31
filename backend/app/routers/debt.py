@@ -16,7 +16,7 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
-from app.services.cashflow import monthly_cashflow
+from app.services.cashflow import monthly_cashflow_cached
 
 router = APIRouter(tags=["debt"])
 
@@ -30,7 +30,7 @@ async def debt_insights(user: dict = Depends(current_user)):
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
-    cf = await monthly_cashflow(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, region, cutoff)
     monthly_income       = cf["income"]
     monthly_cat          = cf["cat"]
     monthly_essential    = cf["spending"]

@@ -42,6 +42,11 @@ export default function HomePage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [loading, setLoading] = useState(true);
+  // Per-fetch skeleton gates: the Safe-to-Spend tile and the transactions
+  // list each clear as soon as their OWN request settles — nothing waits on
+  // the heavy 90-day transactions call.
+  const [stsLoading, setStsLoading] = useState(true);
+  const [txLoading, setTxLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
@@ -55,32 +60,46 @@ export default function HomePage() {
     setLoadError(false);
     try {
       await ensureAuth();
-      const [accs, invAccs, safeData, todayData] = await Promise.allSettled([
-        api.accounts(),
-        api.getInvestmentAccounts(),
-        api.safeToSpend(),
-        api.getToday(),
-      ]);
+      // Fire the four fast calls in parallel and set each state as its own
+      // promise resolves — the Safe-to-Spend tile and brief no longer wait
+      // for siblings, and never for the heavy transactions fetch below.
+      const accsP = api.accounts();
+      const invP = api.getInvestmentAccounts();
+      const safeP = api.safeToSpend();
+      const todayP = api.getToday();
 
-      if (accs.status === "rejected") {
+      invP.then((v) => setInvestmentAccounts(v)).catch(() => {});
+      safeP
+        .then((v) => setSafeToSpend(v))
+        .catch(() => {})
+        .finally(() => setStsLoading(false));
+      todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
+
+      let loadedAccounts: Account[] = [];
+      try {
+        loadedAccounts = await accsP;
+        setAccounts(loadedAccounts);
+      } catch {
         setLoadError(true);
         return;
       }
 
-      const loadedAccounts = accs.status === "fulfilled" ? accs.value : [];
-      setAccounts(loadedAccounts);
-      if (invAccs.status === "fulfilled") setInvestmentAccounts(invAccs.value);
-      if (safeData.status === "fulfilled") setSafeToSpend(safeData.value);
-      if (todayData.status === "fulfilled") setCompanionItems(todayData.value.items);
+      // Let the remaining fast calls settle, then clear the page-level
+      // skeletons — before the transactions fetch starts blocking anything.
+      await Promise.allSettled([invP, safeP, todayP]);
+      setLoading(false);
 
       if (loadedAccounts.length > 0) {
-        // One bulk call (already server-sorted) instead of one per account
+        // One bulk call (already server-sorted) instead of one per account.
+        // Only the recent-transactions skeleton (txLoading) waits on this.
         const allTxns = await api.allTransactions(90).catch(() => [] as Transaction[]);
         setTransactions(allTxns);
       }
     } catch {}
     finally {
       setLoading(false);
+      setStsLoading(false);
+      setTxLoading(false);
     }
   }, []);
 
@@ -229,7 +248,7 @@ export default function HomePage() {
                   Couldn&apos;t load your data — check your connection.
                 </p>
                 <button
-                  onClick={() => { setLoading(true); setLoadError(false); loadData(); }}
+                  onClick={() => { setLoading(true); setStsLoading(true); setTxLoading(true); setLoadError(false); loadData(); }}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
                 >
                   Try again
@@ -245,8 +264,8 @@ export default function HomePage() {
               {(() => {
                 const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
                 const hasMoveItem = companionItems.some(i => i.type === "move");
-                if (loading || hasRealData) {
-                  return <SafeToSpendCard data={safeToSpend} loading={loading} suppressCTA={hasMoveItem} />;
+                if (stsLoading || hasRealData) {
+                  return <SafeToSpendCard data={safeToSpend} loading={stsLoading} suppressCTA={hasMoveItem} />;
                 }
                 return null;
               })()}
@@ -419,7 +438,7 @@ export default function HomePage() {
               </button>
             </div>
             <div className="glass-card rounded-2xl overflow-hidden lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
-              {loading ? (
+              {txLoading ? (
                 <div className="p-4 space-y-3">
                   {[1, 2, 3, 4, 5].map((i) => (
                     <div key={i} className="flex items-center gap-3">

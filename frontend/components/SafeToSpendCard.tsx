@@ -22,8 +22,9 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
 
-  // Loading skeleton
-  if (loading) {
+  // Loading skeleton — only while this card's own data hasn't arrived yet;
+  // once data exists we render it even if a background refresh is in flight
+  if (loading && !data) {
     return (
       <div className="rounded-3xl p-5 glass-hero">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">

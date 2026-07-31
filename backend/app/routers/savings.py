@@ -11,7 +11,7 @@ from app.db.collections import (
     savings_goals_col, savings_plans_col, manual_accounts_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
-from app.services.cashflow import monthly_cashflow
+from app.services.cashflow import monthly_cashflow_cached
 
 router = APIRouter(tags=["savings"])
 
@@ -20,7 +20,7 @@ async def _cashflow(uid: str, region: str, cutoff: datetime) -> tuple[float, flo
     """(monthly_income, monthly_everyday_spending, monthly_surplus_after_debt), each a
     spike-smoothed 'typical month'. Surplus subtracts committed debt repayments so it
     reflects genuinely free cash. See app/services/cashflow.py."""
-    cf = await monthly_cashflow(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, region, cutoff)
     surplus = round(cf["income"] - cf["spending"] - cf["debt"], 2)
     return cf["income"], cf["spending"], surplus
 

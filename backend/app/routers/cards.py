@@ -7,7 +7,7 @@ pattern line from the portrait, and a trajectory of recent periods.
 Descriptive only, no advice, no judgement, no LLM calls (BEHAVIOURS.md).
 """
 from datetime import date
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import current_user
 from app.db.collections import (
@@ -17,7 +17,7 @@ from app.db.collections import (
     behaviour_portrait_col,
     account_rates_col,
 )
-from app.services.pay_period import get_pay_period_for_date
+from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.needle import (
     _credit_card_account_ids,
     _txns_for_period,
@@ -30,7 +30,13 @@ _EXCLUDE_CATEGORIES = {"Transfer", "Debt"}
 
 
 @router.get("/cards/story")
-async def cards_story(user: dict = Depends(current_user)):
+async def cards_story(
+    user: dict = Depends(current_user),
+    which: str = Query("current"),
+):
+    if which not in ("current", "last"):
+        raise HTTPException(status_code=400, detail="which must be 'current' or 'last'")
+
     uid = user["email"]
     today = date.today()
 
@@ -38,13 +44,15 @@ async def cards_story(user: dict = Depends(current_user)):
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
     start, end = get_pay_period_for_date(today, pay_cfg)
-    days_elapsed = (today - start).days + 1
+    if which == "last":
+        start, end = prev_pay_period(start, pay_cfg)
+    days_elapsed = (min(today, end) - start).days + 1
 
     # ── Credit-card account ids ───────────────────────────────────────────────
     cc_ids = await _credit_card_account_ids(uid)
 
     # ── Period transactions ───────────────────────────────────────────────────
-    txns = await _txns_for_period(uid, start, today, cc_ids) if cc_ids else []
+    txns = await _txns_for_period(uid, start, min(end, today), cc_ids) if cc_ids else []
     new_spend, payments = _abs_amounts(txns)
     delta = new_spend - payments
 

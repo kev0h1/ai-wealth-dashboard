@@ -23,6 +23,7 @@ from app.db.collections import finexer_consents_col as _finexer_consents_col
 from app.services.finexer_sync import finexer_sync_pipeline as _finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 
 router = APIRouter(tags=["accounts"])
@@ -133,6 +134,7 @@ async def sync_all(user: dict = Depends(current_user)):
             ids = await sync_mono_connection(conn["_id"], uid)
             total += len(ids)
         asyncio.create_task(apply_mirror_rules(uid))
+        response_cache.invalidate(uid)
         return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
@@ -160,7 +162,12 @@ async def sync_all(user: dict = Depends(current_user)):
         )
         if has_new:
             await compute_and_cache_cashflow(u)
+        # Categorisation/rules may have shifted things even without new txns
+        response_cache.invalidate(u)
     asyncio.create_task(_post_sync(uid, total_new_txns > 0))
+    # Balances were refreshed above — the immediate post-sync reload must not
+    # be served a pre-sync cached response
+    response_cache.invalidate(uid)
     return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
 
@@ -198,7 +205,9 @@ async def sync_history(user: dict = Depends(current_user)):
         )
         if has_new:
             await compute_and_cache_cashflow(u)
+        response_cache.invalidate(u)
     asyncio.create_task(_post_sync(uid, total_new_txns > 0))
+    response_cache.invalidate(uid)
     return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
 
 

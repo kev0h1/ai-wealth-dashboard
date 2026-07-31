@@ -23,6 +23,7 @@ from app.db.collections import (
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+from app.services import response_cache
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -587,11 +588,23 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             _ai_recurring_cache.pop(uid, None)
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
+        # Refresh the memoised monthly cash-flow alongside the patterns so
+        # per-request callers (safe-to-spend, debt, savings) read it for free.
+        try:
+            from app.services.cashflow import monthly_cashflow as _mcf
+            _region = await get_user_region(uid)
+            _cf = await _mcf(uid, _region, datetime.now() - timedelta(days=90))
+            data["monthly_cf"] = {"data": _cf, "region": _region, "computed_at": datetime.now()}
+        except Exception as _mcf_e:
+            print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         await cashflow_cache_col.update_one(
             {"_id": uid},
             {"$set": data},
             upsert=True,
         )
+        # Fresh data invalidates the short-TTL response caches (same-process
+        # only; worker-process syncs rely on the 90 s TTL as the bound).
+        response_cache.invalidate(uid)
     except Exception as e:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
 
@@ -985,8 +998,11 @@ async def clear_rule(body: dict, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
-async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict:
-    """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost."""
+async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: dict | None = None) -> dict:
+    """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost.
+
+    Pass `prefs` (the user's preferences doc) when the caller has already
+    fetched it, to avoid a duplicate find_one per request."""
     today = datetime.now()
     # 35 days covers any monthly pay period; the frontend clips to period end.
     # Weekly-ish bills repeat within the window instead of showing once.
@@ -1003,7 +1019,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None) -> dict
     # Load confirmed income schedules so _occurrences can step correctly
     confirmed_income: dict[str, dict] = {}
     if uid:
-        _prefs_doc = await preferences_col.find_one({"user_id": uid}) or {}
+        _prefs_doc = prefs if prefs is not None else (await preferences_col.find_one({"user_id": uid}) or {})
         for s in (_prefs_doc.get("income_streams") or []):
             if s.get("status") == "confirmed" and s.get("schedule"):
                 confirmed_income[s["key"]] = s
@@ -1324,11 +1340,16 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
     from datetime import date as _date_cls, timedelta as _td
     from app.services.income import get_confirmed_payday as _gcp
     from app.services.pay_period import _next_payday as _calc_next_payday
-    from app.services.cashflow import monthly_cashflow as _monthly_cashflow
+    from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
     from app.services.region import get_user_region as _get_region
     from bson import ObjectId
 
     uid = user["email"]
+
+    # ── 0. Short-TTL response cache (90 s; invalidated on sync/recompute) ─────
+    _cached_resp = response_cache.get("safe_to_spend", uid)
+    if _cached_resp is not None:
+        return _cached_resp
 
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
@@ -1456,7 +1477,7 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
-    return {
+    result = {
         "status":              "ok",
         "safe_to_spend":       safe_to_spend,
         "next_payday":         next_payday.isoformat(),
@@ -1470,6 +1491,8 @@ async def get_safe_to_spend(user: dict = Depends(current_user)):
         "payday_income":       payday_income,
         "card_debt":           card_debt,
     }
+    response_cache.put("safe_to_spend", uid, result)
+    return result
 
 
 @router.get("/value-delivered")
