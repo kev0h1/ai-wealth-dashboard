@@ -105,43 +105,22 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
           </div>
         )}
 
-        {/* Needle item — the month-close reward */}
-        {needleItem && (() => {
-          // card_delta < 0 means cards shrank → earns emerald accent on movement line
-          // The field _card_delta is extra metadata; absent means neutral
-          const cardDelta = (needleItem as any)._card_delta ?? 0;
-          const cardsShrankOrSteady = cardDelta <= 0;
-          // Split body: movement line is first sentence (ends with period), rest is cash + streak
-          const bodyParts = needleItem.body.split(". ").filter(Boolean);
-          const movementText = bodyParts[0] ? bodyParts[0] + "." : "";
-          const restText = bodyParts.slice(1).join(". ");
-          const maskedMovement = maskAmounts(movementText);
-          const maskedRest = maskAmounts(restText);
-
-          return (
-            <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 p-4">
-              <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug mb-2">
-                {needleItem.headline}
-              </p>
-              <div className="space-y-1">
-                {maskedMovement && (
-                  <p className={`text-[14px] leading-relaxed ${
-                    cardsShrankOrSteady
-                      ? "text-emerald-700 dark:text-emerald-400"
-                      : "text-slate-600 dark:text-slate-400"
-                  }`}>
-                    {maskedMovement}
-                  </p>
-                )}
-                {maskedRest && (
-                  <p className="text-[14px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                    {maskedRest}
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+        {/* Needle item — invitation to review the closed month */}
+        {needleItem && (
+          <div className="glass-card rounded-2xl p-4">
+            <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">
+              {needleItem.headline}
+            </p>
+            {needleItem.action && (
+              <button
+                onClick={() => router.push(needleItem.action!.route)}
+                className="text-[14px] text-indigo-600 dark:text-indigo-400 font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+              >
+                {needleItem.action.label}
+              </button>
+            )}
+          </div>
+        )}
 
         {otherItems.map(item => (
           <p key={item.id} className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">

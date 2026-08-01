@@ -972,40 +972,20 @@ async def compute_today_items(uid: str) -> list[dict]:
         curr_start, curr_end = get_pay_period_for_date(today_d, pay_cfg)
         days_into_period = (today_d - curr_start).days  # 0 = first day of period
 
-        if 0 <= days_into_period <= 2:
+        if 0 <= days_into_period <= 1:
             # The just-closed period
             closed_start, closed_end = _prev_pay_period(curr_start, pay_cfg)
             needle_id = f"needle:{closed_end.isoformat()}"
             if needle_id not in dismissed:
-                # Try stored needle first (idempotent)
-                stored_needle = await needle_history_col.find_one({"_id": f"{uid}:{closed_end.isoformat()}"})
-                if stored_needle and "lines" in stored_needle:
-                    needle_doc = stored_needle
-                else:
-                    needle_doc = await compute_needle(uid, closed_start, closed_end)
-
-                lines = needle_doc.get("lines", {})
-                headline_txt = lines.get("headline", "Your month, closed.")
-                body_parts = []
-                if lines.get("movement"):
-                    body_parts.append(lines["movement"])
-                if lines.get("cash"):
-                    body_parts.append(lines["cash"])
-                if lines.get("streak"):
-                    body_parts.append(lines["streak"])
-                body_txt = " ".join(body_parts)
-
-                # Store card_delta so frontend can apply correct accent colour
+                # Invitation only — no figures (figures live in ThisMonthStrip LAST MONTH mode)
+                weekday = closed_end.strftime("%A")
                 needle_items.append({
                     "id": needle_id,
                     "type": "needle",
-                    "headline": headline_txt,
-                    "body": body_txt,
-                    "action": {"label": "Play your month ›", "route": "/month/story?which=last"},
+                    "headline": f"Your month closed on {weekday}.",
+                    "body": "",
+                    "action": {"label": "Here's how it went ›", "route": "/month/story?which=last"},
                     "estimated": False,
-                    # Extra metadata for frontend accent — won't break existing CompanionItem shape
-                    # (frontend ignores unknown fields gracefully)
-                    "_card_delta": needle_doc.get("card_delta", 0),
                     "_period_end": closed_end.isoformat(),
                 })
     except Exception as _needle_exc:

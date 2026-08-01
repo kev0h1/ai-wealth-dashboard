@@ -53,10 +53,10 @@ export default function ThisMonthStrip() {
 
   const { last_closed, current } = data;
 
-  // Determine variant: closed period within last 7 days
+  // Determine variant: LAST MONTH for first 3 days of new period (days 0–2), then SINCE PAYDAY
   const useClosedVariant =
     last_closed !== null &&
-    (Date.now() - new Date(last_closed.period_end).getTime()) / 86400000 <= 7;
+    current.days_into_period <= 2;
 
   return (
     <div className="px-4 lg:px-0">
