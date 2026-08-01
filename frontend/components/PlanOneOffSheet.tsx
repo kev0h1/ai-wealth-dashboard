@@ -14,7 +14,7 @@ interface PlanOneOffSheetProps {
   onSaved: () => void;
 }
 
-function RadioDot({ selected }: { selected: boolean }) {
+export function RadioDot({ selected }: { selected: boolean }) {
   return (
     <span
       aria-hidden="true"

@@ -198,7 +198,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
         style={reduceMotion ? undefined : { animation: "slideUpSheet 280ms cubic-bezier(0.32, 0.72, 0, 1) both" }}
       >
         <div
-          className="mx-auto w-full max-w-[500px] bg-white dark:bg-slate-800 rounded-t-3xl flex flex-col"
+          className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
           style={{ maxHeight: "85svh" }}
         >
           {/* Drag handle */}

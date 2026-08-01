@@ -1174,4 +1174,6 @@ export const api = {
   getPlanned: () => get<PlannedExpense[]>("/planned"),
   deletePlanned: (id: string) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ ok: boolean }>,
+  updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 };

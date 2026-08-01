@@ -34,6 +34,7 @@ import CustomSelect from "@/components/CustomSelect";
 import SegmentedControl from "@/components/SegmentedControl";
 import UpcomingEditSheet from "@/components/UpcomingEditSheet";
 import PlanOneOffSheet from "@/components/PlanOneOffSheet";
+import PlannedEditSheet from "@/components/PlannedEditSheet";
 
 async function ensureAuth() {}
 
@@ -354,7 +355,7 @@ export default function SpendPage() {
   // Stop at the period containing the oldest transaction — no empty pre-history
   const canGoPrev = !oldestTxDate || periodStart.getTime() > oldestTxDate.getTime();
 
-  const [undoDismiss, setUndoDismiss] = useState<string | null>(null);
+  const [undoBar, setUndoBar] = useState<{ kind: "recurring"; name: string } | { kind: "planned"; id: string } | null>(null);
   const [undoNonce, setUndoNonce] = useState(0);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [largeToast, setLargeToast] = useState(false);
@@ -372,6 +373,7 @@ export default function SpendPage() {
     edited?: boolean;
     rule_label?: string | null;
   }>(null);
+  const [editPlanned, setEditPlanned] = useState<null | { id: string; name: string; amount: number; date: string; account_id: string | null }>(null);
   // When the shortfall callout's "Review" is tapped, scroll the flagged bill
   // into view on the Upcoming tab and briefly ring it, then clear the highlight.
   useEffect(() => {
@@ -396,7 +398,63 @@ export default function SpendPage() {
     request: Promise<unknown>;
   } | null>(null);
 
+  const lastPlannedDeleteRef = useRef<{
+    id: string;
+    bills: CashflowData["upcoming_bills"];
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  function flushPlannedDelete() {
+    const p = lastPlannedDeleteRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    lastPlannedDeleteRef.current = null;
+    api.deletePlanned(p.id).catch(() => {});
+  }
+
+  function deletePlannedWithUndo(id: string) {
+    flushPlannedDelete();
+    // Hide any recurring snackbar
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    let stashedBills: CashflowData["upcoming_bills"] = [];
+    setCashflow(prev => {
+      if (!prev) return prev;
+      stashedBills = prev.upcoming_bills.filter(b => b.planned_id === id);
+      return {
+        ...prev,
+        upcoming_bills: prev.upcoming_bills.filter(b => b.planned_id !== id),
+      };
+    });
+    const timer = setTimeout(() => {
+      api.deletePlanned(id).catch(() => {});
+      lastPlannedDeleteRef.current = null;
+      setUndoBar(null);
+      api.cashflow().then(setCashflow).catch(() => {});
+    }, 6000);
+    lastPlannedDeleteRef.current = { id, bills: stashedBills, timer };
+    setUndoBar({ kind: "planned", id });
+    setUndoNonce(n => n + 1);
+  }
+
+  function undoPlannedDelete() {
+    const p = lastPlannedDeleteRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    lastPlannedDeleteRef.current = null;
+    setUndoBar(null);
+    setCashflow(prev => prev ? {
+      ...prev,
+      upcoming_bills: [...prev.upcoming_bills, ...p.bills].sort((a, b) => a.days_away - b.days_away),
+    } : prev);
+  }
+
+  useEffect(() => {
+    return () => { flushPlannedDelete(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function dismissUpcoming(name: string) {
+    flushPlannedDelete();
     setCashflow(prev => {
       if (!prev) return prev;
       lastDismissRef.current = {
@@ -411,16 +469,16 @@ export default function SpendPage() {
         upcoming_income: prev.upcoming_income.filter(b => b.name !== name),
       };
     });
-    setUndoDismiss(name);
+    setUndoBar({ kind: "recurring", name });
     setUndoNonce(n => n + 1);
     if (undoTimer.current) clearTimeout(undoTimer.current);
-    undoTimer.current = setTimeout(() => setUndoDismiss(null), 6000);
+    undoTimer.current = setTimeout(() => setUndoBar(null), 6000);
   }
 
   async function undoLastDismiss() {
     const last = lastDismissRef.current;
     if (!last) return;
-    setUndoDismiss(null);
+    setUndoBar(null);
     lastDismissRef.current = null;
     // Put the rows back immediately — the server catches up behind the scenes
     setCashflow(prev => prev ? {
@@ -979,22 +1037,6 @@ export default function SpendPage() {
                 return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
               }
 
-              // Delete a planned expense optimistically then reconcile
-              async function handleDeletePlanned(plannedId: string) {
-                setCashflow(prev => {
-                  if (!prev) return prev;
-                  return {
-                    ...prev,
-                    upcoming_bills: prev.upcoming_bills.filter(b => b.planned_id !== plannedId),
-                  };
-                });
-                try {
-                  await api.deletePlanned(plannedId);
-                } catch { /* ignore — re-fetch regardless */ } finally {
-                  api.cashflow().then(setCashflow).catch(() => {});
-                }
-              }
-
               // Row renderer
               function renderRow(item: typeof items[0]) {
                 const isPlanned = item.type === "bill" && item.planned;
@@ -1007,76 +1049,34 @@ export default function SpendPage() {
                 const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
                 const Icon = getCategoryIcon(catName, iconOverrides);
 
-                // Planned rows: no swipe-dismiss, no UpcomingEditSheet, just a delete button
-                if (isPlanned) {
-                  return (
-                    <div
-                      key={rowKey}
-                      data-bill-key={rowKey}
-                      className={`rounded-2xl px-4 py-3 flex items-center gap-3 glass-card${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
-                    >
-                      {/* Icon chip */}
-                      <span
-                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: `${colour}26` }}
-                        aria-hidden="true"
-                      >
-                        <Icon size={15} style={{ color: colour }} />
-                      </span>
-
-                      {/* Name + details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="text-sm font-medium truncate text-slate-800 dark:text-slate-100">
-                            {item.name}
-                          </p>
-                          <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">planned</span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
-                      </div>
-
-                      {/* Amount + running balance */}
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-                          −{sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                        <p className={`text-[11px] font-medium ${item.balance_after >= 0 ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
-                          {item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })} left
-                        </p>
-                      </div>
-
-                      {/* Delete button */}
-                      <button
-                        aria-label={`Remove ${item.name}`}
-                        className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors flex-shrink-0"
-                        onClick={(e) => { e.stopPropagation(); handleDeletePlanned(item.planned_id!); }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  );
-                }
-
                 return (
                   <SwipeDismissRow
                     key={rowKey}
-                    onDismiss={() => dismissUpcoming(item.name)}
+                    onDismiss={() => isPlanned ? deletePlannedWithUndo(item.planned_id!) : dismissUpcoming(item.name)}
+                    label={isPlanned ? "Delete" : "Not recurring"}
                   >
                     <div
                       data-bill-key={rowKey}
-                      onClick={() => setEditItem({
-                        name: item.name,
-                        amount: item.amount,
-                        expected_date: item.expected_date,
-                        type: item.type,
-                        category: item.category,
-                        edited: item.edited,
-                        rule_label: item.rule_label,
-                      })}
+                      onClick={() => {
+                        if (isPlanned) {
+                          setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
+                        } else {
+                          setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+                        }
+                      }}
                       role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label }); } }}
-                      aria-label={`Edit ${item.name}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          if (isPlanned) {
+                            setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
+                          } else {
+                            setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+                          }
+                        }
+                      }}
+                      aria-label={isPlanned ? `Edit planned payment: ${item.name}` : `Edit ${item.name}`}
                       className={`rounded-2xl px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${
                         flagged
                           ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
@@ -1102,7 +1102,9 @@ export default function SpendPage() {
                           <p className={`text-sm font-medium truncate ${flagged ? "text-rose-700 dark:text-rose-300" : "text-slate-800 dark:text-slate-100"}`}>
                             {item.name}
                           </p>
-                          {item.edited && (
+                          {isPlanned ? (
+                            <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">planned</span>
+                          ) : item.edited && (
                             <span className="flex-shrink-0 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded-md">edited</span>
                           )}
                         </div>
@@ -1323,8 +1325,8 @@ export default function SpendPage() {
         </div>
       )}
 
-      {/* Undo snackbar for dismissed predictions — countdown bar shows the undo window */}
-      {undoDismiss && (
+      {/* Undo snackbar — serves both recurring-dismiss and planned-delete */}
+      {undoBar && (
         <div
           key={undoNonce}
           className="fixed left-4 right-4 z-[70] pointer-events-none"
@@ -1334,9 +1336,11 @@ export default function SpendPage() {
               height, 44dp+ action target — a timed undo must be easy to hit */}
           <div className="pointer-events-auto bg-slate-900/95 dark:bg-slate-100/95 backdrop-blur rounded-xl shadow-lg overflow-hidden">
             <div className="flex items-center justify-between gap-3 pl-4 pr-2 min-h-[48px]">
-              <p className="text-sm font-medium text-white dark:text-slate-900">Prediction removed</p>
+              <p className="text-sm font-medium text-white dark:text-slate-900">
+                {undoBar.kind === "planned" ? "Planned payment deleted" : "Prediction removed"}
+              </p>
               <button
-                onClick={undoLastDismiss}
+                onClick={undoBar.kind === "planned" ? undoPlannedDelete : undoLastDismiss}
                 className="text-sm font-bold text-indigo-300 dark:text-indigo-600 rounded-lg px-4 min-h-[44px] active:bg-white/10 dark:active:bg-slate-900/10"
               >
                 Undo
@@ -1359,6 +1363,17 @@ export default function SpendPage() {
               setCashflow(fresh);
             } catch {}
           }}
+        />
+      )}
+
+      {/* PlannedEditSheet */}
+      {editPlanned && (
+        <PlannedEditSheet
+          item={editPlanned}
+          accounts={accounts}
+          onClose={() => setEditPlanned(null)}
+          onDelete={() => deletePlannedWithUndo(editPlanned.id)}
+          onSaved={() => { api.cashflow().then(setCashflow).catch(() => {}); }}
         />
       )}
 
@@ -1539,7 +1554,7 @@ function PayPeriodSettingsSheet({
 // Gmail-style: the row follows the finger leftwards over a red "Not recurring"
 // backdrop; past 40% width (or a quick flick) it slides out and dismisses.
 // Axis-locks so diagonal scrolling never grabs the row.
-function SwipeDismissRow({ onDismiss, children }: { onDismiss: () => void; children: React.ReactNode }) {
+function SwipeDismissRow({ onDismiss, children, label = "Not recurring" }: { onDismiss: () => void; children: React.ReactNode; label?: string }) {
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const start = useRef<{ x: number; y: number; t: number } | null>(null);
@@ -1588,7 +1603,7 @@ function SwipeDismissRow({ onDismiss, children }: { onDismiss: () => void; child
         style={{ opacity: Math.min(1, Math.abs(dx) / 80) }}
       >
         <X size={14} className="text-white" />
-        <span className="text-xs font-semibold text-white">Not recurring</span>
+        <span className="text-xs font-semibold text-white">{label}</span>
       </div>
       <div
         style={{

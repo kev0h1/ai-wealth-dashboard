@@ -156,3 +156,98 @@ async def delete_planned_expense(planned_id: str, user: dict = Depends(current_u
 
     response_cache.invalidate(uid)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# PATCH /planned/{planned_id} — update a planned expense
+# ---------------------------------------------------------------------------
+
+@router.patch("/planned/{planned_id}")
+async def update_planned_expense(planned_id: str, body: dict, user: dict = Depends(current_user)):
+    uid = user["email"]
+    try:
+        oid = ObjectId(planned_id)
+    except InvalidId:
+        raise HTTPException(400, "Invalid planned_id")
+
+    doc = await planned_expenses_col.find_one({"_id": oid, "user_id": uid})
+    if not doc:
+        raise HTTPException(404, "Planned expense not found")
+
+    updates: dict = {}
+
+    if "name" in body:
+        name = (body["name"] or "").strip()
+        if not name:
+            raise HTTPException(400, "name is required and must not be blank")
+        updates["name"] = name
+
+    if "amount" in body:
+        try:
+            amount = float(body["amount"])
+            if amount <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise HTTPException(400, "amount must be a positive number")
+        updates["amount"] = amount
+
+    if "date" in body:
+        try:
+            new_date = date.fromisoformat(body["date"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "date must be an ISO date string (YYYY-MM-DD)")
+        stored_date = doc["date"]
+        if isinstance(stored_date, datetime):
+            stored_date = stored_date.date()
+        # Grandfathering: if new date == stored date, always accept (rolled pending item)
+        if new_date != stored_date and new_date < date.today():
+            raise HTTPException(400, "date must be today or in the future")
+        updates["date"] = datetime(new_date.year, new_date.month, new_date.day)
+
+    if "account_id" in body:
+        raw_account_id = body.get("account_id")
+        if not raw_account_id:
+            updates["account_id"] = None
+        else:
+            account_id = str(raw_account_id)
+            acct_doc = await accounts_col.find_one(
+                {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
+            )
+            if not acct_doc:
+                acct_doc = await yapily_accounts_col.find_one(
+                    {"_id": _try_oid(account_id), "user_id": uid}, {"_id": 1}
+                )
+            if not acct_doc:
+                raise HTTPException(404, "Account not found")
+            updates["account_id"] = account_id
+
+    if not updates:
+        # Nothing to update — return current item
+        pdate = doc["date"]
+        if isinstance(pdate, datetime):
+            pdate = pdate.date()
+        return {
+            "id": str(doc["_id"]),
+            "name": doc["name"],
+            "amount": float(doc["amount"]),
+            "date": pdate.isoformat(),
+            "account_id": doc.get("account_id"),
+            "status": doc.get("status", "planned"),
+        }
+
+    await planned_expenses_col.update_one({"_id": oid, "user_id": uid}, {"$set": updates})
+    response_cache.invalidate(uid)
+
+    # Merge updates over doc to return updated item
+    merged = {**doc, **updates}
+    pdate = merged["date"]
+    if isinstance(pdate, datetime):
+        pdate = pdate.date()
+    return {
+        "id": str(merged["_id"]),
+        "name": merged["name"],
+        "amount": float(merged["amount"]),
+        "date": pdate.isoformat(),
+        "account_id": merged.get("account_id"),
+        "status": merged.get("status", "planned"),
+    }
