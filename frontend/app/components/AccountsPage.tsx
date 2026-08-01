@@ -1673,6 +1673,8 @@ export default function AccountsPage() {
                       key={acc.id}
                       account={acc}
                       grid
+                      calm
+                      glass
                       hidden={hideNetWorth}
                       pinned={pinnedIds.includes(acc.id)}
                       onTogglePin={() => togglePin(acc.id)}
@@ -1761,7 +1763,7 @@ export default function AccountsPage() {
                 : null;
 
               return (
-                <div key={inv.id} className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                <div key={inv.id} className="glass-card rounded-2xl overflow-hidden">
                   <button
                     onClick={() => handleToggleInvestment(inv.id)}
                     className="w-full flex items-center justify-between px-4 py-3.5 text-left"
