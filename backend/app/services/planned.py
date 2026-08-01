@@ -1,15 +1,22 @@
 """Auto-settlement of planned one-off expenses.
 
-Matches a planned expense against real transactions using a ±4-day date window
-and a ±10% / £2 minimum amount tolerance.  When a match is found the planned
-doc is marked "settled"; if the window has closed with no match it is "expired".
+Matches a planned expense against real transactions using a date window that
+runs from the plan's creation day through the expiry horizon (planned date
++ EXPIRY_GRACE_DAYS calendar days, matching the bills' pending give-up), with
+a ±10% / £2 minimum amount tolerance.  When a match is found the planned doc
+is marked "settled"; once today is past the expiry horizon with no match it
+is "expired".
 
-Created-at floor: the lower bound of the date window is raised to the day the
-planned doc was created (day granularity), so a debit that pre-dates the plan
+Created-at floor: the lower bound of the date window is the day the planned
+doc was created (day granularity), so a debit that pre-dates the plan
 creation is never used to settle it.  This prevents an existing unrelated
 transaction from instantly settling a newly-created plan.
 """
 from datetime import date, datetime, timedelta
+
+# Calendar days past the planned date before an unmatched plan expires.
+# Mirrors PENDING_GIVE_UP_DAYS for recurring bills (analytics.py).
+EXPIRY_GRACE_DAYS = 7
 
 from app.db.collections import (
     planned_expenses_col,
@@ -53,19 +60,21 @@ async def settle_planned_expenses(uid: str) -> bool:
         p_amount = float(doc["amount"])
         tolerance = max(2.0, 0.10 * p_amount)
 
+        # Window: creation day → expiry horizon (date + EXPIRY_GRACE_DAYS,
+        # exclusive upper bound so debits through the expiry day itself match).
         date_low = datetime(
             *(pdate_d - timedelta(days=4)).timetuple()[:3]
         )
         date_high = datetime(
-            *(pdate_d + timedelta(days=5)).timetuple()[:3]
+            *(pdate_d + timedelta(days=EXPIRY_GRACE_DAYS + 1)).timetuple()[:3]
         )
 
-        # Raise the lower bound to the plan's creation date so that debits
-        # which pre-date the plan cannot settle it.
+        # Anchor the lower bound at the plan's creation date so that debits
+        # which pre-date the plan cannot settle it; for plans created well in
+        # advance the window opens on creation day.
         created = doc.get("created_at")
         if created is not None:
-            created_floor = datetime(created.year, created.month, created.day)
-            date_low = max(date_low, created_floor)
+            date_low = datetime(created.year, created.month, created.day)
 
         txn_query: dict = {
             "user_id":          uid,
@@ -124,7 +133,7 @@ async def settle_planned_expenses(uid: str) -> bool:
             claimed_this_run.add(best_id_str)
             changed = True
 
-        elif date.today() > pdate_d + timedelta(days=4):
+        elif date.today() > pdate_d + timedelta(days=EXPIRY_GRACE_DAYS):
             # Window has closed with no match → expire
             await planned_expenses_col.update_one(
                 {"_id": doc_id},

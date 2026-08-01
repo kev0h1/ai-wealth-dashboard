@@ -1303,9 +1303,15 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 pdate_d = pdate.date()
             else:
                 pdate_d = pdate
-            if not (today.date() <= pdate_d <= window_end.date()):
+            if pdate_d > window_end.date():
                 continue
-            days_away = (pdate_d - today.date()).days
+            if pdate_d < today_d and (today_d - pdate_d).days > PENDING_GIVE_UP_DAYS:
+                continue          # past the expiry horizon (planned.py owns the flip)
+            pending = pdate_d <= today_d      # due date arrived/passed, nothing observed
+            display_d = _next_working_day(max(pdate_d, today_d)) if pending else _next_working_day(pdate_d)
+            if display_d > window_end.date():
+                continue
+            days_away = (display_d - today_d).days
             acc_name = None
             acc_bank = None
             acc_balance = None
@@ -1326,7 +1332,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             raw_bills.append({
                 "name":            pdoc["name"],
                 "amount":          float(pdoc["amount"]),
-                "expected_date":   pdate_d.isoformat(),
+                "expected_date":   display_d.isoformat(),
                 "days_away":       days_away,
                 "account_id":      acc_id,
                 "account_name":    acc_name,
@@ -1337,6 +1343,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "rule_label":      None,
                 "planned":         True,
                 "planned_id":      str(pdoc["_id"]),
+                "pending":         pending,
+                "original_date":   pdate_d.isoformat() if display_d != pdate_d else None,
             })
 
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
