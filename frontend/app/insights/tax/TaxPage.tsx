@@ -236,7 +236,7 @@ export default function TaxPage({
       );
     }
     return (
-      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="min-h-dvh" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="px-4 pt-4 pb-6">
           <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-slate-500 mb-4">
             <ChevronLeft size={18} /> Back
@@ -520,7 +520,7 @@ export default function TaxPage({
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Standalone page header — calm white/slate surface, indigo accents, NO Penny gradient */}
       <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
         <button onClick={() => router.back()} className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-3">

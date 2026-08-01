@@ -6,7 +6,7 @@ interface LoginScreenProps {
 
 export default function LoginScreen({ error }: LoginScreenProps) {
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] flex items-center justify-center px-6">
+    <div className="min-h-dvh flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         {/* Logo / branding */}
         <div className="text-center mb-10">

@@ -1075,7 +1075,7 @@ export default function AccountsPage() {
     const headerTextColor = brand.textOnBrand;
 
     return (
-      <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
         <div
           className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6"
@@ -1312,7 +1312,7 @@ export default function AccountsPage() {
                       <button
                         onClick={() => toggleRule(rule)}
                         title={rule.active ? "Pause rule" : "Resume rule"}
-                        className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full flex-shrink-0 ${rule.active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-slate-100 text-slate-400 dark:bg-slate-700"}`}
+                        className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full flex-shrink-0 ${rule.active ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"}`}
                       >
                         {rule.active ? "On" : "Off"}
                       </button>
@@ -1409,7 +1409,7 @@ export default function AccountsPage() {
 
   // --- Account list view ---
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-20" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-20" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div
         className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"

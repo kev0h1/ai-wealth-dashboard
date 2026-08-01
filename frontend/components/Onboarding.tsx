@@ -28,7 +28,7 @@ const STEP_DOTS: Step[] = ["profile", "payday", "bank", "secure"];
 // an inner component would remount on every state change and steal focus.
 function Shell({ dotIndex, children }: { dotIndex: number; children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] flex flex-col items-center justify-center px-6 py-10">
+    <div className="min-h-dvh flex flex-col items-center justify-center px-6 py-10">
       {dotIndex >= 0 && (
         <div className="flex gap-2 mb-8">
           {STEP_DOTS.map((_, i) => (

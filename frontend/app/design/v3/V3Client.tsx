@@ -611,7 +611,7 @@ export default function V3Client() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-28">
+    <div className="min-h-dvh pb-28">
       <div className="max-w-lg mx-auto px-4 pt-6">
 
         {/* ── Speech block ────────────────────────────────────────────────── */}
