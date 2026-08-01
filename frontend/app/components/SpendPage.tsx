@@ -1122,6 +1122,11 @@ export default function SpendPage() {
                         )}
 
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
+                        {item.type === "bill" && item.pending && (
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                            expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })} — hasn&apos;t left yet
+                          </p>
+                        )}
                       </div>
 
                       {/* Amount + running balance */}

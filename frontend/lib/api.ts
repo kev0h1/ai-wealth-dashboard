@@ -72,6 +72,8 @@ export type UpcomingBill = {
   category?: string | null;
   edited?: boolean;
   rule_label?: string | null;
+  pending?: boolean;
+  original_date?: string | null;
   planned?: boolean;
   planned_id?: string;
 };

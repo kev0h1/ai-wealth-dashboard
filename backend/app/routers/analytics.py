@@ -27,6 +27,22 @@ from app.services import response_cache
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
+
+# England & Wales bank holidays (static set; extend when new years published)
+UK_BANK_HOLIDAYS_EW: frozenset = frozenset({
+    "2026-01-01", "2026-04-03", "2026-04-06", "2026-05-04", "2026-05-25",
+    "2026-08-31", "2026-12-25", "2026-12-28",
+    "2027-01-01", "2027-03-26", "2027-03-29", "2027-05-03", "2027-05-31",
+    "2027-08-30", "2027-12-27", "2027-12-28",
+})
+PENDING_GIVE_UP_DAYS = 7        # unmatched this long past due -> treat cycle as skipped
+OBSERVATION_LOOKBACK_DAYS = 3   # a debit up to 3 days BEFORE the expected date closes it
+
+def _next_working_day(d):  # d: datetime.date -> datetime.date
+    while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
+        d += timedelta(days=1)
+    return d
+
 from app.services.income import next_occurrence as _next_occ_svc, schedule_label as _schedule_label_svc
 
 # Friendly display labels for upstream bank provider codes (uppercase keys).
@@ -394,6 +410,7 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         _d2date = lambda d: d.date() if isinstance(d, datetime) else d
         last_date  = _d2date(dates[-1])
         _today = today or _date.today()
+        _grace = timedelta(days=0 if is_income else PENDING_GIVE_UP_DAYS)
         _config = pay_period_config or {"type": "calendar_month"}
 
         # Confirmed income stream: use stored schedule directly (wins over all interval logic)
@@ -409,6 +426,10 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 delta = (modal_wd - _today.weekday()) % 7
                 delta = delta or 7  # never 0: always strictly after today
                 next_date = _today + timedelta(days=delta)
+                if not is_income:
+                    prev_occ = _today - timedelta(days=(_today.weekday() - modal_wd) % 7)
+                    if prev_occ > last_date:
+                        next_date = prev_occ
             elif 11 <= avg_interval <= 18:
                 # Biweekly — anchor to the modal weekday but keep 14-day cadence
                 weekdays = [d.weekday() for d in dates]
@@ -422,8 +443,8 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 # Round to nearest 14-day multiple from last_date
                 periods = round(since_last / 14)
                 next_date = last_date + timedelta(days=max(14, periods * 14))
-                # Ensure it's strictly after today
-                while next_date <= _today:
+                # Ensure it's strictly after today (minus grace for bills)
+                while next_date <= _today - _grace:
                     next_date += timedelta(days=14)
             elif 26 <= avg_interval <= 33:
                 # Monthly — anchor to day-of-month (existing logic)
@@ -436,15 +457,15 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                     month = 1 if last_date.month == 12 else last_date.month + 1
                     day   = min(last_date.day, monthrange(year, month)[1])
                     next_date = last_date.replace(year=year, month=month, day=day)
-                    # If still in the past or today, advance one more month
-                    while next_date <= _today:
+                    # If still in the past or today (minus grace for bills), advance one more month
+                    while next_date <= _today - _grace:
                         year  = next_date.year + (1 if next_date.month == 12 else 0)
                         month = 1 if next_date.month == 12 else next_date.month + 1
                         day   = min(next_date.day, monthrange(year, month)[1])
                         next_date = next_date.replace(year=year, month=month, day=day)
             else:
                 next_date = last_date + timedelta(days=round(avg_interval))
-                while next_date <= _today:
+                while next_date <= _today - _grace:
                     next_date += timedelta(days=round(avg_interval))
         # Attribute the pattern to the account its transactions actually landed
         # in: majority account across occurrences, tie-broken by recency.
@@ -1061,12 +1082,44 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     Pass `prefs` (the user's preferences doc) when the caller has already
     fetched it, to avoid a duplicate find_one per request."""
     today = datetime.now()
+    today_d = today.date()
     # 35 days covers any monthly pay period; the frontend clips to period end.
     # Weekly-ish bills repeat within the window instead of showing once.
     window_end = today + timedelta(days=35)
 
     spend_patterns  = cached.get("recurring_spend", [])
     income_patterns = cached.get("recurring_income", [])
+
+    # --- observation index for bill matching ---
+    observed: dict = {}
+    if uid:
+        _obs_since = today - timedelta(days=PENDING_GIVE_UP_DAYS + OBSERVATION_LOOKBACK_DAYS + 1)
+        _obs_pipeline_results = []
+        for _col in [transactions_col, yapily_transactions_col]:
+            try:
+                async for _t in _col.find(
+                    {"user_id": uid, "date": {"$gte": _obs_since}, "transaction_type": "debit"},
+                    {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+                     "category": 1, "custom_category": 1, "account_id": 1}
+                ):
+                    _obs_pipeline_results.append(_t)
+            except Exception:
+                pass
+        for _t in _obs_pipeline_results:
+            _eff_cat = (_t.get("custom_category") or _t.get("category") or "Other")
+            if _eff_cat == "Transfer":
+                continue
+            _key = (_t.get("merchant_name") or _t.get("description", "")[:35] or "").strip()
+            if not _key:
+                continue
+            _raw_d = _t.get("date")
+            _d_obj = _raw_d.date() if hasattr(_raw_d, "date") else _raw_d
+            observed.setdefault(_key, []).append({
+                "date": _d_obj,
+                "amount": abs(float(_t.get("amount", 0))),
+                "account_id": str(_t.get("account_id") or ""),
+                "used": False,
+            })
 
     # Load overrides for this user (empty list if no uid provided)
     overrides: list[dict] = []
@@ -1090,7 +1143,23 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     def _parse_date(s: str) -> datetime:
         return datetime.fromisoformat(s)
 
-    def _occurrences(r: dict) -> list[datetime]:
+    def _match_observed(key, account_id, expected_amount, expected_d):
+        tol = max(2.0, abs(expected_amount) * 0.15)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        for tx in observed.get(key, []):
+            if tx["used"]:
+                continue
+            if not (lo <= tx["date"] <= today_d):
+                continue
+            if account_id and tx["account_id"] and tx["account_id"] != str(account_id):
+                continue
+            if abs(tx["amount"] - abs(expected_amount)) > tol:
+                continue
+            tx["used"] = True   # one debit closes at most one occurrence
+            return True
+        return False
+
+    def _occurrences(r: dict, include_past_due: bool = False) -> list[datetime]:
         interval = float(r.get("avg_interval") or 30)
         key = r.get("key", "")
         confirmed_sched = confirmed_income.get(key, {}).get("schedule") if confirmed_income else None
@@ -1098,7 +1167,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         # User rule takes TOP precedence — generate directly from the rule schedule
         if rule := rules.get(key):
             sched = rule["schedule"]
-            d_date = _next_occ_svc(sched, today.date() - timedelta(days=1))
+            d_date = _next_occ_svc(sched, (today_d - timedelta(days=PENDING_GIVE_UP_DAYS + 1)) if include_past_due else (today.date() - timedelta(days=1)))
             out: list[datetime] = []
             while d_date <= window_end.date() and len(out) < 12:
                 out.append(datetime(d_date.year, d_date.month, d_date.day))
@@ -1110,7 +1179,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         for _ in range(12):  # guard: at most 12 projections per pattern
             if d.date() > window_end.date():
                 break
-            if d.date() >= today.date():
+            if d.date() >= (today_d - timedelta(days=PENDING_GIVE_UP_DAYS) if include_past_due else today_d):
                 out.append(d)
             # Step to next occurrence
             if confirmed_sched:
@@ -1172,21 +1241,28 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         return final_date, final_amount, edited
 
     raw_bills = []
+    _bill_occ_dates: list = []  # (date_obj, amount) tuples for weekly projection
     for r in spend_patterns:
-        for occ in _occurrences(r):
+        entries = []
+        for occ in _occurrences(r, include_past_due=True):
             occ_date_str = occ.date().isoformat()
             final_date, final_amount, edited = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
-            final_date_obj = _date.fromisoformat(final_date)
-            days_away = (final_date_obj - today.date()).days
-            if final_date_obj > window_end.date():
+            D = _date.fromisoformat(final_date)
+            if D > window_end.date():
                 continue
-            if final_date_obj < today.date():
+            if uid and _match_observed(r["key"], r.get("account_id"), final_amount, D):
+                continue          # CLOSED by an observed debit (early payments included)
+            if D < today_d and (today_d - D).days >= PENDING_GIVE_UP_DAYS:
+                continue          # give-up horizon: skipped this cycle
+            pending = D <= today_d            # due date arrived/passed, nothing observed
+            display_d = _next_working_day(max(D, today_d)) if pending else _next_working_day(D)
+            if display_d > window_end.date():
                 continue
-            raw_bills.append({
+            entries.append({
                 "name":            r["key"],
                 "amount":          final_amount,
-                "expected_date":   final_date,
-                "days_away":       days_away,
+                "expected_date":   display_d.isoformat(),
+                "days_away":       (display_d - today_d).days,
                 "account_id":      r.get("account_id"),
                 "account_name":    r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
@@ -1194,7 +1270,20 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "category":        r.get("category"),
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
+                "pending":         pending,
+                "original_date":   final_date if display_d.isoformat() != final_date else None,
             })
+        # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
+        kept = []
+        for i, e in enumerate(entries):
+            nxt = entries[i + 1] if i + 1 < len(entries) else None
+            if e["pending"] and nxt is not None and e["expected_date"] >= nxt["expected_date"]:
+                continue
+            kept.append(e)
+        raw_bills.extend(kept)
+        for e in kept:
+            if not e.get("planned"):
+                _bill_occ_dates.append((_date.fromisoformat(e["expected_date"]), e["amount"]))
     # ── Merge planned one-off expenses ─────────────────────────────────────────
     if uid:
         from bson import ObjectId as _ObjId
@@ -1286,7 +1375,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         week_start = today + timedelta(days=w * 7)
         week_end   = week_start + timedelta(days=7)
         projected_income = sum(r["avg_amount"] for r in income_patterns if week_start.date() <= _parse_date(r["next_date"]).date() < week_end.date())
-        projected_bills  = sum(r["avg_amount"] for r in spend_patterns  if week_start.date() <= _parse_date(r["next_date"]).date() < week_end.date())
+        projected_bills  = sum(amt for d, amt in _bill_occ_dates if week_start.date() <= d < week_end.date())
         weeks.append({
             "label":            week_start.strftime("%-d %b"),
             "projected_income": round(projected_income, 2),
