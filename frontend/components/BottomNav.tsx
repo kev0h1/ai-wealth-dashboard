@@ -54,7 +54,7 @@ function useNewInsightCount(): number {
 const tabs = [
   { href: "/", label: "Home", Icon: Home },
   { href: "/spend", label: "Spend", Icon: PieChart },
-  { href: "/budget", label: "Budget", Icon: Target },
+  { href: "/budget", label: "Trends", Icon: Target },
   { href: "/insights", label: "Insights", Icon: Lightbulb },
   { href: "/settings", label: "Settings", Icon: Settings },
 ];

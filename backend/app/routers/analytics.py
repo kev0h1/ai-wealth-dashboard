@@ -1728,6 +1728,21 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
     return result
 
 
+@router.get("/pace/detail")
+async def get_pace_detail(user: dict = Depends(current_user)):
+    """Full category-trends payload for the current period. Deliberately NOT
+    folded into /safe-to-spend — Home's hot path must stay light."""
+    uid = user["email"]
+    cached = response_cache.get("pace_detail", uid)
+    if cached is not None:
+        return cached
+    from app.services.pace import compute_pace_detail
+    result = await compute_pace_detail(uid)
+    if result.get("status") == "ok":
+        response_cache.put("pace_detail", uid, result)
+    return result
+
+
 @router.get("/value-delivered")
 async def get_value_delivered(user: dict = Depends(current_user)):
     """Return how much monthly saving the user has unlocked by acting on insights."""
