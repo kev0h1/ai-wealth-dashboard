@@ -306,7 +306,6 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                     legs = [];
                   }
                   const totalAmount = legs.reduce((s, l) => s + l.amount, 0);
-                  const dest = moveItem.plan_dest!;
                   return (
                     <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
                       {legs.map((leg, idx) => {
@@ -332,15 +331,6 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                         <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                           Moving <span className="num">{hideNetWorth ? "£••••" : `£${Math.round(totalAmount).toLocaleString("en-GB")}`}</span>
                         </span>
-                        {moveItem.covered && (
-                          <span className="text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
-                            {(dest.bills ?? []).length === 1
-                              ? "✓ payment clears"
-                              : (dest.bills ?? []).length === 2
-                              ? "✓ both payments clear"
-                              : "✓ payments clear"}
-                          </span>
-                        )}
                       </div>
                     </div>
                   );
@@ -348,6 +338,13 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
                 {/* Footer — guarantee line + residual, each on its own line */}
                 <div className="mt-3 space-y-1.5">
+                  {moveItem.covered && (moveItem.plan_dest?.bills ?? []).length > 0 && (
+                    <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
+                      {(moveItem.plan_dest?.bills ?? []).length === 1
+                        ? `This move clears the payment at ${moveItem.plan_dest!.name}.`
+                        : `This move clears all ${(moveItem.plan_dest?.bills ?? []).length} payments at ${moveItem.plan_dest!.name}.`}
+                    </p>
+                  )}
                   {moveItem.sources_safe && (
                     <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
                       Every account above still covers its own bills this window.

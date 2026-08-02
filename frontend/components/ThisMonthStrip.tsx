@@ -94,28 +94,33 @@ export default function ThisMonthStrip() {
           (() => {
             const delta = current.card_delta_so_far;
             const N = current.days_into_period;
+            const timeframe =
+              N === 0 ? "today" : N === 1 ? "over the past day" : `over the past ${N} days`;
+
             if (Math.abs(delta) < 20) {
               return (
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                  Cards held steady over {N} days
+                  Cards have held steady {timeframe}.
                 </p>
               );
             }
+
+            const shrank = delta < 0;
             return (
-              <p
-                className={`text-sm font-medium ${
-                  delta <= -20
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-slate-600 dark:text-slate-300"
-                }`}
-              >
-                Cards {delta >= 0 ? "↑" : "↓"}
-                <span className="num font-semibold text-slate-700 dark:text-slate-200">
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                Cards have {shrank ? "come down" : "gone up"}{" "}
+                <span
+                  className={`num font-semibold ${
+                    shrank
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-slate-900 dark:text-slate-100"
+                  }`}
+                >
                   {hideNetWorth
                     ? "£••••"
                     : `£${Math.round(Math.abs(delta)).toLocaleString("en-GB")}`}
-                </span>
-                {" over "}{N}{" days"}
+                </span>{" "}
+                {timeframe}.
               </p>
             );
           })()
