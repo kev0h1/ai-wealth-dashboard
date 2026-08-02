@@ -24,12 +24,29 @@ async def _all_user_transactions(uid: str) -> list[dict]:
         txns.extend(await col.find(
             {"user_id": uid},
             {"amount": 1, "transaction_type": 1, "description": 1,
-             "merchant_name": 1, "category": 1},
+             "merchant_name": 1, "category": 1, "account_id": 1},
         ).to_list(None))
     return txns
 
 
+def account_key(value) -> str:
+    """Normalise an account identifier to a comparable string.
+
+    The five source collections don't agree on the type they store in
+    ``account_id`` (str for TrueLayer/Finexer/statements, potentially ObjectId
+    for others), and a rule's scope arrives from the client as a string. Both
+    sides go through here so a str-vs-ObjectId mismatch can never silently make
+    a scoped rule match nothing.
+    """
+    return "" if value is None else str(value).strip()
+
+
 def _matches(rule: dict, txn: dict) -> bool:
+    # Optional account scope: absent/None means "any account", which is what
+    # every rule written before scoping existed carries.
+    scope = account_key(rule.get("source_account_id"))
+    if scope and account_key(txn.get("account_id")) != scope:
+        return False
     mt = rule.get("match_type")
     val = str(rule.get("match_value", "")).strip().lower()
     if not val:

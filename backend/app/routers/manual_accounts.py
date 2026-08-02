@@ -4,6 +4,7 @@ safety-net savings tracker."""
 import uuid as uuid_lib
 from datetime import datetime
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
@@ -12,13 +13,22 @@ from app.db.collections import (
     manual_account_rules_col, manual_account_mirrors_col,
     transactions_col, statement_transactions_col, yapily_transactions_col,
     mono_transactions_col, mpesa_transactions_col,
+    accounts_col, statement_accounts_col, yapily_accounts_col,
+    mono_accounts_col, mpesa_accounts_col,
 )
-from app.services.manual_account_rules import apply_rules, reverse_rule
+from app.services.manual_account_rules import apply_rules, reverse_rule, account_key
 from app.services.region import get_user_region
 
 _SOURCE_TXN_COLLECTIONS = [
     transactions_col, statement_transactions_col, yapily_transactions_col,
     mono_transactions_col, mpesa_transactions_col,
+]
+
+# Account collections a rule may be scoped to — the connected (real) accounts
+# whose transactions the five source collections above hold.
+_SOURCE_ACCOUNT_COLLECTIONS = [
+    accounts_col, statement_accounts_col, yapily_accounts_col,
+    mono_accounts_col, mpesa_accounts_col,
 ]
 
 router = APIRouter(tags=["manual-accounts"])
@@ -256,7 +266,9 @@ async def delete_manual_transaction(acc_id: str, tx_id: str, user: dict = Depend
 
 # ── Transaction-mirror rules ─────────────────────────────────────────────────
 
-def _serialize_rule(r: dict, account_name: str | None = None) -> dict:
+def _serialize_rule(r: dict, account_name: str | None = None,
+                    source_name: str | None = None) -> dict:
+    scope = r.get("source_account_id") or None
     return {
         "id":                r["_id"],
         "name":              r.get("name", ""),
@@ -266,7 +278,48 @@ def _serialize_rule(r: dict, account_name: str | None = None) -> dict:
         "match_value":       r.get("match_value"),
         "sign":              r.get("sign"),
         "active":            r.get("active", True),
+        # Absent/None = any account (how every pre-scoping rule behaves).
+        "source_account_id":   scope,
+        "source_account_name": source_name if scope else None,
     }
+
+
+def _try_oid(v: str):
+    try:
+        return ObjectId(v)
+    except Exception:
+        return v
+
+
+async def _source_account_names(uid: str, ids: list[str]) -> dict[str, str]:
+    """Display names for scoped source accounts, keyed by normalised id."""
+    ids = [i for i in {account_key(i) for i in ids} if i]
+    if not ids:
+        return {}
+    lookup = {"_id": {"$in": [*ids, *[_try_oid(i) for i in ids]]}, "user_id": uid}
+    names: dict[str, str] = {}
+    for col in _SOURCE_ACCOUNT_COLLECTIONS:
+        for doc in await col.find(lookup, {"name": 1}).to_list(None):
+            names[account_key(doc["_id"])] = doc.get("name") or "Account"
+    return names
+
+
+async def _resolve_source_scope(uid: str, raw) -> str | None:
+    """Validate an optional account scope and return the id to store.
+
+    Stored as the string form so it compares cleanly against the ``account_id``
+    on transactions regardless of whether a collection keeps that as a string
+    or an ObjectId (see ``account_key``).
+    """
+    wanted = account_key(raw)
+    if not wanted:
+        return None
+    for col in _SOURCE_ACCOUNT_COLLECTIONS:
+        doc = await col.find_one(
+            {"_id": {"$in": [wanted, _try_oid(wanted)]}, "user_id": uid}, {"_id": 1})
+        if doc:
+            return account_key(doc["_id"])
+    raise HTTPException(404, "Account not found")
 
 
 @router.get("/manual-account-rules")
@@ -275,7 +328,13 @@ async def list_rules(user: dict = Depends(current_user)):
     rules = await manual_account_rules_col.find({"user_id": uid}).to_list(None)
     names = {a["_id"]: a.get("name") for a in
              await manual_accounts_col.find({"user_id": uid}, {"name": 1}).to_list(None)}
-    return [_serialize_rule(r, names.get(r.get("target_account_id"))) for r in rules]
+    sources = await _source_account_names(
+        uid, [r.get("source_account_id") for r in rules if r.get("source_account_id")])
+    return [
+        _serialize_rule(r, names.get(r.get("target_account_id")),
+                        sources.get(account_key(r.get("source_account_id"))))
+        for r in rules
+    ]
 
 
 def _validate_rule_body(body: dict) -> dict:
@@ -302,14 +361,17 @@ async def create_rule(body: dict, user: dict = Depends(current_user)):
     if not acc:
         raise HTTPException(404, "Target account not found")
     fields = _validate_rule_body(body)
+    source = await _resolve_source_scope(uid, body.get("source_account_id"))
     doc = {
         "_id": str(uuid_lib.uuid4())[:8], "user_id": uid,
         "target_account_id": target, "active": True,
+        "source_account_id": source,
         "created_at": datetime.now(), **fields,
     }
     await manual_account_rules_col.insert_one(doc)
     await apply_rules(uid)  # backfill existing transactions
-    return _serialize_rule(doc, acc.get("name"))
+    names = await _source_account_names(uid, [source] if source else [])
+    return _serialize_rule(doc, acc.get("name"), names.get(account_key(source)))
 
 
 @router.patch("/manual-account-rules/{rule_id}")
@@ -324,7 +386,11 @@ async def update_rule(rule_id: str, body: dict, user: dict = Depends(current_use
             updates[key] = body[key]
     if updates:
         merged = {**rule, **updates}
+        # NB: _validate_rule_body returns only the four matcher fields, so any
+        # extra update (scope, active) has to be added after this line.
         updates = _validate_rule_body(merged)
+    if "source_account_id" in body:
+        updates["source_account_id"] = await _resolve_source_scope(uid, body["source_account_id"])
     if "active" in body:
         updates["active"] = bool(body["active"])
     if not updates:
@@ -336,7 +402,9 @@ async def update_rule(rule_id: str, body: dict, user: dict = Depends(current_use
         await apply_rules(uid)
     fresh = await manual_account_rules_col.find_one({"_id": rule_id, "user_id": uid})
     acc = await manual_accounts_col.find_one({"_id": fresh["target_account_id"], "user_id": uid}, {"name": 1})
-    return _serialize_rule(fresh, (acc or {}).get("name"))
+    scope = fresh.get("source_account_id")
+    names = await _source_account_names(uid, [scope] if scope else [])
+    return _serialize_rule(fresh, (acc or {}).get("name"), names.get(account_key(scope)))
 
 
 @router.delete("/manual-account-rules/{rule_id}")

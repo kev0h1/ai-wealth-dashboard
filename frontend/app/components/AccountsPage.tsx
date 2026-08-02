@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary, KPIs } from "@/lib/api";
-import AccountMiniCard, { BANK_META, accountBrand } from "@/components/AccountMiniCard";
+import AccountMiniCard, { BANK_META, accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { RadioDot } from "@/components/PlanOneOffSheet";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import { CategoryData } from "@/components/CategoryRow";
@@ -148,6 +149,8 @@ export default function AccountsPage() {
   const [ruleName, setRuleName] = useState("");
   const [ruleTarget, setRuleTarget] = useState("");
   const [ruleMatchType, setRuleMatchType] = useState<RuleMatchType>("description_contains");
+  // Optional source-account scope: "" = any account (how every older rule behaves)
+  const [ruleSource, setRuleSource] = useState("");
   const [ruleMatchValue, setRuleMatchValue] = useState("");
   const [ruleSign, setRuleSign] = useState<RuleSign>("opposite");
   const [ruleSaving, setRuleSaving] = useState(false);
@@ -226,7 +229,10 @@ export default function AccountsPage() {
     }
     const t = setTimeout(() => {
       const v = ruleMatchValue.trim().toLowerCase();
+      // The account scopes all three: what you browse, what we count, and what
+      // the rule will catch — so the number on screen is exactly truthful.
       const hits = rulePool.filter(tx =>
+        (!ruleSource || tx.account_id === ruleSource) &&
         `${tx.description ?? ""} ${tx.merchant_name ?? ""}`.toLowerCase().includes(v)
       );
       setRuleMatchCount(hits.length);
@@ -243,7 +249,7 @@ export default function AccountsPage() {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [ruleMatchValue, ruleMatchType, rulePool, ruleSearchOpen, ruleModalOpen]);
+  }, [ruleMatchValue, ruleMatchType, ruleSource, rulePool, ruleSearchOpen, ruleModalOpen]);
 
   const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen || !!confirmDialog?.open;
   useEffect(() => {
@@ -637,6 +643,7 @@ export default function AccountsPage() {
     setRuleEditId(null);
     setRuleName("");
     setRuleTarget(selectedAccountId ?? manualAccounts[0]?.id ?? "");
+    setRuleSource("");
     setRuleMatchType("description_contains");
     setRuleMatchValue("");
     setRuleSign("opposite");
@@ -708,6 +715,7 @@ export default function AccountsPage() {
     setRuleEditId(rule.id);
     setRuleName(rule.name);
     setRuleTarget(rule.target_account_id);
+    setRuleSource(rule.source_account_id ?? "");  // pre-scoping rules → Any account
     setRuleMatchType(rule.match_type);
     setRuleMatchValue(rule.match_value);
     setRuleSign(rule.sign);
@@ -735,11 +743,13 @@ export default function AccountsPage() {
       if (ruleEditId) {
         await api.updateManualAccountRule(ruleEditId, {
           name, match_type: ruleMatchType, match_value: matchValue, sign: ruleSign,
+          source_account_id: ruleSource || null,
         });
       } else {
         await api.createManualAccountRule({
           name, target_account_id: ruleTarget,
           match_type: ruleMatchType, match_value: matchValue, sign: ruleSign,
+          source_account_id: ruleSource || null,
         });
       }
       setRuleModalOpen(false);
@@ -1129,6 +1139,61 @@ export default function AccountsPage() {
                 </>
               )}
 
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Account</label>
+              <div
+                role="radiogroup"
+                aria-label="Which account should this rule watch?"
+                className="rounded-xl border border-slate-200/70 dark:border-white/[0.08] overflow-hidden"
+              >
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-white/[0.06]">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={ruleSource === ""}
+                    onClick={() => setRuleSource("")}
+                    className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
+                  >
+                    <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
+                      <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
+                    </span>
+                    <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">Any account</span>
+                    <RadioDot selected={ruleSource === ""} />
+                  </button>
+                  {bankAccounts.map(acc => {
+                    const brand = accountBrand(acc);
+                    return (
+                      <button
+                        key={acc.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={ruleSource === acc.id}
+                        onClick={() => setRuleSource(acc.id)}
+                        className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
+                      >
+                        <BankBadge
+                          logoSrc={brand.logoSrc}
+                          initials={brand.initials}
+                          altText={brand.label}
+                          brandBg={brand.background}
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                          {acc.provider && (
+                            <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
+                          )}
+                        </span>
+                        <RadioDot selected={ruleSource === acc.id} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1 mb-4">
+                {ruleSource
+                  ? "Only transactions on this account will match."
+                  : "Transactions on any account will match."}
+              </p>
+
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Match transactions by</label>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 {([
@@ -1489,6 +1554,7 @@ export default function AccountsPage() {
                         <p className={`text-sm font-semibold truncate ${rule.active ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500 line-through"}`}>{rule.name}</p>
                         <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                           {rule.match_type === "category" ? "Category" : "Contains"} “{rule.match_value}” · {rule.sign === "opposite" ? "Offset" : "Shadow"}
+                          {rule.source_account_id && ` · ${rule.source_account_name ?? "One account"}`}
                         </p>
                       </div>
                       <button

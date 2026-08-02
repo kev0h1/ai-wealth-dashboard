@@ -1017,9 +1017,11 @@ export const api = {
   createManualAccountRule: (body: {
     name: string; target_account_id: string;
     match_type: RuleMatchType; match_value: string; sign: RuleSign;
+    source_account_id?: string | null;
   }) => post<ManualAccountRule>("/manual-account-rules", body),
   updateManualAccountRule: (id: string, body: Partial<{
     name: string; match_type: RuleMatchType; match_value: string; sign: RuleSign; active: boolean;
+    source_account_id: string | null;
   }>) =>
     fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
       method: "PATCH",

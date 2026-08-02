@@ -41,6 +41,9 @@ export interface ManualAccountRule {
   match_value: string;
   sign: RuleSign;
   active: boolean;
+  /** Optional account scope — null/absent means "any account". */
+  source_account_id?: string | null;
+  source_account_name?: string | null;
 }
 
 export interface Transaction {
