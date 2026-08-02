@@ -34,7 +34,8 @@ _SOURCE_ACCOUNT_COLLECTIONS = [
 router = APIRouter(tags=["manual-accounts"])
 
 ACCOUNT_TYPES = {"savings", "current", "credit_card"}
-MATCH_TYPES   = {"description_contains", "category"}
+MATCH_TYPES   = {"description_contains", "description_equals", "category"}
+MATCH_FIELDS  = {"description", "merchant"}
 SIGNS         = {"same", "opposite"}
 
 
@@ -269,6 +270,7 @@ async def delete_manual_transaction(acc_id: str, tx_id: str, user: dict = Depend
 def _serialize_rule(r: dict, account_name: str | None = None,
                     source_name: str | None = None) -> dict:
     scope = r.get("source_account_id") or None
+    af = r.get("applies_from")
     return {
         "id":                r["_id"],
         "name":              r.get("name", ""),
@@ -276,11 +278,13 @@ def _serialize_rule(r: dict, account_name: str | None = None,
         "target_account_name": account_name,
         "match_type":        r.get("match_type"),
         "match_value":       r.get("match_value"),
+        "match_field":       r.get("match_field"),
         "sign":              r.get("sign"),
         "active":            r.get("active", True),
         # Absent/None = any account (how every pre-scoping rule behaves).
         "source_account_id":   scope,
         "source_account_name": source_name if scope else None,
+        "applies_from":      af.isoformat() if isinstance(af, datetime) else None,
     }
 
 
@@ -350,7 +354,15 @@ def _validate_rule_body(body: dict) -> dict:
     sign = body.get("sign")
     if sign not in SIGNS:
         raise HTTPException(400, "Invalid sign")
-    return {"name": name, "match_type": match_type, "match_value": match_value, "sign": sign}
+    match_field = None
+    if match_type == "description_equals":
+        match_field = body.get("match_field") or "description"
+        if match_field not in MATCH_FIELDS:
+            raise HTTPException(400, "Invalid match field")
+    # Always return match_field (None for category/description_contains) so
+    # editing a rule from equals→contains clears any stale field value.
+    return {"name": name, "match_type": match_type, "match_value": match_value,
+            "sign": sign, "match_field": match_field}
 
 
 @router.post("/manual-account-rules")
@@ -362,14 +374,18 @@ async def create_rule(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(404, "Target account not found")
     fields = _validate_rule_body(body)
     source = await _resolve_source_scope(uid, body.get("source_account_id"))
+    backfill = bool(body.get("backfill"))
+    # Roll forward by default: a new rule watches from now on. Opting into
+    # backfill stores None, which the matcher reads as "all history".
     doc = {
         "_id": str(uuid_lib.uuid4())[:8], "user_id": uid,
         "target_account_id": target, "active": True,
         "source_account_id": source,
+        "applies_from": None if backfill else datetime.now(),
         "created_at": datetime.now(), **fields,
     }
     await manual_account_rules_col.insert_one(doc)
-    await apply_rules(uid)  # backfill existing transactions
+    await apply_rules(uid)
     names = await _source_account_names(uid, [source] if source else [])
     return _serialize_rule(doc, acc.get("name"), names.get(account_key(source)))
 
@@ -393,6 +409,9 @@ async def update_rule(rule_id: str, body: dict, user: dict = Depends(current_use
         updates["source_account_id"] = await _resolve_source_scope(uid, body["source_account_id"])
     if "active" in body:
         updates["active"] = bool(body["active"])
+    if "backfill" in body:
+        # Unchecking it pins the rule to now; re-checking it reopens all history.
+        updates["applies_from"] = None if body["backfill"] else (rule.get("applies_from") or datetime.now())
     if not updates:
         raise HTTPException(400, "Nothing to update")
     # Reverse existing mirrors, apply the change, then re-apply if still active.

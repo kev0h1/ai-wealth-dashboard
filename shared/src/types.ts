@@ -29,7 +29,8 @@ export interface ManualAccount {
   updated_at: string | null;
 }
 
-export type RuleMatchType = "description_contains" | "category";
+export type RuleMatchType = "description_contains" | "description_equals" | "category";
+export type RuleMatchField = "description" | "merchant";
 export type RuleSign = "same" | "opposite";
 
 export interface ManualAccountRule {
@@ -44,6 +45,10 @@ export interface ManualAccountRule {
   /** Optional account scope — null/absent means "any account". */
   source_account_id?: string | null;
   source_account_name?: string | null;
+  /** Which single field an equals rule compares. Null for contains/category rules. */
+  match_field?: RuleMatchField | null;
+  /** Null/absent = matches all history (every rule created before roll-forward existed). */
+  applies_from?: string | null;
 }
 
 export interface Transaction {

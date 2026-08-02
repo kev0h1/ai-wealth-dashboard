@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign, AccountCategorySummary, KPIs } from "@/lib/api";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check } from "lucide-react";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs } from "@/lib/api";
 import AccountMiniCard, { BANK_META, accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import TransactionRow from "@/components/TransactionRow";
@@ -87,6 +87,45 @@ function ruleValueFor(tx: Transaction): string {
   return (stem.length >= 3 ? stem : desc).slice(0, 80);
 }
 
+/** Fragments that make a description unusable for exact matching: they change
+ *  on every transaction (reference numbers, dates, amounts), so an equals rule
+ *  built on one would match that single row and then nothing, ever. */
+const VOLATILE_PATTERNS: RegExp[] = [
+  /\d{3,}/,                                    // account / card / reference numbers
+  DATE_FRAG,                                   // "29MAY", "ON 3 JUN 25"
+  /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/,   // 03/06, 3-6-25
+  /\b\d+[.,]\d{2}\b/,                          // 14.40 — an amount
+  /[£$€]\s?\d/,                                // £12
+];
+
+function isVolatileDescription(desc: string): boolean {
+  return VOLATILE_PATTERNS.some(re => re.test(desc));
+}
+
+type PickedMatch = {
+  matchType: RuleMatchType;
+  matchField: RuleMatchField;
+  value: string;
+  /** Set when we had to widen to `contains`; explains why, in the UI. */
+  widenedBecause: "volatile" | "too-long" | null;
+};
+
+function matchForPicked(tx: Transaction): PickedMatch {
+  const merchant = (tx.merchant_name ?? "").trim();
+  if (merchant) {
+    // Merchant names are stable across future transactions from the same merchant
+    return { matchType: "description_equals", matchField: "merchant", value: merchant.slice(0, 80), widenedBecause: null };
+  }
+  const desc = (tx.description ?? "").trim();
+  if (desc && desc.length <= 80 && !isVolatileDescription(desc)) {
+    // Stable, short enough, non-volatile — safe to match exactly
+    return { matchType: "description_equals", matchField: "description", value: desc, widenedBecause: null };
+  }
+  // Fall back to contains with the truncated stem from ruleValueFor
+  const widenedBecause = desc.length > 80 && !isVolatileDescription(desc) ? "too-long" : "volatile";
+  return { matchType: "description_contains", matchField: "description", value: ruleValueFor(tx), widenedBecause };
+}
+
 const PAGE_SIZE = 20;
 
 const MANUAL_TYPES: { value: ManualAccountType; label: string; Icon: typeof Wallet }[] = [
@@ -156,11 +195,16 @@ export default function AccountsPage() {
   const [ruleSaving, setRuleSaving] = useState(false);
   const [ruleError, setRuleError] = useState<string | null>(null);
 
-  // Transaction search state for description_contains rule building
+  // Transaction search state for rule building
   const [ruleSearchResults, setRuleSearchResults] = useState<Transaction[]>([]);
   const [ruleSearchOpen, setRuleSearchOpen] = useState(false);
-  const [ruleMatchCount, setRuleMatchCount] = useState<number | null>(null);
+  const [ruleCounts, setRuleCounts] = useState<{ contains: number; equals: number } | null>(null);
   const [rulePool, setRulePool] = useState<Transaction[] | null>(null);
+  const [ruleMatchField, setRuleMatchField] = useState<RuleMatchField>("description");
+  // True only when value came from picking a transaction (or editing an existing equals rule)
+  const [rulePicked, setRulePicked] = useState(false);
+  const [ruleWidened, setRuleWidened] = useState<"volatile" | "too-long" | null>(null);
+  const [ruleBackfill, setRuleBackfill] = useState(false);
 
   // Offline-account ledger entries (hand-added)
   const [manualTxModalOpen, setManualTxModalOpen] = useState(false);
@@ -210,37 +254,55 @@ export default function AccountsPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Lazy-load the transaction pool when the rule modal opens in description mode
+  // Lazy-load the transaction pool whenever the rule modal opens (cached, so cheap to always fetch)
   useEffect(() => {
-    if (!ruleModalOpen || ruleMatchType !== "description_contains" || rulePool !== null) return;
+    if (!ruleModalOpen || rulePool !== null) return;
     let cancelled = false;
     getAllTransactionsCached()
       .then(data => { if (!cancelled) setRulePool(data); })
       .catch(() => { if (!cancelled) setRulePool([]); });
     return () => { cancelled = true; };
-  }, [ruleModalOpen, ruleMatchType, rulePool]);
+  }, [ruleModalOpen, rulePool]);
 
-  // Debounced search + match count for description_contains rules
+  // Debounced search + match counts for all rule modes.
+  // Computes both contains and equals counts every run so the strictness picker
+  // can show both live without an extra fetch.
   useEffect(() => {
-    if (ruleMatchType !== "description_contains" || !ruleMatchValue.trim() || rulePool === null) {
+    if (!ruleMatchValue.trim() || rulePool === null) {
       setRuleSearchResults([]);
-      setRuleMatchCount(null);
+      setRuleCounts(null);
       return;
     }
     const t = setTimeout(() => {
       const v = ruleMatchValue.trim().toLowerCase();
       // The account scopes all three: what you browse, what we count, and what
-      // the rule will catch — so the number on screen is exactly truthful.
-      const hits = rulePool.filter(tx =>
-        (!ruleSource || tx.account_id === ruleSource) &&
+      // the rule will catch — so the numbers on screen are exactly truthful.
+      const scoped = rulePool.filter(tx => !ruleSource || tx.account_id === ruleSource);
+
+      if (ruleMatchType === "category") {
+        // Category mode: exact match on the category field
+        const n = scoped.filter(tx => (tx.category ?? "").trim().toLowerCase() === v).length;
+        setRuleCounts({ contains: n, equals: n });
+        setRuleSearchResults([]);
+        return;
+      }
+
+      const containsHits = scoped.filter(tx =>
         `${tx.description ?? ""} ${tx.merchant_name ?? ""}`.toLowerCase().includes(v)
       );
-      setRuleMatchCount(hits.length);
+      const equalsHits = scoped.filter(tx =>
+        (ruleMatchField === "merchant"
+          ? (tx.merchant_name ?? "")
+          : (tx.description ?? "")
+        ).trim().toLowerCase() === v
+      );
+      setRuleCounts({ contains: containsHits.length, equals: equalsHits.length });
+
       if (ruleSearchOpen) {
         // Dedupe by ruleValueFor key, keep first (newest), slice to 6
         const seen = new Set<string>();
         const deduped: Transaction[] = [];
-        for (const tx of hits) {
+        for (const tx of containsHits) {
           const key = ruleValueFor(tx).toLowerCase();
           if (!seen.has(key)) { seen.add(key); deduped.push(tx); }
           if (deduped.length >= 6) break;
@@ -249,7 +311,10 @@ export default function AccountsPage() {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [ruleMatchValue, ruleMatchType, ruleSource, rulePool, ruleSearchOpen, ruleModalOpen]);
+  }, [ruleMatchValue, ruleMatchType, ruleMatchField, ruleSource, rulePool, ruleSearchOpen, ruleModalOpen]);
+
+  // The count that matches the currently selected mode
+  const ruleActiveCount = ruleCounts === null ? null : (ruleMatchType === "description_equals" ? ruleCounts.equals : ruleCounts.contains);
 
   const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen || !!confirmDialog?.open;
   useEffect(() => {
@@ -650,7 +715,11 @@ export default function AccountsPage() {
     setRuleError(null);
     setRuleSearchOpen(false);
     setRuleSearchResults([]);
-    setRuleMatchCount(null);
+    setRuleCounts(null);
+    setRuleMatchField("description");
+    setRulePicked(false);
+    setRuleWidened(null);
+    setRuleBackfill(false);
     setRuleModalOpen(true);
   }
 
@@ -722,12 +791,22 @@ export default function AccountsPage() {
     setRuleError(null);
     setRuleSearchOpen(false);
     setRuleSearchResults([]);
-    setRuleMatchCount(null);
+    setRuleCounts(null);
+    setRuleMatchField(rule.match_field ?? "description");
+    setRulePicked(rule.match_type === "description_equals");
+    setRuleWidened(null);
+    // A rule with no applies_from already matches all history — keep that behaviour on a no-op save
+    setRuleBackfill(rule.applies_from == null);
     setRuleModalOpen(true);
   }
 
   function pickRuleTransaction(tx: Transaction) {
-    setRuleMatchValue(ruleValueFor(tx));
+    const m = matchForPicked(tx);
+    setRuleMatchValue(m.value);
+    setRuleMatchType(m.matchType);
+    setRuleMatchField(m.matchField);
+    setRulePicked(true);
+    setRuleWidened(m.widenedBecause);
     setRuleSearchOpen(false);
   }
 
@@ -740,22 +819,25 @@ export default function AccountsPage() {
     setRuleSaving(true);
     setRuleError(null);
     try {
+      const matchField = ruleMatchType === "description_equals" ? ruleMatchField : null;
       if (ruleEditId) {
         await api.updateManualAccountRule(ruleEditId, {
           name, match_type: ruleMatchType, match_value: matchValue, sign: ruleSign,
           source_account_id: ruleSource || null,
+          match_field: matchField, backfill: ruleBackfill,
         });
       } else {
         await api.createManualAccountRule({
           name, target_account_id: ruleTarget,
           match_type: ruleMatchType, match_value: matchValue, sign: ruleSign,
           source_account_id: ruleSource || null,
+          match_field: matchField, backfill: ruleBackfill,
         });
       }
       setRuleModalOpen(false);
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
-      setRuleMatchCount(null);
+      setRuleCounts(null);
       loadAccounts(); // balances changed via backfill / reverse+reapply
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1104,7 +1186,7 @@ export default function AccountsPage() {
       )}
 
       {ruleModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => { if (!ruleSaving) { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleMatchCount(null); } }}>
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => { if (!ruleSaving) { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); } }}>
           <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
@@ -1196,22 +1278,37 @@ export default function AccountsPage() {
 
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Match transactions by</label>
               <div className="grid grid-cols-2 gap-2 mb-3">
-                {([
-                  { value: "description_contains" as RuleMatchType, label: "Description" },
-                  { value: "category" as RuleMatchType, label: "Category" },
-                ]).map(({ value, label }) => (
-                  <button
-                    key={value}
-                    onClick={() => setRuleMatchType(value)}
-                    className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                      ruleMatchType === value
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                        : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {/* Description covers both contains and equals — selected when not in category mode */}
+                <button
+                  onClick={() => {
+                    if (ruleMatchType === "category") {
+                      setRuleMatchType("description_contains");
+                      setRulePicked(false);
+                      setRuleWidened(null);
+                    }
+                  }}
+                  className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                    ruleMatchType !== "category"
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  Description
+                </button>
+                <button
+                  onClick={() => {
+                    setRuleMatchType("category");
+                    setRulePicked(false);
+                    setRuleWidened(null);
+                  }}
+                  className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                    ruleMatchType === "category"
+                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  Category
+                </button>
               </div>
               {ruleMatchType === "category" ? (
                 <input
@@ -1219,11 +1316,11 @@ export default function AccountsPage() {
                   onChange={e => setRuleMatchValue(e.target.value)}
                   maxLength={80}
                   placeholder="e.g. Groceries"
-                  className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full mb-3 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               ) : (
                 <div
-                  className="mb-4"
+                  className="mb-3"
                   onBlur={e => {
                     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                       setRuleSearchOpen(false);
@@ -1232,7 +1329,19 @@ export default function AccountsPage() {
                 >
                   <input
                     value={ruleMatchValue}
-                    onChange={e => { setRuleMatchValue(e.target.value); setRuleSearchOpen(true); }}
+                    onChange={e => {
+                      setRuleMatchValue(e.target.value);
+                      setRuleSearchOpen(true);
+                      // Typing after a pick means free text — revert to contains
+                      if (rulePicked) {
+                        setRulePicked(false);
+                        setRuleWidened(null);
+                        if (ruleMatchType === "description_equals") {
+                          setRuleMatchType("description_contains");
+                          setRuleMatchField("description");
+                        }
+                      }
+                    }}
                     onFocus={() => setRuleSearchOpen(true)}
                     maxLength={80}
                     placeholder="Search your transactions"
@@ -1245,19 +1354,93 @@ export default function AccountsPage() {
                       ))}
                     </div>
                   )}
-                  {ruleMatchValue.trim() && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
-                      {rulePool === null ? (
-                        "Checking…"
-                      ) : ruleMatchCount === null ? null : ruleMatchCount === 0 ? (
-                        "No transactions match this yet"
-                      ) : (
-                        <>Matches <span className="text-emerald-600 dark:text-emerald-400 font-medium">{ruleMatchCount}</span> {ruleMatchCount === 1 ? "transaction" : "transactions"}</>
-                      )}
+                  {/* Strictness picker — only when a transaction was picked and it wasn't widened */}
+                  {rulePicked && !ruleWidened && (
+                    <div
+                      role="radiogroup"
+                      aria-label="How strictly should this rule match?"
+                      className="grid grid-cols-2 gap-2 mt-2"
+                    >
+                      {([
+                        { value: "description_equals" as RuleMatchType, label: "Exactly this", countKey: "equals" as const },
+                        { value: "description_contains" as RuleMatchType, label: "Contains this", countKey: "contains" as const },
+                      ]).map(({ value, label, countKey }) => {
+                        const n = ruleCounts?.[countKey] ?? null;
+                        const hint = n === null ? "—" : n === 1 ? "1 match" : `${n} matches`;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={ruleMatchType === value}
+                            onClick={() => setRuleMatchType(value)}
+                            className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                              ruleMatchType === value
+                                ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                                : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {label}
+                            <span className="text-[10px] font-normal opacity-80">{hint}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {/* Widened explanation — only when we had to fall back to contains */}
+                  {rulePicked && ruleWidened && ruleMatchValue.trim() && (
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
+                      {ruleWidened === "volatile"
+                        ? <>This description changes each time, so the rule matches anything containing &ldquo;{ruleMatchValue}&rdquo;.</>
+                        : <>This description is too long to match exactly, so the rule matches anything containing &ldquo;{ruleMatchValue}&rdquo;.</>
+                      }
                     </p>
                   )}
                 </div>
               )}
+
+              {/* Count line — shared between description and category modes */}
+              {ruleMatchValue.trim() && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                  {rulePool === null ? (
+                    "Checking…"
+                  ) : ruleActiveCount === null ? null : ruleActiveCount === 0 ? (
+                    "No transactions match this yet"
+                  ) : (() => {
+                    const countSpan = ruleActiveCount === 1
+                      ? <><span className="font-medium text-slate-600 dark:text-slate-300">1</span> past transaction matches</>
+                      : <><span className="font-medium text-slate-600 dark:text-slate-300">{ruleActiveCount}</span> past transactions match</>;
+                    return ruleBackfill
+                      ? <>{countSpan} · they&apos;ll be mirrored</>
+                      : <>{countSpan} · they won&apos;t be mirrored unless you backfill</>;
+                  })()}
+                </p>
+              )}
+
+              {/* Backfill opt-in — shown for both description and category modes */}
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={ruleBackfill}
+                onClick={() => setRuleBackfill(v => !v)}
+                className="flex items-center gap-3 mb-4 w-full min-h-[44px] active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+              >
+                <span className={`w-[18px] h-[18px] flex-shrink-0 rounded-md border flex items-center justify-center transition-colors ${
+                  ruleBackfill
+                    ? "bg-indigo-600 border-indigo-600"
+                    : "bg-transparent border-slate-300 dark:border-slate-600"
+                }`}>
+                  {ruleBackfill && <Check size={12} strokeWidth={3} className="text-white" />}
+                </span>
+                <span className="text-xs text-slate-600 dark:text-slate-300 text-left">
+                  {ruleActiveCount !== null && ruleActiveCount > 0
+                    ? ruleActiveCount === 1
+                      ? "Also apply to the 1 past transaction that matches"
+                      : `Also apply to the ${ruleActiveCount} past transactions that match`
+                    : "Also apply to past transactions"
+                  }
+                </span>
+              </button>
 
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Effect on offline account</label>
               <div className="grid grid-cols-2 gap-2 mb-1">
@@ -1284,7 +1467,7 @@ export default function AccountsPage() {
 
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleMatchCount(null); }}
+                  onClick={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleCounts(null); }}
                   disabled={ruleSaving}
                   className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
                 >
@@ -1553,8 +1736,8 @@ export default function AccountsPage() {
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm font-semibold truncate ${rule.active ? "text-slate-800 dark:text-slate-100" : "text-slate-400 dark:text-slate-500 line-through"}`}>{rule.name}</p>
                         <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
-                          {rule.match_type === "category" ? "Category" : "Contains"} “{rule.match_value}” · {rule.sign === "opposite" ? "Offset" : "Shadow"}
-                          {rule.source_account_id && ` · ${rule.source_account_name ?? "One account"}`}
+                          {rule.match_type === "category" ? "Category" : rule.match_type === "description_equals" ? "Exactly" : "Contains"}{" "}&ldquo;{rule.match_value}&rdquo;{" "}&middot;{" "}{rule.sign === "opposite" ? "Offset" : "Shadow"}
+                          {rule.source_account_id && <>{" "}&middot;{" "}{rule.source_account_name ?? "One account"}</>}
                         </p>
                       </div>
                       <button

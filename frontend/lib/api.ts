@@ -4,7 +4,7 @@ import type {
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
-  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign,
+  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo,
 } from "@wealth/shared";
 export type {
@@ -12,7 +12,7 @@ export type {
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
   ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
-  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleSign,
+  ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo,
 } from "@wealth/shared";
 
@@ -1018,10 +1018,12 @@ export const api = {
     name: string; target_account_id: string;
     match_type: RuleMatchType; match_value: string; sign: RuleSign;
     source_account_id?: string | null;
+    match_field?: RuleMatchField | null; backfill?: boolean;
   }) => post<ManualAccountRule>("/manual-account-rules", body),
   updateManualAccountRule: (id: string, body: Partial<{
     name: string; match_type: RuleMatchType; match_value: string; sign: RuleSign; active: boolean;
     source_account_id: string | null;
+    match_field: RuleMatchField | null; backfill: boolean;
   }>) =>
     fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
       method: "PATCH",

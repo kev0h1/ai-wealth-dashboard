@@ -24,7 +24,7 @@ async def _all_user_transactions(uid: str) -> list[dict]:
         txns.extend(await col.find(
             {"user_id": uid},
             {"amount": 1, "transaction_type": 1, "description": 1,
-             "merchant_name": 1, "category": 1, "account_id": 1},
+             "merchant_name": 1, "category": 1, "account_id": 1, "date": 1},
         ).to_list(None))
     return txns
 
@@ -41,11 +41,40 @@ def account_key(value) -> str:
     return "" if value is None else str(value).strip()
 
 
+def _as_datetime(value):
+    """Coerce a stored date (datetime or ISO string) to a naive local datetime."""
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _within_window(rule: dict, txn: dict) -> bool:
+    """Rules created before this feature carry no ``applies_from``; absent/None
+    means "all history", which is exactly how every existing rule behaves. A
+    rule created today carries its creation time and never reaches backwards."""
+    start = _as_datetime(rule.get("applies_from"))
+    if start is None:
+        return True
+    when = _as_datetime(txn.get("date"))
+    if when is None:
+        return False  # an undated transaction can't be shown to fall after the cutoff
+    return when >= start
+
+
 def _matches(rule: dict, txn: dict) -> bool:
     # Optional account scope: absent/None means "any account", which is what
     # every rule written before scoping existed carries.
     scope = account_key(rule.get("source_account_id"))
     if scope and account_key(txn.get("account_id")) != scope:
+        return False
+    if not _within_window(rule, txn):
         return False
     mt = rule.get("match_type")
     val = str(rule.get("match_value", "")).strip().lower()
@@ -53,6 +82,15 @@ def _matches(rule: dict, txn: dict) -> bool:
         return False
     if mt == "category":
         return str(txn.get("category") or "").strip().lower() == val
+    if mt == "description_equals":
+        # Exact comparison against one named field only — never the concatenated
+        # haystack, so which field the rule targets is always unambiguous.
+        field = rule.get("match_field") or "description"
+        if field == "merchant":
+            candidate = str(txn.get("merchant_name") or "").strip().lower()
+        else:
+            candidate = str(txn.get("description") or "").strip().lower()
+        return candidate == val
     # description_contains: search description + merchant
     haystack = f"{txn.get('description', '')} {txn.get('merchant_name') or ''}".lower()
     return val in haystack
