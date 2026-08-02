@@ -22,6 +22,7 @@ import InvestmentUpload from "@/components/InvestmentUpload";
 import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
+import { createPortal } from "react-dom";
 
 function typeLabel(type: string, subtype?: string): string {
   const t = type.toLowerCase();
@@ -156,10 +157,15 @@ export default function AccountsPage() {
 
   const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen || !!confirmDialog?.open;
   useEffect(() => {
+    const el = document.getElementById("app-shell");
     if (anyModalOpen) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = prev; };
+      if (el) el.classList.add("sheet-open");
+      return () => {
+        document.body.style.overflow = prev;
+        if (el) el.classList.remove("sheet-open");
+      };
     }
   }, [anyModalOpen]);
 
@@ -773,11 +779,14 @@ export default function AccountsPage() {
   // Rules added from within an offline account are scoped to it (no picker).
   const inManualDetail = !!accounts.find(a => a.id === selectedAccountId)?.manual;
 
+  const [modalsMounted, setModalsMounted] = useState(false);
+  useEffect(() => setModalsMounted(true), []);
+
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
-      {confirmDialog?.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-6">
+      {confirmDialog?.open && modalsMounted && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-6">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-xs rounded-2xl p-6 shadow-2xl">
             <p className="text-sm text-slate-100 leading-relaxed mb-6">{confirmDialog.message}</p>
             <div className="flex gap-3">
@@ -795,7 +804,8 @@ export default function AccountsPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {showMpesaUpload && (
         <StatementUpload
@@ -803,258 +813,288 @@ export default function AccountsPage() {
           onClose={() => setShowMpesaUpload(false)}
         />
       )}
-      {manualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualSaving && setManualModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">
-              {manualEditId ? "Edit offline account" : "Add offline account"}
-            </h2>
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Name</label>
-            <input
-              value={manualName}
-              onChange={e => setManualName(e.target.value)}
-              maxLength={60}
-              placeholder="e.g. Cash ISA, Wallet, Store card"
-              className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Type</label>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {MANUAL_TYPES.map(({ value, label, Icon }) => (
-                <button
-                  key={value}
-                  onClick={() => setManualType(value)}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-semibold transition-all ${
-                    manualType === value
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  <Icon size={18} />
-                  {label}
-                </button>
-              ))}
+      {manualModalOpen && modalsMounted && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualSaving && setManualModalOpen(false)}>
+          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
+              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
             </div>
+            {/* Header */}
+            <div className="px-5 pt-4 pb-2 flex-shrink-0">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {manualEditId ? "Edit offline account" : "Add offline account"}
+              </h2>
+            </div>
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5 pb-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
+              <input
+                value={manualName}
+                onChange={e => setManualName(e.target.value)}
+                maxLength={60}
+                placeholder="e.g. Cash ISA, Wallet, Store card"
+                className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
 
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
-              {manualType === "credit_card" ? "Amount owed" : "Balance"}
-            </label>
-            <input
-              value={manualBalance}
-              onChange={e => setManualBalance(e.target.value)}
-              inputMode="decimal"
-              placeholder="0.00"
-              className="w-full mb-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Type</label>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {MANUAL_TYPES.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    onClick={() => setManualType(value)}
+                    className={`flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                      manualType === value
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                        : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    <Icon size={18} />
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-            {manualError && <p className="text-xs text-rose-500 mb-2">{manualError}</p>}
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                {manualType === "credit_card" ? "Amount owed" : "Balance"}
+              </label>
+              <input
+                value={manualBalance}
+                onChange={e => setManualBalance(e.target.value)}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-full mb-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
 
-            <div className="flex gap-2 mt-3">
-              <button
-                onClick={() => setManualModalOpen(false)}
-                disabled={manualSaving}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveManual}
-                disabled={manualSaving}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}
-              </button>
+              {manualError && <p className="text-xs text-rose-500 mb-2">{manualError}</p>}
+
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => setManualModalOpen(false)}
+                  disabled={manualSaving}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveManual}
+                  disabled={manualSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {manualSaving ? "Saving…" : manualEditId ? "Save" : "Add account"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {manualTxModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualTxSaving && setManualTxModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">
-              {manualTxEditId ? "Edit transaction" : "Add transaction"}
-            </h2>
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Description</label>
-            <input
-              value={manualTxDesc}
-              onChange={e => setManualTxDesc(e.target.value)}
-              maxLength={120}
-              placeholder="e.g. Cash deposit, Interest"
-              className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Direction</label>
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              {([
-                { value: "credit" as const, label: "Money in" },
-                { value: "debit" as const, label: "Money out" },
-              ]).map(({ value, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setManualTxType(value)}
-                  className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    manualTxType === value
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+      {manualTxModalOpen && modalsMounted && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !manualTxSaving && setManualTxModalOpen(false)}>
+          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
+              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
             </div>
-
-            <div className="flex gap-3 mb-2">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Amount</label>
-                <input
-                  value={manualTxAmount}
-                  onChange={e => setManualTxAmount(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={manualTxDate}
-                  onChange={e => setManualTxDate(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+            {/* Header */}
+            <div className="px-5 pt-4 pb-2 flex-shrink-0">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {manualTxEditId ? "Edit transaction" : "Add transaction"}
+              </h2>
             </div>
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Description</label>
+              <input
+                value={manualTxDesc}
+                onChange={e => setManualTxDesc(e.target.value)}
+                maxLength={120}
+                placeholder="e.g. Cash deposit, Interest"
+                className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
 
-            {manualTxError && <p className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Direction</label>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {([
+                  { value: "credit" as const, label: "Money in" },
+                  { value: "debit" as const, label: "Money out" },
+                ]).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setManualTxType(value)}
+                    className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                      manualTxType === value
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                        : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-            <div className="flex gap-2 mt-3">
-              {manualTxEditId && (
+              <div className="flex gap-3 mb-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Amount</label>
+                  <input
+                    value={manualTxAmount}
+                    onChange={e => setManualTxAmount(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={manualTxDate}
+                    onChange={e => setManualTxDate(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {manualTxError && <p className="text-xs text-rose-500 mb-2">{manualTxError}</p>}
+
+              <div className="flex gap-2 mt-3">
+                {manualTxEditId && (
+                  <button
+                    onClick={() => { const id = manualTxEditId; setManualTxModalOpen(false); removeManualTx(id); }}
+                    disabled={manualTxSaving}
+                    className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-sm font-semibold text-rose-500 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                )}
                 <button
-                  onClick={() => { const id = manualTxEditId; setManualTxModalOpen(false); removeManualTx(id); }}
+                  onClick={() => setManualTxModalOpen(false)}
                   disabled={manualTxSaving}
-                  className="px-4 py-2.5 rounded-xl border border-rose-200 dark:border-rose-800 text-sm font-semibold text-rose-500 disabled:opacity-50"
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
                 >
-                  Delete
+                  Cancel
                 </button>
-              )}
-              <button
-                onClick={() => setManualTxModalOpen(false)}
-                disabled={manualTxSaving}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveManualTx}
-                disabled={manualTxSaving}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}
-              </button>
+                <button
+                  onClick={saveManualTx}
+                  disabled={manualTxSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {manualTxSaving ? "Saving…" : manualTxEditId ? "Save" : "Add"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {ruleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={() => !ruleSaving && setRuleModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-800 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-4">
-              {ruleEditId ? "Edit rule" : "Add rule"}
-            </h2>
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Name</label>
-            <input
-              value={ruleName}
-              onChange={e => setRuleName(e.target.value)}
-              maxLength={60}
-              placeholder="e.g. Credit card repayments"
-              className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-
-            {!inManualDetail && (
-              <>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Offline account</label>
-                <CustomSelect
-                  value={ruleTarget}
-                  onChange={v => setRuleTarget(v)}
-                  options={manualAccounts.map(a => ({ value: a.id, label: a.name }))}
-                  className="w-full mb-4"
-                />
-              </>
-            )}
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Match transactions by</label>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              {([
-                { value: "description_contains" as RuleMatchType, label: "Description" },
-                { value: "category" as RuleMatchType, label: "Category" },
-              ]).map(({ value, label }) => (
-                <button
-                  key={value}
-                  onClick={() => setRuleMatchType(value)}
-                  className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    ruleMatchType === value
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+      {ruleModalOpen && modalsMounted && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !ruleSaving && setRuleModalOpen(false)}>
+          <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
+              <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />
             </div>
-            <input
-              value={ruleMatchValue}
-              onChange={e => setRuleMatchValue(e.target.value)}
-              maxLength={80}
-              placeholder={ruleMatchType === "category" ? "e.g. Groceries" : "e.g. AMEX PAYMENT"}
-              className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-
-            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Effect on offline account</label>
-            <div className="grid grid-cols-2 gap-2 mb-1">
-              {([
-                { value: "opposite" as RuleSign, label: "Offset", hint: "Posts the opposite amount" },
-                { value: "same" as RuleSign, label: "Shadow", hint: "Posts the same amount" },
-              ]).map(({ value, label, hint }) => (
-                <button
-                  key={value}
-                  onClick={() => setRuleSign(value)}
-                  className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    ruleSign === value
-                      ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  {label}
-                  <span className="text-[10px] font-normal opacity-80">{hint}</span>
-                </button>
-              ))}
+            {/* Header */}
+            <div className="px-5 pt-4 pb-2 flex-shrink-0">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {ruleEditId ? "Edit rule" : "Add rule"}
+              </h2>
             </div>
+            {/* Scrollable body */}
+            <div className="overflow-y-auto flex-1 px-5" style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1 mt-3">Name</label>
+              <input
+                value={ruleName}
+                onChange={e => setRuleName(e.target.value)}
+                maxLength={60}
+                placeholder="e.g. Credit card repayments"
+                className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
 
-            {ruleError && <p className="text-xs text-rose-500 mt-2">{ruleError}</p>}
+              {!inManualDetail && (
+                <>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Offline account</label>
+                  <CustomSelect
+                    value={ruleTarget}
+                    onChange={v => setRuleTarget(v)}
+                    options={manualAccounts.map(a => ({ value: a.id, label: a.name }))}
+                    className="w-full mb-4"
+                  />
+                </>
+              )}
 
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setRuleModalOpen(false)}
-                disabled={ruleSaving}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveRule}
-                disabled={ruleSaving}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                {ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}
-              </button>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Match transactions by</label>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {([
+                  { value: "description_contains" as RuleMatchType, label: "Description" },
+                  { value: "category" as RuleMatchType, label: "Category" },
+                ]).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setRuleMatchType(value)}
+                    className={`py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                      ruleMatchType === value
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                        : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={ruleMatchValue}
+                onChange={e => setRuleMatchValue(e.target.value)}
+                maxLength={80}
+                placeholder={ruleMatchType === "category" ? "e.g. Groceries" : "e.g. AMEX PAYMENT"}
+                className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Effect on offline account</label>
+              <div className="grid grid-cols-2 gap-2 mb-1">
+                {([
+                  { value: "opposite" as RuleSign, label: "Offset", hint: "Posts the opposite amount" },
+                  { value: "same" as RuleSign, label: "Shadow", hint: "Posts the same amount" },
+                ]).map(({ value, label, hint }) => (
+                  <button
+                    key={value}
+                    onClick={() => setRuleSign(value)}
+                    className={`flex flex-col items-center gap-0.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                      ruleSign === value
+                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                        : "border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {label}
+                    <span className="text-[10px] font-normal opacity-80">{hint}</span>
+                  </button>
+                ))}
+              </div>
+
+              {ruleError && <p className="text-xs text-rose-500 mt-2">{ruleError}</p>}
+
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setRuleModalOpen(false)}
+                  disabled={ruleSaving}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveRule}
+                  disabled={ruleSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {ruleSaving ? "Saving…" : ruleEditId ? "Save" : "Add rule"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
