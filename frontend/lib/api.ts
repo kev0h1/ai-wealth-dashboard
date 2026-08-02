@@ -202,6 +202,7 @@ export type PaceChoice = {
   share_of_discretionary: number | null;
   txn_count: number;
   usual_rate_per_day: number | null;
+  txn_ids: string[];
 };
 
 export type PaceDetail =

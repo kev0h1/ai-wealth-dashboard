@@ -91,7 +91,7 @@ export default function BudgetPage() {
   const pageLoading = detailLoading || txLoading;
 
   // Category sheet + transaction sheet state
-  const [openCategory, setOpenCategory] = useState<{ name: string; total: number; count: number; transactions: Transaction[] } | null>(null);
+  const [openCategory, setOpenCategory] = useState<{ name: string; title?: string; total: number; count: number; transactions: Transaction[] } | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
   // Chat state
@@ -181,13 +181,15 @@ export default function BudgetPage() {
     if (deepLinkHandled.current) return;
     if (!deepLinkCat || !detail || detail.status !== "ok") return;
     const choice = detail.choices.find(c => c.category === deepLinkCat);
-    const txns = categoryTxns[deepLinkCat] ?? [];
+    const ids = new Set(choice?.txn_ids ?? []);
+    const txns = (categoryTxns[deepLinkCat] ?? []).filter(t => ids.has(t.id));
     if (txns.length === 0) return; // leave flag unset so it can open once data arrives
     deepLinkHandled.current = true;
     setOpenCategory({
       name: deepLinkCat,
+      title: `Choices in ${deepLinkCat}`,
       total: choice?.spent ?? 0,
-      count: choice?.txn_count ?? txns.length,
+      count: txns.length,
       transactions: txns,
     });
   }, [deepLinkCat, detail, categoryTxns]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -355,11 +357,15 @@ export default function BudgetPage() {
             </div>
 
             {/* Notable day */}
-            {detail.notable_day != null && (
-              <p className="text-[12px] text-slate-400 dark:text-slate-500 px-1">
-                {detail.notable_day.weekday} was {hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)} — about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
-              </p>
-            )}
+            {detail.notable_day != null && (() => {
+              const [y, m, d] = detail.notable_day.date.split("-").map(Number);
+              const dayLabel = new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
+              return (
+                <p className="text-[12px] text-slate-400 dark:text-slate-500 px-1">
+                  {dayLabel} was {hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)} — about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
+                </p>
+              );
+            })()}
 
             {/* Your choices */}
             <div>
@@ -369,7 +375,8 @@ export default function BudgetPage() {
                   {detail.choices.map((choice, i) => {
                     const colour = colours[choice.category] ?? CATEGORY_COLOURS[choice.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
                     const Icon = getCategoryIcon(choice.category, iconOverrides);
-                    const txns = categoryTxns[choice.category] ?? [];
+                    const ids = new Set(choice.txn_ids ?? []);
+                    const txns = (categoryTxns[choice.category] ?? []).filter(t => ids.has(t.id));
                     const hasTxns = txns.length > 0;
                     const fragments: string[] = [];
                     fragments.push(`${fmt2(choice.rate_per_day, sym)}/day`);
@@ -402,7 +409,7 @@ export default function BudgetPage() {
                         <button
                           key={choice.category}
                           className="w-full text-left active:scale-[0.99] transition-transform active:bg-slate-50 dark:active:bg-slate-700/40"
-                          onClick={() => setOpenCategory({ name: choice.category, total: choice.spent, count: choice.txn_count, transactions: txns })}
+                          onClick={() => setOpenCategory({ name: choice.category, title: `Choices in ${choice.category}`, total: choice.spent, count: txns.length, transactions: txns })}
                         >
                           {rowContent}
                         </button>
@@ -520,6 +527,7 @@ export default function BudgetPage() {
       {openCategory && (
         <CategorySheet
           name={openCategory.name}
+          title={openCategory.title}
           total={openCategory.total}
           count={openCategory.count}
           transactions={openCategory.transactions}

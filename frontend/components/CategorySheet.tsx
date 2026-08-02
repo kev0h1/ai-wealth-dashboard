@@ -18,6 +18,7 @@ import { useSheetA11y } from "@/lib/useSheetA11y";
 
 interface Props {
   name: string;
+  title?: string;
   total: number;
   count: number;
   transactions: Transaction[];
@@ -27,7 +28,7 @@ interface Props {
   isPro?: boolean;
 }
 
-export default function CategorySheet({ name, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro }: Props) {
+export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro }: Props) {
   useLockBodyScroll();
   useSheetOpen();
   const [mounted, setMounted] = useState(false);
@@ -63,7 +64,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`${name} category`}
+        aria-label={`${title ?? name} category`}
         className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] bg-white dark:bg-slate-800 rounded-t-3xl z-[70] max-h-[80vh] flex flex-col"
       >
         {/* Handle */}
@@ -85,7 +86,7 @@ export default function CategorySheet({ name, total, count, transactions, onClos
             );
           })()}
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{name}</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{title ?? name}</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">{count} transaction{count !== 1 ? "s" : ""}</p>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">

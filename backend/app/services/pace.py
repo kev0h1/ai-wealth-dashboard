@@ -61,6 +61,7 @@ def _norm(raw: dict) -> _Txn:
         "category":   cat,
         "account_id": str(raw.get("account_id") or ""),
         "planned":    bool(raw.get("planned")),
+        "id":         str(raw.get("_id") or ""),
     }
 
 
@@ -140,6 +141,53 @@ def _classify(
             discretionary.append(t)
 
     return discretionary, commitments, non_spend, planned
+
+
+_BASELINE_DAYS = 90
+
+
+def _discretionary_baseline(
+    txns: list[_Txn],
+    patterns: list[dict],
+    period_start: date,
+) -> tuple[dict[str, float], int]:
+    """Median 30-day discretionary spend per category over the 90 days
+    immediately BEFORE *period_start*.
+
+    Mirrors cashflow.py's median-of-30-day-buckets discipline so one spike
+    month can't distort the baseline — but classifies with pace.py's own
+    commitment matcher first, so the baseline is discretionary-only, on
+    exactly the same basis as the numerator it will be compared against.
+
+    Returns ({category: median 30-day total}, n_months) where n_months is how
+    many 30-day buckets the loaded data actually covers (1..3, 0 when empty).
+    """
+    window = [
+        t for t in txns
+        if period_start - timedelta(days=_BASELINE_DAYS) <= t["date"] < period_start
+    ]
+    if not window:
+        return {}, 0
+
+    n_months = max(1, min(3, (period_start - min(t["date"] for t in window)).days // 30 + 1))
+    disc, _, _, _ = _classify(window, patterns, window_days=_BASELINE_DAYS)
+
+    buckets: dict[str, list[float]] = {}
+    counts:  dict[str, int] = {}
+    for t in disc:
+        b = min(2, (period_start - t["date"]).days // 30)
+        buckets.setdefault(t["category"], [0.0, 0.0, 0.0])[b] += t["amount"]
+        counts[t["category"]] = counts.get(t["category"], 0) + 1
+
+    out: dict[str, float] = {}
+    for cat, arr in buckets.items():
+        # Too few discretionary transactions to call anything "usual".
+        if counts[cat] < 3:
+            continue
+        med = statistics.median(arr[:n_months])
+        if med > 0:
+            out[cat] = round(med, 2)
+    return out, n_months
 
 
 # ── 1. Main entry point ───────────────────────────────────────────────────────
@@ -483,9 +531,9 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
         period_start, period_end = prev_pay_period(period_start, pay_cfg)
 
     # ── B. Branch A (current) vs Branch B (closed) ───────────────────────────
-    # db_cutoff must be <= (period_start - 70d) so the loaded range always covers
-    # the history_txns filter in section C.
-    db_cutoff = period_start - timedelta(days=70)
+    # db_cutoff must cover BOTH the 70-day notable-day history window AND the
+    # 90-day discretionary baseline window — use the larger of the two.
+    db_cutoff = period_start - timedelta(days=_BASELINE_DAYS)
 
     if not closed:
         # ── B-A. Current period: delegate to compute_pace for pot/state ──────
@@ -511,7 +559,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     db_cutoff_dt = datetime(db_cutoff.year, db_cutoff.month, db_cutoff.day)
 
     _projection = {
-        "merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+        "_id": 1, "merchant_name": 1, "description": 1, "amount": 1, "date": 1,
         "category": 1, "custom_category": 1, "account_id": 1, "planned": 1,
     }
 
@@ -547,19 +595,20 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     notable_day = _compute_notable_day(history_txns, patterns, period_start, scan_end)
 
     # ── F. choices — discretionary grouped by category ────────────────────────
-    from app.services.cashflow import monthly_cashflow_cached
-    from app.services.region import get_user_region
-    region = await get_user_region(uid)
-    cf = await monthly_cashflow_cached(uid, region, datetime.now() - timedelta(days=90))
-    cf_cat = cf.get("cat", {})
-    thin_history = cf.get("n_months", 3) < 2
+    # Baseline is discretionary-only, classified on the same basis as the
+    # numerator (pace.py's own commitment matcher), so commitments never
+    # inflate the usual_rate_per_day for discretionary categories.
+    baseline, baseline_months = _discretionary_baseline(all_txns, patterns, period_start)
+    thin_history = baseline_months < 2
 
-    cat_spent: dict[str, float] = {}
-    cat_count: dict[str, int]   = {}
+    cat_spent:   dict[str, float]       = {}
+    cat_count:   dict[str, int]         = {}
+    cat_txn_ids: dict[str, list[str]]   = {}
     for t in disc_period:
         cat = t["category"]
-        cat_spent[cat] = cat_spent.get(cat, 0.0) + t["amount"]
-        cat_count[cat] = cat_count.get(cat, 0) + 1
+        cat_spent[cat]   = cat_spent.get(cat, 0.0) + t["amount"]
+        cat_count[cat]   = cat_count.get(cat, 0) + 1
+        cat_txn_ids.setdefault(cat, []).append(t["id"])
 
     # Early-period multiples are volatile and misleading (e.g. £41 on day 2
     # renders "18.7× your usual").  Suppress multiple when fewer than 5 days
@@ -572,13 +621,13 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
         txn_count = cat_count[cat]
         rate_per_day = round(spent / max(days_elapsed, 1), 2)
 
-        monthly = cf_cat.get(cat, 0.0)
-        if thin_history or monthly <= 0:
+        usual_30d = baseline.get(cat)
+        if thin_history or not usual_30d:
             usual_rate_per_day = None
             multiple = None
         else:
-            usual_rate_per_day = round(monthly / 30, 2)
-            multiple = None if suppress_multiple else round(rate_per_day / (monthly / 30), 1)
+            usual_rate_per_day = round(usual_30d / 30, 2)
+            multiple = None if suppress_multiple else round(rate_per_day / (usual_30d / 30), 1)
 
         share = (
             round(spent / discretionary_so_far, 4)
@@ -589,6 +638,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             "category":               cat,
             "spent":                  spent_r,
             "txn_count":              txn_count,
+            "txn_ids":                cat_txn_ids.get(cat, []),
             "rate_per_day":           rate_per_day,
             "usual_rate_per_day":     usual_rate_per_day,
             "multiple":               multiple,
