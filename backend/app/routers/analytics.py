@@ -1749,6 +1749,26 @@ async def get_pace_detail(offset: int = 0, user: dict = Depends(current_user)):
     return result
 
 
+@router.get("/spend/category-signals")
+async def get_category_signals(offset: int = 0, user: dict = Depends(current_user)):
+    """Total-basis per-category readings for the Spend page tiles (× your usual + the Door).
+
+    Returns per-category multiples and Door fields computed on TOTAL spend —
+    the same basis as the Spend page's category tiles. offset: 0 = current
+    period (default), negative = closed prior periods. Clamped to [-60, 0].
+    """
+    uid = user["email"]
+    off = max(-60, min(0, int(offset)))
+    cache_name = f"category_signals:{off}"
+    cached = response_cache.get(cache_name, uid)
+    if cached is not None:
+        return cached
+    from app.services.pace import compute_category_signals
+    result = await compute_category_signals(uid, offset=off)
+    response_cache.put(cache_name, uid, result)
+    return result
+
+
 @router.get("/value-delivered")
 async def get_value_delivered(user: dict = Depends(current_user)):
     """Return how much monthly saving the user has unlocked by acting on insights."""

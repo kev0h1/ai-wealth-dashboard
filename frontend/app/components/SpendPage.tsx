@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, X, SlidersHorizontal, AlertTriangle, ReceiptText, Fuel, CreditCard } from "lucide-react";
-import { api, Account, Transaction, CashflowData } from "@/lib/api";
+import { api, Account, Transaction, CashflowData, CategorySignal } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useColours } from "@/components/ColourProvider";
@@ -76,6 +76,16 @@ export default function SpendPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(searchParams.get("manage") === "1");
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
+  const [periodOffset, setPeriodOffset] = useState(0);
+  const [signals, setSignals] = useState<Record<string, CategorySignal>>({});
+  const signalsOffsetRef = useRef(0);
+  const refetchSignals = useCallback(() => {
+    const captured = signalsOffsetRef.current;
+    api.categorySignals(captured)
+      .then(d => { if (signalsOffsetRef.current !== captured) return; setSignals(d.signals ?? {}); })
+      .catch(() => { if (signalsOffsetRef.current !== captured) return; setSignals({}); });
+  }, []);
+  useEffect(() => { signalsOffsetRef.current = periodOffset; setSignals({}); refetchSignals(); }, [periodOffset, refetchSignals]);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isPro, setIsPro] = useState<boolean>(false);
@@ -132,6 +142,7 @@ export default function SpendPage() {
     const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    setPeriodOffset(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configKey]);
 
@@ -507,6 +518,7 @@ export default function SpendPage() {
     const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    setPeriodOffset(o => o - 1);
     if (view === "upcoming") setView("categories");
     setLargeOnly(false);
   }
@@ -515,6 +527,7 @@ export default function SpendPage() {
     const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    setPeriodOffset(o => o + 1);
     setLargeOnly(false);
   }
 
@@ -543,6 +556,7 @@ export default function SpendPage() {
     );
   }
 
+  const sym = region === "Kenya" ? "KES " : "£";
   const fmtAmt = (n: number) =>
     `£${Math.abs(n).toLocaleString("en-GB", {
       minimumFractionDigits: 2,
@@ -772,6 +786,9 @@ export default function SpendPage() {
                 {categories.map((cat) => {
                   const colour = colours[cat.name] ?? CATEGORY_COLOURS[cat.name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
                   const Icon = getCategoryIcon(cat.name, iconOverrides);
+                  const sig = signals[cat.name];
+                  const s = cat.count !== 1 ? "s" : "";
+                  const multipleFragment = sig?.multiple != null ? ` · ${sig.multiple.toFixed(1)}× usual` : "";
                   return (
                     <button
                       key={cat.name}
@@ -788,7 +805,7 @@ export default function SpendPage() {
                         </span>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{cat.name}</p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{cat.count} txn{cat.count !== 1 ? "s" : ""}</p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{cat.count} txn{s}{multipleFragment}</p>
                         </div>
                       </div>
                       <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
@@ -798,18 +815,40 @@ export default function SpendPage() {
                       <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                         <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
                       </div>
-                      {(cat.name.toLowerCase() === "transport" || cat.name.toLowerCase() === "groceries" || cat.name === "Debt") && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                          {cat.name.toLowerCase() === "transport" ? (
-                            <><Fuel size={10} style={{ color: colour }} /><span>cheaper fuel inside</span></>
-                          ) : cat.name.toLowerCase() === "groceries" ? (
-                            <><ReceiptText size={10} style={{ color: colour }} /><span>scan receipts inside</span></>
-                          ) : (
-                            <><CreditCard size={10} style={{ color: colour }} /><span>payoff plan</span></>
-                          )}
-                          <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                        </span>
-                      )}
+                      {/* Badge slot — precedence: checkpoint > "is this usual?" > existing category badges */}
+                      {(() => {
+                        if (sig?.checkpoint) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                              <span>{sym}{Math.round(sig.checkpoint.spent_so_far)} of {sym}{Math.round(sig.checkpoint.aim_amount)} aim</span>
+                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
+                            </span>
+                          );
+                        }
+                        if (sig && sig.multiple != null && sig.multiple >= 1.5 && !sig.door_engaged) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                              <span>is this usual?</span>
+                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
+                            </span>
+                          );
+                        }
+                        if (cat.name.toLowerCase() === "transport" || cat.name.toLowerCase() === "groceries" || cat.name === "Debt") {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
+                              {cat.name.toLowerCase() === "transport" ? (
+                                <><Fuel size={10} style={{ color: colour }} /><span>cheaper fuel inside</span></>
+                              ) : cat.name.toLowerCase() === "groceries" ? (
+                                <><ReceiptText size={10} style={{ color: colour }} /><span>scan receipts inside</span></>
+                              ) : (
+                                <><CreditCard size={10} style={{ color: colour }} /><span>payoff plan</span></>
+                              )}
+                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </button>
                   );
                 })}
@@ -1292,9 +1331,24 @@ export default function SpendPage() {
           total={openCategory.total}
           count={openCategory.count}
           transactions={openCategory.transactions}
+          sym={sym}
           onClose={() => setOpenCategory(null)}
           onTransactionClick={(tx) => { setOpenCategory(null); setSelectedTx(tx); }}
           isPro={isPro}
+          door={signals[openCategory.name] ? (() => {
+            const catSig = signals[openCategory.name];
+            return {
+              category: openCategory.name,
+              multiple: catSig.multiple,
+              suggestedAim: catSig.suggested_aim,
+              checkpoint: catSig.checkpoint,
+              intent: catSig.intent,
+              doorEngaged: catSig.door_engaged,
+              isCurrentPeriod,
+              sym,
+              onChanged: refetchSignals,
+            };
+          })() : undefined}
         />
       )}
 

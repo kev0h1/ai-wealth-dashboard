@@ -145,6 +145,105 @@ def _classify(
 
 _BASELINE_DAYS = 90
 
+_SPEND_PROJ = {
+    "amount": 1, "date": 1, "category": 1, "custom_category": 1,
+    "transaction_type": 1,
+}
+
+
+async def load_spend_txns(uid: str, start: date, end: date | None = None) -> list[dict]:
+    """Every spend-category transaction in [start, end], signed.
+
+    Debits are positive; credits are refunds and net negative — exactly the
+    basis the Spend page's category tiles use. Categories in _NON_SPEND
+    (Transfer/Savings/Debt/Income) are excluded: they are not spending.
+
+    Returns [{"date": date, "category": str, "amount": float}].
+    """
+    start_dt = datetime(start.year, start.month, start.day)
+    date_filter: dict = {"$gte": start_dt}
+    if end is not None:
+        date_filter["$lte"] = datetime(end.year, end.month, end.day, 23, 59, 59)
+
+    raw_docs: list[dict] = []
+    for col in (transactions_col, yapily_transactions_col):
+        try:
+            async for doc in col.find(
+                {
+                    "user_id": uid,
+                    "transaction_type": {"$in": ["debit", "credit"]},
+                    "date": date_filter,
+                },
+                _SPEND_PROJ,
+            ):
+                raw_docs.append(doc)
+        except Exception:
+            logger.exception("load_spend_txns: failed fetching from %s for %s", col.name, uid)
+
+    result: list[dict] = []
+    for doc in raw_docs:
+        raw_date = doc.get("date")
+        if hasattr(raw_date, "date"):
+            d_obj = raw_date.date()
+        elif isinstance(raw_date, date):
+            d_obj = raw_date
+        else:
+            d_obj = date.today()
+
+        cat = doc.get("custom_category") or doc.get("category") or "Other"
+        if cat in _NON_SPEND:
+            continue
+
+        amt = abs(float(doc.get("amount") or 0))
+        if doc.get("transaction_type") == "credit":
+            amt = -amt
+
+        result.append({"date": d_obj, "category": cat, "amount": amt})
+
+    return result
+
+
+def _total_baseline(
+    txns: list[dict],
+    period_start: date,
+) -> tuple[dict[str, float], int]:
+    """Median 30-day TOTAL spend per category over the 90 days immediately
+    BEFORE *period_start*.
+
+    This is the TOTAL basis — all spend-category transactions, refunds netted,
+    commitments included. It is the baseline that belongs beside a total, never
+    beside a discretionary numerator. Takes already-total-basis txns (from
+    load_spend_txns) so there is no _classify call and no patterns argument.
+
+    Returns ({category: median 30-day total}, n_months) where n_months is how
+    many 30-day buckets the loaded data actually covers (1..3, 0 when empty).
+    """
+    window = [
+        t for t in txns
+        if period_start - timedelta(days=_BASELINE_DAYS) <= t["date"] < period_start
+    ]
+    if not window:
+        return {}, 0
+
+    n_months = max(1, min(3, (period_start - min(t["date"] for t in window)).days // 30 + 1))
+
+    buckets: dict[str, list[float]] = {}
+    counts:  dict[str, int] = {}
+    for t in window:
+        cat = t["category"]
+        b = min(2, (period_start - t["date"]).days // 30)
+        buckets.setdefault(cat, [0.0, 0.0, 0.0])[b] += t["amount"]
+        counts[cat] = counts.get(cat, 0) + 1
+
+    out: dict[str, float] = {}
+    for cat, arr in buckets.items():
+        if counts[cat] < 3:
+            continue
+        med = statistics.median(arr[:n_months])
+        if med > 0:
+            out[cat] = round(med, 2)
+    return out, n_months
+
 
 def _discretionary_baseline(
     txns: list[_Txn],
@@ -671,9 +770,10 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
                 engaged_categories,
                 intent_map_for_period,
             )
+            # Trends' cat_spent is discretionary; checkpoints are total basis — never mix.
             cp_map     = await checkpoint_map_for_period(
                 uid, period_start, period_end,
-                days_left=days_left, cat_spent=cat_spent,
+                days_left=days_left, cat_spent=None,
             )
             intent_map = await intent_map_for_period(uid, period_end)
             engaged    = await engaged_categories(uid, period_end)
@@ -751,3 +851,150 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             "choices":     choices,
             "notable_day": notable_day,
         }
+
+
+# ── H. Per-category Spend-tile signals (total basis) ─────────────────────────
+
+async def compute_category_signals(uid: str, offset: int = 0) -> dict:
+    """Total-basis per-category readings for the Spend page tiles.
+
+    Computes × your usual multiples and Door (consent-gated aim) fields on
+    TOTAL spend — the same basis the Spend tiles show. Standalone: never calls
+    compute_pace or safe-to-spend so a signal can never go blank because the
+    pot is unavailable.
+
+    Returns a dict with keys "period" and "signals".
+    """
+    offset = max(-60, min(0, int(offset)))
+    closed = offset < 0
+
+    # ── Resolve the target period ─────────────────────────────────────────────
+    prefs   = await preferences_col.find_one({"user_id": uid}) or {}
+    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+    today   = date.today()
+
+    period_start, period_end = get_pay_period_for_date(today, pay_cfg)
+    for _ in range(-offset):
+        period_start, period_end = prev_pay_period(period_start, pay_cfg)
+
+    # Current period (always needed for suggested_aim)
+    cur_start, cur_end = get_pay_period_for_date(today, pay_cfg)
+    current_period_days = (cur_end - cur_start).days + 1
+
+    # ── Load all spend-basis transactions (90-day baseline + period) ──────────
+    txns = await load_spend_txns(
+        uid,
+        period_start - timedelta(days=_BASELINE_DAYS),
+        period_end,
+    )
+
+    # ── Period totals ─────────────────────────────────────────────────────────
+    cat_spent: dict[str, float] = {}
+    for t in txns:
+        if period_start <= t["date"] <= period_end:
+            cat = t["category"]
+            cat_spent[cat] = cat_spent.get(cat, 0.0) + t["amount"]
+
+    # ── Elapsed / left ────────────────────────────────────────────────────────
+    if not closed:
+        days_elapsed = max(1, (today - period_start).days)
+        days_left: int | None = max(0, (period_end - today).days + 1)
+    else:
+        days_elapsed = (period_end - period_start).days + 1
+        days_left = None
+
+    suppress_multiple = days_elapsed < 5
+
+    # ── Baseline ──────────────────────────────────────────────────────────────
+    baseline, baseline_months = _total_baseline(txns, period_start)
+    thin_history = baseline_months < 2
+
+    # ── Door variables (current period only) ─────────────────────────────────
+    if not closed:
+        cp_map:     dict = {}
+        intent_map: dict = {}
+        engaged:    set  = set()
+        _derive_aim      = None
+
+        try:
+            from app.services.checkpoints import (
+                checkpoint_map_for_period,
+                derive_aim as _derive_aim,
+                engaged_categories,
+                intent_map_for_period,
+            )
+            cp_map     = await checkpoint_map_for_period(
+                uid, period_start, period_end,
+                days_left=days_left, cat_spent=cat_spent,
+            )
+            intent_map = await intent_map_for_period(uid, period_end)
+            engaged    = await engaged_categories(uid, period_end)
+        except Exception:
+            logger.exception("compute_category_signals: Door attachment failed for %s", uid)
+    else:
+        _derive_aim_closed = None
+        try:
+            from app.services.checkpoints import derive_aim as _derive_aim_closed
+        except Exception:
+            logger.exception(
+                "compute_category_signals: derive_aim import failed for closed period %s", uid
+            )
+
+    # ── Build per-category signals ────────────────────────────────────────────
+    signals: dict[str, dict] = {}
+    for cat, spent in cat_spent.items():
+        rate_per_day = spent / max(days_elapsed, 1)
+        usual_30d = baseline.get(cat)
+
+        if thin_history or not usual_30d:
+            usual_rate_per_day: float | None = None
+            multiple: float | None = None
+        else:
+            usual_rate_per_day = round(usual_30d / 30, 2)
+            multiple = None if suppress_multiple else round(rate_per_day / (usual_30d / 30), 1)
+
+        # suggested_aim always references the CURRENT period
+        if usual_rate_per_day is not None:
+            if not closed:
+                suggested_aim: float | None = (
+                    _derive_aim(usual_rate_per_day, current_period_days)
+                    if _derive_aim is not None else None
+                )
+            else:
+                suggested_aim = (
+                    _derive_aim_closed(usual_rate_per_day, current_period_days)
+                    if _derive_aim_closed is not None else None
+                )
+        else:
+            suggested_aim = None
+
+        if not closed:
+            signals[cat] = {
+                "usual_rate_per_day": usual_rate_per_day,
+                "multiple":           multiple,
+                "suggested_aim":      suggested_aim,
+                "checkpoint":         cp_map.get(cat) or None,
+                "intent":             intent_map.get(cat) or None,
+                "door_engaged":       cat in engaged,
+            }
+        else:
+            signals[cat] = {
+                "usual_rate_per_day": usual_rate_per_day,
+                "multiple":           multiple,
+                "suggested_aim":      suggested_aim,
+                "checkpoint":         None,
+                "intent":             None,
+                "door_engaged":       False,
+            }
+
+    return {
+        "period": {
+            "start":        period_start.isoformat(),
+            "end":          period_end.isoformat(),
+            "days_elapsed": days_elapsed,
+            "days_left":    days_left,
+            "offset":       offset,
+            "closed":       closed,
+        },
+        "signals": signals,
+    }

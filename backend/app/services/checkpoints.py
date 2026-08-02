@@ -5,6 +5,11 @@ proposed uninvited; a checkpoint exists only because the user explicitly asked
 for one. Resolution is measured from transaction data (the Verified Checkpoint
 Rule) — the user never ticks anything.
 
+All spend figures in this module use the TOTAL basis — every spend-category
+transaction, refunds netted, commitments included. This is the same basis the
+Spend page's category tiles show, so aim and progress always compare like with
+like.
+
 Storage shape (checkpoints_col):
     {_id: ObjectId, user_id, kind: "category", ref: <category>,
      aim_amount: float, basis: "usual"|"custom",
@@ -25,14 +30,11 @@ from datetime import date, datetime, timezone
 from bson import ObjectId
 
 from app.db.collections import (
-    cashflow_cache_col,
     category_intent_col,
     checkpoints_col,
     preferences_col,
-    transactions_col,
-    yapily_transactions_col,
 )
-from app.services.pace import _NON_SPEND, _classify, _discretionary_baseline, _norm
+from app.services.pace import _NON_SPEND, _total_baseline, load_spend_txns
 from app.services.pay_period import get_pay_period_for_date
 
 logger = logging.getLogger(__name__)
@@ -91,56 +93,20 @@ async def current_period(uid: str) -> tuple[date, date]:
     return get_pay_period_for_date(date.today(), cfg)
 
 
-# ── Discretionary spend for a category in a window ───────────────────────────
+# ── Total spend for a category in a window ───────────────────────────────────
 
-_PROJ = {
-    "merchant_name": 1, "description": 1, "amount": 1, "date": 1,
-    "category": 1, "custom_category": 1, "account_id": 1, "planned": 1,
-}
-
-
-async def category_discretionary(
+async def category_total_spend(
     uid: str,
     category: str,
     period_start: date,
     period_end: date,
 ) -> float:
-    """Compute that category's DISCRETIONARY spend in the window on exactly the
-    same basis as pace.py — reusing pace.py's own helpers."""
-    today = date.today()
-
-    start_dt = datetime(period_start.year, period_start.month, period_start.day)
-    end_dt   = datetime(period_end.year, period_end.month, period_end.day, 23, 59, 59)
-
-    raw_docs: list[dict] = []
-    for col in (transactions_col, yapily_transactions_col):
-        try:
-            async for doc in col.find(
-                {
-                    "user_id":          uid,
-                    "transaction_type": "debit",
-                    "date":             {"$gte": start_dt, "$lte": end_dt},
-                },
-                _PROJ,
-            ):
-                raw_docs.append(doc)
-        except Exception:
-            logger.exception("checkpoints: failed fetching from %s for %s", col.name, uid)
-
-    txns = [_norm(d) for d in raw_docs]
-
-    cached   = (await cashflow_cache_col.find_one({"_id": uid}) or {})
-    patterns = cached.get("recurring_spend", [])
-
-    # Mirror pace.py's days_elapsed logic exactly:
-    if period_end >= today:
-        window_days = max(1, (today - period_start).days)
-    else:
-        window_days = (period_end - period_start).days + 1
-
-    disc, _, _, _ = _classify(txns, patterns, window_days=window_days)
-    total = sum(t["amount"] for t in disc if t["category"] == category)
-    return round(total, 2)
+    """That category's TOTAL spend in the window — every spend-category
+    transaction, refunds netted, commitments included. This is the same basis
+    the Spend page's category tiles show: a user who aims at 'Eating Out'
+    means all of it."""
+    txns = await load_spend_txns(uid, period_start, period_end)
+    return round(sum(t["amount"] for t in txns if t["category"] == category), 2)
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -165,8 +131,8 @@ async def create_checkpoint(
     ref = ref.strip()
     if ref in _NON_SPEND:
         raise ValueError(
-            f"'{ref}' is not a discretionary category — the Door is for "
-            "discretionary spend only (not Transfer, Savings, Debt, or Income)"
+            f"'{ref}' is not a spending category — the Door is for spending "
+            "categories only (not Transfer, Savings, Debt, or Income)"
         )
 
     period_start, period_end = await current_period(uid)
@@ -185,34 +151,11 @@ async def create_checkpoint(
 
     if aim_amount is None:
         # Derive from the user's own history — never invent a number.
-        # Load 90 days before period_start, same window as _discretionary_baseline.
+        # Load 90 days before period_start on the total basis.
         from datetime import timedelta
         from app.services.pace import _BASELINE_DAYS
-        db_cutoff = period_start - timedelta(days=_BASELINE_DAYS)
-        db_cutoff_dt = datetime(db_cutoff.year, db_cutoff.month, db_cutoff.day)
-
-        raw_docs: list[dict] = []
-        for col in (transactions_col, yapily_transactions_col):
-            try:
-                async for doc in col.find(
-                    {
-                        "user_id":          uid,
-                        "transaction_type": "debit",
-                        "date":             {"$gte": db_cutoff_dt},
-                    },
-                    _PROJ,
-                ):
-                    raw_docs.append(doc)
-            except Exception:
-                logger.exception(
-                    "checkpoints: baseline fetch failed from %s for %s", col.name, uid
-                )
-
-        all_txns = [_norm(d) for d in raw_docs]
-        cached   = (await cashflow_cache_col.find_one({"_id": uid}) or {})
-        patterns = cached.get("recurring_spend", [])
-
-        baseline, _ = _discretionary_baseline(all_txns, patterns, period_start)
+        txns = await load_spend_txns(uid, period_start - timedelta(days=_BASELINE_DAYS), period_start)
+        baseline, _ = _total_baseline(txns, period_start)
         usual_30d = baseline.get(ref)
         if not usual_30d:
             raise ValueError(
@@ -251,7 +194,7 @@ async def create_checkpoint(
     doc["_id"] = result.inserted_id
 
     # Attach live progress
-    spent = await category_discretionary(uid, ref, period_start, period_end)
+    spent = await category_total_spend(uid, ref, period_start, period_end)
     today = date.today()
     total_days   = (period_end - period_start).days + 1
     days_elapsed = max(1, min(total_days, (today - period_start).days))
@@ -283,7 +226,7 @@ async def list_active(uid: str) -> list[dict]:
     for doc in docs:
         period_start = date.fromisoformat(doc["period_start"])
         period_end_d = date.fromisoformat(doc["period_end"])
-        spent        = await category_discretionary(uid, doc["ref"], period_start, period_end_d)
+        spent        = await category_total_spend(uid, doc["ref"], period_start, period_end_d)
         total_days   = (period_end_d - period_start).days + 1
         days_elapsed = max(1, min(total_days, (today - period_start).days))
         days_left    = max(0, (period_end_d - today).days + 1)
@@ -345,7 +288,7 @@ async def resolve_due(uid: str) -> list[dict]:
         try:
             period_start = date.fromisoformat(doc["period_start"])
             period_end   = date.fromisoformat(doc["period_end"])
-            result_amount = await category_discretionary(
+            result_amount = await category_total_spend(
                 uid, doc["ref"], period_start, period_end
             )
             status = "met" if result_amount <= doc["aim_amount"] else "missed"
@@ -381,10 +324,10 @@ async def checkpoint_map_for_period(
     """Return {category: {id, aim_amount, spent_so_far, days_left, on_track}}
     for ACTIVE checkpoints in the given period.
 
-    days_left: when passed (from pace), used verbatim so Trends never
-               contradicts its own header.
+    days_left: when passed (from pace), used verbatim so the caller's header
+               never contradicts the checkpoint progress.
     cat_spent: when passed, read spent from it (no DB recompute). This is the
-               same discretionary map already computed by the caller.
+               same TOTAL spend map the caller already computed.
     """
     today = date.today()
     cursor = checkpoints_col.find({
@@ -411,7 +354,7 @@ async def checkpoint_map_for_period(
         if cat_spent is not None:
             spent = cat_spent.get(cat, 0.0)
         else:
-            spent = await category_discretionary(uid, cat, period_start, period_end)
+            spent = await category_total_spend(uid, cat, period_start, period_end)
 
         on_track = spent <= aim * (days_elapsed / total_days)
 

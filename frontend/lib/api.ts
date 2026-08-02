@@ -218,6 +218,20 @@ export type PaceChoice = {
   suggested_aim?: number | null;
 };
 
+export type CategorySignal = {
+  usual_rate_per_day: number | null;
+  multiple: number | null;
+  suggested_aim: number | null;
+  checkpoint: Checkpoint | null;
+  intent: "one_off" | "new_normal" | null;
+  door_engaged: boolean;
+};
+
+export type CategorySignals = {
+  period: { start: string; end: string; days_elapsed: number; days_left: number | null; offset: number; closed: boolean };
+  signals: Record<string, CategorySignal>;
+};
+
 export type PaceDetail =
   | { status: "unavailable" }
   | {
@@ -738,6 +752,7 @@ export const api = {
   kpis: () => get<KPIs>("/kpis"),
   safeToSpend: (opts?: { series?: boolean }) => get<SafeToSpend>(`/safe-to-spend${opts?.series ? "?include=series" : ""}`),
   paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),
+  categorySignals: (offset = 0) => get<CategorySignals>(`/spend/category-signals?offset=${offset}`),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>
