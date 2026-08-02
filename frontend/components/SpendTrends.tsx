@@ -809,7 +809,7 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
         role="dialog"
         aria-modal="true"
         aria-label="Add a widget"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 bg-white dark:bg-slate-800 rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88vh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] lg:max-w-md lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 glass-sheet rounded-t-3xl lg:rounded-3xl z-[70] max-h-[88dvh] overflow-y-auto p-5 pb-[calc(2rem+env(safe-area-inset-bottom))] lg:pb-5"
       >
         <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-1">Add a widget</p>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">

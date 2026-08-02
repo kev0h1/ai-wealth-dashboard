@@ -142,9 +142,10 @@ export default function TransactionSheet({
       <div className="fixed inset-0 bg-black/40 z-[65] fade-in" onClick={onClose} />
 
       {/* Sheet — bottom sheet on mobile, centered modal on desktop */}
-      <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] bg-white dark:bg-slate-800 z-[70] overflow-y-auto
-                      bottom-0 rounded-t-3xl slide-up max-h-[88vh]
-                      lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85vh] lg:shadow-2xl">
+      <div className="fixed left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet z-[70] overflow-y-auto
+                      bottom-0 rounded-t-3xl slide-up max-h-[88dvh]
+                      lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-h-[85dvh] lg:shadow-2xl"
+           style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         {/* Handle — mobile only */}
         <div className="flex justify-center pt-3 pb-1 lg:hidden">
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />

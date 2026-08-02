@@ -394,5 +394,5 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 @media (prefers-reduced-motion: reduce) { #app-shell, #app-shell.sheet-open { transition: none; } }
 
 /* ── Glass sheet — SOLID surface; the world blurs, the sheet is paper ────── */
-.glass-sheet { background: #ffffff; }
-.dark .glass-sheet { background: #0f172a; }
+.glass-sheet { background: #ffffff; border-top: 1px solid #f1f5f9; }
+.dark .glass-sheet { background: #0f172a; border-top: 1px solid #334155; }

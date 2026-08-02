@@ -123,7 +123,7 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
       >
         <div
           className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
-          style={{ maxHeight: "85svh" }}
+          style={{ maxHeight: "85dvh" }}
         >
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 flex-shrink-0">

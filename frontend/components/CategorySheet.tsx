@@ -272,7 +272,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
         role="dialog"
         aria-modal="true"
         aria-label={`${title ?? name} category`}
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] bg-white dark:bg-slate-800 rounded-t-3xl z-[70] max-h-[80vh] flex flex-col"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[500px] glass-sheet rounded-t-3xl z-[70] max-h-[80dvh] flex flex-col"
       >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
@@ -308,7 +308,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
         </div>
 
         {/* Transaction list */}
-        <div className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700">
+        <div className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {door && <DoorBlock door={door} />}
           {/* Compact tool launchers — collapsed by default so transactions lead */}
           {name === "Debt" && (

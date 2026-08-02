@@ -100,7 +100,7 @@ function IconPicker({ current, colour, onSelect, onClose }: {
     <div className="fixed inset-0 z-[90] flex items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40" />
       <div
-        className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 mx-4 w-full max-w-[320px] max-h-[70vh] overflow-y-auto"
+        className="relative bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 mx-4 w-full max-w-[320px] max-h-[70dvh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Choose icon</p>
@@ -304,7 +304,8 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
         role="dialog"
         aria-modal="true"
         aria-label="Spend settings"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-[#f0f2f7] dark:bg-[#0f172a] rounded-t-3xl z-[70] overflow-y-auto max-h-[88vh]"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] glass-sheet rounded-t-3xl z-[70] overflow-y-auto max-h-[88dvh]"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />

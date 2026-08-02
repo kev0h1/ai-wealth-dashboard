@@ -70,7 +70,8 @@ export default function PayPeriodSettingsSheet({
         role="dialog"
         aria-modal="true"
         aria-label="Pay period settings"
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white dark:bg-slate-800 rounded-t-3xl z-[70] overflow-y-auto max-h-[88vh]"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] glass-sheet rounded-t-3xl z-[70] overflow-y-auto max-h-[88dvh]"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-600 rounded-full" />

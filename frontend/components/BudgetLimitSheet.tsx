@@ -122,8 +122,8 @@ export default function BudgetLimitSheet({
         }
       >
         <div
-          className="mx-auto w-full max-w-[500px] bg-white dark:bg-slate-800 rounded-t-3xl flex flex-col"
-          style={{ maxHeight: "85svh" }}
+          className="mx-auto w-full max-w-[500px] glass-sheet rounded-t-3xl flex flex-col"
+          style={{ maxHeight: "85dvh" }}
         >
           {/* A. Drag handle */}
           <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
