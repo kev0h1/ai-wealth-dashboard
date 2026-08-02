@@ -647,6 +647,71 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
 
     choices.sort(key=lambda x: -x["spent"])
 
+    # ── The Door — consent-gated aim fields ──────────────────────────────────
+    # The Consent Rule: no aim language may appear for a category that has no
+    # checkpoint. These four fields are the ONLY channel through which aim
+    # language becomes possible. They are always set (stable contract) and
+    # checkpoint/intent/door_engaged are always None/False on closed periods;
+    # suggested_aim is always derived for the CURRENT period (look-forward aim).
+    if not closed:
+        # Initialise all Door variables before the try so the fallback is
+        # genuinely safe: even if the import or the awaits raise, the loop
+        # below always has every name bound and derive_aim is callable only
+        # when it was successfully imported.
+        cp_map:     dict       = {}
+        intent_map: dict       = {}
+        engaged:    set        = set()
+        _derive_aim            = None   # bound to derive_aim only on success
+        period_days            = (period_end - period_start).days + 1  # pure date math
+
+        try:
+            from app.services.checkpoints import (
+                checkpoint_map_for_period,
+                derive_aim as _derive_aim,
+                engaged_categories,
+                intent_map_for_period,
+            )
+            cp_map     = await checkpoint_map_for_period(
+                uid, period_start, period_end,
+                days_left=days_left, cat_spent=cat_spent,
+            )
+            intent_map = await intent_map_for_period(uid, period_end)
+            engaged    = await engaged_categories(uid, period_end)
+        except Exception:
+            logger.exception("pace_detail: Door attachment failed for %s", uid)
+
+        for entry in choices:
+            cat = entry["category"]
+            urpd = entry.get("usual_rate_per_day")
+            entry["checkpoint"]    = cp_map.get(cat) or None
+            entry["intent"]        = intent_map.get(cat) or None
+            entry["door_engaged"]  = cat in engaged
+            entry["suggested_aim"] = (
+                _derive_aim(urpd, period_days)
+                if (_derive_aim is not None and urpd is not None)
+                else None
+            )
+    else:
+        # suggested_aim always references the CURRENT period — review last period,
+        # set an aim for this one.
+        _cur_start, _cur_end = get_pay_period_for_date(today, pay_cfg)
+        _cur_period_days = (_cur_end - _cur_start).days + 1
+        _derive_aim_closed = None
+        try:
+            from app.services.checkpoints import derive_aim as _derive_aim_closed
+        except Exception:
+            logger.exception("pace_detail: derive_aim import failed for closed period %s", uid)
+        for entry in choices:
+            urpd = entry.get("usual_rate_per_day")
+            entry["checkpoint"]    = None
+            entry["intent"]        = None
+            entry["door_engaged"]  = False
+            entry["suggested_aim"] = (
+                _derive_aim_closed(urpd, _cur_period_days)
+                if (_derive_aim_closed is not None and urpd is not None)
+                else None
+            )
+
     # ── G. Assemble ───────────────────────────────────────────────────────────
     if not closed:
         return {

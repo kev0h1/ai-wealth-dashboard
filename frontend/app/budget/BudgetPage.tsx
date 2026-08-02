@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { MessageCircle, X, Send, Loader2, ChevronLeft, ChevronRight, Sparkles, RotateCcw } from "lucide-react";
@@ -91,7 +91,18 @@ export default function BudgetPage() {
   const pageLoading = detailLoading || txLoading;
 
   // Category sheet + transaction sheet state
-  const [openCategory, setOpenCategory] = useState<{ name: string; title?: string; total: number; count: number; transactions: Transaction[] } | null>(null);
+  const [openCategory, setOpenCategory] = useState<{
+    name: string;
+    title?: string;
+    total: number;
+    count: number;
+    transactions: Transaction[];
+    multiple?: number | null;
+    suggestedAim?: number | null;
+    checkpoint?: import("@/lib/api").Checkpoint | null;
+    intent?: "one_off" | "new_normal" | null;
+    doorEngaged?: boolean;
+  } | null>(null);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
   // Chat state
@@ -121,24 +132,42 @@ export default function BudgetPage() {
 
   // Effect 2 — paceDetail (refetch on periodOffset change, out-of-order guard)
   const currentOffsetRef = useRef(0);
+
+  const refetchDetail = useCallback(() => {
+    const capturedOffset = currentOffsetRef.current;
+    api.paceDetail(capturedOffset)
+      .then(d => {
+        if (currentOffsetRef.current !== capturedOffset) return;
+        setDetail(d);
+        setDetailLoading(false);
+        // Keep open sheet in sync
+        if (d.status === "ok" && openCategory) {
+          const fresh = d.choices.find(c => c.category === openCategory.name);
+          if (fresh) {
+            setOpenCategory(prev => prev ? {
+              ...prev,
+              multiple: fresh.multiple,
+              suggestedAim: fresh.suggested_aim ?? null,
+              checkpoint: fresh.checkpoint ?? null,
+              intent: fresh.intent ?? null,
+              doorEngaged: fresh.door_engaged ?? false,
+            } : null);
+          }
+        }
+      })
+      .catch(() => {
+        if (currentOffsetRef.current !== capturedOffset) return;
+        setDetail({ status: "unavailable" });
+        setDetailLoading(false);
+      });
+  }, [openCategory]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     currentOffsetRef.current = periodOffset;
     setDetail(null);
     setDetailLoading(true);
-    api.paceDetail(periodOffset)
-      .then(d => {
-        if (currentOffsetRef.current === periodOffset) {
-          setDetail(d);
-          setDetailLoading(false);
-        }
-      })
-      .catch(() => {
-        if (currentOffsetRef.current === periodOffset) {
-          setDetail({ status: "unavailable" });
-          setDetailLoading(false);
-        }
-      });
-  }, [periodOffset]);
+    refetchDetail();
+  }, [periodOffset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
@@ -191,6 +220,11 @@ export default function BudgetPage() {
       total: choice?.spent ?? 0,
       count: txns.length,
       transactions: txns,
+      multiple: choice?.multiple ?? null,
+      suggestedAim: choice?.suggested_aim ?? null,
+      checkpoint: choice?.checkpoint ?? null,
+      intent: choice?.intent ?? null,
+      doorEngaged: choice?.door_engaged ?? false,
     });
   }, [deepLinkCat, detail, categoryTxns]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -397,6 +431,16 @@ export default function BudgetPage() {
                           {subLine && (
                             <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">{subLine}</p>
                           )}
+                          {choice.checkpoint && (() => {
+                            const { aim_amount, spent_so_far, days_left } = choice.checkpoint;
+                            const dl = days_left <= 0 ? "last day" : days_left === 1 ? "1 day left" : `${days_left} days left`;
+                            const aimLine = `${sym}${Math.round(spent_so_far).toLocaleString("en-GB")} of your ${sym}${Math.round(aim_amount).toLocaleString("en-GB")} aim · ${dl}`;
+                            return (
+                              <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                {hideNetWorth ? `${sym}•• of your ${sym}•• aim · ${dl}` : aimLine}
+                              </p>
+                            );
+                          })()}
                         </div>
                         <span className="text-base font-bold tabular-nums text-slate-700 dark:text-slate-200 flex-shrink-0">
                           {hideNetWorth ? `${sym}••` : fmt(choice.spent, sym)}
@@ -409,7 +453,18 @@ export default function BudgetPage() {
                         <button
                           key={choice.category}
                           className="w-full text-left active:scale-[0.99] transition-transform active:bg-slate-50 dark:active:bg-slate-700/40"
-                          onClick={() => setOpenCategory({ name: choice.category, title: `Choices in ${choice.category}`, total: choice.spent, count: txns.length, transactions: txns })}
+                          onClick={() => setOpenCategory({
+                            name: choice.category,
+                            title: `Choices in ${choice.category}`,
+                            total: choice.spent,
+                            count: txns.length,
+                            transactions: txns,
+                            multiple: choice.multiple,
+                            suggestedAim: choice.suggested_aim ?? null,
+                            checkpoint: choice.checkpoint ?? null,
+                            intent: choice.intent ?? null,
+                            doorEngaged: choice.door_engaged ?? false,
+                          })}
                         >
                           {rowContent}
                         </button>
@@ -534,6 +589,17 @@ export default function BudgetPage() {
           sym={sym}
           onClose={() => setOpenCategory(null)}
           onTransactionClick={(tx) => { setOpenCategory(null); setSelectedTx(tx); }}
+          door={openCategory.doorEngaged !== undefined ? {
+            category: openCategory.name,
+            multiple: openCategory.multiple ?? null,
+            suggestedAim: openCategory.suggestedAim ?? null,
+            checkpoint: openCategory.checkpoint ?? null,
+            intent: openCategory.intent ?? null,
+            doorEngaged: openCategory.doorEngaged ?? false,
+            isCurrentPeriod,
+            sym,
+            onChanged: refetchDetail,
+          } : undefined}
         />
       )}
 

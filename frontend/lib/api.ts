@@ -194,6 +194,14 @@ export type PaceSeriesPoint = {
   sustainable_line: number | null;
 };
 
+export type Checkpoint = {
+  id: string;
+  aim_amount: number;
+  spent_so_far: number;
+  days_left: number;
+  on_track: boolean;
+};
+
 export type PaceChoice = {
   category: string;
   spent: number;
@@ -203,6 +211,11 @@ export type PaceChoice = {
   txn_count: number;
   usual_rate_per_day: number | null;
   txn_ids: string[];
+  // Door fields — optional so stale backend responses don't break the page
+  checkpoint?: Checkpoint | null;
+  intent?: "one_off" | "new_normal" | null;
+  door_engaged?: boolean;
+  suggested_aim?: number | null;
 };
 
 export type PaceDetail =
@@ -1275,4 +1288,15 @@ export const api = {
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ ok: boolean }>,
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
+
+  createCheckpoint: (ref: string, aim_amount?: number) =>
+    post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
+  listCheckpoints: () => get<{ checkpoints: Checkpoint[] }>("/checkpoints"),
+  cancelCheckpoint: (id: string) =>
+    fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then(r => r.json()) as Promise<{ ok: boolean }>,
+  recordTrendIntent: (category: string, answer: "one_off" | "new_normal") =>
+    post<{ ok: boolean }>("/trends/intent", { category, answer }),
 };

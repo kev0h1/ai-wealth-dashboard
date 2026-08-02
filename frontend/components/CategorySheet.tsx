@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
-import { Transaction, api } from "@/lib/api";
+import { Transaction, api, Checkpoint } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { CATEGORY_COLOURS } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -15,6 +15,18 @@ import TransactionRow from "@/components/TransactionRow";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+
+interface DoorProps {
+  category: string;
+  multiple: number | null;
+  suggestedAim: number | null;
+  checkpoint: Checkpoint | null;
+  intent: "one_off" | "new_normal" | null;
+  doorEngaged: boolean;
+  isCurrentPeriod: boolean;
+  sym: string;
+  onChanged: () => void;
+}
 
 interface Props {
   name: string;
@@ -26,9 +38,204 @@ interface Props {
   onTransactionClick: (tx: Transaction) => void;
   sym?: string;
   isPro?: boolean;
+  door?: DoorProps;
 }
 
-export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro }: Props) {
+function fmtWhole(n: number, sym: string): string {
+  return `${sym}${Math.round(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function daysLabel(days: number): string {
+  if (days <= 0) return "last day";
+  if (days === 1) return "1 day left";
+  return `${days} days left`;
+}
+
+function DoorBlock({ door }: { door: DoorProps }) {
+  const { category, multiple, suggestedAim, doorEngaged, isCurrentPeriod, sym, onChanged } = door;
+
+  // Local state overrides — so the block responds instantly without waiting for parent refetch
+  const [localCheckpoint, setLocalCheckpoint] = useState<Checkpoint | null>(door.checkpoint);
+  const [localIntent, setLocalIntent] = useState<"one_off" | "new_normal" | null>(door.intent);
+  const [localDoorEngaged, setLocalDoorEngaged] = useState(doorEngaged);
+  const [doorOpen, setDoorOpen] = useState(false);
+  const [customMode, setCustomMode] = useState(false);
+  const [customValue, setCustomValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+
+  // Keep local state in sync if parent pushes a new checkpoint after refetch
+  useEffect(() => {
+    setLocalCheckpoint(door.checkpoint);
+    setLocalIntent(door.intent);
+    setLocalDoorEngaged(door.doorEngaged);
+  }, [door.checkpoint, door.intent, door.doorEngaged]);
+
+  // State A — live checkpoint
+  if (localCheckpoint) {
+    const { id, aim_amount, spent_so_far, days_left } = localCheckpoint;
+    return (
+      <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3">
+        <p className="text-[13px] text-slate-500 dark:text-slate-400">
+          {fmtWhole(spent_so_far, sym)} of your {fmtWhole(aim_amount, sym)} aim · {daysLabel(days_left)}
+        </p>
+        <button
+          onClick={async () => {
+            try {
+              await api.cancelCheckpoint(id);
+              setLocalCheckpoint(null);
+              onChanged();
+            } catch {
+              // silent — user can try again
+            }
+          }}
+          className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400 active:opacity-60 transition-opacity"
+        >
+          Cancel this aim
+        </button>
+      </div>
+    );
+  }
+
+  // State C — the ask (intent capture)
+  // Show when: no checkpoint, not door-engaged, no intent yet, multiple >= 1.5, suggestedAim present, door not open
+  const showAsk = !localDoorEngaged && localIntent == null && multiple != null && multiple >= 1.5 && suggestedAim != null && !doorOpen;
+
+  if (showAsk) {
+    return (
+      <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3">
+        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">
+          {category} ran {multiple.toFixed(1)}× your usual.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={async () => {
+              try {
+                await api.recordTrendIntent(category, "one_off");
+                setLocalIntent("one_off");
+                setLocalDoorEngaged(true);
+                onChanged();
+              } catch {
+                // silent
+              }
+            }}
+            className="text-[13px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1.5 active:scale-95 transition-transform"
+          >
+            That was a one-off
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await api.recordTrendIntent(category, "new_normal");
+                setLocalIntent("new_normal");
+                setLocalDoorEngaged(true);
+                onChanged();
+              } catch {
+                // silent
+              }
+            }}
+            className="text-[13px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1.5 active:scale-95 transition-transform"
+          >
+            That&apos;s my new normal
+          </button>
+          <button
+            onClick={() => setDoorOpen(true)}
+            className="text-[13px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1.5 active:scale-95 transition-transform"
+          >
+            I&apos;d like to change this
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // State B — the Door (aim setting)
+  // Show when: doorOpen AND suggestedAim non-null
+  if (doorOpen && suggestedAim != null) {
+    async function handleSetAim(amount?: number) {
+      setSaving(true);
+      setSaveError(false);
+      try {
+        const cp = await api.createCheckpoint(category, amount);
+        setLocalCheckpoint(cp);
+        setLocalDoorEngaged(true);
+        setDoorOpen(false);
+        setCustomMode(false);
+        setCustomValue("");
+        onChanged();
+      } catch {
+        setSaveError(true);
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    const parsedCustom = parseFloat(customValue.replace(/[^0-9.]/g, ""));
+    const customValid = !isNaN(parsedCustom) && parsedCustom > 0;
+
+    return (
+      <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3">
+        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Your usual {category} is about {fmtWhole(suggestedAim, sym)} a period.
+        </p>
+        <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 mb-3">
+          {isCurrentPeriod ? "Aim for that this period?" : "Aim for that in the current period?"}
+        </p>
+        {!customMode ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled={saving}
+              onClick={() => handleSetAim(undefined)}
+              className="text-[13px] font-semibold text-white rounded-xl px-4 py-2 active:scale-95 transition-transform disabled:opacity-60"
+              style={{ backgroundColor: "#4f46e5" }}
+            >
+              Set this aim
+            </button>
+            <button
+              disabled={saving}
+              onClick={() => setCustomMode(true)}
+              className="text-[13px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-2 active:scale-95 transition-transform disabled:opacity-60"
+            >
+              Choose a different amount
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 bg-slate-50 dark:bg-slate-700 focus-within:ring-2 focus-within:ring-indigo-500">
+              <span className="text-[13px] text-slate-500 dark:text-slate-400">{sym}</span>
+              <input
+                autoFocus
+                inputMode="decimal"
+                placeholder={String(Math.round(suggestedAim))}
+                value={customValue}
+                onChange={e => { setCustomValue(e.target.value); setSaveError(false); }}
+                className="text-[13px] text-slate-900 dark:text-slate-100 bg-transparent outline-none w-20"
+              />
+            </div>
+            <button
+              disabled={saving || !customValid}
+              onClick={() => handleSetAim(parsedCustom)}
+              className="text-[13px] font-semibold text-white rounded-xl px-4 py-2 active:scale-95 transition-transform disabled:opacity-60"
+              style={{ backgroundColor: "#4f46e5" }}
+            >
+              Set this aim
+            </button>
+          </div>
+        )}
+        {saveError && (
+          <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+            That didn&apos;t save. Try again.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // State D — render nothing
+  return null;
+}
+
+export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door }: Props) {
   useLockBodyScroll();
   useSheetOpen();
   const [mounted, setMounted] = useState(false);
@@ -102,6 +309,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
 
         {/* Transaction list */}
         <div className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700">
+          {door && <DoorBlock door={door} />}
           {/* Compact tool launchers — collapsed by default so transactions lead */}
           {name === "Debt" && (
             <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3 flex items-center justify-between gap-3">

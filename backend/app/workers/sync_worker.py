@@ -151,6 +151,16 @@ async def task_period_digests(ctx):
     sent = 0
     for uid in uids:
         try:
+            # Checkpoint resolution is NOT gated by notification prefs —
+            # the app measures the outcome whether or not the user gets told.
+            try:
+                from app.services.checkpoints import resolve_due
+                await resolve_due(uid)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "checkpoint resolution failed for %s", uid
+                )
             from app.services.notifications import send_period_digest
             await send_period_digest(uid)
             sent += 1

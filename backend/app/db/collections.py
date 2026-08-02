@@ -110,3 +110,7 @@ companion_items_col     = db["companion_items"]
 
 # Planned one-off expenses (user-declared future payments)
 planned_expenses_col    = db["planned_expenses"]
+
+# The Door — consent-gated checkpoints (BEHAVIOURS.md Layer 4)
+checkpoints_col         = db["checkpoints"]
+category_intent_col     = db["category_intents"]

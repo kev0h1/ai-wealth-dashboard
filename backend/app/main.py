@@ -16,6 +16,7 @@ from app.db.collections import (
     subscriptions_col, subscription_usage_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
+    checkpoints_col, category_intent_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 
@@ -26,6 +27,7 @@ from app.routers import (
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
+    checkpoints,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -61,6 +63,7 @@ for router in [
     cards.router,
     cycle.router,
     planned.router,
+    checkpoints.router,
 ]:
     app.include_router(router)
 
@@ -116,6 +119,11 @@ async def _create_indexes():
         pass
     await webhook_events_col.create_index(
         "received_at", expireAfterSeconds=30 * 24 * 3600, name="webhook_ttl"
+    )
+    await checkpoints_col.create_index([("user_id", 1), ("status", 1), ("period_end", 1)])
+    await checkpoints_col.create_index([("user_id", 1), ("ref", 1), ("period_end", 1)])
+    await category_intent_col.create_index(
+        [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
 
 
