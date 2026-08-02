@@ -76,16 +76,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tip: "Go to Settings → Rules to auto-categorise merchants in future.",
   },
   {
-    id: "budget-ai",
-    route: "/budget",
-    target: "tutorial-budget-chat",
+    id: "planning",
+    route: "/planning",
+    target: null,
     tooltipSide: "center",
-    iconName: "Sparkles",
+    iconName: "CalendarClock",
     color: "#4f46e5",
     bg: "#e0e7ff",
-    title: "Or Ask Penny",
-    description: "Tap the chat button to ask Penny, your money advisor. Describe what you want in plain English and she'll create budgets for you automatically.",
-    tip: "Example: \"Limit eating out to £200 per month\".",
+    title: "See What's Coming",
+    description: "The Planning tab shows the bills and income still due before your next payday, so you always know what's left to land.",
+    tip: "Tap + Plan a one-off to add a payment we can't predict yet.",
   },
 ];
 

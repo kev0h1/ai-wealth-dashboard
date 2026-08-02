@@ -202,6 +202,9 @@ export type Checkpoint = {
   on_track: boolean;
 };
 
+// GET /checkpoints also returns `ref` — the category the aim is anchored to.
+export type ActiveAim = Checkpoint & { ref: string };
+
 export type PaceChoice = {
   category: string;
   spent: number;
@@ -1306,7 +1309,7 @@ export const api = {
 
   createCheckpoint: (ref: string, aim_amount?: number) =>
     post<Checkpoint>("/checkpoints", aim_amount == null ? { ref } : { ref, aim_amount }),
-  listCheckpoints: () => get<{ checkpoints: Checkpoint[] }>("/checkpoints"),
+  listCheckpoints: () => get<{ checkpoints: ActiveAim[] }>("/checkpoints"),
   cancelCheckpoint: (id: string) =>
     fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
       method: "DELETE",

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, RefreshCw, Sparkles } from "lucide-react";
-import { api, MirrorPortrait, MirrorTrait } from "@/lib/api";
+import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import BottomNav from "@/components/BottomNav";
 
@@ -116,6 +116,7 @@ export default function MirrorPage() {
   const [portrait, setPortrait] = useState<MirrorPortrait | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [aims, setAims] = useState<ActiveAim[]>([]);
 
   const load = useCallback(async (refresh = false) => {
     try {
@@ -130,6 +131,12 @@ export default function MirrorPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api.listCheckpoints()
+      .then(d => setAims(d.checkpoints))
+      .catch(() => {});
+  }, []);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -201,6 +208,40 @@ export default function MirrorPage() {
           )}
         </div>
 
+        {/* Active aims — what the user has chosen to work on this period */}
+        {aims.length > 0 && (
+          <div className="rise-in mb-6" style={{ "--rise-index": 0 } as React.CSSProperties}>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">
+              WHAT YOU&apos;RE WORKING ON
+            </p>
+            <div className="space-y-2">
+              {aims.map(aim => (
+                <div key={aim.id} className="glass-card rounded-2xl px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{aim.ref}</p>
+                  <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    £{Math.round(aim.spent_so_far).toLocaleString("en-GB")} of your £{Math.round(aim.aim_amount).toLocaleString("en-GB")} aim
+                    {" · "}
+                    {aim.days_left <= 0 ? "last day" : aim.days_left === 1 ? "1 day left" : `${aim.days_left} days left`}
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.cancelCheckpoint(aim.id);
+                        setAims(prev => prev.filter(a => a.id !== aim.id));
+                      } catch {
+                        // silent — the row stays, user can try again
+                      }
+                    }}
+                    className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400 active:opacity-60 transition-opacity"
+                  >
+                    Cancel this aim
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         {loading ? (
           <div className="space-y-4">
@@ -227,7 +268,7 @@ export default function MirrorPage() {
         ) : (
           <div className="space-y-4">
             {portrait.traits.map((trait, i) => (
-              <div key={trait.id} className="rise-in" style={{ "--rise-index": i } as React.CSSProperties}>
+              <div key={trait.id} className="rise-in" style={{ "--rise-index": i + 1 } as React.CSSProperties}>
                 <TraitCard trait={trait} onChoice={handleChoice} />
               </div>
             ))}

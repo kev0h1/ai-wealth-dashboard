@@ -179,7 +179,7 @@ export default function V1Client() {
       verdictCTAHref = "/debt";
     } else if (state === "short") {
       verdictCTALabel = "See what's due ›";
-      verdictCTAHref = "/spend?view=upcoming";
+      verdictCTAHref = "/planning";
     }
   }
 
@@ -233,9 +233,9 @@ export default function V1Client() {
                     className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"
                   >
                     <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {maskAmounts(item.headline)}.
+                      {maskAmounts(item.headline ?? "")}.
                     </span>{" "}
-                    {maskAmounts(item.body)}
+                    {maskAmounts(item.body ?? "")}
                   </p>
                 ))}
               </div>

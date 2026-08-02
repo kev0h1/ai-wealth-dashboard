@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, Target, Lightbulb } from "lucide-react";
+import { Home, PieChart, Settings, CalendarClock, Lightbulb } from "lucide-react";
 import { api } from "@/lib/api";
 
 // Ambient awareness: a quiet count of new insights on the tab icon.
@@ -54,7 +54,7 @@ function useNewInsightCount(): number {
 const tabs = [
   { href: "/", label: "Home", Icon: Home },
   { href: "/spend", label: "Spend", Icon: PieChart },
-  { href: "/budget", label: "Trends", Icon: Target },
+  { href: "/planning", label: "Planning", Icon: CalendarClock },
   { href: "/insights", label: "Insights", Icon: Lightbulb },
   { href: "/settings", label: "Settings", Icon: Settings },
 ];
@@ -66,8 +66,9 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 inset-x-0 bg-white/80 dark:bg-slate-900/75 backdrop-blur-md border-t border-slate-200/60 dark:border-white/[0.08] z-50"
+      className="lg:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-slate-900 z-50"
       style={{
+        boxShadow: "0 -1px 0 rgba(0,0,0,0.08)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}
     >
@@ -98,7 +99,7 @@ export default function BottomNav() {
                     {newInsights}
                   </span>
                 )}
-                {href === "/spend" && atRisk > 0 && (
+                {href === "/planning" && atRisk > 0 && (
                   <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
                     {atRisk}
                   </span>

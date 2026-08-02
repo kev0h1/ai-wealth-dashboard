@@ -219,8 +219,8 @@ export default function V2Client() {
               ) : (
                 <div className="space-y-2">
                   {displayItems.map((item) => {
-                    const headline = hidden ? maskAmounts(item.headline) : item.headline;
-                    const body = hidden ? maskAmounts(item.body) : item.body;
+                    const headline = hidden ? maskAmounts(item.headline ?? "") : item.headline;
+                    const body = hidden ? maskAmounts(item.body ?? "") : item.body;
                     return (
                       <p
                         key={item.id}
@@ -331,7 +331,7 @@ export default function V2Client() {
                 {/* Single indigo CTA — dedup rule from SafeToSpendCard */}
                 {showSpendCTA && (
                   <button
-                    onClick={() => router.push("/spend?view=upcoming")}
+                    onClick={() => router.push("/planning")}
                     className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                   >
                     See what&apos;s due ›

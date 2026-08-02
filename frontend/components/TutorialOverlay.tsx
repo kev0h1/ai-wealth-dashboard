@@ -3,12 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, X,
-  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb,
+  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock,
 } from "lucide-react";
 import { useTutorial } from "./TutorialContext";
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; color?: string; className?: string }>> = {
-  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb,
+  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock,
 };
 
 interface Rect { top: number; left: number; width: number; height: number }

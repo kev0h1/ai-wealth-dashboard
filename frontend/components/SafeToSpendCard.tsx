@@ -103,7 +103,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
 
   // ── CTA logic ────────────────────────────────────────────────────────────
   // If tight+card_debt: show "See your cards ›" CTA — taps through to /cards story.
-  // If short: CTA goes to /spend?view=upcoming.
+  // If short: CTA goes to /planning.
   // If comfortable: no CTA.
   const showDebtCTA = state === "tight" && hasCardDebt;
   const showSpendCTA = state === "short";
@@ -178,7 +178,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
       {/* ── 3. Single CTA ── */}
       {showSpendCTA && !suppressCTA && (
         <button
-          onClick={() => router.push("/spend?view=upcoming")}
+          onClick={() => router.push("/planning")}
           className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
         >
           See what&apos;s due ›

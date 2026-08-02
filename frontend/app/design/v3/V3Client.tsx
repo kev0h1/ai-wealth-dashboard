@@ -292,7 +292,7 @@ function SpeechBlock({
 
   // ── CTA: spoken offer ────────────────────────────────────────────────────
   // tight+card_debt → cards → /debt
-  // short → see what's due → /spend?view=upcoming
+  // short → see what's due → /planning
   // else if first companion has action → use that
   // comfortable + no action → no offer
   let ctaNode: React.ReactNode = null;
@@ -308,7 +308,7 @@ function SpeechBlock({
   } else if (state === "short") {
     ctaNode = (
       <button
-        onClick={() => router.push("/spend?view=upcoming")}
+        onClick={() => router.push("/planning")}
         className="text-indigo-600 dark:text-indigo-400 font-medium active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
         Want to see what&apos;s due? ›
@@ -346,9 +346,9 @@ function SpeechBlock({
         {firstItem && (
           <p>
             <strong className="font-semibold text-slate-900 dark:text-slate-100">
-              {maskText(firstItem.headline)}.
+              {maskText(firstItem.headline ?? "")}.
             </strong>{" "}
-            {maskText(firstItem.body)}
+            {maskText(firstItem.body ?? "")}
           </p>
         )}
 

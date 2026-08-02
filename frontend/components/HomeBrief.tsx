@@ -93,7 +93,7 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
       sessionStorage.setItem("wealth_open_pay_period", "1");
     }
     setHidden(true);
-    router.push("/spend");
+    router.push("/planning");
   }
 
   return (
@@ -113,7 +113,7 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
       </p>
       {/* Body */}
       <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        {maskAmounts(item.body)}
+        {maskAmounts(item.body ?? "")}
       </p>
       {/* Actions */}
       <div className="flex items-center gap-2">
@@ -246,8 +246,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                 {/* a) Destination tile */}
                 {(() => {
                   const dest: PlanDest = moveItem.plan_dest!;
-                  const destChip = resolveBankChip(dest.provider);
-                  const billCount = dest.bills.length;
+                  const destChip = resolveBankChip(dest.provider ?? "");
+                  const billCount = (dest.bills ?? []).length;
                   const billWord = billCount === 1 ? "payment" : "payments";
                   return (
                     <div className="glass-tile rounded-xl p-3 mb-2">
@@ -266,11 +266,11 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                       </div>
                       {/* Summary line */}
                       <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug mt-1.5">
-                        {maskAmounts(`needs £${dest.needs_total.toLocaleString("en-GB")} by ${dest.needs_by} · ${billCount} ${billWord}`)}
+                        {maskAmounts(`needs £${(dest.needs_total ?? 0).toLocaleString("en-GB")} by ${dest.needs_by} · ${billCount} ${billWord}`)}
                       </p>
                       {/* Bill rows — hairline separator */}
                       <div className="border-t border-white/[0.06] dark:border-white/[0.06] mt-2 pt-2 space-y-1">
-                        {dest.bills.slice(0, 6).map((b, i) => (
+                        {(dest.bills ?? []).slice(0, 6).map((b: any, i: number) => (
                           <div key={i} className="flex items-center justify-between gap-2">
                             <span className="text-[12px] text-slate-500 dark:text-slate-400 truncate">{b.label}</span>
                             <span className="num text-[12px] text-slate-500 dark:text-slate-400 flex-shrink-0">
@@ -278,8 +278,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                             </span>
                           </div>
                         ))}
-                        {dest.bills.length > 6 && (
-                          <p className="text-[12px] text-slate-400 dark:text-slate-500">+{dest.bills.length - 6} more</p>
+                        {(dest.bills ?? []).length > 6 && (
+                          <p className="text-[12px] text-slate-400 dark:text-slate-500">+{(dest.bills ?? []).length - 6} more</p>
                         )}
                       </div>
                     </div>
@@ -292,14 +292,14 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                   let legs: LegEntry[];
                   if (moveItem.moves && moveItem.moves.length > 0) {
                     legs = moveItem.moves.map(m => ({
-                      provider: m.move_map.from.provider,
-                      name: m.move_map.from.name,
+                      provider: (m.move_map.from as any)?.provider,
+                      name: (m.move_map.from as any)?.name,
                       amount: m.amount ?? 0,
                     }));
                   } else if (moveItem.move_map) {
                     legs = [{
-                      provider: moveItem.move_map.from.provider,
-                      name: moveItem.move_map.from.name,
+                      provider: (moveItem.move_map?.from as any)?.provider,
+                      name: (moveItem.move_map?.from as any)?.name,
                       amount: moveItem.amount ?? 0,
                     }];
                   } else {
@@ -334,9 +334,9 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                         </span>
                         {moveItem.covered && (
                           <span className="text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
-                            {dest.bills.length === 1
+                            {(dest.bills ?? []).length === 1
                               ? "✓ payment clears"
-                              : dest.bills.length === 2
+                              : (dest.bills ?? []).length === 2
                               ? "✓ both payments clear"
                               : "✓ payments clear"}
                           </span>
@@ -354,7 +354,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                     </p>
                   )}
                   {moveItem.residual && (
-                    <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(moveItem.residual)}</p>
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(String(moveItem.residual))}</p>
                   )}
                   {moveItem.income_note && (
                     <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(moveItem.income_note)}</p>
