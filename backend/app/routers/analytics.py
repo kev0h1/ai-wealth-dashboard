@@ -1,12 +1,15 @@
 """KPI, insights, and budget pace-profile endpoints."""
 import asyncio
 import json
+import logging
 import re
 from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from datetime import date as _date
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -1703,18 +1706,25 @@ async def compute_safe_to_spend(uid: str) -> dict:
 
 
 @router.get("/safe-to-spend")
-async def get_safe_to_spend(user: dict = Depends(current_user)):
-    """Headline verdict: how much can the user safely spend before their next payday?"""
+async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user)):
+    """Headline verdict + pace reading. `?include=series` adds the per-day pace series."""
     uid = user["email"]
+    want_series = "series" in {p.strip() for p in include.split(",")}
+    cache_name = "safe_to_spend_series" if want_series else "safe_to_spend"
 
     # ── 0. Short-TTL response cache (90 s; invalidated on sync/recompute) ─────
-    _cached_resp = response_cache.get("safe_to_spend", uid)
+    _cached_resp = response_cache.get(cache_name, uid)
     if _cached_resp is not None:
         return _cached_resp
 
     result = await compute_safe_to_spend(uid)
     if result.get("status") == "ok":
-        response_cache.put("safe_to_spend", uid, result)
+        try:
+            from app.services.pace import compute_pace
+            result = {**result, "pace": await compute_pace(uid, include_series=want_series, sts=result)}
+        except Exception:
+            logger.exception("pace computation failed for %s", uid)
+        response_cache.put(cache_name, uid, result)
     return result
 
 

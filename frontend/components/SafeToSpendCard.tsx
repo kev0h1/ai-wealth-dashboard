@@ -18,6 +18,13 @@ function fmt(n: number): string {
   })}`;
 }
 
+function fmt2(n: number): string {
+  return `£${Math.abs(n).toLocaleString("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSpendCardProps) {
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
@@ -148,6 +155,19 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
           </div>
         </div>
       )}
+      {/* Pace rate line — only for non-risk states with a valid sustainable rate */}
+      {(() => {
+        const pace = data.status === "ok" ? data.pace : undefined;
+        const showPace = pace != null &&
+          (pace.state === "comfortable" || pace.state === "on_pace" || pace.state === "ahead" || pace.state === "early") &&
+          pace.sustainable != null;
+        if (!showPace) return null;
+        return (
+          <p className="text-[13px] text-slate-500 dark:text-slate-400 num">
+            {hidden ? "£••" : fmt2(pace!.sustainable!)}/day to payday
+          </p>
+        );
+      })()}
       {/* Payday muted line — replaces emerald pill */}
       {hasPaydayIncome && (
         <p className="text-sm text-slate-500 dark:text-slate-400 num">

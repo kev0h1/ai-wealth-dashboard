@@ -177,6 +177,38 @@ export type MirrorPortrait =
       traits: MirrorTrait[];
     };
 
+export type PaceState = "short" | "early" | "comfortable" | "on_pace" | "ahead" | "unavailable";
+
+export type PaceNotableDay = {
+  date: string;
+  weekday: string;
+  amount: number;
+  usual: number;
+  multiple: number;
+  top_categories: { category: string; total: number }[];
+};
+
+export type PaceSeriesPoint = {
+  date: string;
+  cumulative_discretionary: number | null;
+  sustainable_line: number;
+};
+
+export type Pace = {
+  state: PaceState;
+  pot?: number;
+  days_left?: number;
+  days_elapsed?: number;
+  period_start?: string;
+  discretionary_so_far?: number;
+  sustainable?: number;
+  actual?: number;
+  period_allowance?: number;
+  notable_day?: PaceNotableDay | null;
+  split?: { commitment_total: number; discretionary_total: number; non_spend_total: number; planned_total: number; commitment_count: number; discretionary_count: number };
+  series?: PaceSeriesPoint[];
+};
+
 export type SafeToSpend =
   | { status: "insufficient_data" }
   | {
@@ -192,6 +224,7 @@ export type SafeToSpend =
       spendable_now?: number;
       payday_income?: number;
       card_debt?: number;
+      pace?: Pace;
     };
 
 export type MoneyBasic = {
@@ -655,7 +688,7 @@ export const api = {
   accountCategories: (accountId: string) =>
     get<AccountCategorySummary[]>(`/accounts/${accountId}/categories`),
   kpis: () => get<KPIs>("/kpis"),
-  safeToSpend: () => get<SafeToSpend>("/safe-to-spend"),
+  safeToSpend: (opts?: { series?: boolean }) => get<SafeToSpend>(`/safe-to-spend${opts?.series ? "?include=series" : ""}`),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>

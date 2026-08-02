@@ -36,7 +36,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import { getPayPeriodWithConfig, filterPeriod, formatDate, formatPeriod, prevPeriodWithConfig, nextPeriodWithConfig } from "@/lib/payPeriod";
-import type { Transaction, CashflowData } from "@/lib/api";
+import type { Transaction, CashflowData, SafeToSpend } from "@/lib/api";
 import CustomSelect from "@/components/CustomSelect";
 import BudgetLimitSheet from "@/components/BudgetLimitSheet";
 
@@ -97,6 +97,7 @@ export default function BudgetPage() {
 
   const searchParams = useSearchParams();
 
+  const [sts, setSts] = useState<SafeToSpend | null>(null);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [paceProfile, setPaceProfile] = useState<Record<string, number[]>>({});
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions();
@@ -150,14 +151,16 @@ export default function BudgetPage() {
 
   const load = useCallback(async () => {
     try {
-      const [{ budgets: b }, profile, cashflowData] = await Promise.all([
+      const [{ budgets: b }, profile, cashflowData, stsData] = await Promise.all([
         api.getBudgets(),
         api.budgetPaceProfile().catch(() => ({ curves: {}, sample_points: 20, periods_analysed: 0 })),
         api.cashflow().catch(() => null),
+        api.safeToSpend({ series: true }).catch(() => null),
       ]);
       setPaceProfile(profile.curves);
       setBudgets(b);
       setCashflow(cashflowData);
+      setSts(stsData);
     } catch {}
     finally { setLoading(false); }
   }, []);
@@ -475,6 +478,24 @@ export default function BudgetPage() {
   // Is the displayed period the current pay period?
   const isCurrentPeriod = periodStart.getTime() === getPayPeriodWithConfig(new Date(), payPeriodConfig)[0].getTime();
 
+  // Pace engine — current period only; absent or unavailable falls back to budget-based render
+  const pace = (sts && sts.status === "ok" ? sts.pace : null) ?? null;
+  const paceActive = !!pace && pace.state !== "unavailable" && isCurrentPeriod;
+
+  // Chart data built from pace.series when paceActive
+  const paceSeriesData = useMemo(() => {
+    if (!paceActive || !pace?.series) return null;
+    return pace.series.map((p, i) => {
+      const d = new Date(p.date + "T00:00:00Z");
+      return {
+        i,
+        label: `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`,
+        actual: p.cumulative_discretionary,
+        pace: p.sustainable_line,
+      };
+    });
+  }, [paceActive, pace]);
+
   // Budget charts are opt-in. null = prefs not yet loaded; [] = none added.
   const widgets = budgetWidgets ?? [];
   const prefsLoaded = budgetWidgets !== null;
@@ -543,7 +564,84 @@ export default function BudgetPage() {
       </div>
 
       {/* (c) Overall-spend summary card */}
-      {!pageLoading && budgets.length > 0 && (() => {
+      {!pageLoading && (paceActive || budgets.length > 0) && (() => {
+        if (paceActive) {
+          // ── Pace-engine header ──────────────────────────────────────────
+          const pot = pace!.pot ?? 0;
+          const discSoFar = pace!.discretionary_so_far ?? 0;
+          const periodAllowance = pace!.period_allowance ?? 0;
+          const daysLeftPace = pace!.days_left ?? 0;
+          const sustainableRate = pace!.sustainable;
+          const paceState = pace!.state;
+          const spentPct = periodAllowance > 0 ? Math.min(100, (discSoFar / periodAllowance) * 100) : 0;
+
+          if (paceState === "short") {
+            return (
+              <div className="px-4 pt-3">
+                <div className="glass-hero rounded-2xl p-4">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Before payday</p>
+                  <p className="text-lg font-bold text-red-600 dark:text-red-400 leading-snug mb-1">
+                    Short before payday — {hideNetWorth ? "£••" : fmt(Math.abs(pot), sym)} to cover.
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                    {hideNetWorth ? "£••" : fmt(discSoFar, sym)} spent this period
+                  </p>
+                  {daysLeftPace > 0 && (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {daysLeftPace} days until payday
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          // comfortable | on_pace | ahead | early
+          const pillEl = (() => {
+            if (paceState === "comfortable") {
+              return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full">On track</span>;
+            }
+            if (paceState === "on_pace") {
+              return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">Steady</span>;
+            }
+            if (paceState === "ahead") {
+              return <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-full">Spending fast</span>;
+            }
+            return null; // early — no pill
+          })();
+
+          const barColour = paceState === "ahead" ? OVER_COLOUR : "#10b981";
+
+          return (
+            <div className="px-4 pt-3">
+              <div className="glass-hero rounded-2xl p-4">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Left to spend</p>
+                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num mb-1">
+                  {hideNetWorth ? "£••" : fmt(pot, sym)}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                  {hideNetWorth ? "£••" : `${fmt(discSoFar, sym)} spent · ${fmt(pot, sym)} left`}
+                </p>
+                {daysLeftPace > 0 && sustainableRate != null && (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {hideNetWorth ? "£••" : fmt2(sustainableRate, sym)}/day · {daysLeftPace} days left
+                  </p>
+                )}
+                <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-3" role="progressbar" aria-valuenow={Math.round(spentPct)} aria-valuemin={0} aria-valuemax={100} aria-label="Share of what's left already spent">
+                  <div
+                    className="h-full rounded-full bar-sweep"
+                    style={{ width: `${spentPct}%`, backgroundColor: barColour }}
+                  />
+                </div>
+                {pillEl && (
+                  <div className="mt-2">{pillEl}</div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // ── Budget-based header (non-pace path) ─────────────────────────
         const remaining = totalBudget - totalSpent;
         return (
           <div className="px-4 pt-3">
@@ -599,6 +697,19 @@ export default function BudgetPage() {
         );
       })()}
 
+      {/* (c2) notable_day line — below header card, no card chrome */}
+      {!pageLoading && paceActive && pace!.notable_day != null && pace!.state !== "short" && (() => {
+        const nd = pace!.notable_day!;
+        const multipleStr = `${nd.multiple.toFixed(1)}×`;
+        return (
+          <div className="px-4 pt-2">
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              {nd.weekday} was {hideNetWorth ? "£••" : fmt(nd.amount, sym)} — about {multipleStr} your usual {nd.weekday}.{pace!.sustainable != null ? ` Your pace: ${hideNetWorth ? "£••" : fmt2(pace!.sustainable, sym)}/day from here.` : ""}
+            </p>
+          </div>
+        );
+      })()}
+
       <div className="px-4 pt-4">
         {pageLoading ? (
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
@@ -609,117 +720,167 @@ export default function BudgetPage() {
           <div className="space-y-3 lg:space-y-0 lg:grid lg:grid-cols-5 lg:gap-4 lg:items-start">
           <div className="space-y-3 lg:col-span-3">
             {/* ── Spend Pacing Curve ────────────────────────────────────── */}
-            {prefsLoaded && widgets.includes("pacing_curve") && paceChartData.length > 1 && budgets.length > 0 && (
-              <div className="glass-card rounded-2xl p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-base font-bold text-slate-700 dark:text-slate-200">Spending vs budget</p>
-                  <button
-                    onClick={() => saveBudgetWidgets(widgets.filter(id => id !== "pacing_curve"))}
-                    className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 px-2 py-1 rounded-lg active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
-                    aria-label="Remove Spending vs budget chart"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
-                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    <span className="w-5 h-[2px] bg-indigo-500 inline-block rounded" />
-                    Spent so far
-                  </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
-                    Steady pace
-                  </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                    <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#fb7185" strokeWidth="1.5"/></svg>
-                    Your budget
-                  </span>
-                </div>
+            {prefsLoaded && widgets.includes("pacing_curve") && ((paceActive && (pace!.series?.length ?? 0) > 1) || (!paceActive && paceChartData.length > 1 && budgets.length > 0)) && (() => {
+              // When paceActive, derive chart data + today marker from paceSeriesData
+              const chartData = paceActive && paceSeriesData ? paceSeriesData : paceChartData;
+              // today = last point where actual != null in the pace series
+              const paceActiveTodayIdx = paceActive && paceSeriesData
+                ? (() => { let idx = 0; paceSeriesData.forEach((p, i) => { if (p.actual != null) idx = i; }); return idx; })()
+                : todayIdx;
+              const paceActiveTodayPoint = paceActive && paceSeriesData ? (paceSeriesData[paceActiveTodayIdx] ?? null) : todayPoint;
+              const paceActiveElapsedFraction = paceActive && paceSeriesData && paceSeriesData.length > 1
+                ? paceActiveTodayIdx / (paceSeriesData.length - 1)
+                : elapsedFraction;
+              const paceActiveChartTicks = paceActive && paceSeriesData && paceSeriesData.length > 0
+                ? [0, 0.25, 0.5, 0.75, 1].map(f => paceSeriesData[Math.round(f * (paceSeriesData.length - 1))]?.label).filter(Boolean) as string[]
+                : chartTicks;
+              const paceActiveDaysLeft = paceActive ? (pace!.days_left ?? 0) : daysLeft;
+              const paceActiveSustainable = paceActive ? pace!.sustainable : null;
+              const paceActiveYMax = paceActive
+                ? Math.max(pace!.period_allowance ?? 0, pace!.discretionary_so_far ?? 0) * 1.12
+                : Math.max(totalBudget, totalSpent + 1) * 1.12;
 
-                {/* Annotation callout above chart */}
-                <div className="relative" style={{ height: elapsedFraction >= 0.05 ? 52 : 0 }}>
-                  {todayPoint?.actual !== null && elapsedFraction >= 0.05 && (
-                    <div
-                      className="absolute bottom-0 pointer-events-none"
-                      style={{
-                        left: `calc(44px + ${Math.min(0.88, Math.max(0.1, elapsedFraction))} * (100% - 56px))`,
-                        transform: 'translateX(-50%)',
-                      }}
+              // Annotation callout config
+              const paceCalloutState = paceActive ? pace!.state : null;
+              const showPaceCallout = paceActive && paceCalloutState !== "early" && paceCalloutState !== "short";
+              const calloutLabel = paceCalloutState === "comfortable" ? "On track"
+                : paceCalloutState === "on_pace" ? "Steady"
+                : paceCalloutState === "ahead" ? "Spending fast"
+                : null;
+              const calloutIsAmber = paceCalloutState === "ahead";
+
+              return (
+                <div className="glass-card rounded-2xl p-4" {...periodSwipe} style={{ touchAction: "pan-y" }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-base font-bold text-slate-700 dark:text-slate-200">
+                      {paceActive ? "Spending vs your pace" : "Spending vs budget"}
+                    </p>
+                    <button
+                      onClick={() => saveBudgetWidgets(widgets.filter(id => id !== "pacing_curve"))}
+                      className="text-[11px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 px-2 py-1 rounded-lg active:bg-slate-100 dark:active:bg-slate-700 transition-colors"
+                      aria-label="Remove Spending vs budget chart"
                     >
-                      <div className={`rounded-xl px-2.5 py-1.5 text-center border whitespace-nowrap shadow-sm ${overallAheadOfPace ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'}`}>
-                        <p className={`text-[11px] font-bold leading-tight ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                          {overallAheadOfPace ? "On track" : "Faster than planned"}
-                        </p>
-                        <p className={`text-[11px] ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
-                          {hideNetWorth ? "••••" : fmt2(overallPaceGap, sym)} · {daysLeft > 0 ? `${daysLeft}d left` : "Period ended"}
-                        </p>
-                      </div>
-                      <div className={`w-px h-2 mx-auto ${overallAheadOfPace ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-amber-300 dark:bg-amber-700'}`} />
-                    </div>
-                  )}
-                </div>
-
-                <ResponsiveContainer width="100%" height={170}>
-                  <ComposedChart data={paceChartData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="actualAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.25} />
-                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0.01} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 9, fill: tickFill }}
-                      tickLine={false}
-                      axisLine={{ stroke: axisStroke }}
-                      ticks={chartTicks}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 9, fill: tickFill }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(v: number) => v === 0 ? '' : v >= 1000 ? `${sym}${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${sym}${Math.round(v)}`}
-                      width={44}
-                      domain={[0, Math.max(totalBudget, totalSpent + 1) * 1.12]}
-                    />
-                    <Tooltip
-                      cursor={{ stroke: tickFill, strokeWidth: 1, strokeDasharray: '3 3' }}
-                      content={(props: any) => {  // eslint-disable-line @typescript-eslint/no-explicit-any
-                        const { active, payload, label } = props;
-                        if (!active || !payload?.length) return null;
-                        const actual = payload.find((p: any) => p.dataKey === 'actual')?.value;
-                        const pace = payload.find((p: any) => p.dataKey === 'pace')?.value;
-                        if (actual == null && pace == null) return null;
-                        const ahead = actual != null && pace != null && actual <= pace;
-                        return (
-                          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs pointer-events-none">
-                            <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{label}</p>
-                            {actual != null && <p className="text-indigo-600 dark:text-indigo-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
-                            {pace != null && <p className="text-slate-500 dark:text-slate-400">Steady pace: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
-                            {actual != null && pace != null && (
-                              <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-500'}`}>
-                                {ahead
-                                  ? `${hideNetWorth ? '••••' : fmt2(pace - actual, sym)} under pace`
-                                  : `${hideNetWorth ? '••••' : fmt2(actual - pace, sym)} faster than planned`}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }}
-                    />
-                    <ReferenceLine y={totalBudget} stroke="#fb7185" strokeWidth={1.5} strokeOpacity={0.6} />
-                    <Line type="monotone" dataKey="pace" stroke="#f59e0b" strokeWidth={1.5}
-                      strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-                    <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={2.5}
-                      fill="url(#actualAreaGrad)" dot={false} connectNulls={false} isAnimationActive={false} />
-                    {todayPoint?.actual !== null && elapsedFraction > 0.01 && (
-                      <ReferenceDot x={todayPoint!.label} y={todayPoint!.actual ?? 0}
-                        r={5} fill="#6366f1" stroke="white" strokeWidth={2} />
+                      Remove
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 mb-2">
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="w-5 h-[2px] bg-indigo-500 inline-block rounded" />
+                      Spent so far
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 3"/></svg>
+                      Steady pace
+                    </span>
+                    {!paceActive && (
+                      <span className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        <svg width="20" height="6" className="inline-block"><line x1="0" y1="3" x2="20" y2="3" stroke="#fb7185" strokeWidth="1.5"/></svg>
+                        Your budget
+                      </span>
                     )}
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+                  </div>
+
+                  {/* Annotation callout above chart */}
+                  <div className="relative" style={{ height: paceActiveElapsedFraction >= 0.05 ? 52 : 0 }}>
+                    {paceActiveElapsedFraction >= 0.05 && paceActiveTodayPoint?.actual !== null && (paceActive ? (showPaceCallout && calloutLabel) : todayPoint?.actual !== null) && (
+                      <div
+                        className="absolute bottom-0 pointer-events-none"
+                        style={{
+                          left: `calc(44px + ${Math.min(0.88, Math.max(0.1, paceActiveElapsedFraction))} * (100% - 56px))`,
+                          transform: 'translateX(-50%)',
+                        }}
+                      >
+                        {paceActive ? (
+                          <>
+                            <div className={`rounded-xl px-2.5 py-1.5 text-center border whitespace-nowrap shadow-sm ${calloutIsAmber ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800' : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800'}`}>
+                              <p className={`text-[11px] font-bold leading-tight ${calloutIsAmber ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
+                                {calloutLabel}
+                              </p>
+                              <p className={`text-[11px] ${calloutIsAmber ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                {paceActiveSustainable != null ? (hideNetWorth ? "£••" : fmt2(paceActiveSustainable, sym)) : ""}{paceActiveSustainable != null ? "/day" : ""}{paceActiveDaysLeft > 0 ? ` · ${paceActiveDaysLeft}d left` : ""}
+                              </p>
+                            </div>
+                            <div className={`w-px h-2 mx-auto ${calloutIsAmber ? 'bg-amber-300 dark:bg-amber-700' : 'bg-emerald-300 dark:bg-emerald-700'}`} />
+                          </>
+                        ) : (
+                          <>
+                            <div className={`rounded-xl px-2.5 py-1.5 text-center border whitespace-nowrap shadow-sm ${overallAheadOfPace ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800'}`}>
+                              <p className={`text-[11px] font-bold leading-tight ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                {overallAheadOfPace ? "On track" : "Faster than planned"}
+                              </p>
+                              <p className={`text-[11px] ${overallAheadOfPace ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                                {hideNetWorth ? "••••" : fmt2(overallPaceGap, sym)} · {daysLeft > 0 ? `${daysLeft}d left` : "Period ended"}
+                              </p>
+                            </div>
+                            <div className={`w-px h-2 mx-auto ${overallAheadOfPace ? 'bg-emerald-300 dark:bg-emerald-700' : 'bg-amber-300 dark:bg-amber-700'}`} />
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <ResponsiveContainer width="100%" height={170}>
+                    <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+                      <defs>
+                        <linearGradient id="actualAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.01} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 9, fill: tickFill }}
+                        tickLine={false}
+                        axisLine={{ stroke: axisStroke }}
+                        ticks={paceActiveChartTicks}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 9, fill: tickFill }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v: number) => v === 0 ? '' : v >= 1000 ? `${sym}${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${sym}${Math.round(v)}`}
+                        width={44}
+                        domain={[0, paceActiveYMax]}
+                      />
+                      <Tooltip
+                        cursor={{ stroke: tickFill, strokeWidth: 1, strokeDasharray: '3 3' }}
+                        content={(props: any) => {  // eslint-disable-line @typescript-eslint/no-explicit-any
+                          const { active, payload, label } = props;
+                          if (!active || !payload?.length) return null;
+                          const actual = payload.find((p: any) => p.dataKey === 'actual')?.value;
+                          const pace = payload.find((p: any) => p.dataKey === 'pace')?.value;
+                          if (actual == null && pace == null) return null;
+                          const ahead = actual != null && pace != null && actual <= pace;
+                          return (
+                            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg px-3 py-2 text-xs pointer-events-none">
+                              <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1.5">{label}</p>
+                              {actual != null && <p className="text-indigo-600 dark:text-indigo-400">Spent: {hideNetWorth ? '••••' : fmt2(actual, sym)}</p>}
+                              {pace != null && <p className="text-slate-500 dark:text-slate-400">Steady pace: {hideNetWorth ? '••••' : fmt2(pace, sym)}</p>}
+                              {actual != null && pace != null && (
+                                <p className={`font-semibold mt-1 ${ahead ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-500'}`}>
+                                  {ahead
+                                    ? `${hideNetWorth ? '••••' : fmt2(pace - actual, sym)} under pace`
+                                    : `${hideNetWorth ? '••••' : fmt2(actual - pace, sym)} faster than planned`}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }}
+                      />
+                      {!paceActive && <ReferenceLine y={totalBudget} stroke="#fb7185" strokeWidth={1.5} strokeOpacity={0.6} />}
+                      <Line type="monotone" dataKey="pace" stroke="#f59e0b" strokeWidth={1.5}
+                        strokeDasharray="5 4" dot={false} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={2.5}
+                        fill="url(#actualAreaGrad)" dot={false} connectNulls={false} isAnimationActive={false} />
+                      {paceActiveTodayPoint?.actual !== null && paceActiveElapsedFraction > 0.01 && (
+                        <ReferenceDot x={paceActiveTodayPoint!.label} y={paceActiveTodayPoint!.actual ?? 0}
+                          r={5} fill="#6366f1" stroke="white" strokeWidth={2} />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
 
             {/* Add chart button */}
             {prefsLoaded && budgets.length > 0 && (
@@ -851,6 +1012,12 @@ export default function BudgetPage() {
           </div>
 
           <div className="space-y-3 lg:col-span-2">
+            {/* Category framing line */}
+            {budgets.length > 0 && (
+              <p className="text-[13px] text-slate-500 dark:text-slate-400 px-1">
+                Where it&apos;s going — these limits describe your spending, they don&apos;t decide it.
+              </p>
+            )}
             {/* Budget cards */}
             {budgets.length === 0 ? (
               <>
