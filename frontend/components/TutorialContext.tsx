@@ -76,18 +76,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     tip: "Go to Settings → Rules to auto-categorise merchants in future.",
   },
   {
-    id: "create-budget",
-    route: "/budget",
-    target: "tutorial-budget-add",
-    tooltipSide: "above",
-    iconName: "Target",
-    color: "#059669",
-    bg: "#d1fae5",
-    title: "Add a Budget Manually",
-    description: "Choose a category, enter a monthly limit, then tap the + button to save it. Your spend will be tracked against this limit each pay period.",
-    tip: "Example: category \"Eating Out\", limit £200.",
-  },
-  {
     id: "budget-ai",
     route: "/budget",
     target: "tutorial-budget-chat",

@@ -204,19 +204,6 @@ export type PaceChoice = {
   usual_rate_per_day: number | null;
 };
 
-export type PaceCommitted = {
-  category: string;
-  spent: number;
-  txn_count: number;
-};
-
-export type PaceDailyPoint = {
-  date: string;
-  weekday: string;
-  total: number;
-  usual_for_weekday: number | null;
-};
-
 export type PaceDetail =
   | { status: "unavailable" }
   | {
@@ -224,21 +211,19 @@ export type PaceDetail =
       period: {
         start: string;
         end: string;
-        days_left: number;
         days_elapsed: number;
+        days_left?: number;
+        offset: number;
+        closed: boolean;
       };
       pace: {
-        state: PaceState;
-        discretionary_so_far: number;
+        state?: PaceState;
+        pot?: number;
+        sustainable?: number | null;
         actual: number;
-        sustainable: number | null;
-        period_allowance: number;
-        pot: number;
+        discretionary_so_far: number;
       };
-      series: PaceSeriesPoint[];
       choices: PaceChoice[];
-      committed: PaceCommitted[];
-      daily: PaceDailyPoint[];
       notable_day: PaceNotableDay | null;
     };
 
@@ -738,7 +723,7 @@ export const api = {
     get<AccountCategorySummary[]>(`/accounts/${accountId}/categories`),
   kpis: () => get<KPIs>("/kpis"),
   safeToSpend: (opts?: { series?: boolean }) => get<SafeToSpend>(`/safe-to-spend${opts?.series ? "?include=series" : ""}`),
-  paceDetail: () => get<PaceDetail>("/pace/detail"),
+  paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>

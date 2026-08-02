@@ -1729,17 +1729,23 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
 
 
 @router.get("/pace/detail")
-async def get_pace_detail(user: dict = Depends(current_user)):
-    """Full category-trends payload for the current period. Deliberately NOT
-    folded into /safe-to-spend — Home's hot path must stay light."""
+async def get_pace_detail(offset: int = 0, user: dict = Depends(current_user)):
+    """Full category-trends payload for the Trends page.
+
+    offset: 0 = current pay period (default), -1 = previous period, etc.
+    Clamped to [-60, 0].  Response is cached per-offset; invalidating the
+    user's cache (e.g. on new transactions) clears all offsets.
+    """
     uid = user["email"]
-    cached = response_cache.get("pace_detail", uid)
+    off = max(-60, min(0, int(offset)))
+    cache_name = f"pace_detail:{off}"
+    cached = response_cache.get(cache_name, uid)
     if cached is not None:
         return cached
     from app.services.pace import compute_pace_detail
-    result = await compute_pace_detail(uid)
+    result = await compute_pace_detail(uid, offset=off)
     if result.get("status") == "ok":
-        response_cache.put("pace_detail", uid, result)
+        response_cache.put(cache_name, uid, result)
     return result
 
 
