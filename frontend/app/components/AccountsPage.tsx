@@ -23,6 +23,7 @@ import BankPickerSheet from "@/components/BankPickerSheet";
 import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
+import { getAllTransactionsCached } from "@/lib/useAllTransactions";
 
 function typeLabel(type: string, subtype?: string): string {
   const t = type.toLowerCase();
@@ -38,6 +39,51 @@ function typeChipStyle(type: string): { bg: string; text: string } {
   if (t.includes("credit")) return { bg: "bg-pink-100", text: "text-pink-700" };
   if (t.includes("saving")) return { bg: "bg-emerald-100", text: "text-emerald-700" };
   return { bg: "bg-indigo-100", text: "text-indigo-700" };
+}
+
+/** Value to store as a rule's match_value when the user picks a transaction.
+ *
+ *  The backend matches with `match_value in (description + " " + merchant_name).lower()`
+ *  — plain substring containment. So whatever we store MUST still be a literal
+ *  substring of that haystack. That rules out reusing the existing key helpers
+ *  (backend `normalise_merchant`, `_description_stem`): they SPLICE — dropping
+ *  internal date fragments and rewriting punctuation to spaces — which yields a
+ *  string that is no longer a substring ("TESCO 29MAY STORES" -> "TESCO STORES",
+ *  "A/C 76526682" -> "a c 76526682") and would match nothing.
+ *
+ *  So: prefer merchant_name (always in the haystack, stable across future
+ *  transactions from the same merchant); otherwise TRUNCATE the description at the
+ *  first token that varies between cycles. Truncation keeps a leading substring,
+ *  which can only ever broaden the match — never break it.
+ *
+ *  Everything from the first digit onward is per-transaction noise: amounts
+ *  ("AMOUNT IN USD 14.40"), FX rates, dates, card and reference numbers, store
+ *  codes. Cutting at the first digit-bearing token (or at a leading "ON <date>"
+ *  fragment, whichever comes first) leaves the stable merchant stem.
+ */
+const DATE_FRAG = /\b(?:ON\s+)?\d{1,2}\s*(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(?:\s*\d{2,4})?\b/i;
+const FIRST_NUMERIC = /\b\d/;
+/** Statement connectives and ISO currency codes left dangling by the cut. */
+const TAIL_NOISE = /(?:^|\s)(?:ON|AT|IN|TO|VIA|REF|FROM|CARD|VISA|AMOUNT|GBP|USD|EUR|FT|CPM|BCC|BGC|DDR|STO|CLP|CB|FP|FPI|FPO|BP|TFR|DD|SO)\s*$/i;
+
+function ruleValueFor(tx: Transaction): string {
+  const merchant = (tx.merchant_name ?? "").trim();
+  if (merchant) return merchant.slice(0, 80);
+  const desc = (tx.description ?? "").trim();
+  if (!desc) return "";
+  const cuts = [DATE_FRAG, FIRST_NUMERIC]
+    .map(re => desc.search(re))
+    .filter(i => i > 0);
+  let stem = (cuts.length ? desc.slice(0, Math.min(...cuts)) : desc).trim();
+  // Peel dangling connectives/currency codes, then trailing punctuation.
+  let prev = "";
+  while (stem !== prev && stem.length > 3) {
+    prev = stem;
+    stem = stem.replace(TAIL_NOISE, "").trim();
+  }
+  stem = stem.replace(/[\s\-–,/&.]+$/, "").trim();
+  // Too short to be a meaningful merchant stem — keep the raw description.
+  return (stem.length >= 3 ? stem : desc).slice(0, 80);
 }
 
 const PAGE_SIZE = 20;
@@ -107,6 +153,12 @@ export default function AccountsPage() {
   const [ruleSaving, setRuleSaving] = useState(false);
   const [ruleError, setRuleError] = useState<string | null>(null);
 
+  // Transaction search state for description_contains rule building
+  const [ruleSearchResults, setRuleSearchResults] = useState<Transaction[]>([]);
+  const [ruleSearchOpen, setRuleSearchOpen] = useState(false);
+  const [ruleMatchCount, setRuleMatchCount] = useState<number | null>(null);
+  const [rulePool, setRulePool] = useState<Transaction[] | null>(null);
+
   // Offline-account ledger entries (hand-added)
   const [manualTxModalOpen, setManualTxModalOpen] = useState(false);
   const [manualTxEditId, setManualTxEditId] = useState<string | null>(null);
@@ -154,6 +206,44 @@ export default function AccountsPage() {
     const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
     return () => clearTimeout(t);
   }, [searchQuery]);
+
+  // Lazy-load the transaction pool when the rule modal opens in description mode
+  useEffect(() => {
+    if (!ruleModalOpen || ruleMatchType !== "description_contains" || rulePool !== null) return;
+    let cancelled = false;
+    getAllTransactionsCached()
+      .then(data => { if (!cancelled) setRulePool(data); })
+      .catch(() => { if (!cancelled) setRulePool([]); });
+    return () => { cancelled = true; };
+  }, [ruleModalOpen, ruleMatchType, rulePool]);
+
+  // Debounced search + match count for description_contains rules
+  useEffect(() => {
+    if (ruleMatchType !== "description_contains" || !ruleMatchValue.trim() || rulePool === null) {
+      setRuleSearchResults([]);
+      setRuleMatchCount(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      const v = ruleMatchValue.trim().toLowerCase();
+      const hits = rulePool.filter(tx =>
+        `${tx.description ?? ""} ${tx.merchant_name ?? ""}`.toLowerCase().includes(v)
+      );
+      setRuleMatchCount(hits.length);
+      if (ruleSearchOpen) {
+        // Dedupe by ruleValueFor key, keep first (newest), slice to 6
+        const seen = new Set<string>();
+        const deduped: Transaction[] = [];
+        for (const tx of hits) {
+          const key = ruleValueFor(tx).toLowerCase();
+          if (!seen.has(key)) { seen.add(key); deduped.push(tx); }
+          if (deduped.length >= 6) break;
+        }
+        setRuleSearchResults(deduped);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [ruleMatchValue, ruleMatchType, rulePool, ruleSearchOpen, ruleModalOpen]);
 
   const anyModalOpen = manualModalOpen || manualTxModalOpen || ruleModalOpen || !!confirmDialog?.open;
   useEffect(() => {
@@ -551,6 +641,9 @@ export default function AccountsPage() {
     setRuleMatchValue("");
     setRuleSign("opposite");
     setRuleError(null);
+    setRuleSearchOpen(false);
+    setRuleSearchResults([]);
+    setRuleMatchCount(null);
     setRuleModalOpen(true);
   }
 
@@ -619,7 +712,15 @@ export default function AccountsPage() {
     setRuleMatchValue(rule.match_value);
     setRuleSign(rule.sign);
     setRuleError(null);
+    setRuleSearchOpen(false);
+    setRuleSearchResults([]);
+    setRuleMatchCount(null);
     setRuleModalOpen(true);
+  }
+
+  function pickRuleTransaction(tx: Transaction) {
+    setRuleMatchValue(ruleValueFor(tx));
+    setRuleSearchOpen(false);
   }
 
   async function saveRule() {
@@ -642,6 +743,9 @@ export default function AccountsPage() {
         });
       }
       setRuleModalOpen(false);
+      setRuleSearchOpen(false);
+      setRuleSearchResults([]);
+      setRuleMatchCount(null);
       loadAccounts(); // balances changed via backfill / reverse+reapply
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -990,7 +1094,7 @@ export default function AccountsPage() {
       )}
 
       {ruleModalOpen && modalsMounted && createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => !ruleSaving && setRuleModalOpen(false)}>
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/40" onClick={() => { if (!ruleSaving) { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleMatchCount(null); } }}>
           <div className="glass-sheet w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl max-h-[85dvh] flex flex-col" onClick={e => e.stopPropagation()}>
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 flex-shrink-0 sm:hidden">
@@ -1044,13 +1148,51 @@ export default function AccountsPage() {
                   </button>
                 ))}
               </div>
-              <input
-                value={ruleMatchValue}
-                onChange={e => setRuleMatchValue(e.target.value)}
-                maxLength={80}
-                placeholder={ruleMatchType === "category" ? "e.g. Groceries" : "e.g. AMEX PAYMENT"}
-                className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              {ruleMatchType === "category" ? (
+                <input
+                  value={ruleMatchValue}
+                  onChange={e => setRuleMatchValue(e.target.value)}
+                  maxLength={80}
+                  placeholder="e.g. Groceries"
+                  className="w-full mb-4 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              ) : (
+                <div
+                  className="mb-4"
+                  onBlur={e => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setRuleSearchOpen(false);
+                    }
+                  }}
+                >
+                  <input
+                    value={ruleMatchValue}
+                    onChange={e => { setRuleMatchValue(e.target.value); setRuleSearchOpen(true); }}
+                    onFocus={() => setRuleSearchOpen(true)}
+                    maxLength={80}
+                    placeholder="Search your transactions"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {ruleSearchOpen && ruleSearchResults.length > 0 && (
+                    <div className="glass-tile rounded-xl overflow-hidden mt-2 divide-y divide-slate-200/60 dark:divide-slate-700/40">
+                      {ruleSearchResults.map(tx => (
+                        <TransactionRow key={tx.id} transaction={tx} onClick={() => pickRuleTransaction(tx)} />
+                      ))}
+                    </div>
+                  )}
+                  {ruleMatchValue.trim() && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+                      {rulePool === null ? (
+                        "Checking…"
+                      ) : ruleMatchCount === null ? null : ruleMatchCount === 0 ? (
+                        "No transactions match this yet"
+                      ) : (
+                        <>Matches <span className="text-emerald-600 dark:text-emerald-400 font-medium">{ruleMatchCount}</span> {ruleMatchCount === 1 ? "transaction" : "transactions"}</>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Effect on offline account</label>
               <div className="grid grid-cols-2 gap-2 mb-1">
@@ -1077,7 +1219,7 @@ export default function AccountsPage() {
 
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={() => setRuleModalOpen(false)}
+                  onClick={() => { setRuleModalOpen(false); setRuleSearchOpen(false); setRuleSearchResults([]); setRuleMatchCount(null); }}
                   disabled={ruleSaving}
                   className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-50"
                 >

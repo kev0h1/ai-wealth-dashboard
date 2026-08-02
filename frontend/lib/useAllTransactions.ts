@@ -30,3 +30,7 @@ export function useAllTransactions() {
   useEffect(() => { refresh(); }, [refresh]);
   return { transactions, loading, refresh, setTransactions };
 }
+
+/** Cached, lazy accessor for consumers that need the full set on demand
+ *  (e.g. rule-builder search) without subscribing on mount. */
+export function getAllTransactionsCached(): Promise<Transaction[]> { return fetchAll(); }
