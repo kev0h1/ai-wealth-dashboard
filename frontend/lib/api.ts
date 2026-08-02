@@ -207,6 +207,7 @@ export type MoneyBasic = {
 export type CompanionAction = {
   label: string;
   route: string;
+  kind?: string;
 };
 
 export type MoveMapAccount = {
@@ -238,9 +239,35 @@ export type PlanDest = {
   bills: PlanDestBill[];
 };
 
+export type PaydayProposal = {
+  key: string;
+  merchant: string;
+  amount: number;
+  occurrences: number;
+  schedule: { type: string; weekday?: number };
+  schedule_label: string;
+  payday_phrase: string;
+  pay_period_config: unknown;
+  next_date: string;
+  last_seen: string;
+  account_id: string;
+};
+
+export type ConfirmPaydayResponse = {
+  ok: boolean;
+  payday: string;
+  schedule: { type: string; weekday?: number };
+  schedule_label: string;
+  payday_phrase: string;
+  pay_period_config: unknown;
+  merchant: string;
+  amount: number;
+  period: { start: string; end: string };
+};
+
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask";
   headline: string;
   body: string;
   action: CompanionAction | null;
@@ -255,6 +282,8 @@ export type CompanionItem = {
   covered?: boolean;
   sources_safe?: boolean;
   amount?: number;
+  secondary_action?: CompanionAction | null;
+  proposal?: PaydayProposal;
 };
 
 export type TodayResponse = {
@@ -1134,6 +1163,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+  confirmPayday: () => post<ConfirmPaydayResponse>("/income/confirm-payday", {}),
 
   debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
     burndown: {

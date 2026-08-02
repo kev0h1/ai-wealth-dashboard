@@ -227,3 +227,73 @@ async def delete_income_stream(key: str, user: dict = Depends(current_user)):
     import asyncio
     asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
     return {"ok": True}
+
+
+@router.post("/income/confirm-payday")
+async def confirm_payday(body: dict = None, user: dict = Depends(current_user)):
+    """Confirm the server-proposed payday from the ask:payday companion item."""
+    from app.services.income import (
+        get_payday_proposal,
+        payday_phrase as _payday_phrase,
+        schedule_to_pay_period_config,
+    )
+    from app.services.companion import dismiss_item
+    from app.services import response_cache
+    from app.services.pay_period import get_pay_period_for_date
+
+    uid = user["email"]
+    today = _date.today()
+
+    proposal = await get_payday_proposal(uid, today)
+    if proposal is None:
+        raise HTTPException(409, "no payday proposal available")
+
+    sched = proposal["schedule"]
+    new_config = proposal["pay_period_config"]
+
+    entry = {
+        "key": proposal["key"],
+        "status": "confirmed",
+        "schedule": sched,
+        "avg_amount": proposal["amount"],
+        "last_seen": proposal["last_seen"],
+        "confirmed_at": datetime.now().isoformat(),
+        "source": "payday_ask",
+    }
+
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    streams = [s for s in (prefs.get("income_streams") or []) if s.get("key") != entry["key"]]
+    streams.append(entry)
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$set": {"income_streams": streams, "pay_period_config": new_config, "user_id": uid}},
+        upsert=True,
+    )
+
+    # Dismiss the ask item so it never re-asks
+    await dismiss_item(uid, "ask:payday")
+
+    # Invalidate all response caches for this user
+    response_cache.invalidate(uid)
+
+    # Kick cashflow recompute in background
+    import asyncio
+    asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+
+    # Compute period dates from the new config
+    period_start, period_end = get_pay_period_for_date(today, new_config)
+
+    return {
+        "ok": True,
+        "payday": proposal["next_date"],
+        "schedule": sched,
+        "schedule_label": proposal["schedule_label"],
+        "payday_phrase": proposal["payday_phrase"],
+        "pay_period_config": new_config,
+        "merchant": proposal["merchant"],
+        "amount": proposal["amount"],
+        "period": {
+            "start": period_start.isoformat(),
+            "end": period_end.isoformat(),
+        },
+    }

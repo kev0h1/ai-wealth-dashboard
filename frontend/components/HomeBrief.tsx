@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
+import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 
@@ -17,6 +18,7 @@ interface HomeBriefProps {
   onSync: () => void;
   onHelp?: () => void;
   hideNetWorth?: boolean;
+  onRefresh?: () => void;
 }
 
 function BriefSkeleton() {
@@ -53,14 +55,96 @@ function resolveBankChip(provider: string) {
   };
 }
 
+interface AskPaydayCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  hideNetWorth: boolean;
+  maskAmounts: (text: string) => string;
+  onRefresh?: () => void;
+}
+
+function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardProps) {
+  const [busy, setBusy] = useState<null | "confirm" | "decline">(null);
+  const [hidden, setHidden] = useState(false);
+
+  if (hidden) return null;
+
+  async function handleConfirm() {
+    if (busy) return;
+    setBusy("confirm");
+    try {
+      await api.confirmPayday();
+      setHidden(true);
+      onRefresh?.();
+    } catch {
+      // On error: un-busy, leave card visible, no red/alarm
+    } finally {
+      setBusy(v => v === "confirm" ? null : v);
+    }
+  }
+
+  async function handleDecline() {
+    if (busy) return;
+    setBusy("decline");
+    try {
+      await api.dismissTodayItem(item.id);
+    } catch { /* swallow */ }
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("wealth_open_pay_period", "1");
+    }
+    setHidden(true);
+    router.push("/spend");
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      {/* Penny gradient chip */}
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+        >
+          ✦ Penny
+        </span>
+      </div>
+      {/* Headline */}
+      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+      </p>
+      {/* Body */}
+      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        {maskAmounts(item.body)}
+      </p>
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleConfirm}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+        >
+          {busy === "confirm" ? "Confirming…" : (item.action?.label ?? "Yes, that's it")}
+        </button>
+        <button
+          onClick={handleDecline}
+          disabled={busy !== null}
+          className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+        >
+          {item.secondary_action?.label ?? "No — set it myself"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface BriefBodyProps {
   items: CompanionItem[];
   safeToSpend: SafeToSpend | null;
   router: ReturnType<typeof useRouter>;
   hideNetWorth?: boolean;
+  onRefresh?: () => void;
 }
 
-function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBodyProps) {
+function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh }: BriefBodyProps) {
   if (items.length === 0) {
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
@@ -79,8 +163,9 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
 
   const moveItem = items.find(i => i.type === "move");
   const needleItem = items.find(i => i.type === "needle");
+  const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -103,6 +188,17 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
               </button>
             ))}
           </div>
+        )}
+
+        {/* Payday auto-confirm ask card */}
+        {askItem && (
+          <AskPaydayCard
+            item={askItem}
+            router={router}
+            hideNetWorth={hideNetWorth}
+            maskAmounts={maskAmounts}
+            onRefresh={onRefresh}
+          />
         )}
 
         {/* Needle item — invitation to review the closed month */}
@@ -285,7 +381,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false }: BriefBo
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -327,7 +423,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} />
         )}
       </div>
     </div>

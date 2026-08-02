@@ -3,6 +3,10 @@ from datetime import date, timedelta
 import calendar
 from typing import Any
 
+PAYDAY_MIN_OCCURRENCES = 3
+PAYDAY_AMOUNT_TOLERANCE = 0.20
+PAYDAY_MIN_AMOUNT = 100.0
+
 
 def derive_schedule(dates: list[date]) -> dict | None:
     """
@@ -167,3 +171,188 @@ def get_confirmed_payday(uid_prefs: dict, today: date) -> tuple[date, dict] | No
         return None
 
     return (min_date, primary)
+
+
+def income_merchant_label(key: str) -> str:
+    """Human merchant name extracted from a raw transaction key."""
+    from app.services.companion import _humanise_bill_name
+    name = _humanise_bill_name(key)
+    # Strip trailing UK bank payment-method tokens
+    import re
+    tokens = r"\b(BGC|BAC|BACS|FPI|FPO|FP|CR|TFR|STO|DD|DDR|SO)\b"
+    name = re.sub(tokens, "", name, flags=re.IGNORECASE)
+    # Collapse whitespace
+    name = re.sub(r"\s+", " ", name).strip()
+    # Title-case remaining ALL-CAPS words of >=3 chars
+    def _title_word(m):
+        w = m.group(0)
+        return w.title() if len(w) >= 3 and w.isupper() else w
+    name = re.sub(r"[A-Za-z]+", _title_word, name)
+    return name if name else key
+
+
+def payday_phrase(schedule: dict) -> str:
+    """Plain-English cadence phrase for use inside a sentence."""
+    def ordinal(n: int) -> str:
+        if 11 <= n <= 13:
+            return f"{n}th"
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    t = schedule["type"]
+    if t == "last_weekday":
+        return f"the last {WEEKDAY_NAMES[schedule['weekday']]} of the month"
+    elif t == "day_of_month":
+        return f"the {ordinal(schedule['day'])} of each month"
+    elif t == "biweekly":
+        return f"every other {WEEKDAY_NAMES[schedule['weekday']]}"
+    elif t == "weekly":
+        return f"every {WEEKDAY_NAMES[schedule['weekday']]}"
+    else:
+        return "on a regular schedule"
+
+
+def schedule_to_pay_period_config(schedule: dict) -> dict | None:
+    """Map a confirmed income schedule to the pay_period_config shape."""
+    t = schedule.get("type")
+    if t == "last_weekday":
+        py_wd = schedule["weekday"]
+        return {"type": "last_weekday_of_month", "weekday": (py_wd + 1) % 7}
+    elif t == "day_of_month":
+        return {"type": "monthly_pay_date", "day": schedule["day"]}
+    elif t == "biweekly":
+        py_wd = schedule["weekday"]
+        anchor = schedule["anchor"]
+        return {"type": "biweekly", "weekday": (py_wd + 1) % 7, "referenceDate": anchor}
+    elif t == "weekly":
+        py_wd = schedule["weekday"]
+        return {"type": "weekly", "weekday": (py_wd + 1) % 7}
+    else:
+        return None
+
+
+def propose_payday_from_candidates(candidates: list[dict], today: date) -> dict | None:
+    """PURE function. Picks the best payday proposal from detected candidates."""
+    import statistics
+
+    survivors = []
+    for c in candidates:
+        if c.get("category") != "Income":
+            continue
+        dates = c.get("dates", [])
+        amounts = c.get("amounts", [])
+        if len(dates) < PAYDAY_MIN_OCCURRENCES:
+            continue
+        if not amounts:
+            continue
+        median_amt = statistics.median(amounts)
+        if median_amt < PAYDAY_MIN_AMOUNT:
+            continue
+        if any(abs(a - median_amt) > PAYDAY_AMOUNT_TOLERANCE * median_amt for a in amounts):
+            continue
+        sched = derive_schedule(dates)
+        if sched is None:
+            continue
+        ppc = schedule_to_pay_period_config(sched)
+        if ppc is None:
+            continue
+        # Check cadence regularity
+        sorted_dates = sorted(dates)
+        intervals = [(sorted_dates[i+1] - sorted_dates[i]).days for i in range(len(sorted_dates)-1)]
+        if not intervals:
+            continue
+        avg_interval = sum(intervals) / len(intervals)
+        tol = max(3.0, avg_interval * 0.25)
+        if any(abs(iv - avg_interval) > tol for iv in intervals):
+            continue
+        survivors.append((median_amt, c, sched, ppc))
+
+    if not survivors:
+        return None
+
+    # Pick largest median amount
+    _, best, sched, ppc = max(survivors, key=lambda x: x[0])
+    key = best["key"]
+    dates = sorted(best["dates"])
+    amounts = best["amounts"]
+    median_amt = statistics.median(amounts)
+
+    return {
+        "key": key,
+        "merchant": income_merchant_label(key),
+        "amount": round(median_amt, 2),
+        "occurrences": len(dates),
+        "schedule": sched,
+        "schedule_label": schedule_label(sched),
+        "payday_phrase": payday_phrase(sched),
+        "pay_period_config": ppc,
+        "next_date": next_occurrence(sched, today).isoformat(),
+        "last_seen": dates[-1].isoformat(),
+        "account_id": best.get("account_id"),
+    }
+
+
+async def get_payday_proposal(uid: str, today: date | None = None) -> dict | None:
+    """DB-aware wrapper: fetch transactions, detect recurring income, propose payday."""
+    import logging
+    _log = logging.getLogger(__name__)
+    try:
+        from datetime import datetime, timedelta
+        from app.db.collections import transactions_col, yapily_transactions_col
+        from app.routers.analytics import _detect_recurring
+        from collections import defaultdict
+
+        if today is None:
+            today = date.today()
+
+        cutoff = datetime.now() - timedelta(days=90)
+        proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+                "transaction_type": 1, "category": 1, "custom_category": 1, "account_id": 1}
+        raw = await transactions_col.find(
+            {"user_id": uid, "date": {"$gte": cutoff}}, proj
+        ).to_list(None)
+        raw += await yapily_transactions_col.find(
+            {"user_id": uid, "date": {"$gte": cutoff}}, proj
+        ).to_list(None)
+        credits = [t for t in raw if t.get("transaction_type") == "credit"
+                   and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
+
+        # Detect recurring income to get the candidate key set
+        detected = _detect_recurring(credits, today=today, is_income=True)
+
+        # Build dates/amounts per key by re-bucketing the same in-memory credits list
+        key_dates: dict[str, list] = defaultdict(list)
+        key_amounts: dict[str, list] = defaultdict(list)
+        key_account: dict[str, str] = {}
+        for t in credits:
+            k = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+            if not k:
+                continue
+            d = t["date"]
+            if isinstance(d, datetime):
+                d = d.date()
+            key_dates[k].append(d)
+            key_amounts[k].append(abs(float(t.get("amount", 0))))
+            if "account_id" in t:
+                key_account[k] = str(t["account_id"])
+
+        # Build candidates from detected patterns
+        candidates = []
+        for p in detected:
+            k = p["key"]
+            dates = sorted(key_dates.get(k, []))
+            amounts = key_amounts.get(k, [])
+            candidates.append({
+                "key": k,
+                "category": p.get("category", "Other"),
+                "account_id": key_account.get(k),
+                "dates": dates,
+                "amounts": amounts,
+            })
+
+        return propose_payday_from_candidates(candidates, today)
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("get_payday_proposal failed for %s: %s", uid, exc)
+        return None

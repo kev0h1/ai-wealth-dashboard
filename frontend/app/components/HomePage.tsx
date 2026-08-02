@@ -237,6 +237,7 @@ export default function HomePage() {
               syncError={syncError}
               onSync={handleSync}
               hideNetWorth={hideNetWorth}
+              onRefresh={loadData}
             />
           </div>
 

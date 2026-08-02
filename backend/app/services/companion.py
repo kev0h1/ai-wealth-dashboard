@@ -991,9 +991,34 @@ async def compute_today_items(uid: str) -> list[dict]:
     except Exception as _needle_exc:
         log.warning("needle item failed for %s: %s", uid, _needle_exc)
 
+    # ── 8c. ASK item (payday confirmation) ─────────────────────────────────
+    ask_items: list[dict] = []
+    try:
+        from app.services.income import get_payday_proposal, payday_phrase as _payday_phrase
+
+        _confirmed_pay = _get_confirmed_payday(prefs, today_d)
+        if _confirmed_pay is None and "ask:payday" not in dismissed:
+            proposal = await get_payday_proposal(uid, today_d)
+            if proposal is not None:
+                _amt = proposal["amount"]
+                _merchant = proposal["merchant"]
+                _phrase = proposal["payday_phrase"]
+                ask_items.append({
+                    "id": "ask:payday",
+                    "type": "ask",
+                    "headline": "Is this your payday?",
+                    "body": f"Looks like £{_amt:,.0f} from {_merchant} lands on {_phrase}.",
+                    "action": {"label": "Yes, that's it", "route": "/income/confirm-payday", "kind": "confirm_payday"},
+                    "secondary_action": {"label": "No — set it myself", "route": "/spend", "kind": "set_payday"},
+                    "estimated": False,
+                    "proposal": proposal,
+                })
+    except Exception as _ask_exc:
+        log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
     # needle is priority above rhythm but below moves/celebrations
-    result = items[:2] + celebration_items[:1] + needle_items[:1] + rhythm_items
+    result = items[:2] + celebration_items[:1] + ask_items[:1] + needle_items[:1] + rhythm_items
     return result[:3]
 
 

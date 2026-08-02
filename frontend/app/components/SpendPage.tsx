@@ -110,6 +110,14 @@ export default function SpendPage() {
   }, [loadData]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (sessionStorage.getItem("wealth_open_pay_period") === "1") {
+      sessionStorage.removeItem("wealth_open_pay_period");
+      setSettingsOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
     api.getSubscription()
       .then(s => setIsPro(s.tier !== "free"))
       .catch(() => setIsPro(true));
