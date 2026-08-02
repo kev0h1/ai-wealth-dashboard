@@ -34,6 +34,46 @@ async function ensureAuth() {}
 
 const SKIP_FROM_SPEND = new Set(["Transfer"]);
 
+// ── Category-signal cache (module level, per period offset) ──────────────────
+// The tiles themselves render from `useAllTransactions`, which is memoised for
+// 60 s — so on a revisit or a period swipe the amounts paint instantly while a
+// freshly-fetched multiple lands a round trip later. That gap is the whole
+// "× usual appears late" symptom. Mirroring the transactions cache (same TTL,
+// same in-flight dedupe) closes it: a period we have already read is instant.
+// Any mutation that can move a multiple clears this cache explicitly.
+type SignalMap = Record<string, CategorySignal>;
+const SIGNALS_TTL_MS = 60_000;
+const signalsCache = new Map<number, { data: SignalMap; at: number }>();
+const signalsInflight = new Map<number, Promise<SignalMap>>();
+
+export function invalidateSignalsCache() {
+  signalsCache.clear();
+  signalsInflight.clear();
+}
+
+function cachedSignals(offset: number): SignalMap | null {
+  const hit = signalsCache.get(offset);
+  return hit && Date.now() - hit.at < SIGNALS_TTL_MS ? hit.data : null;
+}
+
+function fetchSignals(offset: number, force = false): Promise<SignalMap> {
+  if (!force) {
+    const hit = cachedSignals(offset);
+    if (hit) return Promise.resolve(hit);
+    const pending = signalsInflight.get(offset);
+    if (pending) return pending;
+  }
+  const p = api.categorySignals(offset)
+    .then(d => {
+      const data = d.signals ?? {};
+      signalsCache.set(offset, { data, at: Date.now() });
+      return data;
+    })
+    .finally(() => { signalsInflight.delete(offset); });
+  signalsInflight.set(offset, p);
+  return p;
+}
+
 export default function SpendPage() {
   const { payPeriodConfig, setPayPeriodConfig, region } = usePreferences();
   const { colours } = useColours();
@@ -66,15 +106,27 @@ export default function SpendPage() {
   const [manageOpen, setManageOpen] = useState(searchParams.get("manage") === "1");
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
   const [periodOffset, setPeriodOffset] = useState(0);
-  const [signals, setSignals] = useState<Record<string, CategorySignal>>({});
+  const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(0) ?? {});
   const signalsOffsetRef = useRef(0);
-  const refetchSignals = useCallback(() => {
+  // force = the Door or a category just changed, so the cached copy is dead.
+  const refetchSignals = useCallback((force = true) => {
     const captured = signalsOffsetRef.current;
-    api.categorySignals(captured)
-      .then(d => { if (signalsOffsetRef.current !== captured) return; setSignals(d.signals ?? {}); })
-      .catch(() => { if (signalsOffsetRef.current !== captured) return; setSignals({}); });
+    if (force) invalidateSignalsCache();
+    fetchSignals(captured, force)
+      .then(d => { if (signalsOffsetRef.current === captured) setSignals(d); })
+      .catch(() => { if (signalsOffsetRef.current === captured) setSignals({}); });
   }, []);
-  useEffect(() => { signalsOffsetRef.current = periodOffset; setSignals({}); refetchSignals(); }, [periodOffset, refetchSignals]);
+  useEffect(() => {
+    signalsOffsetRef.current = periodOffset;
+    // Only blank the multiples when we have nothing for this period — a
+    // remembered period keeps its readings and never flashes empty.
+    const hit = cachedSignals(periodOffset);
+    setSignals(hit ?? {});
+    if (!hit) refetchSignals(false);
+    // Warm the period the user is one swipe away from, after this one settles.
+    const warm = setTimeout(() => { fetchSignals(periodOffset - 1).catch(() => {}); }, 400);
+    return () => clearTimeout(warm);
+  }, [periodOffset, refetchSignals]);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isPro, setIsPro] = useState<boolean>(false);
@@ -280,6 +332,8 @@ export default function SpendPage() {
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     invalidateTransactionsCache();
+    // Re-categorising moves what "usual" means for both categories involved.
+    invalidateSignalsCache();
     setAllTransactions((prev) =>
       prev.map((t) => {
         if (t.id === updated.id) return { ...t, category: updated.category };

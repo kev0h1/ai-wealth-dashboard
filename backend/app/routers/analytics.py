@@ -680,7 +680,10 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             print(f"[cashflow_cache] monthly_cf refresh failed for {uid}: {_mcf_e}")
         await cashflow_cache_col.update_one(
             {"_id": uid},
-            {"$set": data},
+            # Fresh transactions/categories can move the 90-day medians the
+            # Spend tiles compare against, so the memoised per-category
+            # baselines go with the stale cashflow (see pace._read_cached_baseline).
+            {"$set": data, "$unset": {"total_baselines": ""}},
             upsert=True,
         )
         # Fresh data invalidates the short-TTL response caches (same-process

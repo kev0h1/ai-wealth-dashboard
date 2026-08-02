@@ -245,6 +245,74 @@ def _total_baseline(
     return out, n_months
 
 
+# ── Memoised total baseline ───────────────────────────────────────────────────
+#
+# `_total_baseline` itself is cheap arithmetic; what costs is the 90-day
+# transaction load it forces. A median of three 30-day buckets moves very
+# slowly — nothing inside a period can change it, because the window ends the
+# instant the period starts. Memoising it (same 6 h discipline as
+# `monthly_cashflow_cached`) lets the caller load only the period window,
+# which is where the real saving is. Stored per baseline window on the user's
+# cashflow cache doc so the memo is shared across the API and worker
+# processes.
+
+_BASELINE_TTL_SECONDS = 6 * 3600
+
+
+async def _read_cached_baseline(
+    uid: str, window_key: str
+) -> tuple[dict[str, float], int] | None:
+    """Fresh memoised ({category: median 30-day total}, n_months), or None.
+
+    A baseline is stale when it is older than the TTL, or when a sync has
+    landed since it was computed (`synced_at` is stamped on every sync path,
+    including ones that never reach `compute_and_cache_cashflow`).
+    """
+    try:
+        doc = await cashflow_cache_col.find_one(
+            {"_id": uid}, {"total_baselines": 1, "synced_at": 1}
+        ) or {}
+    except Exception:
+        logger.exception("_read_cached_baseline: read failed for %s", uid)
+        return None
+
+    blob = (doc.get("total_baselines") or {}).get(window_key)
+    if not isinstance(blob, dict):
+        return None
+
+    at = blob.get("computed_at")
+    if not isinstance(at, datetime):
+        return None
+    if (datetime.now() - at).total_seconds() >= _BASELINE_TTL_SECONDS:
+        return None
+
+    synced_at = doc.get("synced_at")
+    if isinstance(synced_at, datetime) and synced_at > at:
+        return None
+
+    data = blob.get("data")
+    months = blob.get("months")
+    if not isinstance(data, dict) or not isinstance(months, int):
+        return None
+    return {k: float(v) for k, v in data.items()}, months
+
+
+async def _write_cached_baseline(
+    uid: str, window_key: str, baseline: dict[str, float], months: int
+) -> None:
+    """Memoise a freshly computed baseline. Never raises."""
+    try:
+        await cashflow_cache_col.update_one(
+            {"_id": uid},
+            {"$set": {f"total_baselines.{window_key}": {
+                "data": baseline, "months": months, "computed_at": datetime.now(),
+            }}},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("_write_cached_baseline: write failed for %s", uid)
+
+
 def _discretionary_baseline(
     txns: list[_Txn],
     patterns: list[dict],
@@ -881,12 +949,28 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
     cur_start, cur_end = get_pay_period_for_date(today, pay_cfg)
     current_period_days = (cur_end - cur_start).days + 1
 
-    # ── Load all spend-basis transactions (90-day baseline + period) ──────────
-    txns = await load_spend_txns(
-        uid,
-        period_start - timedelta(days=_BASELINE_DAYS),
-        period_end,
-    )
+    # ── Load transactions + baseline ──────────────────────────────────────────
+    # The baseline window ([period_start - 90d, period_start)) is closed — it
+    # cannot change while the period runs — so it is memoised (6 h, invalidated
+    # by any sync). With a fresh memo we load only the period itself instead of
+    # 90 days + period, which is the bulk of this endpoint's database work.
+    # The Door fields below are always live; only the baseline is cached.
+    baseline_window_key = period_start.isoformat()
+    cached_baseline = await _read_cached_baseline(uid, baseline_window_key)
+
+    if cached_baseline is not None:
+        baseline, baseline_months = cached_baseline
+        txns = await load_spend_txns(uid, period_start, period_end)
+    else:
+        txns = await load_spend_txns(
+            uid,
+            period_start - timedelta(days=_BASELINE_DAYS),
+            period_end,
+        )
+        baseline, baseline_months = _total_baseline(txns, period_start)
+        await _write_cached_baseline(
+            uid, baseline_window_key, baseline, baseline_months
+        )
 
     # ── Period totals ─────────────────────────────────────────────────────────
     cat_spent: dict[str, float] = {}
@@ -905,8 +989,6 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
 
     suppress_multiple = days_elapsed < 5
 
-    # ── Baseline ──────────────────────────────────────────────────────────────
-    baseline, baseline_months = _total_baseline(txns, period_start)
     thin_history = baseline_months < 2
 
     # ── Door variables (current period only) ─────────────────────────────────
