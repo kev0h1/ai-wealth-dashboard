@@ -2,8 +2,26 @@ import { NextResponse } from "next/server";
 
 // Returns an HTML page that hands control back to the native app via the
 // wealthdash:// deep link (which closes the in-app Chrome Custom Tab /
-// SFSafariViewController and triggers a WebView reload). Desktop/web users,
-// where the custom scheme does nothing, get a clean 302 redirect instead.
+// SFSafariViewController) or lets web/UAT users continue in the browser.
+//
+// WHY the auto-fire was removed (interim fix, approved 2026-07):
+//   The native app opens bank auth via WebBrowser.openAuthSessionAsync(url,
+//   "wealthdash://auth-complete"), which uses a Chrome Custom Tab carrying the
+//   *system browser's* User-Agent — indistinguishable from ordinary mobile Chrome.
+//   Auto-firing the deep link therefore hijacks UAT sessions in mobile Chrome.
+//   PROPER FIX (deferred until next native rebuild): mark the flow at initiation
+//   (e.g. a short-lived server-side token passed in the callback URL) so the
+//   callback can tell the two cases apart without UA sniffing.
+
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function returnToAppPage(fallbackUrl: string, ok: boolean, userAgent = ""): NextResponse {
   const isMobile = /Android|iPhone|iPad|iPod/i.test(userAgent);
   if (!isMobile) {
@@ -23,30 +41,23 @@ export function returnToAppPage(fallbackUrl: string, ok: boolean, userAgent = ""
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}
   .icon{font-size:56px;margin-bottom:16px}
-  h1{color:${color};font-size:24px;margin:0 0 12px}
-  p{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}
+  h1{color:${color};font-size:30px;font-weight:700;letter-spacing:-0.025em;margin:0 0 12px}
+  p{color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 32px}
+  .actions{display:flex;flex-direction:column;gap:12px;align-items:center}
   .btn{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
-       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
-       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}
+       padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;
+       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent;width:220px;box-sizing:border-box}
+  .btn-secondary{background:transparent;color:#94a3b8;border:1px solid #334155;
+                 font-size:14px;font-weight:500;padding:10px 16px}
 </style></head>
 <body>
   <div class="icon">${icon}</div>
   <h1>${heading}</h1>
   <p>${sub}</p>
-  <button class="btn" onclick="returnToApp()">Return to app</button>
-  <script>
-    var FALLBACK=${JSON.stringify(fallbackUrl)};
-    function returnToApp(){window.location.href='wealthdash://auth-complete';}
-    // Auto-attempt the deep link; if we're still here after a beat (desktop
-    // web, where wealthdash:// does nothing) fall back to the web page.
-    setTimeout(function(){
-      var t=Date.now();
-      window.location.href='wealthdash://auth-complete';
-      setTimeout(function(){
-        if(Date.now()-t<1800){window.location.href=FALLBACK;}
-      },1500);
-    },600);
-  </script>
+  <div class="actions">
+    <a class="btn" href="${escHtml(fallbackUrl)}">Continue</a>
+    <button class="btn btn-secondary" onclick="window.location.href='wealthdash://auth-complete'">Return to app</button>
+  </div>
 </body></html>`;
   return new NextResponse(html, {
     status: 200,
