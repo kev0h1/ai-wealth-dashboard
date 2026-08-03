@@ -1221,7 +1221,7 @@ export default function AccountsPage() {
                 </>
               )}
 
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Account</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">Linked account</label>
               <div
                 role="radiogroup"
                 aria-label="Which account should this rule watch?"

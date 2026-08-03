@@ -1,6 +1,6 @@
 """Companion spine — rhythm-aware today-engine.
 
-Computes up to 3 items (moves first) for a user's home screen.
+Computes up to 3 items (moves first, one card per at-risk destination account) for a user's home screen.
 Zero LLM calls — all copy is deterministic from live data.
 Zero hardcodes — computed generically for any user.
 """
@@ -27,6 +27,10 @@ from app.routers.analytics import _build_cashflow_response, income_credit_ok
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# At most this many cover/gap cards render at once. Anything beyond is disclosed
+# honestly on the last card rather than silently dropped.
+_MOVE_CARD_CAP = 2
 
 
 def _weekday_name(d: date) -> str:
@@ -172,7 +176,7 @@ def _is_offline(acc: dict) -> bool:
 
 
 async def compute_today_items(uid: str) -> list[dict]:
-    """Compute companion items for `uid`. Cap at 3, moves first."""
+    """Compute companion items for `uid`. Cap at 3, moves first (one card per at-risk destination)."""
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
     cached = await cashflow_cache_col.find_one({"_id": uid})
@@ -540,9 +544,11 @@ async def compute_today_items(uid: str) -> list[dict]:
                 "shortfall": shortfall,
             })
 
-    # SOURCE SAFETY guarantee: with each source's TOTAL contribution debited at
-    # day 0, its own running balance must stay ≥ £10 through the full window.
-    # The trajectory shifts down linearly, so min_after = min_running − total.
+    # SOURCE SAFETY guarantee — checked GLOBALLY, across every card. A source may
+    # fund more than one destination (that genuinely is two transfers), so the
+    # invariant is its TOTAL contribution across ALL cards: debited at day 0, the
+    # source's own running balance must stay >= £10 through the full window. The
+    # trajectory shifts down linearly, so min_after = min_running − total.
     contrib_by_source: dict[str, float] = {}
     for leg in covered:
         _src = leg["move_map"]["from"]["account_id"]
@@ -552,52 +558,10 @@ async def compute_today_items(uid: str) -> list[dict]:
         for _src, _total_c in contrib_by_source.items()
     )
 
-    # Consolidate covered legs by source account, preserving first-appearance order.
-    # `covered` stays the arithmetic source of truth for residual / sources_safe.
-    # `consolidated` is display-only: one row per source, with a `dests` breakdown.
-    _dest_name_map: dict[str, str] = {
-        leg["dest_acct"]: leg["dest_name"] for leg in covered
-    }
-    _src_order: list[str] = []
-    _src_legs: dict[str, list[dict]] = {}
-    for _leg in covered:
-        _fsrc = _leg["move_map"]["from"]["account_id"]
-        if _fsrc not in _src_legs:
-            _src_order.append(_fsrc)
-            _src_legs[_fsrc] = []
-        _src_legs[_fsrc].append(_leg)
-
-    consolidated: list[dict] = []
-    for _fsrc in _src_order:
-        _grp = _src_legs[_fsrc]
-        _first = dict(_grp[0])
-        _total_amt = int(round(sum(float(l["amount"]) for l in _grp)))
-        # Per-destination breakdown for this source
-        _dests_map: dict[str, float] = {}
-        for _l in _grp:
-            _dests_map[_l["dest_acct"]] = _dests_map.get(_l["dest_acct"], 0.0) + float(_l["amount"])
-        _first["amount"] = _total_amt
-        _first["dests"] = sorted(
-            [
-                {"account_id": _d, "name": _dest_name_map.get(_d, _d), "amount": int(round(_v))}
-                for _d, _v in _dests_map.items()
-            ],
-            key=lambda x: -x["amount"],
-        )
-        consolidated.append(_first)
-
-    # Assign headlines after consolidation so they reflect the full consolidated picture
-    if len(consolidated) == 1 and len({leg["dest_acct"] for leg in covered}) == 1:
-        _m = consolidated[0]
-        _m["headline"] = f"Move £{_m['amount']:,} to {_m['dest_name']}"
-    else:
-        for _m in consolidated:
-            _m["headline"] = f"Move £{_m['amount']:,} from {_m['_src_name']}"
-
-    # Excluded-income honesty: if a predicted income was kept OUT of a
-    # shortfall destination's arithmetic (wrong landing account or too shaky
-    # to plan around), and crediting it would have raised that account's
-    # window minimum, say so calmly — the plan stands without it.
+    # Excluded-income honesty, PER DESTINATION: if a predicted income was kept OUT of
+    # a shortfall destination's arithmetic (wrong landing account, or too shaky to
+    # plan around) and crediting it would have raised THAT account's window minimum,
+    # say so on THAT account's card — the plan stands without it.
     _credited_ids = {id(i) for lst in credited_incomes.values() for i in lst}
     _excluded_incomes = [i for i in window_income if id(i) not in _credited_ids]
 
@@ -618,269 +582,190 @@ async def compute_today_items(uid: str) -> list[dict]:
             mn = min(mn, run)
         return mn
 
-    income_note: str | None = None
-    _note_candidates: list[tuple[float, dict, str]] = []  # (amount, income, dest_name)
+    income_note_by_dest: dict[str, str] = {}
     for _da, _sa, _dest, _bill in shortfalls:
         _base_min = _walk_min(_dest)
-        for _inc in _excluded_incomes:
-            if _walk_min(_dest, _inc) > _base_min + 0.5:
-                _dn = _clean_name(
-                    next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
-                    _dest,
-                )
-                _note_candidates.append((float(_inc["amount"]), _inc, _dn))
-    if _note_candidates:
-        _amt, _inc, _dest_nm = max(_note_candidates, key=lambda t: t[0])
+        _cands = [
+            (float(_inc["amount"]), _inc)
+            for _inc in _excluded_incomes
+            if _walk_min(_dest, _inc) > _base_min + 0.5
+        ]
+        if not _cands:
+            continue
+        _amt, _inc = max(_cands, key=lambda t: t[0])
+        _dest_nm = _clean_name(
+            next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
+            _dest,
+        )
         _when = date.fromisoformat(_inc["expected_date"]).strftime("%-d %b")
         _landing = " ".join(
             x for x in [_inc.get("account_bank"), _inc.get("account_name")] if x
         ).strip()
         if str(_inc.get("account_id") or "") and _landing:
-            income_note = (
+            income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
                 f"around {_when} — it has landed in {_landing}, not {_dest_nm.strip()}. "
                 f"If it does arrive, you'll simply need less."
             )
         else:
-            income_note = (
+            income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
                 f"around {_when} — it hasn't been steady enough to plan around. "
                 f"If it lands, you'll simply need less."
             )
 
-    # Step 4: Residual honesty — replicate pooled verdict maths
-    def _sts_is_savings(acc):
-        return "saving" in (acc.get("subtype") or "").lower()
-
-    def _sts_is_credit(acc):
-        return (
-            "credit" in (acc.get("type") or "").lower()
-            or "credit" in (acc.get("subtype") or "").lower()
-        )
-
-    pooled = 0.0
-    for acc in all_uk_accounts:
-        if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
-            continue
-        bal = float(acc.get("balance") or 0)
-        if _sts_is_savings(acc) or _sts_is_credit(acc) or bal < 0:
-            continue
-        pooled += bal
-
-    _ev = [(b["days_away"], -float(b["amount"])) for b in resp["upcoming_bills"] if 0 <= b["days_away"] < days_to_pay]
-    _ev += [(i["days_away"], float(i["amount"])) for i in resp["upcoming_income"] if 0 <= i["days_away"] < days_to_pay]
-    _ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-    _run = pooled
-    pooled_min = _run
-    for _d, _delta in _ev:
-        _run += _delta
-        pooled_min = min(pooled_min, _run)
-
-    residual: str | None = None
-    # Check if any shortfall was only partially covered
-    partially_covered_gap = 0.0
-    for _days_away, _shortfall_amt, dest_acct, bill in shortfalls:
-        amount_needed = _ceil5(abs(min_running[dest_acct])) + 10
-        covered_for_dest = sum(
-            leg["amount"] for leg in covered if leg["dest_acct"] == dest_acct
-        )
-        gap = amount_needed - covered_for_dest
-        if gap > 4:
-            partially_covered_gap += gap
-
-    if partially_covered_gap > 0.5:
-        covered_total = sum(leg["amount"] for leg in covered)
-        residual = (
-            f"These moves cover £{covered_total:,}, but the window still runs "
-            f"£{int(round(partially_covered_gap))} short — one payment may need a different plan."
-        )
-    elif pooled_min < -0.5:
-        residual = (
-            f"Even with these moves, the window runs £{int(round(abs(pooled_min)))} short "
-            f"— one payment may need a different plan."
-        )
-
-    # Build per-dest bucketed amounts for fingerprinting
+    # Per-destination bucketed amounts — the fingerprint input. Bucketing to the
+    # nearest £50 keeps a card's identity stable under £1-level drift while a
+    # materially different problem produces a different card.
     dest_bucketed: dict[str, int] = {}
     for _da, _sa, dest_acct_fp, _bill in shortfalls:
-        _amount_needed_fp = _ceil5(abs(min_running[dest_acct_fp])) + 10
-        dest_bucketed[dest_acct_fp] = round(_amount_needed_fp / 50) * 50
+        dest_bucketed[dest_acct_fp] = round((_ceil5(abs(min_running[dest_acct_fp])) + 10) / 50) * 50
 
-    plan_fp = _shortfall_fingerprint([(d, b) for d, b in dest_bucketed.items()])
+    # ── 6. Emission — ONE CARD PER AT-RISK DESTINATION ──────────────────────
+    # Each card is a self-contained instruction about ONE account: its own headline,
+    # its own destination block (needs / by when / that account's bills), its own
+    # source rows, its own total, its own footer and its own residual. Each carries
+    # a per-destination fingerprinted id, so dismissal and auto-verification resolve
+    # one account without touching the other. Ordered most urgent first — `shortfalls`
+    # is already sorted by (first bounce day, then largest gap).
+    legs_by_dest: dict[str, list[dict]] = {}
+    for leg in covered:
+        legs_by_dest.setdefault(leg["dest_acct"], []).append(leg)
+    uncovered_by_dest: dict[str, dict] = {u["dest_acct"]: u for u in uncovered}
 
-    # Step 5: Emission — branches driven by consolidated (display) not raw covered legs.
-    # `covered` stays the arithmetic truth; `consolidated` has one row per source account.
-    n_dest_total = len({leg["dest_acct"] for leg in covered})
+    emitted_dests = 0
+    capped_out = 0
 
-    if len(consolidated) == 1 and n_dest_total == 1:
-        # Single source → single destination: simple "Move £X to Y" card
-        m = consolidated[0]
-        dest_acct = m["dest_acct"]
-        _move_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
-        item_id = f"move:{dest_acct}:{window_end.isoformat()}:{_move_fp}"
-        if item_id not in dismissed:
+    for _da, _sa, dest_acct, bill in shortfalls:
+        dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
+        dest_legs = legs_by_dest.get(dest_acct) or []
+
+        # ── (a) No viable source for this destination: the "no easy cover" card ──
+        if not dest_legs:
+            u = uncovered_by_dest.get(dest_acct)
+            if not u:
+                continue
+            item_id = f"move:{dest_acct}:{window_end.isoformat()}:{dest_fp}"
+            if item_id in dismissed:
+                continue
             existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-            if not (existing and existing.get("status") == "done"):
-                headline = m["headline"]
-                bill_name = m["bill_name"]
-                bill_amount = m["bill_amount"]
-                dest_name = m["dest_name"]
-                shortfall = m["shortfall"]
-                source_name = m["move_map"]["from"]["name"]
-                amount_needed = m["amount"]
-                move_map = m["move_map"]
-                # "covers it" only when no residual gap remains for this shortfall
-                _covers_phrase = "covers it." if partially_covered_gap <= 0.5 else "covers most of it."
-                body = (
-                    f"Your £{bill_amount} {bill_name} lands {m['bill_weekday']} from {dest_name}. "
-                    f"It's £{int(round(shortfall))} short. "
-                    f"Moving £{amount_needed} from {source_name} {_covers_phrase}"
-                )
-                item_doc = {
-                    "_id": item_id,
-                    "uid": uid,
-                    "type": "move",
-                    "status": "active",
-                    "headline": headline,
-                    "body": body,
-                    "action": {"label": "View accounts", "route": "/accounts"},
-                    "estimated": False,
-                    "move_map": move_map,
-                    "created_at": datetime.utcnow(),
-                    "_dest_acct": dest_acct,
-                    "_source_acct": move_map["from"]["account_id"],
-                    "_bill_name": bill_name,
-                    "_bill_amount": bill_amount,
-                    "_window_end": window_end.isoformat(),
-                }
-                if residual is not None:
-                    item_doc["residual"] = residual
-                item_doc["plan_dest"] = dest_summaries[dest_acct]
-                item_doc["covered"] = partially_covered_gap <= 0.5
-                item_doc["amount"] = m["amount"]
-                item_doc["sources_safe"] = sources_safe
-                item_doc["assumed_incomes"] = [
-                    {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
-                    for i in credited_incomes.get(dest_acct, [])
-                ]
-                item_doc["income_note"] = income_note
-                await companion_items_col.update_one(
-                    {"_id": item_id, "uid": uid},
-                    {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
-                    upsert=True,
-                )
-                emit = {
-                    "id": item_id,
-                    "type": "move",
-                    "headline": headline,
-                    "body": body,
-                    "action": {"label": "View accounts", "route": "/accounts"},
-                    "estimated": False,
-                    "move_map": move_map,
-                }
-                if residual is not None:
-                    emit["residual"] = residual
-                emit["plan_dest"] = dest_summaries[dest_acct]
-                emit["covered"] = partially_covered_gap <= 0.5
-                emit["amount"] = m["amount"]
-                emit["sources_safe"] = sources_safe
-                emit["assumed_incomes"] = item_doc["assumed_incomes"]
-                if income_note is not None:
-                    emit["income_note"] = income_note
-                items.append(emit)
+            if existing and existing.get("status") == "done":
+                continue
+            if emitted_dests >= _MOVE_CARD_CAP:
+                capped_out += 1
+                continue
+            headline = f"£{int(round(u['shortfall']))} gap before {u['dest_name']} payday"
+            body = (
+                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} lands "
+                f"{u['bill_weekday']}, but {u['dest_name']} is £{int(round(u['shortfall']))} "
+                f"short and there's no easy transfer source right now."
+            )
+            item_doc = {
+                "_id": item_id,
+                "uid": uid,
+                "type": "move",
+                "status": "active",
+                "headline": headline,
+                "body": body,
+                "action": None,
+                "estimated": False,
+                "created_at": datetime.utcnow(),
+                "_dest_acct": dest_acct,
+                "_dest_name": u["dest_name"],
+                "_dest_needs_total": dest_summaries[dest_acct]["needs_total"],
+                "_dest_bill_count": len(dest_summaries[dest_acct]["bills"]),
+                "_bill_name": u["bill_name"],
+                "_bill_amount": u["bill_amount"],
+                "_no_source": True,
+                "_window_end": window_end.isoformat(),
+            }
+            await companion_items_col.update_one(
+                {"_id": item_id, "uid": uid},
+                {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
+                upsert=True,
+            )
+            items.append({
+                "id": item_id,
+                "type": "move",
+                "headline": headline,
+                "body": body,
+                "action": None,
+                "estimated": False,
+            })
+            emitted_dests += 1
+            continue
 
-    elif consolidated:
-        # Multiple sources or multiple destinations: plan card with per-source move rows
-        item_id = f"plan:{window_end.isoformat()}:{plan_fp}"
-        if item_id not in dismissed:
-            existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
-            if not (existing and existing.get("status") == "done"):
-                total = sum(m["amount"] for m in consolidated)
-                n = len(consolidated)
-                fully_covered = (partially_covered_gap <= 0.5)
-                _n_phrase = "one move" if n == 1 else f"{n} moves"
-                if fully_covered:
-                    summary = f"£{total:,} in {_n_phrase} keeps everything clearing." if n == 1 else f"£{total:,} across {_n_phrase} keeps everything clearing."
-                else:
-                    summary = f"£{total:,} in {_n_phrase} covers most of it." if n == 1 else f"£{total:,} across {_n_phrase} covers most of it."
-                headline = "Cover this week's payments"
-                item_doc = {
-                    "_id": item_id,
-                    "uid": uid,
-                    "type": "move",
-                    "status": "active",
-                    "headline": headline,
-                    "body": summary,
-                    "action": {"label": "View accounts", "route": "/accounts"},
-                    "estimated": False,
-                    "created_at": datetime.utcnow(),
-                    "_dest_accts": list({leg["dest_acct"] for leg in covered}),
-                    "_window_end": window_end.isoformat(),
-                    "_total": total,
-                }
-                if residual is not None:
-                    item_doc["residual"] = residual
-                item_doc["plan_dest"] = dest_summaries[covered[0]["dest_acct"]]
-                item_doc["covered"] = fully_covered
-                item_doc["sources_safe"] = sources_safe
-                _plan_dests = sorted({leg["dest_acct"] for leg in covered})
-                item_doc["assumed_incomes"] = [
-                    {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
-                    for d in _plan_dests
-                    for i in credited_incomes.get(d, [])
-                ]
-                item_doc["income_note"] = income_note
-                await companion_items_col.update_one(
-                    {"_id": item_id, "uid": uid},
-                    {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
-                    upsert=True,
-                )
-                emit = {
-                    "id": item_id,
-                    "type": "move",
-                    "headline": headline,
-                    "body": summary,
-                    "action": {"label": "View accounts", "route": "/accounts"},
-                    "estimated": False,
-                    "moves": [
-                        {"headline": m["headline"], "amount": m["amount"], "move_map": m["move_map"], "dests": m["dests"]}
-                        for m in consolidated
-                    ],
-                    "summary": summary,
-                }
-                if residual is not None:
-                    emit["residual"] = residual
-                emit["plan_dest"] = dest_summaries[covered[0]["dest_acct"]]
-                emit["covered"] = fully_covered
-                emit["sources_safe"] = sources_safe
-                emit["assumed_incomes"] = item_doc["assumed_incomes"]
-                if income_note is not None:
-                    emit["income_note"] = income_note
-                items.append(emit)
-
-    # Uncovered shortfalls: emit "no easy cover" variant, capped so len(items) < 2
-    for u in uncovered:
-        if len(items) >= 2:
-            break
-        dest_acct = u["dest_acct"]
-        dest_name = u["dest_name"]
-        shortfall = u["shortfall"]
-        bill_name = u["bill_name"]
-        bill_amount = u["bill_amount"]
-        bill_weekday = u["bill_weekday"]
-        _move_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
-        item_id = f"move:{dest_acct}:{window_end.isoformat()}:{_move_fp}"
+        # ── (b) This destination has funding: the cover card ──
+        item_id = f"plan:{window_end.isoformat()}:{dest_fp}"
         if item_id in dismissed:
             continue
         existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
         if existing and existing.get("status") == "done":
             continue
-        headline = f"£{int(round(shortfall))} gap before {dest_name} payday"
-        body = (
-            f"Your £{bill_amount} {bill_name} lands {bill_weekday}, "
-            f"but {dest_name} is £{int(round(shortfall))} short "
-            f"and there's no easy transfer source right now."
-        )
+        if emitted_dests >= _MOVE_CARD_CAP:
+            capped_out += 1
+            continue
+
+        # One row per source WITHIN this destination, first-appearance order.
+        _src_order: list[str] = []
+        _src_legs: dict[str, list[dict]] = {}
+        for _leg in dest_legs:
+            _fsrc = _leg["move_map"]["from"]["account_id"]
+            if _fsrc not in _src_legs:
+                _src_order.append(_fsrc)
+                _src_legs[_fsrc] = []
+            _src_legs[_fsrc].append(_leg)
+        rows: list[dict] = []
+        for _fsrc in _src_order:
+            _grp = _src_legs[_fsrc]
+            _row = dict(_grp[0])
+            _row["amount"] = int(round(sum(float(_l["amount"]) for _l in _grp)))
+            _row["headline"] = f"Move £{_row['amount']:,} from {_row['_src_name']}"
+            rows.append(_row)
+
+        total = sum(r["amount"] for r in rows)
+        n_rows = len(rows)
+        dest_summary = dest_summaries[dest_acct]
+        dest_name = dest_summary["name"]
+
+        # This destination's own arithmetic — never a pooled figure.
+        # RATIONALE: the pooled figure counted bills on accounts with no balance
+        # data (credit cards) that the cover plan cannot assess, so asserting it
+        # on a card that fully covers its own destination was exactly the
+        # misrepresentation being fixed.
+        amount_needed = _ceil5(abs(min_running[dest_acct])) + 10
+        _raw_gap = amount_needed - sum(float(_l["amount"]) for _l in dest_legs)
+        dest_gap = _raw_gap if _raw_gap > 4 else 0.0
+        dest_covered = dest_gap <= 0.5
+
+        headline = f"Move £{total:,} to {dest_name}"
+        if n_rows == 1:
+            _r = rows[0]
+            _covers_phrase = "covers it." if dest_covered else "covers most of it."
+            body = (
+                f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} lands "
+                f"{_r['bill_weekday']} from {dest_name}. "
+                f"It's £{int(round(_r['shortfall']))} short. "
+                f"Moving £{total:,} from {_r['move_map']['from']['name']} {_covers_phrase}"
+            )
+        elif dest_covered:
+            body = f"£{total:,} across {n_rows} moves keeps everything clearing at {dest_name}."
+        else:
+            body = f"£{total:,} across {n_rows} moves covers most of what {dest_name} needs."
+
+        residual = None
+        if dest_gap > 0.5:
+            residual = (
+                f"These moves cover £{total:,}, but {dest_name} is still "
+                f"£{int(round(dest_gap))} short — one payment may need a different plan."
+            )
+
+        assumed_incomes = [
+            {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
+            for i in credited_incomes.get(dest_acct, [])
+        ]
+        income_note = income_note_by_dest.get(dest_acct)
+
         item_doc = {
             "_id": item_id,
             "uid": uid,
@@ -888,26 +773,74 @@ async def compute_today_items(uid: str) -> list[dict]:
             "status": "active",
             "headline": headline,
             "body": body,
-            "action": None,
+            "action": {"label": "View accounts", "route": "/accounts"},
             "estimated": False,
             "created_at": datetime.utcnow(),
             "_dest_acct": dest_acct,
-            "_no_source": True,
+            "_dest_name": dest_name,
+            "_dest_needs_total": dest_summary["needs_total"],
+            "_dest_bill_count": len(dest_summary["bills"]),
+            "_bill_name": rows[0]["bill_name"],
+            "_bill_amount": rows[0]["bill_amount"],
             "_window_end": window_end.isoformat(),
+            "_total": total,
+            "plan_dest": dest_summary,
+            "covered": dest_covered,
+            "amount": total,
+            "sources_safe": sources_safe,
+            "assumed_incomes": assumed_incomes,
+            "income_note": income_note,
         }
+        if n_rows == 1:
+            item_doc["move_map"] = rows[0]["move_map"]
+        if residual is not None:
+            item_doc["residual"] = residual
         await companion_items_col.update_one(
             {"_id": item_id, "uid": uid},
             {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
             upsert=True,
         )
-        items.append({
+
+        emit = {
             "id": item_id,
             "type": "move",
             "headline": headline,
             "body": body,
-            "action": None,
+            "action": {"label": "View accounts", "route": "/accounts"},
             "estimated": False,
-        })
+            "moves": [
+                {"headline": r["headline"], "amount": r["amount"], "move_map": r["move_map"]}
+                for r in rows
+            ],
+            "summary": body,
+            "plan_dest": dest_summary,
+            "covered": dest_covered,
+            "amount": total,
+            "sources_safe": sources_safe,
+            "assumed_incomes": assumed_incomes,
+        }
+        if n_rows == 1:
+            emit["move_map"] = rows[0]["move_map"]
+        if residual is not None:
+            emit["residual"] = residual
+        if income_note is not None:
+            emit["income_note"] = income_note
+        items.append(emit)
+        emitted_dests += 1
+
+    # Honest disclosure rather than a silent drop: say how many at-risk accounts
+    # are waiting behind the cap, on the last card that did render.
+    if capped_out and items:
+        overflow_note = (
+            "One more account is short this window — it'll show here once these are cleared."
+            if capped_out == 1
+            else f"{capped_out} more accounts are short this window — they'll show here once these are cleared."
+        )
+        items[-1]["overflow_note"] = overflow_note
+        await companion_items_col.update_one(
+            {"_id": items[-1]["id"], "uid": uid},
+            {"$set": {"overflow_note": overflow_note}},
+        )
 
     # ── 7. Auto-verification pass: flip previously "active" moves to "done" ─
     celebration_items: list[dict] = []
@@ -948,12 +881,28 @@ async def compute_today_items(uid: str) -> list[dict]:
                         "action": None,
                         "estimated": False,
                     })
+            elif len(stored_dest_accts) > 1 and emitted_dests > 0:
+                # Legacy pooled plan card, superseded by per-destination cards emitted
+                # this run. Retire it quietly — the new cards own these destinations.
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"status": "expired"}},
+                )
             continue
-        # Single-dest logic (unchanged)
+        # Single-dest logic
         if stored_dest and min_running.get(stored_dest, 0.0) >= 0:
             bill_name = stored.get("_bill_name", "bill")
             bill_amount = stored.get("_bill_amount", 0)
-            dest_name_stored = stored.get("headline", "").replace("Move £", "").split(" to ")[-1] if "to " in stored.get("headline", "") else stored_dest
+            _hl = stored.get("headline", "")
+            dest_name_stored = stored.get("_dest_name") or (
+                _hl.replace("Move £", "").split(" to ")[-1] if " to " in _hl else stored_dest
+            )
+            _bill_count = int(stored.get("_dest_bill_count") or 0)
+            _needs_total = stored.get("_dest_needs_total")
+            if _bill_count > 1 and _needs_total:
+                cel_body = f"£{int(round(float(_needs_total))):,} of payments at {dest_name_stored} are safe."
+            else:
+                cel_body = f"The £{bill_amount} {_humanise_bill_name(bill_name)} is safe."
             await companion_items_col.update_one(
                 {"_id": stored_id, "uid": uid},
                 {"$set": {"status": "done", "_celebrated": True}},
@@ -964,7 +913,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     "id": cel_id,
                     "type": "celebration",
                     "headline": f"Sorted — {dest_name_stored} is covered",
-                    "body": f"The £{bill_amount} {bill_name} is safe.",
+                    "body": cel_body,
                     "action": None,
                     "estimated": False,
                 })
@@ -1138,8 +1087,16 @@ async def compute_today_items(uid: str) -> list[dict]:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
-    # needle is priority above rhythm but below moves/celebrations
-    result = items[:2] + celebration_items[:1] + ask_items[:1] + needle_items[:1] + rhythm_items
+    # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
+    # Celebrations get the same allowance as move cards, so covering two accounts is
+    # acknowledged twice rather than one card vanishing without a word.
+    result = (
+        items[:_MOVE_CARD_CAP]
+        + celebration_items[:_MOVE_CARD_CAP]
+        + ask_items[:1]
+        + needle_items[:1]
+        + rhythm_items
+    )
     return result[:3]
 
 

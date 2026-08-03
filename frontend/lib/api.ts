@@ -324,7 +324,6 @@ export type PlanMove = {
   headline: string;
   amount?: number;
   move_map: MoveMap;
-  dests?: { account_id: string; name: string; amount: number }[];
 };
 
 export type PlanDestBill = { label: string; amount: number };
@@ -375,6 +374,7 @@ export type CompanionItem = {
   moves?: PlanMove[];
   summary?: string;
   residual?: string;
+  overflow_note?: string;
   income_note?: string;
   assumed_incomes?: { name: string; amount: number; expected_date: string }[];
   plan_dest?: PlanDest;
