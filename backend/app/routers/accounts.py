@@ -1,5 +1,6 @@
 """Accounts and connections endpoints."""
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,8 +27,10 @@ from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 from app.services.planned import settle_planned_expenses
+from app.services.account_cascade import cascade_account_deletion
 
 router = APIRouter(tags=["accounts"])
+logger = logging.getLogger(__name__)
 
 
 async def _attach_aprs(uid: str, result: List[Account]) -> List[Account]:
@@ -216,14 +219,34 @@ async def sync_history(user: dict = Depends(current_user)):
 
 @router.delete("/connections/{connection_id}")
 async def delete_connection(connection_id: str, user: dict = Depends(current_user)):
-    conn = await connections_col.find_one({"_id": connection_id, "user_id": user["email"]})
-    if not conn:
-        raise HTTPException(404, "Connection not found")
-    account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id}, {"_id": 1})]
-    await transactions_col.delete_many({"account_id": {"$in": account_ids}})
-    await accounts_col.delete_many({"connection_id": connection_id})
-    await connections_col.delete_one({"_id": connection_id})
-    return {"deleted": connection_id, "accounts_removed": len(account_ids)}
+    uid = user["email"]
+
+    # ── TrueLayer path ────────────────────────────────────────────────────────
+    conn = await connections_col.find_one({"_id": connection_id, "user_id": uid})
+    if conn:
+        account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id}, {"_id": 1})]
+        await cascade_account_deletion(uid, account_ids)
+        await connections_col.delete_one({"_id": connection_id})
+        return {"deleted": connection_id, "accounts_removed": len(account_ids)}
+
+    # ── Finexer path ──────────────────────────────────────────────────────────
+    consent = await _finexer_consents_col.find_one({"_id": connection_id, "user_id": uid})
+    if consent:
+        account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id, "user_id": uid}, {"_id": 1})]
+        await cascade_account_deletion(uid, account_ids)
+        # Best-effort remote revoke (non-fatal)
+        try:
+            from app.services.finexer_sync import _client as _fx_client
+            async with _fx_client() as fxc:
+                rv = await fxc.delete(f"/consents/{connection_id}")
+                if rv.status_code not in (200, 204, 404):
+                    logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
+        except Exception:
+            logger.warning("Finexer revoke failed for consent %s (non-fatal)", connection_id, exc_info=True)
+        await _finexer_consents_col.delete_one({"_id": connection_id})
+        return {"deleted": connection_id, "accounts_removed": len(account_ids)}
+
+    raise HTTPException(404, "Connection not found")
 
 
 @router.delete("/accounts/{account_id}")
@@ -234,60 +257,93 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
         acc = await mpesa_accounts_col.find_one({"_id": account_id, "user_id": uid})
         if not acc:
             raise HTTPException(404, "Account not found")
-        await mpesa_transactions_col.delete_many({"account_id": account_id})
-        await mpesa_accounts_col.delete_one({"_id": account_id})
+        await cascade_account_deletion(uid, [account_id], acc_col=mpesa_accounts_col, txn_col=mpesa_transactions_col)
         return {"deleted": account_id}
 
     if account_id.startswith("statement-"):
         acc = await statement_accounts_col.find_one({"_id": account_id, "user_id": uid})
         if not acc:
             raise HTTPException(404, "Account not found")
-        await statement_transactions_col.delete_many({"account_id": account_id})
-        await statement_accounts_col.delete_one({"_id": account_id})
+        await cascade_account_deletion(uid, [account_id], acc_col=statement_accounts_col, txn_col=statement_transactions_col)
         return {"deleted": account_id}
 
     mono_acc = await mono_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if mono_acc:
         conn = await mono_connections_col.find_one({"mono_account_id": account_id, "user_id": uid})
-        await mono_transactions_col.delete_many({"account_id": account_id})
-        await mono_accounts_col.delete_one({"_id": account_id})
+        await cascade_account_deletion(uid, [account_id], acc_col=mono_accounts_col, txn_col=mono_transactions_col)
         if conn:
             await mono_connections_col.delete_one({"_id": conn["_id"]})
         return {"deleted": account_id}
 
-    # Clean up Yapily record if present (stale duplicate from old Yapily connection).
-    # Do NOT return early — fall through so the TrueLayer exclusion is always written.
+    # Yapily: clean up stale record AND run cascade for its provider collections.
+    # Then fall through — a Yapily account may also have a TrueLayer exclusion row
+    # that needs to be written (legacy pattern from older codebase).
     yapily_acc = await yapily_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if yapily_acc:
-        await yapily_transactions_col.delete_many({"account_id": account_id})
-        await yapily_accounts_col.delete_one({"_id": account_id})
+        await cascade_account_deletion(
+            uid, [account_id],
+            acc_col=yapily_accounts_col,
+            txn_col=yapily_transactions_col,
+        )
+        # Fall through to TrueLayer exclusion path below (if a TrueLayer account
+        # exists with this id), otherwise return here.
+        tl_also = await accounts_col.find_one({"_id": account_id, "user_id": uid})
+        if not tl_also:
+            return {"deleted": account_id}
 
     tl_acc = await accounts_col.find_one({"_id": account_id, "user_id": uid})
     if tl_acc:
         connection_id = tl_acc.get("connection_id")
-        await transactions_col.delete_many({"account_id": account_id})
-        await accounts_col.delete_one({"_id": account_id})
+
         # Persist exclusion at the user level so reconnects don't resurrect it.
         await excluded_accounts_col.update_one(
             {"user_id": uid, "account_id": account_id},
             {"$set": {"user_id": uid, "account_id": account_id, "excluded_at": datetime.now()}},
             upsert=True,
         )
+
+        # Detect provider: TrueLayer connection vs Finexer consent
         if connection_id:
-            # Also record on the connection for fast in-sync lookup.
-            await connections_col.update_one(
-                {"_id": connection_id},
-                {"$addToSet": {"excluded_accounts": account_id}},
-            )
+            tl_conn = await connections_col.find_one({"_id": connection_id})
+            if tl_conn:
+                # TrueLayer path: record exclusion on connection
+                await connections_col.update_one(
+                    {"_id": connection_id},
+                    {"$addToSet": {"excluded_accounts": account_id}},
+                )
+            else:
+                # Finexer path: record exclusion on consent doc
+                fx_consent = await _finexer_consents_col.find_one({"_id": connection_id})
+                if fx_consent:
+                    await _finexer_consents_col.update_one(
+                        {"_id": connection_id},
+                        {"$addToSet": {"excluded_accounts": account_id}},
+                    )
+
+        # Run cascade (deletes txns + account doc + derived state)
+        await cascade_account_deletion(uid, [account_id])
+
+        # If this was the last account on the connection, clean up the connection doc
+        if connection_id:
             remaining = await accounts_col.count_documents({"connection_id": connection_id})
             if remaining == 0:
-                await connections_col.delete_one({"_id": connection_id})
-        return {"deleted": account_id}
+                tl_conn = await connections_col.find_one({"_id": connection_id})
+                if tl_conn:
+                    await connections_col.delete_one({"_id": connection_id})
+                else:
+                    # Finexer: best-effort remote revoke + delete consent
+                    fx_consent = await _finexer_consents_col.find_one({"_id": connection_id})
+                    if fx_consent:
+                        try:
+                            from app.services.finexer_sync import _client as _fx_client
+                            async with _fx_client() as fxc:
+                                rv = await fxc.delete(f"/consents/{connection_id}")
+                                if rv.status_code not in (200, 204, 404):
+                                    logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
+                        except Exception:
+                            logger.warning("Finexer revoke failed for %s (non-fatal)", connection_id, exc_info=True)
+                        await _finexer_consents_col.delete_one({"_id": connection_id})
 
-    mpesa_acc = await mpesa_accounts_col.find_one({"_id": account_id, "user_id": uid})
-    if mpesa_acc:
-        await mpesa_transactions_col.delete_many({"account_id": account_id})
-        await mpesa_accounts_col.delete_one({"_id": account_id})
         return {"deleted": account_id}
 
     raise HTTPException(404, "Account not found")

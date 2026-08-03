@@ -224,12 +224,31 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
     Sync all accounts and transactions for one Finexer consent.
     Returns (account_ids_fetched, new_txn_count).
     """
+    # ── Guard: do not sync a consent that was locally deleted/revoked ────────
+    local_consent = await finexer_consents_col.find_one({"_id": consent_id})
+    if not local_consent or local_consent.get("status") != "authorized":
+        logger.info(
+            "Finexer consent %s is absent or non-authorized locally (status=%s) — skipping sync",
+            consent_id,
+            (local_consent or {}).get("status"),
+        )
+        return [], 0
+
+    # Build exclusion set: consent-level exclusions ∪ user-level excluded_accounts
+    from app.db.collections import excluded_accounts_col as _excl_col
+    consent_excluded: set[str] = set(local_consent.get("excluded_accounts") or [])
+    user_excluded: set[str] = {
+        d["account_id"]
+        async for d in _excl_col.find({"user_id": user_id}, {"account_id": 1})
+    }
+    excluded: set[str] = consent_excluded | user_excluded
+
     all_new_txns: list = []
     fetched_account_ids: list = []
     identity = await user_identity(user_id)
 
     async with _client() as client:
-        # Verify consent status
+        # Verify consent status remotely
         cr = await client.get(f"/consents/{consent_id}")
         if cr.status_code != 200:
             logger.error("Finexer GET /consents/%s failed: HTTP %s", consent_id, cr.status_code)
@@ -260,6 +279,9 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             account_id = acc.get("id")
             if not account_id:
                 logger.warning("Finexer account missing id: %s", acc)
+                continue
+            if account_id in excluded:
+                logger.info("Finexer: skipping excluded account %s for consent %s", account_id, consent_id)
                 continue
 
             name = acc.get("nickname") or acc.get("holder_name") or "Account"
