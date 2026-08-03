@@ -109,6 +109,12 @@ def _ceil5(amount: float) -> int:
     return math.ceil(amount / 5) * 5
 
 
+def _clean_name(name: str | None, fallback: str = "") -> str:
+    """Account names arrive from providers padded with whitespace; user-facing
+    copy must never carry it."""
+    return " ".join(str(name or "").split()) or fallback
+
+
 def _shortfall_fingerprint(shortfall_tuples: list[tuple[str, int]]) -> str:
     """Stable 10-char hex fingerprint over sorted (account_id, bucketed_amount) pairs.
 
@@ -151,6 +157,7 @@ async def compute_today_items(uid: str) -> list[dict]:
         return []
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}
     confirmed_income_keys = {
         s.get("key") for s in (prefs.get("income_streams") or [])
         if s.get("status") == "confirmed"
@@ -334,12 +341,12 @@ async def compute_today_items(uid: str) -> list[dict]:
         bill_weekday = _weekday_name(bill_date)
 
         # Destination account details
-        dest_name = bill.get("account_name") or dest_acct
+        dest_name = _clean_name(bill.get("account_name"), dest_acct)
         dest_provider = "Bank"
         dest_balance = live_balances.get(dest_acct, 0.0)
         for acc in all_uk_accounts:
             if acc["_str_id"] == dest_acct:
-                dest_name = acc.get("name", dest_name)
+                dest_name = _clean_name(acc.get("name"), dest_name)
                 dest_provider = _provider_of(acc)
                 dest_balance = live_balances.get(dest_acct, float(acc.get("balance") or 0))
                 break
@@ -397,13 +404,18 @@ async def compute_today_items(uid: str) -> list[dict]:
                 },
             }
 
-        # Build ordered candidate sources: current accounts first, then savings
+        # Build ordered candidate sources: current accounts first (excluding savings
+        # accounts which would otherwise match _is_current via type=="BANK"), then
+        # savings. Accounts explicitly excluded by the user's cover_plan_excluded_accounts
+        # preference are skipped in both passes.
         candidate_sources = []
         for acc in all_uk_accounts:
             sid = acc["_str_id"]
             if sid == dest_acct:
                 continue
-            if _is_current(acc):
+            if sid in excluded_sources:
+                continue
+            if _is_current(acc) and not _is_savings(acc):
                 if min_running.get(sid, 0.0) < 0:
                     continue  # skip accounts that are themselves short
                 headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
@@ -413,24 +425,37 @@ async def compute_today_items(uid: str) -> list[dict]:
             sid = acc["_str_id"]
             if sid == dest_acct:
                 continue
+            if sid in excluded_sources:
+                continue
             if _is_savings(acc):
                 headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
                 if headroom >= 5:
                     candidate_sources.append(("savings", sid, acc, headroom))
 
-        # Build legs (without headline — assigned below once we know total leg count)
+        # Build legs (without headline — assigned after consolidation below).
+        # headroom is re-read from source_capacity each iteration (not the stale
+        # snapshot) to prevent over-draw when one source covers multiple destinations.
         legs = []
+        used_sources: set[str] = set()   # belt-and-braces: one source per destination
         remaining = amount_needed
-        for src_type, sid, acc, headroom in candidate_sources:
+        for src_type, sid, acc, _headroom_snapshot in candidate_sources:
             if remaining <= 0:
                 break
+            # Re-read live capacity — the snapshot is stale if this source already
+            # contributed to an earlier destination in this shortfall pass.
+            headroom = source_capacity.get(sid, 0.0) - 10
+            if headroom < 5:
+                continue
+            # Belt-and-braces: skip if this source already has a leg for this destination
+            if sid in used_sources:
+                continue
             leg_amount = min(remaining, headroom)
             # Floor partial legs to nearest £5; final leg takes exact remainder
             if leg_amount < remaining:
                 leg_amount = math.floor(leg_amount / 5) * 5
             if leg_amount < 5:
                 continue
-            src_name = acc.get("name", sid)
+            src_name = _clean_name(acc.get("name"), sid)
             src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
             src_provider = _provider_of(acc)
             src_own_bills = acct_bills_total.get(sid, 0.0)
@@ -447,14 +472,8 @@ async def compute_today_items(uid: str) -> list[dict]:
                 "_src_name": src_name,
             })
             source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
+            used_sources.add(sid)
             remaining -= leg_amount
-
-        # Assign headlines now that we know the total number of legs for this shortfall
-        if len(legs) == 1:
-            legs[0]["headline"] = f"Move £{legs[0]['amount']:,} to {dest_name}"
-        else:
-            for leg in legs:
-                leg["headline"] = f"Move £{leg['amount']:,} from {leg['_src_name']}"
 
         if legs:
             covered.extend(legs)
@@ -481,6 +500,48 @@ async def compute_today_items(uid: str) -> list[dict]:
         source_min_run.get(_src, 0.0) - _total_c >= 10 - 1e-6
         for _src, _total_c in contrib_by_source.items()
     )
+
+    # Consolidate covered legs by source account, preserving first-appearance order.
+    # `covered` stays the arithmetic source of truth for residual / sources_safe.
+    # `consolidated` is display-only: one row per source, with a `dests` breakdown.
+    _dest_name_map: dict[str, str] = {
+        leg["dest_acct"]: leg["dest_name"] for leg in covered
+    }
+    _src_order: list[str] = []
+    _src_legs: dict[str, list[dict]] = {}
+    for _leg in covered:
+        _fsrc = _leg["move_map"]["from"]["account_id"]
+        if _fsrc not in _src_legs:
+            _src_order.append(_fsrc)
+            _src_legs[_fsrc] = []
+        _src_legs[_fsrc].append(_leg)
+
+    consolidated: list[dict] = []
+    for _fsrc in _src_order:
+        _grp = _src_legs[_fsrc]
+        _first = dict(_grp[0])
+        _total_amt = int(round(sum(float(l["amount"]) for l in _grp)))
+        # Per-destination breakdown for this source
+        _dests_map: dict[str, float] = {}
+        for _l in _grp:
+            _dests_map[_l["dest_acct"]] = _dests_map.get(_l["dest_acct"], 0.0) + float(_l["amount"])
+        _first["amount"] = _total_amt
+        _first["dests"] = sorted(
+            [
+                {"account_id": _d, "name": _dest_name_map.get(_d, _d), "amount": int(round(_v))}
+                for _d, _v in _dests_map.items()
+            ],
+            key=lambda x: -x["amount"],
+        )
+        consolidated.append(_first)
+
+    # Assign headlines after consolidation so they reflect the full consolidated picture
+    if len(consolidated) == 1 and len({leg["dest_acct"] for leg in covered}) == 1:
+        _m = consolidated[0]
+        _m["headline"] = f"Move £{_m['amount']:,} to {_m['dest_name']}"
+    else:
+        for _m in consolidated:
+            _m["headline"] = f"Move £{_m['amount']:,} from {_m['_src_name']}"
 
     # Excluded-income honesty: if a predicted income was kept OUT of a
     # shortfall destination's arithmetic (wrong landing account or too shaky
@@ -512,8 +573,9 @@ async def compute_today_items(uid: str) -> list[dict]:
         _base_min = _walk_min(_dest)
         for _inc in _excluded_incomes:
             if _walk_min(_dest, _inc) > _base_min + 0.5:
-                _dn = next(
-                    (a.get("name", _dest) for a in all_uk_accounts if a["_str_id"] == _dest), _dest
+                _dn = _clean_name(
+                    next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
+                    _dest,
                 )
                 _note_candidates.append((float(_inc["amount"]), _inc, _dn))
     if _note_candidates:
@@ -595,10 +657,13 @@ async def compute_today_items(uid: str) -> list[dict]:
 
     plan_fp = _shortfall_fingerprint([(d, b) for d, b in dest_bucketed.items()])
 
-    # Step 5: Emission
-    n_covered = len(covered)
-    if n_covered == 1:
-        m = covered[0]
+    # Step 5: Emission — branches driven by consolidated (display) not raw covered legs.
+    # `covered` stays the arithmetic truth; `consolidated` has one row per source account.
+    n_dest_total = len({leg["dest_acct"] for leg in covered})
+
+    if len(consolidated) == 1 and n_dest_total == 1:
+        # Single source → single destination: simple "Move £X to Y" card
+        m = consolidated[0]
         dest_acct = m["dest_acct"]
         _move_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
         item_id = f"move:{dest_acct}:{window_end.isoformat()}:{_move_fp}"
@@ -673,18 +738,20 @@ async def compute_today_items(uid: str) -> list[dict]:
                     emit["income_note"] = income_note
                 items.append(emit)
 
-    elif n_covered >= 2:
+    elif consolidated:
+        # Multiple sources or multiple destinations: plan card with per-source move rows
         item_id = f"plan:{window_end.isoformat()}:{plan_fp}"
         if item_id not in dismissed:
             existing = await companion_items_col.find_one({"_id": item_id, "uid": uid})
             if not (existing and existing.get("status") == "done"):
-                total = sum(m["amount"] for m in covered)
-                n = len(covered)
+                total = sum(m["amount"] for m in consolidated)
+                n = len(consolidated)
                 fully_covered = (partially_covered_gap <= 0.5)
+                _n_phrase = "one move" if n == 1 else f"{n} moves"
                 if fully_covered:
-                    summary = f"£{total:,} across {n} moves keeps everything clearing."
+                    summary = f"£{total:,} in {_n_phrase} keeps everything clearing." if n == 1 else f"£{total:,} across {_n_phrase} keeps everything clearing."
                 else:
-                    summary = f"£{total:,} across {n} moves covers most of it."
+                    summary = f"£{total:,} in {_n_phrase} covers most of it." if n == 1 else f"£{total:,} across {_n_phrase} covers most of it."
                 headline = "Cover this week's payments"
                 item_doc = {
                     "_id": item_id,
@@ -696,7 +763,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     "action": {"label": "View accounts", "route": "/accounts"},
                     "estimated": False,
                     "created_at": datetime.utcnow(),
-                    "_dest_accts": list({m["dest_acct"] for m in covered}),
+                    "_dest_accts": list({leg["dest_acct"] for leg in covered}),
                     "_window_end": window_end.isoformat(),
                     "_total": total,
                 }
@@ -705,7 +772,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                 item_doc["plan_dest"] = dest_summaries[covered[0]["dest_acct"]]
                 item_doc["covered"] = fully_covered
                 item_doc["sources_safe"] = sources_safe
-                _plan_dests = sorted({m["dest_acct"] for m in covered})
+                _plan_dests = sorted({leg["dest_acct"] for leg in covered})
                 item_doc["assumed_incomes"] = [
                     {"name": i["name"], "amount": round(float(i["amount"]), 2), "expected_date": i["expected_date"]}
                     for d in _plan_dests
@@ -724,7 +791,10 @@ async def compute_today_items(uid: str) -> list[dict]:
                     "body": summary,
                     "action": {"label": "View accounts", "route": "/accounts"},
                     "estimated": False,
-                    "moves": [{"headline": m["headline"], "amount": m["amount"], "move_map": m["move_map"]} for m in covered],
+                    "moves": [
+                        {"headline": m["headline"], "amount": m["amount"], "move_map": m["move_map"], "dests": m["dests"]}
+                        for m in consolidated
+                    ],
                     "summary": summary,
                 }
                 if residual is not None:

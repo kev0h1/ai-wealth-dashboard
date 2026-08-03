@@ -23,6 +23,7 @@ async def get_preferences(user: dict = Depends(current_user)):
             "pay_period_config": {"type": "calendar_month"},
             "region": "UK", "debt_target_months": 12,
             "notification_prefs": _notif_prefs({}),
+            "cover_plan_excluded_accounts": [],
         }
     region = doc.get("region", "UK")
     result = {
@@ -43,6 +44,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "home_pinned_widget": doc.get("home_pinned_widget"),
         "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"],
         "dismissed_recurring":  doc.get("dismissed_recurring", []),
+        "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
     }
     if "debt_tracking_start" in doc:
         result["debt_tracking_start"] = doc["debt_tracking_start"]
@@ -52,6 +54,10 @@ async def get_preferences(user: dict = Depends(current_user)):
 @router.patch("/preferences")
 async def update_preferences(body: dict, user: dict = Depends(current_user)):
     # income_bracket is derived, not chosen — the salary is the source of truth
+    if "cover_plan_excluded_accounts" in body:
+        body["cover_plan_excluded_accounts"] = sorted(
+            {str(x) for x in (body.get("cover_plan_excluded_accounts") or []) if str(x).strip()}
+        )
     if "income_value" in body:
         v = body.get("income_value") or 0
         body["income_bracket"] = (
@@ -72,6 +78,13 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         try:
             from app.routers.analytics import compute_and_cache_cashflow
             asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+        except Exception:
+            pass
+
+    if "cover_plan_excluded_accounts" in body:
+        try:
+            from app.services import response_cache
+            response_cache.invalidate(uid, "today")
         except Exception:
             pass
 

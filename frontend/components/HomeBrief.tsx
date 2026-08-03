@@ -288,13 +288,14 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
                 {/* b+c) Sources ledger tile */}
                 {(() => {
-                  type LegEntry = { provider: string; name: string; amount: number };
+                  type LegEntry = { provider: string; name: string; amount: number; dests?: { account_id: string; name: string; amount: number }[] };
                   let legs: LegEntry[];
                   if (moveItem.moves && moveItem.moves.length > 0) {
                     legs = moveItem.moves.map(m => ({
                       provider: (m.move_map.from as any)?.provider,
                       name: (m.move_map.from as any)?.name,
                       amount: m.amount ?? 0,
+                      dests: m.dests,
                     }));
                   } else if (moveItem.move_map) {
                     legs = [{
@@ -310,8 +311,14 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                     <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
                       {legs.map((leg, idx) => {
                         const chip = resolveBankChip(leg.provider);
+                        const multiDests = leg.dests && leg.dests.length > 1 ? leg.dests : null;
+                        const destsLine = multiDests
+                          ? multiDests.map(d =>
+                              `${hideNetWorth ? "£••••" : `£${Math.round(d.amount).toLocaleString("en-GB")}`} to ${d.name}`
+                            ).join(" · ")
+                          : null;
                         return (
-                          <div key={idx} className="flex items-center gap-2.5 px-3 min-h-[44px]">
+                          <div key={idx} className="flex items-center gap-2.5 px-3 py-1.5 min-h-[44px]">
                             <BankBadge
                               logoSrc={chip.logoSrc}
                               initials={chip.initials}
@@ -319,7 +326,12 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
                               altText={chip.label}
                               brandBg={chip.bg}
                             />
-                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1">{leg.name}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
+                              {destsLine && (
+                                <span className="block text-[11px] text-slate-500 dark:text-slate-400 truncate">{destsLine}</span>
+                              )}
+                            </span>
                             <span className="num text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
                               {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
                             </span>

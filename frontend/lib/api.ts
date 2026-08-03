@@ -324,6 +324,7 @@ export type PlanMove = {
   headline: string;
   amount?: number;
   move_map: MoveMap;
+  dests?: { account_id: string; name: string; amount: number }[];
 };
 
 export type PlanDestBill = { label: string; amount: number };
@@ -929,6 +930,7 @@ export const api = {
     spend_widgets?: string[] | null;
     budget_widgets?: string[] | null;
     home_pinned_widget?: string | null;
+    cover_plan_excluded_accounts?: string[];
   }>("/preferences"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
@@ -945,6 +947,7 @@ export const api = {
     spend_widgets: string[];
     budget_widgets: string[];
     home_pinned_widget: string | null;
+    cover_plan_excluded_accounts: string[];
   }>) =>
     fetch(`${API_BASE}/preferences`, {
       method: "PATCH",
