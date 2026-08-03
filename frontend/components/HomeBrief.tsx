@@ -271,7 +271,7 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
       {item.action && (
         <button
           onClick={() => router.push(item.action!.route)}
-          className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          className="mt-4 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           {item.action.label}
         </button>
