@@ -47,7 +47,7 @@ class KPIResponse(BaseModel):
     runway: float
     investments: float
     pensions: float
-    last_updated: datetime
+    last_updated: datetime | None = None
 
 
 class Insight(BaseModel):

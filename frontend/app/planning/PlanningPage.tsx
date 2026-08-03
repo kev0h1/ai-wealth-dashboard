@@ -550,60 +550,65 @@ export default function PlanningPage() {
 
         {/* Account shortfall callout */}
         {accountShortfalls.length > 0 && (
-          <div className="mt-3 w-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl px-4 py-3">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle size={16} className="text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                {(() => {
-                  const fmt = (n: number) => "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  if (accountShortfalls.length === 1) {
-                    const acct = accountShortfalls[0];
+          <>
+            <div className="mt-3 w-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-2xl px-4 py-3">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle size={16} className="text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  {(() => {
+                    const fmt = (n: number) => "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    if (accountShortfalls.length === 1) {
+                      const acct = accountShortfalls[0];
+                      return (
+                        <>
+                          <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+                            Your {acct.bank} account is short before payday
+                          </p>
+                          <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                            {fmt(acct.shortfall)} short for bills due before payday — move money in, or change a payment date.
+                          </p>
+                        </>
+                      );
+                    }
+                    const shown = accountShortfalls.slice(0, 3);
+                    const extra = accountShortfalls.length - 3;
                     return (
                       <>
                         <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
-                          Your {acct.bank} account is short before payday
+                          {accountShortfalls.length} accounts are short before payday
                         </p>
                         <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                          {fmt(acct.shortfall)} short for bills due before payday — move money in, or change a payment date.
+                          {shown.map((a, i) => (
+                            <span key={a.accountId}>
+                              {i > 0 && " · "}{a.bank} · {fmt(a.shortfall)} short
+                            </span>
+                          ))}
+                          {extra > 0 && <span> · +{extra} more</span>}
+                        </p>
+                        <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                          Move money in, or change a payment date.
                         </p>
                       </>
                     );
-                  }
-                  const shown = accountShortfalls.slice(0, 3);
-                  const extra = accountShortfalls.length - 3;
-                  return (
-                    <>
-                      <p className="text-sm font-semibold text-rose-900 dark:text-rose-100">
-                        {accountShortfalls.length} accounts are short before payday
-                      </p>
-                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                        {shown.map((a, i) => (
-                          <span key={a.accountId}>
-                            {i > 0 && " · "}{a.bank} · {fmt(a.shortfall)} short
-                          </span>
-                        ))}
-                        {extra > 0 && <span> · +{extra} more</span>}
-                      </p>
-                      <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                        Move money in, or change a payment date.
-                      </p>
-                    </>
-                  );
-                })()}
+                  })()}
+                </div>
+                <button
+                  onClick={() => {
+                    const top = [...atRiskBills].sort(
+                      (a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount
+                    )[0];
+                    if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
+                  }}
+                  className="flex-shrink-0 self-center px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold min-h-[44px] flex items-center active:scale-95 transition-transform"
+                >
+                  Review
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  const top = [...atRiskBills].sort(
-                    (a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount
-                  )[0];
-                  if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
-                }}
-                className="flex-shrink-0 self-center px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold min-h-[44px] flex items-center active:scale-95 transition-transform"
-              >
-                Review
-              </button>
             </div>
-          </div>
+            <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">
+              Payments can take a day or two to appear, so a very recent one may not be counted yet.
+            </p>
+          </>
         )}
       </div>
 

@@ -290,6 +290,7 @@ export type SafeToSpend =
       payday_income?: number;
       card_debt?: number;
       pace?: Pace;
+      last_synced?: string | null;
     };
 
 export type MoneyBasic = {

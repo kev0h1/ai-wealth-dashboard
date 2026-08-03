@@ -92,7 +92,7 @@ export interface KPIs {
   runway: number;
   investments: number;
   pensions: number;
-  last_updated: string;
+  last_updated: string | null;
 }
 
 export interface Insight {

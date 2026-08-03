@@ -25,6 +25,22 @@ function fmt2(n: number): string {
   })}`;
 }
 
+/** Returns a human-readable freshness string, or null if data is fresh (< 3 h old).
+ *  Guards against negative diffs from clock skew by treating them as fresh. */
+function syncAgeLabel(isoString: string | null | undefined): string | null {
+  if (!isoString) return null;
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  if (diffMs < 0) return null; // clock skew — treat as fresh
+  const diffH = diffMs / (1000 * 60 * 60);
+  if (diffH < 3) return null; // fresh — render nothing
+  if (diffH < 24) return `Synced ${Math.floor(diffH)} hours ago`;
+  if (diffH < 48) return "Synced yesterday";
+  const diffD = diffMs / (1000 * 60 * 60 * 24);
+  if (diffD < 7) return `Synced ${Math.floor(diffD)} days ago`;
+  const d = new Date(isoString);
+  return `Synced on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+}
+
 export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSpendCardProps) {
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
@@ -100,6 +116,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
   const hasSpendableNow = spendable_now != null;
   const hasPaydayIncome = (payday_income ?? 0) > 0;
   const hasCardDebt = (card_debt ?? 0) >= 1000;
+  const freshnessLabel = data.status === "ok" ? syncAgeLabel(data.last_synced) : null;
 
   // ── CTA logic ────────────────────────────────────────────────────────────
   // If tight+card_debt: show "See your cards ›" CTA — taps through to /cards story.
@@ -173,6 +190,11 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
         <p className="text-sm text-slate-500 dark:text-slate-400 num">
           Payday {weekday} · +{hidden ? "••" : fmt(payday_income!)} lands
         </p>
+      )}
+
+      {/* Freshness caveat — only when sync is older than 3 hours */}
+      {freshnessLabel && (
+        <p className="text-sm text-slate-400 dark:text-slate-500">{freshnessLabel}</p>
       )}
 
       {/* ── 3. Single CTA ── */}

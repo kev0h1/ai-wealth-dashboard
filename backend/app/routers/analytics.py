@@ -27,6 +27,7 @@ from app.db.collections import (
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
+from app.services.sync_freshness import last_bank_sync
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -98,6 +99,7 @@ async def get_kpis(user: dict = Depends(current_user)):
     uid    = user["email"]
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
+    _last_sync = await last_bank_sync(uid)
 
     if region == "Kenya":
         mono_accs  = await mono_accounts_col.find({"user_id": uid}).to_list(None)
@@ -105,7 +107,7 @@ async def get_kpis(user: dict = Depends(current_user)):
         stmt_accs  = await statement_accounts_col.find({"user_id": uid}).to_list(None)
         all_accs   = mono_accs + mpesa_accs + stmt_accs
         if not all_accs:
-            return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=datetime.now())
+            return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
         net_worth = sum(a.get("balance", 0) for a in all_accs)
         cash      = net_worth
         debits    = await get_kenya_transactions(uid, cutoff)
@@ -114,7 +116,7 @@ async def get_kpis(user: dict = Depends(current_user)):
         runway    = cash / avg_spend if avg_spend else 0
         return KPIResponse(
             net_worth=net_worth, cash=cash, runway=round(runway, 1),
-            investments=0, pensions=0, last_updated=datetime.now(),
+            investments=0, pensions=0, last_updated=_last_sync,
         )
 
     accounts      = await accounts_col.find({"user_id": uid}).to_list(None)
@@ -126,7 +128,7 @@ async def get_kpis(user: dict = Depends(current_user)):
     investment_total = sum(a.get("total_value", 0) for a in inv_accs)
 
     if not accounts and not yapily_accs and not stmt_accs and not inv_accs:
-        return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=datetime.now())
+        return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)
 
     net_worth = (
         sum(a["balance"] for a in accounts)
@@ -151,7 +153,7 @@ async def get_kpis(user: dict = Depends(current_user)):
 
     return KPIResponse(
         net_worth=net_worth, cash=cash, runway=round(runway, 1),
-        investments=investment_total, pensions=0, last_updated=datetime.now(),
+        investments=investment_total, pensions=0, last_updated=_last_sync,
     )
 
 
@@ -1692,6 +1694,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
+    _sync_ts = await last_bank_sync(uid)
+
     return {
         "status":              "ok",
         "safe_to_spend":       safe_to_spend,
@@ -1705,6 +1709,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "spendable_now":       round(spendable_cash, 2),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
+        "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
 
 
