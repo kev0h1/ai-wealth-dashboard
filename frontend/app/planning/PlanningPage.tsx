@@ -532,7 +532,7 @@ export default function PlanningPage() {
   );
 
   return (
-    <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-3xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-3xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         <div className="mb-4">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">PLANNING</p>

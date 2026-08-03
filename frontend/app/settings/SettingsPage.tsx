@@ -284,7 +284,7 @@ export default function SettingsPage() {
   );
 
   return (
-    <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-hero">
         <div className="flex items-center justify-between">
           <div>

@@ -1994,7 +1994,7 @@ export default function InsightsPage() {
   }
 
   return (
-    <div className="min-h-dvh pb-28 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-36 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — compact, one primary stat max. Neutral while loading so the
           Savings copy never flashes before flipping to Debt. */}
       {loading ? (

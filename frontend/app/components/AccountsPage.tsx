@@ -1505,7 +1505,7 @@ export default function AccountsPage() {
     const headerTextColor = brand.textOnBrand;
 
     return (
-      <div className="min-h-dvh pb-20 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
         <div
           className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6"
@@ -1840,7 +1840,7 @@ export default function AccountsPage() {
 
   // --- Account list view ---
   return (
-    <div className="min-h-dvh pb-20" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-36" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div
         className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
