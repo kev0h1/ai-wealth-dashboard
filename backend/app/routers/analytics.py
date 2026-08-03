@@ -28,6 +28,7 @@ from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
+from app.services.categorisation import series_key, has_date_fragment
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -367,20 +368,67 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
     return result
 
 
+def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
+    """Split a bucket into amount clusters (median +/- tolerance), ascending.
+
+    Applied only to buckets whose key came from date-fragment stripping:
+    date-stamped statement lines to the same account may be DIFFERENT
+    payments, so only instances within the detector's existing amount
+    tolerance may form one series.
+    """
+    srt = sorted(items, key=lambda t: abs(float(t.get("amount", 0))))
+    clusters: list[list] = [[srt[0]]] if srt else []
+    for t in srt[1:]:
+        cur = clusters[-1]
+        amts = sorted(abs(float(x.get("amount", 0))) for x in cur)
+        med = amts[len(amts) // 2]
+        a = abs(float(t.get("amount", 0)))
+        if med > 0 and abs(a - med) <= med * tolerance:
+            cur.append(t)
+        else:
+            clusters.append([t])
+    return clusters
+
+
 DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]
 
 
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
+    date_merged_keys: set[str] = set()
     for t in txns:
-        key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+        key = series_key(t)
         if not key:
             continue
         buckets[key].append(t)
+        if not (t.get("merchant_name") or "").strip() and has_date_fragment(t.get("description") or ""):
+            date_merged_keys.add(key)
+
+    # Date-stripped keys may blend distinct payments that share statement
+    # text; split those buckets by amount before cadence detection.
+    series: list[tuple[str, list]] = []
+    for key, bucket in buckets.items():
+        # Identical (date, amount, account) rows are provider duplicates, not
+        # cadence evidence — their zero-day intervals would halve the detected
+        # interval and misread a monthly bill as biweekly.
+        seen_sigs: set = set()
+        deduped: list = []
+        for t in bucket:
+            _d = t["date"]
+            _d = _d.date() if hasattr(_d, "date") else _d
+            sig = (_d, round(abs(float(t.get("amount", 0))), 2), str(t.get("account_id", "") or ""))
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+            deduped.append(t)
+        if key in date_merged_keys:
+            series.extend((key, grp) for grp in _amount_clusters(deduped))
+        else:
+            series.append((key, deduped))
 
     results = []
-    for key, items in buckets.items():
+    for key, items in series:
         if len(items) < min_occurrences:
             continue
         dates = sorted(t["date"] for t in items)
@@ -602,7 +650,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         cat = t.get("custom_category") or t.get("category") or "Other"
         if cat not in trusted:
             continue
-        key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+        key = series_key(t)
         if not key or key in heuristic_keys or key in dismissed:
             continue
         if key in single_debits:
@@ -619,7 +667,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     recurring_keys = {r["key"] for r in recurring_spend}
     non_recurring_debits = [
         t for t in debits
-        if (t.get("merchant_name") or t.get("description", "")[:35]).strip() not in recurring_keys
+        if series_key(t) not in recurring_keys
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
@@ -1117,7 +1165,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             _eff_cat = (_t.get("custom_category") or _t.get("category") or "Other")
             if _eff_cat == "Transfer":
                 continue
-            _key = (_t.get("merchant_name") or _t.get("description", "")[:35] or "").strip()
+            _key = series_key(_t)
             if not _key:
                 continue
             _raw_d = _t.get("date")
@@ -1424,7 +1472,7 @@ async def _get_txn_dates_for_income_key(uid: str, key: str) -> list:
     ).to_list(None)
     dates = []
     for t in raw:
-        t_key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+        t_key = series_key(t)
         if t_key == key:
             d = t["date"]
             if isinstance(d, datetime):

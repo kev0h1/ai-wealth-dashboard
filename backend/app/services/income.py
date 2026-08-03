@@ -2,6 +2,7 @@
 from datetime import date, timedelta
 import calendar
 from typing import Any
+from app.services.categorisation import series_key
 
 PAYDAY_MIN_OCCURRENCES = 3
 PAYDAY_AMOUNT_TOLERANCE = 0.20
@@ -326,7 +327,7 @@ async def get_payday_proposal(uid: str, today: date | None = None) -> dict | Non
         key_amounts: dict[str, list] = defaultdict(list)
         key_account: dict[str, str] = {}
         for t in credits:
-            k = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+            k = series_key(t)
             if not k:
                 continue
             d = t["date"]

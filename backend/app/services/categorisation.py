@@ -183,6 +183,39 @@ def strip_date_fragments(text: str) -> str:
     return re.sub(r'\s{2,}', ' ', DATE_FRAGMENT_RE.sub(' ', text or '')).strip()
 
 
+# Numeric date fragments: '29/06', '29-06-26', '31/07/2026'. Day and month
+# ranges are enforced so sort codes ('60-15-33') and card refs survive.
+NUMERIC_DATE_RE = re.compile(
+    r'\b(?:3[01]|[12]\d|0?[1-9])[/\-](?:1[0-2]|0?[1-9])(?:[/\-]\d{2}(?:\d{2})?)?\b'
+)
+
+
+def has_date_fragment(text: str) -> bool:
+    """True when the text contains a statement date fragment (word or numeric)."""
+    t = text or ""
+    return bool(DATE_FRAGMENT_RE.search(t) or NUMERIC_DATE_RE.search(t))
+
+
+def series_key(txn: dict) -> str:
+    """Stable recurrence-series key for a transaction.
+
+    merchant_name when present; otherwise the description with date fragments
+    ('29JUN', 'ON 3 JUN 25', '29/06', '29-06-26') stripped BEFORE the 35-char
+    cut, so date-stamped statement lines ('29APR A/C 76526682',
+    '29MAY A/C 76526682') collapse to one series instead of one ghost series
+    per billing cycle. Descriptions without date fragments keep their exact
+    historical key (slice-then-strip), so stored references stay valid.
+    """
+    m = (txn.get("merchant_name") or "").strip()
+    if m:
+        return m
+    desc = txn.get("description") or ""
+    cleaned = NUMERIC_DATE_RE.sub(" ", DATE_FRAGMENT_RE.sub(" ", desc))
+    if cleaned == desc:
+        return desc[:35].strip()
+    return re.sub(r"\s{2,}", " ", cleaned).strip()[:35].strip()
+
+
 def normalise_merchant(merchant: str, description: str = "") -> str:
     """Reduce a merchant/description to a stable lowercase key for cache lookup.
 

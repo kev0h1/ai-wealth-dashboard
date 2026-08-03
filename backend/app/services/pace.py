@@ -28,6 +28,7 @@ from app.db.collections import (
     yapily_transactions_col,
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+from app.services.categorisation import series_key
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def _norm(raw: dict) -> _Txn:
     else:
         d_obj = date.today()
 
-    key = (raw.get("merchant_name") or raw.get("description", "")[:35] or "").strip()
+    key = series_key(raw)
     cat = (raw.get("custom_category") or raw.get("category") or "Other")
 
     return {

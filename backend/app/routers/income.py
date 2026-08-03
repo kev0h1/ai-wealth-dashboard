@@ -5,6 +5,7 @@ from app.core.auth import current_user
 from app.db.collections import preferences_col, transactions_col, yapily_transactions_col
 from app.routers.analytics import compute_and_cache_cashflow, _detect_recurring
 from app.services.income import derive_schedule, next_occurrence, schedule_label, get_confirmed_payday
+from app.services.categorisation import series_key
 
 router = APIRouter(tags=["income"])
 
@@ -40,7 +41,7 @@ async def _get_txn_dates_for_key(uid: str, key: str) -> list[_date]:
     ).to_list(None)
     dates = []
     for t in raw:
-        t_key = (t.get("merchant_name") or t.get("description", "")[:35]).strip()
+        t_key = series_key(t)
         if t_key == key:
             d = t["date"]
             if isinstance(d, datetime):

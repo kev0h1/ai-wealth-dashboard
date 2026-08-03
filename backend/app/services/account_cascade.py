@@ -21,6 +21,7 @@ from app.db.collections import (
     excluded_accounts_col,
 )
 from app.services import response_cache
+from app.services.categorisation import series_key
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ async def cascade_account_deletion(
         async for t in txn_col.find(
             {"user_id": uid, "account_id": {"$in": account_ids}}, proj
         ):
-            k = (t.get("merchant_name") or (t.get("description") or "")[:35]).strip()
+            k = series_key(t)
             if k:
                 deleting_keys.add(k)
         # Keys also present on other accounts (survivors).
@@ -79,7 +80,7 @@ async def cascade_account_deletion(
                 },
                 proj,
             ):
-                k = (t.get("merchant_name") or (t.get("description") or "")[:35]).strip()
+                k = series_key(t)
                 if k in deleting_keys:
                     surviving_keys.add(k)
         orphan_keys = deleting_keys - surviving_keys
