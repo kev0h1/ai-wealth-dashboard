@@ -14,6 +14,7 @@ from typing import Any
 from app.db.collections import (
     accounts_col,
     yapily_accounts_col,
+    manual_accounts_col,
     cashflow_cache_col,
     preferences_col,
     behaviour_portrait_col,
@@ -148,6 +149,28 @@ async def _live_balance(account_id: str) -> float | None:
     return None
 
 
+# ── Module-level account classifiers ──────────────────────────────────────────
+# Lifted out of compute_today_items so the offline pass can share them without
+# re-defining inside the closure. Logic is byte-identical to the former nested defs.
+
+def _is_savings(acc: dict) -> bool:
+    st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
+    return "SAVING" in st or "ISA" in st
+
+
+def _is_current(acc: dict) -> bool:
+    st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
+    t = (acc.get("type") or "").upper()
+    return "TRANSACTION" in st or "CURRENT" in st or t == "BANK"
+
+
+def _is_offline(acc: dict) -> bool:
+    """Manually-tracked (offline) accounts — real cash or a wallet the user
+    moves by hand. Flagged on the normalised dicts built in compute_today_items;
+    they never carry the type/subtype fields the other two classifiers read."""
+    return bool(acc.get("_offline"))
+
+
 async def compute_today_items(uid: str) -> list[dict]:
     """Compute companion items for `uid`. Cap at 3, moves first."""
 
@@ -207,6 +230,28 @@ async def compute_today_items(uid: str) -> list[dict]:
         for acc in all_uk_accounts
     }
 
+    # Offline (manually-tracked) accounts are legitimate cover-plan SOURCES —
+    # the user just makes the transfer by hand. They stay OUT of
+    # all_uk_accounts on purpose: that list drives the pooled verdict, the
+    # rhythm cash sum and destination lookups, none of which should change.
+    # Manual credit cards are never a source.
+    offline_accounts: list[dict] = []
+    async for _macc in manual_accounts_col.find(
+        {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1}
+    ):
+        if (_macc.get("account_type") or "") == "credit_card":
+            continue
+        offline_accounts.append({
+            "_id": _macc["_id"],
+            "_str_id": str(_macc["_id"]),
+            "_offline": True,
+            "name": _macc.get("name") or "Offline account",
+            "balance": float(_macc.get("balance") or 0.0),
+            "provider": "Offline",
+        })
+    for _oacc in offline_accounts:
+        live_balances[_oacc["_str_id"]] = _oacc["balance"]
+
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
     for b in assessable_bills:
@@ -253,14 +298,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     shortfall_bill[acct] = item
 
     # ── 5. Source-selection helpers (accounts already loaded in step 3) ─────
-    def _is_savings(acc: dict) -> bool:
-        st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
-        return "SAVING" in st or "ISA" in st
-
-    def _is_current(acc: dict) -> bool:
-        st = (acc.get("account_subtype") or acc.get("subtype") or "").upper()
-        t = (acc.get("type") or "").upper()
-        return "TRANSACTION" in st or "CURRENT" in st or t == "BANK"
+    # _is_savings, _is_current, _is_offline are module-level (above compute_today_items)
 
     def _provider_of(acc: dict) -> str:
         return acc.get("provider") or acc.get("institution_id") or "Bank"
@@ -317,10 +355,10 @@ async def compute_today_items(uid: str) -> list[dict]:
 
     source_capacity: dict[str, float] = {}
     source_min_run: dict[str, float] = {}
-    for acc in all_uk_accounts:
+    for acc in all_uk_accounts + offline_accounts:
         sid = acc["_str_id"]
         bal = live_balances.get(sid, float(acc.get("balance") or 0))
-        if _is_current(acc) or _is_savings(acc):
+        if _is_current(acc) or _is_savings(acc) or _is_offline(acc):
             mn = _source_min_running(sid, bal)
             source_min_run[sid] = mn
             source_capacity[sid] = mn
@@ -406,8 +444,10 @@ async def compute_today_items(uid: str) -> list[dict]:
 
         # Build ordered candidate sources: current accounts first (excluding savings
         # accounts which would otherwise match _is_current via type=="BANK"), then
-        # savings. Accounts explicitly excluded by the user's cover_plan_excluded_accounts
-        # preference are skipped in both passes.
+        # savings, then offline (manually-tracked) accounts. Offline accounts are
+        # last because reaching them requires the user to make a manual transfer, so
+        # they are treated as the least liquid option. Accounts explicitly excluded
+        # by the user's cover_plan_excluded_accounts preference are skipped in all passes.
         candidate_sources = []
         for acc in all_uk_accounts:
             sid = acc["_str_id"]
@@ -431,6 +471,17 @@ async def compute_today_items(uid: str) -> list[dict]:
                 headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
                 if headroom >= 5:
                     candidate_sources.append(("savings", sid, acc, headroom))
+        # Offline accounts last: real money, but reaching it means a manual
+        # transfer, so in practice it is the least liquid source we suggest.
+        for acc in offline_accounts:
+            sid = acc["_str_id"]
+            if sid == dest_acct:
+                continue
+            if sid in excluded_sources:
+                continue
+            headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
+            if headroom >= 5:
+                candidate_sources.append(("offline", sid, acc, headroom))
 
         # Build legs (without headline — assigned after consolidation below).
         # headroom is re-read from source_capacity each iteration (not the stale

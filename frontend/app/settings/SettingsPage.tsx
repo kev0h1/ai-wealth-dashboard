@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RotateCcw, LogOut, Loader2, AlertCircle, Bell, BellOff, ChevronRight } from "lucide-react";
+import { RotateCcw, LogOut, Loader2, AlertCircle, Bell, BellOff, ChevronRight, ChevronDown } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
@@ -76,10 +76,10 @@ export default function SettingsPage() {
   // Cover-plan source accounts
   const [coverAccounts, setCoverAccounts] = useState<Account[]>([]);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const [coverOpen, setCoverOpen] = useState(false);
   useEffect(() => {
     api.accounts().then(accs => {
       const eligible = accs.filter(acc => {
-        if (acc.manual) return false;
         const type = (acc.type || "").toLowerCase();
         const sub = (acc.subtype || "").toLowerCase();
         if (type.includes("credit") || sub.includes("credit")) return false;
@@ -400,43 +400,70 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Where money can come from ── */}
-        {coverAccounts.length > 0 && (
-          <div className="glass-card rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Where money can come from</p>
-            </div>
-            <p className="px-4 pt-3 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
-              By default Penny can move from any of your accounts. Turn one off and it will never be suggested.
-            </p>
-            <div className="mt-2 divide-y divide-slate-100 dark:divide-slate-700/60">
-              {coverAccounts.map(acc => {
-                const brand = accountBrand(acc);
-                const allowed = !excludedIds.has(acc.id);
-                return (
-                  <div key={acc.id} className="flex items-center gap-3 px-4 py-3 min-h-[44px]">
-                    <BankBadge
-                      logoSrc={brand.logoSrc}
-                      initials={brand.initials}
-                      altText={brand.label}
-                      brandBg={brand.background}
-                    />
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
-                      {acc.provider && (
-                        <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
-                      )}
-                    </span>
-                    <Toggle
-                      checked={allowed}
-                      onChange={() => toggleCoverAccount(acc.id)}
-                      label={`Allow transfers from ${acc.name}`}
-                    />
+        {coverAccounts.length > 0 && (() => {
+          const total = coverAccounts.length;
+          const allowedCount = coverAccounts.filter(a => !excludedIds.has(a.id)).length;
+          const summaryText = allowedCount === total
+            ? `Any of your ${total} ${total === 1 ? "account" : "accounts"}`
+            : `${allowedCount} of ${total} ${total === 1 ? "account" : "accounts"}`;
+          const bodyId = "cover-accounts-body";
+          return (
+            <div className="glass-card rounded-2xl overflow-hidden">
+              <button
+                type="button"
+                aria-expanded={coverOpen}
+                aria-controls={bodyId}
+                onClick={() => setCoverOpen(o => !o)}
+                className={`w-full text-left flex items-center gap-3 px-4 py-3 active:opacity-70${coverOpen ? " border-b border-slate-100 dark:border-slate-700" : ""}`}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Where money can come from</span>
+                  <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 mt-0.5">{summaryText}</span>
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`text-slate-400 dark:text-slate-500 flex-shrink-0 transition-transform${coverOpen ? " rotate-180" : ""}`}
+                />
+              </button>
+              {coverOpen && (
+                <div id={bodyId}>
+                  <p className="px-4 pt-3 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+                    By default Penny can move from any of your accounts. Turn one off and it will never be suggested.
+                  </p>
+                  <div className="mt-2 divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {coverAccounts.map(acc => {
+                      const brand = accountBrand(acc);
+                      const allowed = !excludedIds.has(acc.id);
+                      return (
+                        <div key={acc.id} className="flex items-center gap-3 px-4 py-3 min-h-[44px]">
+                          <BankBadge
+                            logoSrc={brand.logoSrc}
+                            initials={brand.initials}
+                            altText={brand.label}
+                            brandBg={brand.background}
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                            {(acc.manual || acc.provider) && (
+                              <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
+                                {acc.manual ? "Offline account" : acc.provider}
+                              </span>
+                            )}
+                          </span>
+                          <Toggle
+                            checked={allowed}
+                            onChange={() => toggleCoverAccount(acc.id)}
+                            label={`Allow transfers from ${acc.name}`}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── Financial profile ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
