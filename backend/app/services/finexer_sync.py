@@ -236,12 +236,12 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
 
     # Build exclusion set: consent-level exclusions ∪ user-level excluded_accounts
     from app.db.collections import excluded_accounts_col as _excl_col
+    is_initial_sync = not local_consent.get("last_synced")
     consent_excluded: set[str] = set(local_consent.get("excluded_accounts") or [])
     user_excluded: set[str] = {
         d["account_id"]
         async for d in _excl_col.find({"user_id": user_id}, {"account_id": 1})
     }
-    excluded: set[str] = consent_excluded | user_excluded
 
     all_new_txns: list = []
     fetched_account_ids: list = []
@@ -280,9 +280,24 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             if not account_id:
                 logger.warning("Finexer account missing id: %s", acc)
                 continue
-            if account_id in excluded:
-                logger.info("Finexer: skipping excluded account %s for consent %s", account_id, consent_id)
+            if account_id in consent_excluded:
+                logger.info("Finexer: skipping consent-excluded account %s for consent %s", account_id, consent_id)
                 continue
+            if account_id in user_excluded:
+                if is_initial_sync:
+                    # Reconnect wins: a freshly authorized consent is the user
+                    # explicitly asking for these accounts. Account ids are
+                    # stable across consents, so this row is a stale guard from
+                    # a source that no longer exists — clear it and sync.
+                    await _excl_col.delete_many({"user_id": user_id, "account_id": account_id})
+                    user_excluded.discard(account_id)
+                    logger.info(
+                        "Finexer reconnect-wins: cleared stale user-level exclusion for %s (new consent %s)",
+                        account_id, consent_id,
+                    )
+                else:
+                    logger.info("Finexer: skipping user-excluded account %s for consent %s", account_id, consent_id)
+                    continue
 
             name = acc.get("nickname") or acc.get("holder_name") or "Account"
 

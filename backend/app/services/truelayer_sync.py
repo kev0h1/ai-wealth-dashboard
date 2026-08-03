@@ -156,7 +156,28 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
         d["account_id"] async for d in
         excluded_accounts_col.find({"user_id": user_id}, {"account_id": 1})
     } if user_id and user_id != "unknown" else set()
-    excluded = conn_excluded | user_excluded
+
+    async def _is_excluded(acc_id: str) -> bool:
+        if acc_id in conn_excluded:
+            return True
+        if acc_id in user_excluded:
+            if is_initial_sync:
+                # Reconnect wins: a brand-new connection is the user explicitly
+                # asking for these accounts. TrueLayer account ids are stable
+                # across connections, so this user-level row is a stale guard
+                # from a dead connection — clear it and sync.
+                await excluded_accounts_col.delete_many(
+                    {"user_id": user_id, "account_id": acc_id}
+                )
+                user_excluded.discard(acc_id)
+                logger.info(
+                    "TrueLayer reconnect-wins: cleared stale user-level exclusion for %s (new connection %s)",
+                    acc_id, connection_id,
+                )
+                return False
+            return True
+        return False
+
     identity = await user_identity(user_id) if user_id and user_id != "unknown" else None
     all_new_txns: list = []
 
@@ -222,7 +243,7 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
 
         async def _sync_bank_account(acc: dict):
             account_id = acc["account_id"]
-            if account_id in excluded:
+            if await _is_excluded(account_id):
                 return None
             sync_from  = await _latest_txn_date(account_id)
             balance    = 0.0
@@ -272,7 +293,7 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
 
         async def _sync_card(card: dict):
             card_id   = card["account_id"]
-            if card_id in excluded:
+            if await _is_excluded(card_id):
                 return None
             sync_from = await _latest_txn_date(card_id)
             balance    = 0.0

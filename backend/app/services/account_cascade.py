@@ -18,6 +18,7 @@ from app.db.collections import (
     companion_items_col,
     upcoming_overrides_col,
     preferences_col,
+    excluded_accounts_col,
 )
 from app.services import response_cache
 
@@ -175,3 +176,26 @@ async def cascade_account_deletion(
         uid, account_ids, counts,
     )
     return counts
+
+
+async def purge_user_exclusions(uid: str, account_ids: list[str]) -> int:
+    """Delete user-level excluded_accounts rows for these account ids.
+
+    Call this ONLY when the consent/connection that owned these accounts is
+    being fully deleted or revoked. The row guarded against THAT source
+    resurrecting deleted data; once the source dies the guard has nothing left
+    to guard — and because provider account ids are stable across consents,
+    leaving it behind deadlocks a future reconnect (fresh consent authorized,
+    every account silently skipped).
+    """
+    if not account_ids:
+        return 0
+    r = await excluded_accounts_col.delete_many(
+        {"user_id": uid, "account_id": {"$in": account_ids}}
+    )
+    if r.deleted_count:
+        logger.info(
+            "purge_user_exclusions: uid=%s removed %d exclusion rows for %s",
+            uid, r.deleted_count, account_ids,
+        )
+    return r.deleted_count

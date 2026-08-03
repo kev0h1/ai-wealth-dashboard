@@ -27,7 +27,7 @@ from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 from app.services.planned import settle_planned_expenses
-from app.services.account_cascade import cascade_account_deletion
+from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -226,6 +226,10 @@ async def delete_connection(connection_id: str, user: dict = Depends(current_use
     if conn:
         account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id}, {"_id": 1})]
         await cascade_account_deletion(uid, account_ids)
+        # The connection is dying: its resurrection guards die with it.
+        await purge_user_exclusions(
+            uid, sorted(set(account_ids) | set(conn.get("excluded_accounts") or []))
+        )
         await connections_col.delete_one({"_id": connection_id})
         return {"deleted": connection_id, "accounts_removed": len(account_ids)}
 
@@ -234,6 +238,10 @@ async def delete_connection(connection_id: str, user: dict = Depends(current_use
     if consent:
         account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id, "user_id": uid}, {"_id": 1})]
         await cascade_account_deletion(uid, account_ids)
+        # The consent is dying: its resurrection guards die with it.
+        await purge_user_exclusions(
+            uid, sorted(set(account_ids) | set(consent.get("excluded_accounts") or []))
+        )
         # Best-effort remote revoke (non-fatal)
         try:
             from app.services.finexer_sync import _client as _fx_client
@@ -329,11 +337,21 @@ async def delete_account(account_id: str, user: dict = Depends(current_user)):
             if remaining == 0:
                 tl_conn = await connections_col.find_one({"_id": connection_id})
                 if tl_conn:
+                    # Connection dying with its last account: purge its guards,
+                    # including the row written above for this account.
+                    await purge_user_exclusions(
+                        uid,
+                        sorted({account_id} | set(tl_conn.get("excluded_accounts") or [])),
+                    )
                     await connections_col.delete_one({"_id": connection_id})
                 else:
                     # Finexer: best-effort remote revoke + delete consent
                     fx_consent = await _finexer_consents_col.find_one({"_id": connection_id})
                     if fx_consent:
+                        await purge_user_exclusions(
+                            uid,
+                            sorted({account_id} | set(fx_consent.get("excluded_accounts") or [])),
+                        )
                         try:
                             from app.services.finexer_sync import _client as _fx_client
                             async with _fx_client() as fxc:
