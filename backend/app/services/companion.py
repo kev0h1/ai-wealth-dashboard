@@ -773,7 +773,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             "status": "active",
             "headline": headline,
             "body": body,
-            "action": {"label": "View accounts", "route": "/accounts"},
+            "action": {"label": "See what's due ›", "route": "/planning"},
             "estimated": False,
             "created_at": datetime.utcnow(),
             "_dest_acct": dest_acct,
@@ -806,7 +806,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             "type": "move",
             "headline": headline,
             "body": body,
-            "action": {"label": "View accounts", "route": "/accounts"},
+            "action": {"label": "See what's due ›", "route": "/planning"},
             "estimated": False,
             "moves": [
                 {"headline": r["headline"], "amount": r["amount"], "move_map": r["move_map"]}

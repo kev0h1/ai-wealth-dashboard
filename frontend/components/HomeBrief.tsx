@@ -180,39 +180,21 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
             const dest: PlanDest = item.plan_dest!;
             const destChip = resolveBankChip(dest.provider ?? "");
             const billCount = (dest.bills ?? []).length;
-            const billWord = billCount === 1 ? "payment" : "payments";
             return (
-              <div className="glass-tile rounded-xl p-3 mb-2">
+              <div className="glass-tile rounded-xl px-3 py-2.5 mb-2">
                 <div className="flex items-center gap-2.5">
-                  <BankBadge
-                    logoSrc={destChip.logoSrc}
-                    initials={destChip.initials}
-                    initialsSize={destChip.initialsSize}
-                    altText={destChip.label}
-                    brandBg={destChip.bg}
-                  />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate flex-1">{dest.name}</span>
-                  <span className="num text-sm font-medium text-slate-400 dark:text-slate-500 flex-shrink-0">
-                    {hideNetWorth ? "£•••• held" : `£${Math.round(dest.balance).toLocaleString("en-GB")} held`}
+                  <span className="flex-shrink-0">
+                    <BankBadge
+                      logoSrc={destChip.logoSrc}
+                      initials={destChip.initials}
+                      initialsSize={destChip.initialsSize}
+                      altText={destChip.label}
+                      brandBg={destChip.bg}
+                    />
                   </span>
-                </div>
-                {/* Summary line */}
-                <p className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug mt-1.5">
-                  {maskAmounts(`needs £${(dest.needs_total ?? 0).toLocaleString("en-GB")} by ${dest.needs_by} · ${billCount} ${billWord}`)}
-                </p>
-                {/* Bill rows — hairline separator */}
-                <div className="border-t border-white/[0.06] dark:border-white/[0.06] mt-2 pt-2 space-y-1">
-                  {(dest.bills ?? []).slice(0, 6).map((b: any, i: number) => (
-                    <div key={i} className="flex items-center justify-between gap-2">
-                      <span className="text-[12px] text-slate-500 dark:text-slate-400 truncate">{b.label}</span>
-                      <span className="num text-[12px] text-slate-500 dark:text-slate-400 flex-shrink-0">
-                        {hideNetWorth ? "£••••" : `£${b.amount.toLocaleString("en-GB")}`}
-                      </span>
-                    </div>
-                  ))}
-                  {(dest.bills ?? []).length > 6 && (
-                    <p className="text-[12px] text-slate-400 dark:text-slate-500">+{(dest.bills ?? []).length - 6} more</p>
-                  )}
+                  <span className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug flex-1 min-w-0">
+                    {maskAmounts(`£${Math.round(dest.balance).toLocaleString("en-GB")} held · needs £${(dest.needs_total ?? 0).toLocaleString("en-GB")} by ${dest.needs_by} for ${billCount} ${billCount === 1 ? "payment" : "payments"}`)}
+                  </span>
                 </div>
               </div>
             );
@@ -248,31 +230,37 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
             </div>
           </div>
 
-          {/* Footer — guarantee line + residual, each on its own line */}
-          <div className="mt-3 space-y-1.5">
-            {item.covered && (item.plan_dest?.bills ?? []).length > 0 && (
-              <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
-                {legs.length === 1 ? "This move clears " : "These moves clear "}
-                {(item.plan_dest?.bills ?? []).length === 1
-                  ? `the payment at ${item.plan_dest!.name}.`
-                  : `all ${(item.plan_dest?.bills ?? []).length} payments at ${item.plan_dest!.name}.`}
-              </p>
-            )}
-            {item.sources_safe && (
-              <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
-                Every account above still covers its own bills this window.
-              </p>
-            )}
-            {item.residual && (
-              <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(String(item.residual))}</p>
-            )}
-            {item.income_note && (
-              <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(item.income_note)}</p>
-            )}
-            {item.overflow_note && (
-              <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{item.overflow_note}</p>
-            )}
-          </div>
+          {/* Footer — merged assurance line + residual */}
+          {(() => {
+            const destBillCount = (item.plan_dest?.bills ?? []).length;
+            const clearClause = item.covered && destBillCount > 0
+              ? (destBillCount === 1 ? "Clears the payment" : `Clears all ${destBillCount} payments`)
+              : null;
+            const safeClause = item.sources_safe
+              ? (legs.length === 1 ? "the source still covers its own bills" : "every source still covers its own bills")
+              : null;
+            const assurance =
+              clearClause && safeClause ? `${clearClause}; ${safeClause}.`
+              : clearClause ? `${clearClause}.`
+              : safeClause ? `${safeClause.charAt(0).toUpperCase()}${safeClause.slice(1)}.`
+              : null;
+            return (
+              <div className="mt-3 space-y-1.5">
+                {assurance && (
+                  <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
+                )}
+                {item.residual && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(String(item.residual))}</p>
+                )}
+                {item.income_note && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(item.income_note)}</p>
+                )}
+                {item.overflow_note && (
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{item.overflow_note}</p>
+                )}
+              </div>
+            );
+          })()}
         </>
       ) : (
         <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
