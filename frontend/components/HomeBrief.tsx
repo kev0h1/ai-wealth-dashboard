@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { RefreshCw, AlertTriangle } from "lucide-react";
+import { RefreshCw, AlertTriangle, X } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
@@ -130,6 +130,69 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
           className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
         >
           {item.secondary_action?.label ?? "No — set it myself"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface CelebrationCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  maskAmounts: (text: string) => string;
+}
+
+// "Sorted" reward card — a proper glass card, not a pill. Emerald lives ONLY on
+// the ✦ mark (colour is information: verified-safe); the headline stays ink.
+// Tapping the card opens the Mirror; the ✕ dismisses server-side then locally.
+function CelebrationCard({ item, router, maskAmounts }: CelebrationCardProps) {
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    api.dismissTodayItem(item.id).catch(() => {
+      /* card already removed locally; the backend will retry-surface next run */
+    });
+  }
+
+  function handleOpen() {
+    router.push("/mirror");
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={e => {
+        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          handleOpen();
+        }
+      }}
+      className="glass-card rounded-2xl p-4 cursor-pointer active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    >
+      <div className="flex items-start gap-3">
+        <span aria-hidden="true" className="text-emerald-500 text-[15px] leading-6 flex-shrink-0">✦</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+            {item.headline}
+          </p>
+          {item.body && (
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {maskAmounts(item.body)}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={handleDismiss}
+          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -319,20 +382,9 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
   return (
     <div className="space-y-3">
-        {celebrationItems.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {celebrationItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => router.push("/mirror")}
-                className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-sm font-medium px-3 py-1.5 rounded-full border border-emerald-100 dark:border-emerald-800/40 hover:opacity-80 active:scale-95 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <span aria-hidden="true">✦</span>
-                {item.headline}
-              </button>
-            ))}
-          </div>
-        )}
+        {celebrationItems.map(item => (
+          <CelebrationCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+        ))}
 
         {/* Payday auto-confirm ask card */}
         {askItem && (

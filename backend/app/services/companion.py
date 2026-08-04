@@ -120,6 +120,33 @@ def _clean_name(name: str | None, fallback: str = "") -> str:
     return " ".join(str(name or "").split()) or fallback
 
 
+# Raw provider/account ids are 16+ hex chars — they must never reach copy.
+_RAW_ID_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
+
+
+def _display_name_ok(name: str | None) -> bool:
+    """True when `name` is usable user-facing copy — non-empty and not a raw
+    provider/account id."""
+    return bool(name) and not _RAW_ID_RE.fullmatch(str(name))
+
+
+async def _lookup_account_name(account_id: str) -> str | None:
+    """Live display-name lookup for an account id across all account collections."""
+    from bson import ObjectId
+
+    ids: list = [account_id]
+    try:
+        ids.append(ObjectId(account_id))
+    except Exception:
+        pass
+    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+        for _id in ids:
+            doc = await col.find_one({"_id": _id}, {"name": 1})
+            if doc:
+                return _clean_name(doc.get("name")) or None
+    return None
+
+
 def _shortfall_fingerprint(shortfall_tuples: list[tuple[str, int]]) -> str:
     """Stable 10-char hex fingerprint over sorted (account_id, bucketed_amount) pairs.
 
@@ -842,20 +869,86 @@ async def compute_today_items(uid: str) -> list[dict]:
             {"$set": {"overflow_note": overflow_note}},
         )
 
-    # ── 7. Auto-verification pass: flip previously "active" moves to "done" ─
+    # ── 7. Auto-verification + celebration pass ─────────────────────────────
+    # Active moves whose destination now clears its window flip to "done" and
+    # celebrate. Done moves KEEP celebrating on every run — the reward moment
+    # must outlive one cache TTL — until the user dismisses the celebration or
+    # the pay window it belonged to ends (then the doc expires, same as actives).
     celebration_items: list[dict] = []
-    async for stored in companion_items_col.find(
-        {"uid": uid, "type": "move", "status": "active", "_celebrated": {"$ne": True}}
-    ):
+    _cel_candidates: list[dict] = []
+
+    async def _resolve_dest_display_name(stored: dict) -> tuple[str | None, bool]:
+        """Display name for a stored move/plan doc's destination, re-derived
+        each run: stored _dest_name → live account lookup by id → None (the
+        caller falls back to generic-but-warm copy). NEVER a raw account id.
+        Second element: True when the name came from the live lookup, so the
+        caller can heal the stored doc."""
+        nm = _clean_name(stored.get("_dest_name"))
+        if _display_name_ok(nm):
+            return nm, False
+        dest = str(stored.get("_dest_acct") or "")
+        if not dest:
+            return None, False
+        acc = next((a for a in all_uk_accounts if a["_str_id"] == dest), None)
+        if acc:
+            nm = _clean_name(acc.get("name"))
+            if _display_name_ok(nm):
+                return nm, True
+        nm = await _lookup_account_name(dest)
+        if _display_name_ok(nm):
+            return nm, True
+        return None, False
+
+    def _celebration_payload(stored: dict, dest_name: str | None) -> dict:
+        """Celebration copy for a covered destination — self-contained and calm.
+        Old docs may lack any of the underscore fields; every branch degrades to
+        warm copy rather than a raw id or a £0 figure."""
+        bill_name = stored.get("_bill_name") or "bill"
+        bill_amount = stored.get("_bill_amount") or 0
+        bill_count = int(stored.get("_dest_bill_count") or 0)
+        needs_total = stored.get("_dest_needs_total")
+        headline = (
+            f"Sorted — {dest_name} is covered"
+            if dest_name
+            else "Sorted — those payments are covered"
+        )
+        _at_clause = f" at {dest_name}" if dest_name else ""
+        if needs_total and bill_count > 1:
+            body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
+        elif bill_amount:
+            body = f"The £{int(round(float(bill_amount))):,} {_humanise_bill_name(bill_name)} is safe."
+        elif needs_total:
+            body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
+        else:
+            body = "Everything due there before payday is safe."
+        return {
+            "id": f"celebrate:{stored['_id']}",
+            "type": "celebration",
+            "headline": headline,
+            "body": body,
+            "action": None,
+            "estimated": False,
+        }
+
+    async for stored in companion_items_col.find({
+        "uid": uid,
+        "type": "move",
+        "$or": [
+            {"status": "active", "_celebrated": {"$ne": True}},
+            {"status": "done", "_celebrated": True},
+        ],
+    }):
         stored_dest = stored.get("_dest_acct")
         stored_window = stored.get("_window_end", "")
         stored_id = stored["_id"]
+        stored_status = stored.get("status")
         if stored_id in dismissed:
             continue
         # If the stored item is already emitted in this run, skip
         if any(i["id"] == stored_id for i in items):
             continue
-        # Check if window still open
+        # Window closed → expired, whether the move was still active or already
+        # done+celebrated. A celebration lives until dismissal or window end.
         if stored_window and date.fromisoformat(stored_window) < today_d:
             await companion_items_col.update_one(
                 {"_id": stored_id, "uid": uid},
@@ -867,21 +960,26 @@ async def compute_today_items(uid: str) -> list[dict]:
         if stored_dest_accts and isinstance(stored_dest_accts, list) and len(stored_dest_accts) > 0:
             if all(min_running.get(d, 0.0) >= 0 for d in stored_dest_accts):
                 stored_total = stored.get("_total", 0)
-                await companion_items_col.update_one(
-                    {"_id": stored_id, "uid": uid},
-                    {"$set": {"status": "done", "_celebrated": True}},
-                )
-                cel_id = f"celebrate:{stored_id}"
-                if cel_id not in dismissed:
-                    celebration_items.append({
-                        "id": cel_id,
+                if stored_status == "active":
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"status": "done", "_celebrated": True}},
+                    )
+                _cel_candidates.append({
+                    "cel_id": f"celebrate:{stored_id}",
+                    "group": stored_dest_accts[0] if len(stored_dest_accts) == 1 else "__pooled__",
+                    "richness": 0,
+                    "created_at": stored.get("created_at") or datetime.min,
+                    "item": {
+                        "id": f"celebrate:{stored_id}",
                         "type": "celebration",
                         "headline": "Sorted — this week's payments are covered",
                         "body": f"£{stored_total:,} of payments are safe.",
                         "action": None,
                         "estimated": False,
-                    })
-            elif len(stored_dest_accts) > 1 and emitted_dests > 0:
+                    },
+                })
+            elif stored_status == "active" and len(stored_dest_accts) > 1 and emitted_dests > 0:
                 # Legacy pooled plan card, superseded by per-destination cards emitted
                 # this run. Retire it quietly — the new cards own these destinations.
                 await companion_items_col.update_one(
@@ -889,34 +987,49 @@ async def compute_today_items(uid: str) -> list[dict]:
                     {"$set": {"status": "expired"}},
                 )
             continue
-        # Single-dest logic
+        # Single-dest logic — only celebrate while the destination still clears
+        # its window; a re-opened shortfall must not be toasted as sorted.
         if stored_dest and min_running.get(stored_dest, 0.0) >= 0:
-            bill_name = stored.get("_bill_name", "bill")
-            bill_amount = stored.get("_bill_amount", 0)
-            _hl = stored.get("headline", "")
-            dest_name_stored = stored.get("_dest_name") or (
-                _hl.replace("Move £", "").split(" to ")[-1] if " to " in _hl else stored_dest
-            )
-            _bill_count = int(stored.get("_dest_bill_count") or 0)
-            _needs_total = stored.get("_dest_needs_total")
-            if _bill_count > 1 and _needs_total:
-                cel_body = f"£{int(round(float(_needs_total))):,} of payments at {dest_name_stored} are safe."
-            else:
-                cel_body = f"The £{bill_amount} {_humanise_bill_name(bill_name)} is safe."
-            await companion_items_col.update_one(
-                {"_id": stored_id, "uid": uid},
-                {"$set": {"status": "done", "_celebrated": True}},
-            )
-            cel_id = f"celebrate:{stored_id}"
-            if cel_id not in dismissed:
-                celebration_items.append({
-                    "id": cel_id,
-                    "type": "celebration",
-                    "headline": f"Sorted — {dest_name_stored} is covered",
-                    "body": cel_body,
-                    "action": None,
-                    "estimated": False,
-                })
+            if stored_status == "active":
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"status": "done", "_celebrated": True}},
+                )
+            dest_name, _healed = await _resolve_dest_display_name(stored)
+            if _healed:
+                # Heal whitespace-damaged / pre-_dest_name docs in place so the
+                # next run resolves without a lookup.
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"_dest_name": dest_name}},
+                )
+            _cel_candidates.append({
+                "cel_id": f"celebrate:{stored_id}",
+                "group": stored_dest,
+                "richness": (
+                    2 if (int(stored.get("_dest_bill_count") or 0) > 1 and stored.get("_dest_needs_total"))
+                    else 1 if stored.get("_bill_amount")
+                    else 0
+                ),
+                "created_at": stored.get("created_at") or datetime.min,
+                "item": _celebration_payload(stored, dest_name),
+            })
+
+    # One celebration per destination: several generations of docs can cover the
+    # same account (legacy pooled, per-dest, gap cards); toasting each one is
+    # noise, not warmth. The richest, newest doc speaks for the group — and a
+    # dismissal of ANY of the group's celebrations silences the whole group, so
+    # dismissing "Sorted — X is covered" never resurfaces X under an older id.
+    _cel_groups: dict[str, list[dict]] = {}
+    for _c in _cel_candidates:
+        _cel_groups.setdefault(_c["group"], []).append(_c)
+    _cel_winners = [
+        max(_grp, key=lambda c: (c["richness"], c["created_at"]))
+        for _grp in _cel_groups.values()
+        if not any(c["cel_id"] in dismissed for c in _grp)
+    ]
+    _cel_winners.sort(key=lambda c: c["created_at"], reverse=True)
+    celebration_items.extend(_w["item"] for _w in _cel_winners)
 
     # ── 8. RHYTHM items ─────────────────────────────────────────────────────
     rhythm_items: list[dict] = []
