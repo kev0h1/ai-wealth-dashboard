@@ -1363,15 +1363,142 @@ async def compute_today_items(uid: str) -> list[dict]:
     except Exception as _cliff_exc:
         log.warning("cliff items failed for %s: %s", uid, _cliff_exc)
 
+    # ── 8f. TRAJECTORY item (debt payoff trajectory) ──────────────────────────
+    # Emitted when the debt picture is bad or drifting — silence is the reward
+    # when verdict is "good".  At most ONE trajectory item is ever emitted.
+    # The id carries the verdict so a worsening verdict re-appears immediately.
+    # ACTION is deliberately None: the /debt-plan page is Phase B; a button
+    # that 404s would break trust.
+    trajectory_items: list[dict] = []
+    try:
+        from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
+
+        _plan = await _get_debt_plan(uid)
+        _verdict_str = _plan["totals"]["verdict"]
+
+        if _verdict_str != "good":
+            _traj_id = f"trajectory:{_verdict_str}:{today_d.strftime('%Y-%m')}"
+            if _traj_id not in dismissed:
+                _total_interest = _plan["totals"]["total_interest"]
+                _debt_free_month = _plan["totals"]["debt_free_month"]
+                _material_cards = [c for c in _plan["cards"] if c["debt"] >= 50]
+
+                def _fmt_month(ym_str: str) -> str:
+                    """Format 'YYYY-MM' → 'Mon YYYY' (omit year if same as today)."""
+                    _y, _m = int(ym_str[:4]), int(ym_str[5:7])
+                    _d_ref = date(_y, _m, 1)
+                    if _y == today_d.year:
+                        return _d_ref.strftime("%b")
+                    return _d_ref.strftime("%b %Y")
+
+                def _fmt_gbp(x: float) -> str:
+                    return f"£{int(round(x)):,}"
+
+                # Find the earliest first_interest_month that follows a promo segment
+                # (i.e. the card where interest kicks in when a 0% promo expires)
+                _promo_cliff_card = None
+                _promo_cliff_month = None
+                for _c in _material_cards:
+                    _fim = _c.get("first_interest_month")
+                    if not _fim:
+                        continue
+                    # Check whether any segment before _fim is a promo
+                    _rs = _c.get("rate_schedule") or []
+                    _has_promo = any(s["source"] == "promo" and (s["until"] or "") < _fim for s in _rs)
+                    if not _has_promo:
+                        # Also check: if any promo segment's until == previous month
+                        _has_promo = any(s["source"] == "promo" for s in _rs)
+                    if _has_promo:
+                        if _promo_cliff_month is None or _fim < _promo_cliff_month:
+                            _promo_cliff_month = _fim
+                            _promo_cliff_card = _c
+
+                _traj_headline: str
+                _traj_body: str
+
+                if _verdict_str == "drifting":
+                    if (
+                        _debt_free_month
+                        and _total_interest >= 1
+                        and _promo_cliff_card is not None
+                        and _promo_cliff_month is not None
+                    ):
+                        _cliff_mon = _fmt_month(_promo_cliff_month)
+                        _traj_headline = (
+                            f"At your current pace the cards clear in {_fmt_month(_debt_free_month)}"
+                            f" — {_fmt_gbp(_total_interest)} of that will be interest,"
+                            f" starting when the {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                        )
+                    else:
+                        _dfm_str = _fmt_month(_debt_free_month) if _debt_free_month else "unknown"
+                        _traj_headline = (
+                            f"At your current pace the cards clear in {_dfm_str}"
+                            f" — {_fmt_gbp(_total_interest)} of that will be interest."
+                        )
+                else:  # bad
+                    if (
+                        _promo_cliff_card is not None
+                        and _promo_cliff_month is not None
+                        and _promo_cliff_card.get("monthly_interest_at_first")
+                    ):
+                        _monthly_int = _promo_cliff_card["monthly_interest_at_first"]
+                        _cliff_mon = _fmt_month(_promo_cliff_month)
+                        _traj_headline = (
+                            f"The cards aren't coming down at your current pace"
+                            f" — {_fmt_gbp(_monthly_int)} a month starts when the"
+                            f" {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                        )
+                    else:
+                        _n_mat = len(_material_cards)
+                        if _n_mat == 1:
+                            _solo = _material_cards[0]
+                            _traj_headline = (
+                                f"Your card isn't coming down at your current pace"
+                                f" — {_fmt_gbp(_solo['debt'])} on {_solo['name']}."
+                            )
+                        else:
+                            _mat_debt = sum(c["debt"] for c in _material_cards)
+                            _traj_headline = (
+                                f"The cards aren't coming down at your current pace"
+                                f" — {_fmt_gbp(_mat_debt)} across {_n_mat} cards."
+                            )
+
+                # Body: honest note when any material card has no rate on file
+                _no_rate_count = sum(
+                    1 for _c in _material_cards if _c.get("flags", {}).get("terms_missing")
+                )
+                if _no_rate_count > 0:
+                    _traj_body = (
+                        f"{_no_rate_count} card{'s have' if _no_rate_count > 1 else ' has'}"
+                        f" no rate on file, so interest there isn't counted."
+                    )
+                else:
+                    _traj_body = ""
+
+                trajectory_items.append({
+                    "id": _traj_id,
+                    "type": "trajectory",
+                    "headline": _traj_headline,
+                    "body": _traj_body,
+                    # ACTION IS DELIBERATELY None: /debt-plan is Phase B; a
+                    # button that 404s would break trust.
+                    "action": None,
+                    "estimated": False,
+                })
+    except Exception as _traj_exc:
+        log.warning("trajectory item failed for %s: %s", uid, _traj_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
     # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
     # Celebrations get the same allowance as move cards, so covering two accounts is
     # acknowledged twice rather than one card vanishing without a word.
-    # Cliff items slot after celebrations, before asks — important but not this-week urgent.
+    # Cliff items slot after celebrations (important standing fact), then trajectory
+    # (debt pace — with the cliffs, after celebrations, before asks), then asks.
     result = (
         items[:_MOVE_CARD_CAP]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
+        + trajectory_items[:1]
         + ask_items[:1]
         + needle_items[:1]
         + rhythm_items

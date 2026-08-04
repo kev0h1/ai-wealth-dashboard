@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { RefreshCw, AlertTriangle, X } from "lucide-react";
+import { RefreshCw, AlertTriangle, TrendingDown, X } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
@@ -276,10 +276,13 @@ interface CliffCardProps {
   maskAmounts: (text: string) => string;
 }
 
-// Promo-cliff fact card — informational, so NO Penny gradient chip (the
-// gradient marks advice surfaces; this states a fact). Amber mark only:
-// approaching risk, not materialised risk — red stays reserved (Red-is-Risk).
+// Informational fact-card family — covers promo-cliff and debt-trajectory items.
+// NO Penny gradient (the indigo→violet gradient marks advice surfaces; these
+// state facts). Amber mark only: approaching/projected risk, not materialised
+// risk — red stays strictly reserved for materialised risk (Red-is-Risk rule).
+// Icon varies by type: AlertTriangle for cliff, TrendingDown for trajectory.
 function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
+  const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -294,7 +297,7 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
   return (
     <div className="glass-card rounded-2xl p-4">
       <div className="flex items-start gap-3">
-        <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
+        <Icon size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
             {maskAmounts(item.headline)}
@@ -500,7 +503,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
   const cliffItems = items.filter(i => i.type === "cliff");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff");
+  const trajectoryItems = items.filter(i => i.type === "trajectory");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -515,6 +519,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
         ))}
 
         {cliffItems.map(item => (
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+        ))}
+
+        {trajectoryItems.map(item => (
           <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
         ))}
 
