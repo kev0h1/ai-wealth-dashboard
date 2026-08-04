@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs } from "@/lib/api";
-import AccountMiniCard, { BANK_META, accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import AccountMiniCard, { BANK_META, accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
+import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
@@ -25,6 +26,36 @@ import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
+
+function isCreditAccount(acc: { type?: string; subtype?: string | null }): boolean {
+  const t = (acc.type ?? "").toLowerCase();
+  const s = (acc.subtype ?? "").toLowerCase();
+  return t.includes("credit") || s.includes("credit");
+}
+
+/** Muted terms pill for a confirmed card. APR is information, not alarm —
+ *  slate ink; amber only when a 0% promo ends within 60 days (genuine
+ *  approaching risk). Expired promos fall back to the standard rate. */
+function termsPillFor(card: CardTermsCard | undefined): TermsPill | null {
+  const t = card?.terms;
+  if (!t || t.status !== "confirmed") return null;
+  if (t.on_promo && t.promo_end) {
+    const end = new Date(`${t.promo_end}T00:00:00`);
+    const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
+    if (days >= 0) {
+      if (days <= 60) {
+        return {
+          label: `0% ends ${end.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`,
+          amber: true,
+        };
+      }
+      return { label: `0% until ${end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}` };
+    }
+    // Promo already over — show the standard rate if we have one
+  }
+  if (t.apr_pct != null) return { label: `${t.apr_pct}% APR` };
+  return null;
+}
 
 function typeLabel(type: string, subtype?: string): string {
   const t = type.toLowerCase();
@@ -216,6 +247,46 @@ export default function AccountsPage() {
   const [manualTxSaving, setManualTxSaving] = useState(false);
   const [manualTxError, setManualTxError] = useState<string | null>(null);
   const [detailSegment, setDetailSegment] = useState<"Transactions" | "Rules">("Transactions");
+
+  // Card terms — pills on credit-card rows + the capture sheet
+  const [cardTermsCards, setCardTermsCards] = useState<CardTermsCard[]>([]);
+  const [cardTermsReady, setCardTermsReady] = useState(false);
+  const [cardTermsOpen, setCardTermsOpen] = useState(false);
+  const [cardTermsStartId, setCardTermsStartId] = useState<string | null>(null);
+
+  const loadCardTerms = useCallback(() => {
+    api.getCardTerms()
+      .then(r => { setCardTermsCards(r.cards); setCardTermsReady(true); })
+      .catch(() => setCardTermsReady(true));
+  }, []);
+
+  useEffect(() => { loadCardTerms(); }, [loadCardTerms]);
+
+  // ?cardTerms=1 deep link (companion ask card) — open the sheet, strip the
+  // param. Same live-URL read as the ?id= effect above: the searchParams hook
+  // value can be stale on cached round-trips.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("cardTerms") === "1") {
+      setCardTermsStartId(null);
+      setCardTermsOpen(true);
+      params.delete("cardTerms");
+      const rest = params.toString();
+      router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, searchParams]);
+
+  function openCardTermsAt(accountId: string | null) {
+    setCardTermsStartId(accountId);
+    setCardTermsOpen(true);
+  }
+
+  const cardTermsByAccount = useMemo(() => {
+    const m: Record<string, CardTermsCard> = {};
+    for (const c of cardTermsCards) m[c.account_id] = c;
+    return m;
+  }, [cardTermsCards]);
 
   // Custom confirm dialog (replaces native window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -981,6 +1052,15 @@ export default function AccountsPage() {
   // Modals shared by both the list and detail views (same component scope).
   const modals = (
     <>
+      {cardTermsOpen && (
+        <CardTermsSheet
+          cards={cardTermsCards}
+          ready={cardTermsReady}
+          startAccountId={cardTermsStartId}
+          onClose={() => { setCardTermsOpen(false); setCardTermsStartId(null); }}
+          onSaved={loadCardTerms}
+        />
+      )}
       {confirmDialog?.open && modalsMounted && createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-6">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-xs rounded-2xl p-6 shadow-2xl">
@@ -2099,20 +2179,28 @@ export default function AccountsPage() {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
-                  {bankAccounts.map((acc) => (
-                    <AccountMiniCard
-                      key={acc.id}
-                      account={acc}
-                      grid
-                      calm
-                      glass
-                      hidden={hideNetWorth}
-                      pinned={pinnedIds.includes(acc.id)}
-                      onTogglePin={() => togglePin(acc.id)}
-                      onClick={() => handleSelectAccount(acc)}
-                      onReconnect={() => handleReconnect(acc.provider_id, acc)}
-                    />
-                  ))}
+                  {bankAccounts.map((acc) => {
+                    const isCredit = isCreditAccount(acc);
+                    const termsCard = cardTermsByAccount[acc.id];
+                    const pill = isCredit ? termsPillFor(termsCard) : null;
+                    return (
+                      <AccountMiniCard
+                        key={acc.id}
+                        account={acc}
+                        grid
+                        calm
+                        glass
+                        hidden={hideNetWorth}
+                        pinned={pinnedIds.includes(acc.id)}
+                        onTogglePin={() => togglePin(acc.id)}
+                        onClick={() => handleSelectAccount(acc)}
+                        onReconnect={() => handleReconnect(acc.provider_id, acc)}
+                        termsPill={pill}
+                        onTermsClick={pill ? () => openCardTermsAt(acc.id) : undefined}
+                        onAddRates={isCredit && !pill && termsCard ? () => openCardTermsAt(acc.id) : undefined}
+                      />
+                    );
+                  })}
                 </div>
               </>
             )}

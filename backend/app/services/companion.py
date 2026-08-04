@@ -1243,6 +1243,48 @@ async def compute_today_items(uid: str) -> list[dict]:
     except Exception as _ask_exc:
         log.warning("ask:payday item failed for %s: %s", uid, _ask_exc)
 
+    # ── 8d. ASK item (card terms) ───────────────────────────────────────────
+    # Debt advice needs card terms (APR, promo end dates) and open banking
+    # never provides them — they must be ASKED (Consent Rule: one dismissible
+    # ask, never a nag). Emitted only while ≥1 card still wants an answer AND
+    # the user actually carries a card balance worth planning around.
+    try:
+        if "ask:card_terms" not in dismissed:
+            from app.db.collections import card_terms_col
+            from app.services.card_rates import is_ask_eligible, is_credit_card_account
+
+            _cc_accounts = [a for a in all_uk_accounts if is_credit_card_account(a)]
+            _has_balance = any(
+                abs(live_balances.get(a["_str_id"], 0.0)) > 0.005 for a in _cc_accounts
+            )
+            if _cc_accounts and _has_balance:
+                _terms_by_acct = {
+                    d.get("account_id"): d
+                    async for d in card_terms_col.find({"user_id": uid})
+                }
+                _ct_now = datetime.utcnow()
+                _eligible = [
+                    a for a in _cc_accounts
+                    if is_ask_eligible(_terms_by_acct.get(a["_str_id"]), _ct_now)
+                ]
+                if _eligible:
+                    _n = len(_eligible)
+                    _ct_body = (
+                        "Tell me the rate on your card and I can plan around it — takes a minute."
+                        if _n == 1 else
+                        f"Tell me the rates on your {_n} cards and I can plan around them — takes a minute."
+                    )
+                    ask_items.append({
+                        "id": "ask:card_terms",
+                        "type": "ask",
+                        "headline": "Want your card picture sharp?",
+                        "body": _ct_body,
+                        "action": {"label": "Add my rates", "route": "/accounts?cardTerms=1", "kind": "card_terms"},
+                        "estimated": False,
+                    })
+    except Exception as _ct_exc:
+        log.warning("ask:card_terms item failed for %s: %s", uid, _ct_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
     # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
     # Celebrations get the same allowance as move cards, so covering two accounts is

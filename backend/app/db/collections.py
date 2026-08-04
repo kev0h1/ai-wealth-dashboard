@@ -55,6 +55,10 @@ savings_labels_col      = db["savings_insight_labels"]
 # Debt repayment plans
 debt_plans_col          = db["debt_plans"]
 
+# Card terms (per-user confirmed APR/promo facts) + shared product-rate cache
+card_terms_col          = db["card_terms"]
+card_product_rates_col  = db["card_product_rates"]
+
 # Safety-net / savings goals
 savings_goals_col       = db["savings_goals"]
 savings_plans_col       = db["savings_plans"]

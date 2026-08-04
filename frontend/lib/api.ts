@@ -634,6 +634,66 @@ export type CardsStory = {
   trajectory: { period_end: string; delta: number }[];
 };
 
+// ── Card terms (asked, never inferred — open banking has no APR data) ──────
+export type CardPromoKind = "purchases" | "balance_transfer" | "both";
+
+export type CardTerms = {
+  apr_pct: number | null;
+  on_promo: boolean;
+  promo_kind: CardPromoKind | null;
+  promo_end: string | null; // ISO date
+  min_payment_note: string | null;
+  bt_offer_available: boolean | null;
+  bt_offer_note: string | null;
+  status: "confirmed" | "skipped" | null;
+  confirmed_at: string | null;
+  product_key: string | null;
+};
+
+export type CardTermsCard = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+  currency: string;
+  source: string;
+  terms: CardTerms | null;
+  ask_eligible: boolean;
+};
+
+export type CardTermsList = {
+  status: string;
+  cards: CardTermsCard[];
+  /** Honest-phrasing hook: a representative rate is not the user's own rate. */
+  rate_note: string;
+};
+
+export type CardTermsLookup = {
+  status: string;
+  product_key: string | null;
+  display_name: string | null;
+  representative_apr: number | null;
+  stale: boolean;
+  candidates: string[];
+  lookup_status: string;
+  source_url: string | null;
+  ambiguous: boolean;
+  rate_basis: string;
+  rate_note: string;
+};
+
+export type CardTermsSaveBody = {
+  status: "confirmed" | "skipped";
+  apr_pct?: number | null;
+  on_promo?: boolean;
+  promo_kind?: CardPromoKind | null;
+  promo_end?: string | null;
+  min_payment_note?: string | null;
+  bt_offer_available?: boolean | null;
+  bt_offer_note?: string | null;
+  product_key?: string | null;
+};
+
 export interface CycleStoryPeriod {
   start: string;
   end: string;
@@ -1296,6 +1356,13 @@ export const api = {
   getToday: () => get<TodayResponse>("/today"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
+
+  // Card terms — asked from the user; lookups only prefill a representative rate
+  getCardTerms: () => get<CardTermsList>("/card-terms"),
+  lookupCardTerms: (accountId: string) =>
+    post<CardTermsLookup>(`/card-terms/${encodeURIComponent(accountId)}/lookup`),
+  saveCardTerms: (accountId: string, body: CardTermsSaveBody) =>
+    post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}`, body),
   getCycleStory: (which: "current" | "last", preview?: boolean, persona?: string) =>
     get<CycleStory>(
       persona

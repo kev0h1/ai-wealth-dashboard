@@ -1,8 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, Pin } from "lucide-react";
+import { RefreshCw, Pin, Percent } from "lucide-react";
 import { Account } from "@/lib/api";
+
+/** Card-terms pill content (Accounts page credit-card rows). APR is
+ *  information, not alarm — muted slate ink; amber only when a 0% promo is
+ *  genuinely close to ending (Red-is-Risk keeps red out of this entirely). */
+export interface TermsPill {
+  label: string;
+  amber?: boolean;
+}
 
 interface AccountMiniCardProps {
   account: Account;
@@ -18,6 +26,12 @@ interface AccountMiniCardProps {
   calm?: boolean;
   /** Liquid-glass surface — requires calm=true */
   glass?: boolean;
+  /** Confirmed card-terms pill; replaces the legacy apr chip when provided (calm variant) */
+  termsPill?: TermsPill | null;
+  /** Tap on the terms pill — opens the card-terms sheet at this card */
+  onTermsClick?: () => void;
+  /** Quiet "Add rates" affordance for credit cards without confirmed terms (calm variant) */
+  onAddRates?: () => void;
 }
 
 export interface BankMeta {
@@ -296,7 +310,7 @@ export function BankBadge({
   );
 }
 
-export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass }: AccountMiniCardProps) {
+export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass, termsPill, onTermsClick, onAddRates }: AccountMiniCardProps) {
   const brand = accountBrand(account);
   const isCredit = account.type.toLowerCase().includes("credit");
   const balance = account.balance;
@@ -341,12 +355,37 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
         </p>
 
-        {/* APR chip — credit cards only, when rate is known */}
-        {isCredit && account.apr != null && (
+        {/* Card-terms pill / Add-rates affordance / legacy APR chip.
+            44px hit targets wrap the small visuals (visual pill stays quiet). */}
+        {termsPill && onTermsClick ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTermsClick(); }}
+            aria-label={`${termsPill.label} — edit this card's rates`}
+            className="-ml-1.5 -mb-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+          >
+            <span
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full num ${
+                termsPill.amber
+                  ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
+                  : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              {termsPill.label}
+            </span>
+          </button>
+        ) : isCredit && onAddRates ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddRates(); }}
+            className="-ml-1.5 -mb-2 min-h-[44px] flex items-center gap-1 px-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+          >
+            <Percent size={11} aria-hidden="true" />
+            Add rates
+          </button>
+        ) : isCredit && account.apr != null ? (
           <span className="inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
             {account.apr}% APR
           </span>
-        )}
+        ) : null}
 
         {/* Pin toggle */}
         {onTogglePin && account.status !== "expired" && (

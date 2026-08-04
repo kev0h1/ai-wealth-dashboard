@@ -136,6 +136,77 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
   );
 }
 
+interface AskGenericCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  maskAmounts: (text: string) => string;
+}
+
+// Generic ask card — same visual family as the payday ask (glass card, Penny
+// chip, headline + body ramp), but the primary action is a route push from
+// item.action and "Not now" quietly dismisses server-side. Used for any ask
+// item without bespoke handling (e.g. ask:card_terms).
+function AskGenericCard({ item, router, maskAmounts }: AskGenericCardProps) {
+  const [busy, setBusy] = useState(false);
+  const [hidden, setHidden] = useState(false);
+
+  if (hidden) return null;
+
+  function handleGo() {
+    if (item.action) router.push(item.action.route);
+  }
+
+  async function handleNotNow() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.dismissTodayItem(item.id);
+    } catch { /* card still hides locally; the backend will re-surface next run */ }
+    setHidden(true);
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      {/* Penny gradient chip */}
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+        >
+          ✦ Penny
+        </span>
+      </div>
+      {/* Headline */}
+      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+      </p>
+      {/* Body */}
+      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        {maskAmounts(item.body ?? "")}
+      </p>
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        {item.action && (
+          <button
+            onClick={handleGo}
+            disabled={busy}
+            className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+          >
+            {item.action.label}
+          </button>
+        )}
+        <button
+          onClick={handleNotNow}
+          disabled={busy}
+          className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface CelebrationCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
@@ -386,15 +457,20 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
           <CelebrationCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
         ))}
 
-        {/* Payday auto-confirm ask card */}
+        {/* Ask cards — payday keeps its bespoke confirm/decline; everything
+            else (e.g. ask:card_terms) renders the generic route-push ask */}
         {askItem && (
-          <AskPaydayCard
-            item={askItem}
-            router={router}
-            hideNetWorth={hideNetWorth}
-            maskAmounts={maskAmounts}
-            onRefresh={onRefresh}
-          />
+          askItem.id === "ask:payday" ? (
+            <AskPaydayCard
+              item={askItem}
+              router={router}
+              hideNetWorth={hideNetWorth}
+              maskAmounts={maskAmounts}
+              onRefresh={onRefresh}
+            />
+          ) : (
+            <AskGenericCard item={askItem} router={router} maskAmounts={maskAmounts} />
+          )
         )}
 
         {/* Needle item — invitation to review the closed month */}
