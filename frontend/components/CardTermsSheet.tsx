@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
-import { api, BtOffer, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
+import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -95,9 +95,10 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-type Phase = "loading" | "found" | "candidates" | "manual" | "promo";
+type Phase = "loading" | "found" | "candidates" | "manual";
 type ManualPrompt = "notfound" | "different" | "candidates" | "edit";
 type BtOfferDraft = { month: number | null; year: number | null; fee: string; note: string };
+type PromoDraft = { kind: CardPromoKind | null; month: number | null; year: number | null; rate: string };
 
 function buildBtOffers(rows: BtOfferDraft[], btOffer: boolean | null): BtOffer[] {
   if (btOffer !== true) return [];
@@ -161,9 +162,8 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const [showRateInput, setShowRateInput] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
   const [rate, setRate] = useState("");
-  const [promoMonth, setPromoMonth] = useState<number | null>(null);
-  const [promoYear, setPromoYear] = useState<number | null>(null);
-  const [promoKind, setPromoKind] = useState<CardPromoKind | null>(null);
+  const [promoOn, setPromoOn] = useState<boolean | null>(null);
+  const [promoRows, setPromoRows] = useState<PromoDraft[]>([]);
   const [btOffer, setBtOffer] = useState<boolean | null>(null);
   const [btOffers, setBtOffers] = useState<BtOfferDraft[]>([]);
   const [saving, setSaving] = useState<null | "save" | "later">(null);
@@ -179,18 +179,20 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     const t = current.terms;
     if (t && t.status === "confirmed") {
       // Already answered — prefill everything so a re-save simply overwrites.
-      setPhase(t.on_promo ? "promo" : "manual");
+      setPhase("manual");
       setManualPrompt("edit");
       setRate(t.apr_pct != null ? String(t.apr_pct) : "");
-      if (t.on_promo && t.promo_end) {
-        const d = new Date(`${t.promo_end}T00:00:00`);
-        setPromoMonth(d.getMonth());
-        setPromoYear(d.getFullYear());
-      } else {
-        setPromoMonth(null);
-        setPromoYear(null);
-      }
-      setPromoKind(t.promo_kind ?? null);
+      const promos = t.promos ?? [];
+      setPromoOn(promos.length > 0 ? true : null);
+      setPromoRows(promos.map((p: CardPromo) => {
+        const d = new Date(`${p.until}T00:00:00`);
+        return {
+          kind: p.kind,
+          month: d.getMonth() + 1,
+          year: d.getFullYear(),
+          rate: p.apr_pct === 0 ? "" : String(p.apr_pct),
+        };
+      }));
       const existingOffers = t.bt_offers ?? [];
       setBtOffer(existingOffers.length > 0 ? true : null);
       setBtOffers(existingOffers.map((o: BtOffer) => {
@@ -204,9 +206,8 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       setPhase("loading");
       setManualPrompt("notfound");
       setRate("");
-      setPromoMonth(null);
-      setPromoYear(null);
-      setPromoKind(null);
+      setPromoOn(null);
+      setPromoRows([]);
       setBtOffer(null);
       setBtOffers([]);
     }
@@ -274,7 +275,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       {
         status: "confirmed",
         apr_pct: lookup.representative_apr,
-        on_promo: false,
+        promos: [],
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -282,48 +283,83 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   }
 
   function handleSaveManual() {
-    const v = parseFloat(rate);
-    if (!isFinite(v) || v < 0 || v > 100) {
-      setError("Enter a rate between 0 and 100.");
-      return;
-    }
-    if (!validateBtOffers(btOffers, btOffer, setError)) return;
-    postAndAdvance(
-      {
-        status: "confirmed",
-        apr_pct: Math.round(v * 100) / 100,
-        on_promo: false,
-        bt_offers: buildBtOffers(btOffers, btOffer),
-        ...(productKey ? { product_key: productKey } : {}),
-      },
-      "save"
-    );
-  }
+    // ── Build promos from non-blank rows ─────────────────────────────────────
+    const nonBlankRows = promoOn === true
+      ? promoRows.filter(r => r.kind != null || r.month != null || r.year != null || r.rate.trim() !== "")
+      : [];
 
-  function handleSavePromo() {
-    if (promoMonth == null || promoYear == null) {
-      setError("Pick the month the 0% deal ends.");
-      return;
+    if (promoOn === true) {
+      for (const r of nonBlankRows) {
+        if (r.kind == null) {
+          setError("Pick what each promo covers — purchases, balance transfers, or both.");
+          return;
+        }
+        if (r.month == null || r.year == null) {
+          setError("Pick the month and year each promo ends.");
+          return;
+        }
+        const isoEnd = endOfMonthIso(r.year, r.month - 1);
+        const today = new Date();
+        const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        if (isoEnd < todayIso) {
+          setError("Pick a month that's still ahead.");
+          return;
+        }
+        if (r.rate.trim()) {
+          const rv = parseFloat(r.rate);
+          if (!isFinite(rv) || rv < 0 || rv > 30) {
+            setError("Promo rates are small — enter 0 to 30.");
+            return;
+          }
+        }
+      }
+      // Check duplicate kind + end date
+      const seen = new Set<string>();
+      for (const r of nonBlankRows) {
+        if (r.kind != null && r.month != null && r.year != null) {
+          const key = `${r.kind}|${r.year}-${r.month}`;
+          if (seen.has(key)) {
+            setError("Two promos of the same kind need different end dates.");
+            return;
+          }
+          seen.add(key);
+        }
+      }
     }
-    if (!promoKind) {
-      setError("Pick purchases, balance transfers, or both.");
-      return;
+
+    const builtPromos: CardPromo[] = nonBlankRows
+      .filter(r => r.kind != null && r.month != null && r.year != null)
+      .map(r => ({
+        kind: r.kind!,
+        apr_pct: r.rate.trim() ? Math.round(parseFloat(r.rate) * 100) / 100 : 0,
+        until: endOfMonthIso(r.year!, r.month! - 1),
+      }));
+
+    // ── Standard rate validation ──────────────────────────────────────────────
+    let aprPct: number | null = null;
+    if (rate.trim() !== "") {
+      const v = parseFloat(rate);
+      if (!isFinite(v) || v < 0 || v > 100) {
+        setError("Enter a rate between 0 and 100.");
+        return;
+      }
+      aprPct = Math.round(v * 100) / 100;
+    } else {
+      // Blank rate allowed only when there is at least one valid promo
+      if (builtPromos.length === 0) {
+        setError("Enter a rate between 0 and 100.");
+        return;
+      }
+      aprPct = null;
     }
-    const iso = endOfMonthIso(promoYear, promoMonth);
-    const today = new Date();
-    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    if (iso < todayIso) {
-      setError("Pick a month that's still ahead.");
-      return;
-    }
+
     if (!validateBtOffers(btOffers, btOffer, setError)) return;
+
     postAndAdvance(
       {
         status: "confirmed",
-        apr_pct: null,
-        on_promo: true,
-        promo_kind: promoKind,
-        promo_end: iso,
+        apr_pct: aprPct,
+        promos: builtPromos,
         bt_offers: buildBtOffers(btOffers, btOffer),
         ...(productKey ? { product_key: productKey } : {}),
       },
@@ -339,8 +375,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   }
 
   function handleSave() {
-    if (phase === "promo") handleSavePromo();
-    else handleSaveManual();
+    handleSaveManual();
   }
 
   // ── Derived display bits ──────────────────────────────────────────────────
@@ -356,11 +391,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
   const thisYear = new Date().getFullYear();
   const thisMonth = new Date().getMonth();
-  const yearOptions = useMemo(() => {
-    const base = [thisYear, thisYear + 1, thisYear + 2, thisYear + 3];
-    if (promoYear != null && !base.includes(promoYear)) base.push(promoYear);
-    return base.sort((a, b) => a - b);
-  }, [thisYear, promoYear]);
+  const baseYearOptions = useMemo(() => {
+    return [thisYear, thisYear + 1, thisYear + 2, thisYear + 3];
+  }, [thisYear]);
 
   // Portal guard — must stay BELOW every hook: an early return above useMemo
   // made render N and N+1 disagree on hook count (React #310).
@@ -383,8 +416,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const showFooterSave =
     !finished &&
     !!current &&
-    (phase === "promo" ||
-      phase === "manual" ||
+    (phase === "manual" ||
       (phase === "found" && showRateInput) ||
       (phase === "candidates" && candidate != null));
 
@@ -408,17 +440,168 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     </div>
   );
 
-  const zeroDealButton = (
+  const zeroDealButton = promoOn !== true ? (
     <button
       type="button"
       onClick={() => {
         setError(null);
-        setPhase("promo");
+        setShowRateInput(true);
+        setPromoOn(true);
+        if (promoRows.length === 0) setPromoRows([{ kind: null, month: null, year: null, rate: "" }]);
       }}
       className="w-full min-h-[48px] rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-semibold text-slate-700 dark:text-slate-200 active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
     >
       It&apos;s on a 0% deal
     </button>
+  ) : null;
+
+  const promosSection = (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>On a promo rate?</FieldLabel>
+        <div role="radiogroup" aria-label="On a promo rate?" className="grid grid-cols-2 gap-2">
+          <Chip
+            selected={promoOn === true}
+            onClick={() => {
+              setPromoOn(true);
+              setError(null);
+              if (promoRows.length === 0) setPromoRows([{ kind: null, month: null, year: null, rate: "" }]);
+            }}
+          >
+            Yes
+          </Chip>
+          <Chip
+            selected={promoOn === false}
+            onClick={() => {
+              setPromoOn(false);
+              setPromoRows([]);
+              setError(null);
+            }}
+          >
+            No
+          </Chip>
+        </div>
+      </div>
+      {promoOn === true && (
+        <div className="mt-3 space-y-3">
+          {promoRows.map((row, i) => {
+            const rowYearOptions = (() => {
+              const base = [...baseYearOptions];
+              if (row.year != null && !base.includes(row.year)) base.push(row.year);
+              return base.sort((a, b) => a - b);
+            })();
+            return (
+              <div key={i} className={i > 0 ? "pt-3 border-t border-slate-100 dark:border-slate-700/60" : ""}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0">
+                    Promo {i + 1}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label={`Remove promo ${i + 1}`}
+                    onClick={() => {
+                      const next = promoRows.filter((_, j) => j !== i);
+                      setPromoRows(next.length === 0 ? [{ kind: null, month: null, year: null, rate: "" }] : next);
+                    }}
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>On what?</FieldLabel>
+                    <div role="radiogroup" aria-label={`What promo ${i + 1} covers`} className="grid grid-cols-3 gap-2">
+                      {PROMO_KINDS.map(k => (
+                        <Chip
+                          key={k.value}
+                          selected={row.kind === k.value}
+                          onClick={() => {
+                            const next = [...promoRows];
+                            next[i] = { ...next[i], kind: k.value };
+                            setPromoRows(next);
+                            setError(null);
+                          }}
+                        >
+                          {k.label}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel>Until</FieldLabel>
+                    <div role="radiogroup" aria-label={`Month promo ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
+                      {MONTHS.map((m, mi) => (
+                        <Chip
+                          key={m}
+                          selected={row.month === mi + 1}
+                          disabled={row.year === thisYear && mi < thisMonth}
+                          onClick={() => {
+                            const next = [...promoRows];
+                            next[i] = { ...next[i], month: mi + 1 };
+                            setPromoRows(next);
+                            setError(null);
+                          }}
+                        >
+                          {m}
+                        </Chip>
+                      ))}
+                    </div>
+                    <div role="radiogroup" aria-label={`Year promo ${i + 1} ends`} className="grid grid-cols-4 gap-2">
+                      {rowYearOptions.map(y => (
+                        <Chip
+                          key={y}
+                          selected={row.year === y}
+                          onClick={() => {
+                            const next = [...promoRows];
+                            const newMonth = (y === thisYear && next[i].month != null && next[i].month! - 1 < thisMonth) ? null : next[i].month;
+                            next[i] = { ...next[i], year: y, month: newMonth };
+                            setPromoRows(next);
+                            setError(null);
+                          }}
+                        >
+                          {y}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel>Promo rate</FieldLabel>
+                    <div className="relative max-w-[120px]">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.rate}
+                        onChange={e => {
+                          const next = [...promoRows];
+                          next[i] = { ...next[i], rate: e.target.value };
+                          setPromoRows(next);
+                        }}
+                        placeholder="0"
+                        aria-label={`Promo rate for promo ${i + 1}, percent`}
+                        className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {promoRows.length < 4 && (
+            <button
+              type="button"
+              onClick={() => setPromoRows([...promoRows, { kind: null, month: null, year: null, rate: "" }])}
+              className="min-h-[44px] inline-flex items-center text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+            >
+              + Add another promo
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 
   const btSection = (
@@ -705,6 +888,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     </button>
                   )}
                   {showRateInput && rateInput}
+                  {showRateInput && promosSection}
                   {zeroDealButton}
                   {showRateInput && btSection}
                 </div>
@@ -741,89 +925,21 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 {candidate != null && (
                   <div className="space-y-3">
                     {rateInput}
+                    {promosSection}
                     {zeroDealButton}
                     {btSection}
                   </div>
                 )}
               </>
-            ) : phase === "manual" ? (
+            ) : (
+              /* phase === "manual" */
               <>
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   {manualQuestion}
                 </p>
                 {rateInput}
+                {promosSection}
                 {zeroDealButton}
-                {btSection}
-              </>
-            ) : (
-              /* phase === "promo" — the 0% branch */
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError(null);
-                    setPhase(lookup?.representative_apr != null ? "found" : "manual");
-                  }}
-                  className="min-h-[44px] inline-flex items-center text-[13px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
-                >
-                  ← It&apos;s not on a 0% deal
-                </button>
-
-                <div>
-                  <FieldLabel>Until when?</FieldLabel>
-                  <div role="radiogroup" aria-label="Month the 0% deal ends" className="grid grid-cols-4 gap-2 mb-2">
-                    {MONTHS.map((m, i) => (
-                      <Chip
-                        key={m}
-                        selected={promoMonth === i}
-                        disabled={promoYear === thisYear && i < thisMonth}
-                        onClick={() => {
-                          setPromoMonth(i);
-                          setError(null);
-                        }}
-                      >
-                        {m}
-                      </Chip>
-                    ))}
-                  </div>
-                  <div role="radiogroup" aria-label="Year the 0% deal ends" className="grid grid-cols-4 gap-2">
-                    {yearOptions.map(y => (
-                      <Chip
-                        key={y}
-                        selected={promoYear === y}
-                        onClick={() => {
-                          setPromoYear(y);
-                          // A month that's already gone this year can't be kept
-                          if (y === thisYear && promoMonth != null && promoMonth < thisMonth) {
-                            setPromoMonth(null);
-                          }
-                          setError(null);
-                        }}
-                      >
-                        {y}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <FieldLabel>On purchases or balance transfers?</FieldLabel>
-                  <div role="radiogroup" aria-label="What the 0% deal covers" className="grid grid-cols-3 gap-2">
-                    {PROMO_KINDS.map(k => (
-                      <Chip
-                        key={k.value}
-                        selected={promoKind === k.value}
-                        onClick={() => {
-                          setPromoKind(k.value);
-                          setError(null);
-                        }}
-                      >
-                        {k.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-
                 {btSection}
               </>
             )}

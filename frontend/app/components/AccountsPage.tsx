@@ -34,24 +34,25 @@ function isCreditAccount(acc: { type?: string; subtype?: string | null }): boole
 }
 
 /** Muted terms pill for a confirmed card. APR is information, not alarm —
- *  slate ink; amber only when a 0% promo ends within 60 days (genuine
- *  approaching risk). Expired promos fall back to the standard rate. */
+ *  slate ink; amber only when the soonest active promo ends within 60 days
+ *  (genuine approaching risk). Shows count of additional promos. Expired
+ *  promos are filtered out; standard rate shown when no active promos. */
 function termsPillFor(card: CardTermsCard | undefined): TermsPill | null {
-  const t = card?.terms;
-  if (!t || t.status !== "confirmed") return null;
-  if (t.on_promo && t.promo_end) {
-    const end = new Date(`${t.promo_end}T00:00:00`);
-    const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
-    if (days >= 0) {
-      if (days <= 60) {
-        return {
-          label: `0% ends ${end.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`,
-          amber: true,
-        };
-      }
-      return { label: `0% until ${end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}` };
-    }
-    // Promo already over — show the standard rate if we have one
+  const t = card?.terms; if (!t || t.status !== "confirmed") return null;
+  const now = Date.now();
+  const active = (t.promos ?? [])
+    .map(p => ({ ...p, end: new Date(`${p.until}T00:00:00`) }))
+    .filter(p => Math.ceil((p.end.getTime() - now) / 86_400_000) >= 0)
+    .sort((a, b) => a.end.getTime() - b.end.getTime());
+  if (active.length > 0) {
+    const soonest = active[0];
+    const days = Math.ceil((soonest.end.getTime() - now) / 86_400_000);
+    const rateStr = `${soonest.apr_pct}%`;
+    let label = days <= 60
+      ? `${rateStr} ends ${soonest.end.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+      : `${rateStr} until ${soonest.end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`;
+    if (active.length > 1) label += ` · +${active.length - 1}`;
+    return { label, amber: days <= 60 };
   }
   if (t.apr_pct != null) return { label: `${t.apr_pct}% APR` };
   return null;

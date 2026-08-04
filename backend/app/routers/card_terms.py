@@ -1,11 +1,17 @@
 """Card terms capture — phase 1 of the debt planner.
 
-Open-banking AIS never provides card terms (APR, 0% promo end dates, BT
+Open-banking AIS never provides card terms (APR, promo rate windows, BT
 offers), so terms are ASKED and the user's answer is the truth. We prefill
 with the product's publicly advertised REPRESENTATIVE rate (FCA 51% rule:
 representative ≠ the user's actual rate — responses carry that distinction
 so the frontend can phrase honestly). The user confirms or corrects, and
 the user owns their corrections (BEHAVIOURS.md).
+
+A card can carry multiple concurrent promo windows (e.g. 0 % purchases
+until one date AND 0 % balance transfers until another). These are stored
+as a list under the ``promos`` key. Legacy docs that still carry the flat
+on_promo/promo_kind/promo_end shape are mapped on read; they are fully
+migrated to the new shape on the next user-initiated save.
 """
 from datetime import date, datetime
 from typing import Literal, Optional
@@ -43,6 +49,12 @@ class BtOffer(BaseModel):
     note: Optional[str] = None
 
 
+class CardPromo(BaseModel):
+    kind: Literal["purchases", "balance_transfer", "both"]
+    apr_pct: float = 0.0
+    until: Optional[str] = None   # ISO date — required, validated in _normalise_promos
+
+
 async def _user_credit_cards(uid: str) -> list[dict]:
     """Every credit-card account for this user — TrueLayer and Finexer rows
     both live in accounts_col (unified collections)."""
@@ -50,15 +62,35 @@ async def _user_credit_cards(uid: str) -> list[dict]:
     return [a for a in raw if is_credit_card_account(a)]
 
 
+def _promos_from_legacy(on_promo, promo_kind, promo_end) -> list[dict]:
+    """Map the old flat promo triple into the new promos list format.
+
+    Used both on read (legacy docs) and when an old client POSTs the flat
+    fields. A missing promo_kind falls back to "purchases" — the old form
+    required a kind before saving, so a missing value is a near-impossible
+    edge case; "purchases" is the most conservative claim.
+    """
+    if on_promo and promo_end:
+        return [{"kind": promo_kind or "purchases", "apr_pct": 0.0, "until": promo_end}]
+    return []
+
+
 def _serialize_terms(doc: dict | None) -> dict | None:
     if not doc:
         return None
     confirmed_at = doc.get("confirmed_at")
+    # New shape wins; legacy docs are mapped on read — legacy keys are NOT
+    # forwarded to callers.
+    stored_promos = doc.get("promos")
+    if isinstance(stored_promos, list):
+        promos = stored_promos
+    else:
+        promos = _promos_from_legacy(
+            doc.get("on_promo"), doc.get("promo_kind"), doc.get("promo_end")
+        )
     return {
         "apr_pct": doc.get("apr_pct"),
-        "on_promo": bool(doc.get("on_promo")),
-        "promo_kind": doc.get("promo_kind"),
-        "promo_end": doc.get("promo_end"),
+        "promos": promos,
         "min_payment_note": doc.get("min_payment_note"),
         "bt_offers": doc.get("bt_offers") or [],
         "status": doc.get("status"),
@@ -129,15 +161,78 @@ async def lookup_card_terms(account_id: str, user: dict = Depends(current_user))
 class CardTermsBody(BaseModel):
     status: Literal["confirmed", "skipped"] = "confirmed"
     apr_pct: Optional[float] = None
+    # Legacy-tolerance fields — old clients still post the flat promo triple;
+    # new clients send promos instead.  Both are accepted; promos wins when
+    # non-empty.
     on_promo: bool = False
     promo_kind: Optional[Literal["purchases", "balance_transfer", "both"]] = None
     promo_end: Optional[str] = None          # ISO date
+    promos: list[CardPromo] = []
     min_payment_note: Optional[str] = None
     bt_offers: list[BtOffer] = []
     # Legacy-tolerance fields — kept for old clients
     bt_offer_available: Optional[bool] = None
     bt_offer_note: Optional[str] = None
     product_key: Optional[str] = None
+
+
+def _normalise_promos(body: "CardTermsBody") -> list[dict]:
+    """Validate and normalise the promos list from the request body.
+
+    If body.promos is empty and body.on_promo is true, maps the legacy flat
+    triple into a single-element list first (preserving old-client behaviour).
+    Returns a list of plain dicts {"kind", "apr_pct", "until"}.
+    """
+    promos = list(body.promos)
+
+    if not promos:
+        if body.on_promo:
+            # Preserve old-client error for missing promo_end
+            if not body.promo_end:
+                raise HTTPException(400, "promo_end is required when on_promo")
+            raw = _promos_from_legacy(body.on_promo, body.promo_kind, body.promo_end)
+            # _promos_from_legacy returns dicts; convert to CardPromo for uniform validation
+            typed = []
+            for r in raw:
+                typed.append(CardPromo(**r))
+            promos = typed
+
+    if not promos:
+        return []
+
+    if len(promos) > 4:
+        raise HTTPException(400, "at most 4 promo rates")
+
+    result = []
+    seen: set[tuple] = set()
+    for p in promos:
+        # Validate apr_pct
+        apr = p.apr_pct
+        if not (0 <= apr <= 30):
+            raise HTTPException(400, "promo apr_pct must be between 0 and 30")
+        apr = round(apr, 2)
+
+        # Validate until — required
+        until = p.until
+        if not until:
+            raise HTTPException(400, "until is required for each promo")
+        try:
+            until_d = date.fromisoformat(until)
+        except ValueError:
+            raise HTTPException(400, "until must be an ISO date (YYYY-MM-DD)")
+        if until_d < date.today():
+            raise HTTPException(400, "until must be today or in the future")
+        until = until_d.isoformat()
+
+        # Duplicate check: same kind + same until is not allowed
+        key = (p.kind, until)
+        if key in seen:
+            raise HTTPException(400, "two promos of the same kind must end on different dates")
+        seen.add(key)
+
+        result.append({"kind": p.kind, "apr_pct": apr, "until": until})
+
+    return result
 
 
 def _normalise_bt_offers(body: "CardTermsBody") -> list[dict]:
@@ -197,6 +292,10 @@ async def save_card_terms(
 
     Skipped records the explicit 'Later' so the ask doesn't nag every visit
     (re-ask eligibility after 14 days); everything else is stored null.
+
+    On every confirmed save the full document is replaced (replace_one), so
+    any legacy-shaped doc is fully migrated the first time the user re-saves —
+    legacy keys vanish without any one-off data-migration pass.
     """
     uid = user["email"]
     await _owned_card_or_404(uid, account_id)
@@ -204,12 +303,11 @@ async def save_card_terms(
     now = datetime.utcnow()
     if body.status == "skipped":
         doc = {
+            "_id": f"{uid}:{account_id}",
             "user_id": uid,
             "account_id": account_id,
             "apr_pct": None,
-            "on_promo": False,
-            "promo_kind": None,
-            "promo_end": None,
+            "promos": [],
             "min_payment_note": None,
             "bt_offers": [],
             "status": "skipped",
@@ -219,27 +317,14 @@ async def save_card_terms(
     else:
         if body.apr_pct is not None and not (0 <= body.apr_pct <= 100):
             raise HTTPException(400, "apr_pct must be between 0 and 100")
-        promo_kind = None
-        promo_end = None
-        if body.on_promo:
-            if not body.promo_end:
-                raise HTTPException(400, "promo_end is required when on_promo")
-            try:
-                promo_end_d = date.fromisoformat(body.promo_end)
-            except ValueError:
-                raise HTTPException(400, "promo_end must be an ISO date (YYYY-MM-DD)")
-            if promo_end_d < date.today():
-                raise HTTPException(400, "promo_end must be today or in the future")
-            promo_end = promo_end_d.isoformat()
-            promo_kind = body.promo_kind
+        promos_list = _normalise_promos(body)
         bt_offers_list = _normalise_bt_offers(body)
         doc = {
+            "_id": f"{uid}:{account_id}",
             "user_id": uid,
             "account_id": account_id,
             "apr_pct": round(float(body.apr_pct), 2) if body.apr_pct is not None else None,
-            "on_promo": bool(body.on_promo),
-            "promo_kind": promo_kind,
-            "promo_end": promo_end,
+            "promos": promos_list,
             "min_payment_note": _clip_note(body.min_payment_note),
             "bt_offers": bt_offers_list,
             "status": "confirmed",
@@ -247,9 +332,12 @@ async def save_card_terms(
             "product_key": body.product_key,
         }
 
-    # One doc per (user, account) — deterministic id, upsert on every save.
-    await card_terms_col.update_one(
-        {"_id": f"{uid}:{account_id}"}, {"$set": doc}, upsert=True
+    # Full-document replace: legacy-shaped docs (on_promo/promo_kind/promo_end)
+    # are completely overwritten the first time the user re-saves, migrating
+    # them to the new shape in one step.  The _id is included in the
+    # replacement doc so MongoDB preserves it.
+    await card_terms_col.replace_one(
+        {"_id": f"{uid}:{account_id}"}, doc, upsert=True
     )
     # Terms affect the companion ask (and future debt plans) — drop this
     # user's short-TTL response caches, same pattern as accounts.py writes.
