@@ -930,6 +930,16 @@ async def compute_today_items(uid: str) -> list[dict]:
             "estimated": False,
         }
 
+    def _celebration_lapsed(stored: dict, now_utc: datetime) -> bool:
+        """Return True when the stored celebration is past its 24-hour window.
+        Docs without _celebrated_at are treated as NOT lapsed (they get healed below)."""
+        ca = stored.get("_celebrated_at")
+        if ca is None:
+            return False
+        return (now_utc - ca).total_seconds() >= 86400
+
+    _cel_now_utc = datetime.utcnow()
+
     async for stored in companion_items_col.find({
         "uid": uid,
         "type": "move",
@@ -963,8 +973,25 @@ async def compute_today_items(uid: str) -> list[dict]:
                 if stored_status == "active":
                     await companion_items_col.update_one(
                         {"_id": stored_id, "uid": uid},
-                        {"$set": {"status": "done", "_celebrated": True}},
+                        {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
                     )
+                # Legacy heal: docs already done+celebrated without _celebrated_at
+                # get stamped now so they get a full 24 h from this moment.
+                if stored.get("_celebrated_at") is None:
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"_celebrated_at": _cel_now_utc}},
+                    )
+                    stored = dict(stored)
+                    stored["_celebrated_at"] = _cel_now_utc
+                # 24-hour lapse gate
+                if _celebration_lapsed(stored, _cel_now_utc):
+                    if not stored.get("_celebration_lapsed"):
+                        await companion_items_col.update_one(
+                            {"_id": stored_id, "uid": uid},
+                            {"$set": {"_celebration_lapsed": True}},
+                        )
+                    continue
                 _cel_candidates.append({
                     "cel_id": f"celebrate:{stored_id}",
                     "group": stored_dest_accts[0] if len(stored_dest_accts) == 1 else "__pooled__",
@@ -993,7 +1020,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             if stored_status == "active":
                 await companion_items_col.update_one(
                     {"_id": stored_id, "uid": uid},
-                    {"$set": {"status": "done", "_celebrated": True}},
+                    {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
                 )
             dest_name, _healed = await _resolve_dest_display_name(stored)
             if _healed:
@@ -1003,6 +1030,23 @@ async def compute_today_items(uid: str) -> list[dict]:
                     {"_id": stored_id, "uid": uid},
                     {"$set": {"_dest_name": dest_name}},
                 )
+            # Legacy heal: docs already done+celebrated without _celebrated_at
+            # get stamped now so they get a full 24 h from this moment.
+            if stored.get("_celebrated_at") is None:
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"_celebrated_at": _cel_now_utc}},
+                )
+                stored = dict(stored)
+                stored["_celebrated_at"] = _cel_now_utc
+            # 24-hour lapse gate
+            if _celebration_lapsed(stored, _cel_now_utc):
+                if not stored.get("_celebration_lapsed"):
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"_celebration_lapsed": True}},
+                    )
+                continue
             _cel_candidates.append({
                 "cel_id": f"celebrate:{stored_id}",
                 "group": stored_dest,
