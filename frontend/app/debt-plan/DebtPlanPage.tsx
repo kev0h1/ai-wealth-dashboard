@@ -72,7 +72,7 @@ function SkeletonCard() {
 
 function WhisperLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3">
+    <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300 mb-3">
       {children}
     </p>
   );
@@ -80,7 +80,13 @@ function WhisperLabel({ children }: { children: React.ReactNode }) {
 
 // ── Burndown background ────────────────────────────────────────────────────────
 
-function BurndownBackground({ projection }: { projection: DebtPlanProjectionPoint[] }) {
+function BurndownBackground({
+  projection,
+  variant,
+}: {
+  projection: DebtPlanProjectionPoint[];
+  variant: 1 | 2 | 3;
+}) {
   const n = projection.length;
   if (n < 2) return null;
 
@@ -96,10 +102,29 @@ function BurndownBackground({ projection }: { projection: DebtPlanProjectionPoin
   const linePath = `M ${pts.join(" L ")}`;
 
   return (
-    <div aria-hidden="true" className="burndown-bg pointer-events-none fixed inset-0 -z-10">
-      <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <path d={linePath + " L 100 0 L 0 0 Z"} className="burndown-above" />
-        <path d={linePath + " L 100 100 L 0 100 Z"} className="burndown-below" />
+    <div
+      aria-hidden="true"
+      className={`burndown-bg bd-v${variant} pointer-events-none fixed inset-0 -z-10 overflow-hidden`}
+    >
+      {variant === 1 && (
+        <div className="burndown-luma absolute left-1/2 -translate-x-1/2 top-[4vh] h-[560px] w-[135vw] max-w-[780px]" />
+      )}
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {variant === 2 && (
+          <defs>
+            <linearGradient id="bdWash" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" className="bd-wash-top" />
+              <stop offset="1" className="bd-wash-bottom" />
+            </linearGradient>
+          </defs>
+        )}
+        {variant !== 3 && (
+          <path
+            d={linePath + " L 100 100 L 0 100 Z"}
+            className="burndown-below"
+            fill={variant === 2 ? "url(#bdWash)" : undefined}
+          />
+        )}
         <path
           d={linePath}
           className="burndown-line"
@@ -147,7 +172,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
 
   return (
     <div className="glass-hero rounded-3xl p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
         ACROSS YOUR CARDS
       </p>
       <p className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight mt-1">
@@ -222,7 +247,7 @@ function MissingRatesCallout({
   return (
     <div className="glass-card rounded-2xl p-4">
       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{primary}</p>
-      <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-1">
+      <p className="text-[13px] text-slate-600 dark:text-slate-300 mt-1">
         Add them once and the plan can count every pound of interest.
       </p>
       <button
@@ -255,32 +280,32 @@ function TwoTrajectoryBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean 
   return (
     <div className="glass-card rounded-2xl p-4 space-y-3">
       <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
           As it stands
         </p>
         <div className="text-right">
           {totals.debt_free_month && (
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmtMonth(totals.debt_free_month)}</p>
           )}
-          <p className="text-[12px] text-slate-500 dark:text-slate-400">{fmtMoney(totals.total_interest, hide)} interest</p>
+          <p className="text-[12px] text-slate-600 dark:text-slate-300">{fmtMoney(totals.total_interest, hide)} interest</p>
         </div>
       </div>
       <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
           Dearest card first
         </p>
         <div className="text-right">
           {scenario_b.debt_free_month && (
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmtMonth(scenario_b.debt_free_month)}</p>
           )}
-          <p className="text-[12px] text-slate-500 dark:text-slate-400">{fmtMoney(scenario_b.total_interest, hide)} interest</p>
+          <p className="text-[12px] text-slate-600 dark:text-slate-300">{fmtMoney(scenario_b.total_interest, hide)} interest</p>
         </div>
       </div>
       <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
         Same {hide ? "••••" : "£" + pool.toLocaleString("en-GB")} a month, pointed at the dearest card first — debt-free {scenario_b.months_sooner} months sooner, {fmtMoney(scenario_b.interest_saved, hide)} less interest.
       </p>
       {"assumption" in scenario_b && scenario_b.assumption && (
-        <p className="text-[12px] text-slate-500 dark:text-slate-400 italic">{scenario_b.assumption}</p>
+        <p className="text-[12px] text-slate-600 dark:text-slate-300 italic">{scenario_b.assumption}</p>
       )}
     </div>
   );
@@ -396,17 +421,17 @@ function CardRows({
 
               {/* Line 3: movement */}
               {hasMovement && (
-                <p className="text-[13px] text-slate-500 dark:text-slate-400">
+                <p className="text-[13px] text-slate-600 dark:text-slate-300">
                   +{fmtMoney(card.movement.monthly!, hide)}/mo at your pace
                 </p>
               )}
               {!hasMovement && projectedFlat && (
-                <p className="text-[13px] text-slate-500 dark:text-slate-400">{projectedFlat}</p>
+                <p className="text-[13px] text-slate-600 dark:text-slate-300">{projectedFlat}</p>
               )}
 
               {/* Line 4: payoff */}
               {card.payoff_month && (
-                <p className="text-[13px] text-slate-500 dark:text-slate-400">
+                <p className="text-[13px] text-slate-600 dark:text-slate-300">
                   Clears {fmtMonth(card.payoff_month)}
                   {card.total_interest >= 1 && (
                     <> · {fmtMoney(card.total_interest, hide)} interest</>
@@ -445,7 +470,7 @@ function TransferRoutes({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
               {opt.break_even_weeks != null && ` Break-even in ${opt.break_even_weeks} weeks.`}
             </p>
             {opt.assumptions.length > 0 && (
-              <p className="text-[12px] text-slate-500 dark:text-slate-400 italic mt-2">
+              <p className="text-[12px] text-slate-600 dark:text-slate-300 italic mt-2">
                 {opt.assumptions.join(" · ")}
               </p>
             )}
@@ -470,6 +495,12 @@ export default function DebtPlanPage() {
   const [cardTermsReady, setCardTermsReady] = useState(false);
   const [cardTermsOpen, setCardTermsOpen] = useState(false);
   const [cardTermsStartId, setCardTermsStartId] = useState<string | null>(null);
+  const [variant, setVariant] = useState<1 | 2 | 3>(3);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("v");
+    if (v === "1") setVariant(1);
+    else if (v === "2") setVariant(2);
+  }, []);
 
   const loadPlan = useCallback(async () => {
     try {
@@ -494,9 +525,10 @@ export default function DebtPlanPage() {
   const burndownActive = (plan?.projection?.length ?? 0) >= 2;
   useEffect(() => {
     if (!burndownActive) return;
-    document.body.classList.add("debt-burndown");
-    return () => { document.body.classList.remove("debt-burndown"); };
-  }, [burndownActive]);
+    const vClass = `bd-v${variant}`;
+    document.body.classList.add("debt-burndown", vClass);
+    return () => { document.body.classList.remove("debt-burndown", vClass); };
+  }, [burndownActive, variant]);
 
   function openSheet(accountId: string | null) {
     setCardTermsStartId(accountId);
@@ -534,14 +566,14 @@ export default function DebtPlanPage() {
   return (
     <div className="min-h-dvh pb-36 lg:pb-8">
       {burndownActive && plan?.projection && (
-        <BurndownBackground projection={plan.projection} />
+        <BurndownBackground projection={plan.projection} variant={variant} />
       )}
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Back nav */}
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
           <button
             onClick={() => goBack(router)}
-            className="flex items-center gap-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 active:opacity-70 transition-[transform,opacity] mb-5"
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 active:opacity-70 transition-[transform,opacity] mb-5"
           >
             <ChevronLeft size={15} />
             Back
