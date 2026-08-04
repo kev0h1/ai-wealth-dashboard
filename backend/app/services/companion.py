@@ -1367,8 +1367,7 @@ async def compute_today_items(uid: str) -> list[dict]:
     # Emitted when the debt picture is bad or drifting — silence is the reward
     # when verdict is "good".  At most ONE trajectory item is ever emitted.
     # The id carries the verdict so a worsening verdict re-appears immediately.
-    # ACTION is deliberately None: the /debt-plan page is Phase B; a button
-    # that 404s would break trust.
+    # The /debt-plan page now exists — wire the button.
     trajectory_items: list[dict] = []
     try:
         from app.services.debt_plan import get_debt_plan_cached as _get_debt_plan
@@ -1480,9 +1479,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     "type": "trajectory",
                     "headline": _traj_headline,
                     "body": _traj_body,
-                    # ACTION IS DELIBERATELY None: /debt-plan is Phase B; a
-                    # button that 404s would break trust.
-                    "action": None,
+                    "action": {"label": "See the route ›", "route": "/debt-plan"},
                     "estimated": False,
                 })
     except Exception as _traj_exc:

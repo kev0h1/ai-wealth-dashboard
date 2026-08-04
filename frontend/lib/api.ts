@@ -751,6 +751,81 @@ export interface CycleStory {
   is_demo?: boolean;
 }
 
+// ── Debt Plan View (GET /debt-plan) ────────────────────────────────────────
+export type DebtPlanRateSegment = {
+  from: string;               // "YYYY-MM"
+  until: string | null;       // "YYYY-MM" or null
+  apr_pct: number | null;
+  source: "promo" | "standard" | "unknown";
+  kind: string | null;
+};
+
+export type DebtPlanMovement = {
+  monthly: number | null;     // positive = balance coming down
+  per_period: { start: string; end: string; net: number }[];
+  periods_used: number;
+  basis: string;
+};
+
+export type DebtPlanViewCard = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;            // raw, negative = owed
+  currency: string;
+  debt: number;               // positive £ owed
+  available: number | null;
+  movement: DebtPlanMovement;
+  rate_schedule: DebtPlanRateSegment[];
+  payoff_month: string | null;         // "YYYY-MM"
+  months_to_payoff: number | null;
+  total_interest: number;
+  first_interest_month: string | null; // "YYYY-MM"
+  monthly_interest_at_first: number | null;
+  flags: {
+    terms_missing: boolean;
+    standard_rate_missing: boolean;
+    thin_history: boolean;
+    promo_whole_balance_assumed: boolean;
+    assumptions: string[];
+  };
+};
+
+export type DebtPlanScenarioB =
+  | { months_sooner: 0; interest_saved: 0; note: string }
+  | { debt_free_month: string | null; total_interest: number; months_sooner: number; interest_saved: number; assumption: string };
+
+export type DebtPlanRefinanceOption = {
+  source_account_id: string;
+  source_name: string;
+  destination_account_id: string;
+  destination_name: string;
+  transferable: number;
+  fee: number;
+  interest_saved: number;
+  net_saving: number;
+  window_months: number;
+  break_even_weeks: number | null;
+  assumptions: string[];
+};
+
+export type DebtPlanTotals = {
+  debt: number;
+  debt_free_month: string | null;
+  total_interest: number;
+  verdict: "good" | "drifting" | "bad";
+};
+
+export type DebtPlanView = {
+  status: string;
+  computed_at: string;
+  horizon_months: number;
+  cards: DebtPlanViewCard[];
+  totals: DebtPlanTotals;
+  scenario_b: DebtPlanScenarioB;
+  refinance_options: DebtPlanRefinanceOption[];
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -914,6 +989,7 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
+  getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
   saveSavingsGoal: (goal: SavingsGoalInput) =>
     fetch(`${API_BASE}/savings/goal`, {

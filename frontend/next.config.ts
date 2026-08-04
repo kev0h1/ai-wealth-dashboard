@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/budget", destination: "/spend", permanent: false },
+      { source: "/debt", destination: "/debt-plan", permanent: false },
     ];
   },
 };

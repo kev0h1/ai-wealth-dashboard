@@ -65,7 +65,7 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
         goals.append({
             "pillar": "debt", "label": label,
             "detail": "Done 🎉" if current <= 0 else f"{sym}{current:,.0f} to go",
-            "pct": pct, "done": current <= 0, "url": "/debt",
+            "pct": pct, "done": current <= 0, "url": "/debt-plan",
         })
 
     # Savings — safety net funded
