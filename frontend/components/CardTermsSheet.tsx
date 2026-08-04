@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
-import { api, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
+import { api, BtOffer, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -97,6 +97,37 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 type Phase = "loading" | "found" | "candidates" | "manual" | "promo";
 type ManualPrompt = "notfound" | "different" | "candidates" | "edit";
+type BtOfferDraft = { month: number | null; year: number | null; fee: string; note: string };
+
+function buildBtOffers(rows: BtOfferDraft[], btOffer: boolean | null): BtOffer[] {
+  if (btOffer !== true) return [];
+  return rows
+    .filter(r => r.month !== null || r.year !== null || r.fee.trim() !== "" || r.note.trim() !== "")
+    .map(r => ({
+      ends: (r.month != null && r.year != null) ? endOfMonthIso(r.year, r.month) : null,
+      fee_pct: r.fee.trim() ? Math.round(parseFloat(r.fee) * 100) / 100 : null,
+      note: r.note.trim() ? r.note.trim().slice(0, 120) : null,
+    }));
+}
+
+function validateBtOffers(rows: BtOfferDraft[], btOffer: boolean | null, setError: (e: string) => void): boolean {
+  if (btOffer !== true) return true;
+  const nonBlank = rows.filter(r => r.month !== null || r.year !== null || r.fee.trim() !== "" || r.note.trim() !== "");
+  for (const r of nonBlank) {
+    if ((r.month != null) !== (r.year != null)) {
+      setError("Pick both the month and year the offer ends.");
+      return false;
+    }
+    if (r.fee.trim()) {
+      const v = parseFloat(r.fee);
+      if (!isFinite(v) || v < 0 || v > 15) {
+        setError("Fees are usually small — enter 0 to 15%.");
+        return false;
+      }
+    }
+  }
+  return true;
+}
 
 export default function CardTermsSheet({ cards, ready, startAccountId, onClose, onSaved }: CardTermsSheetProps) {
   useLockBodyScroll();
@@ -134,7 +165,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const [promoYear, setPromoYear] = useState<number | null>(null);
   const [promoKind, setPromoKind] = useState<CardPromoKind | null>(null);
   const [btOffer, setBtOffer] = useState<boolean | null>(null);
-  const [btNote, setBtNote] = useState("");
+  const [btOffers, setBtOffers] = useState<BtOfferDraft[]>([]);
   const [saving, setSaving] = useState<null | "save" | "later">(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -160,8 +191,15 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         setPromoYear(null);
       }
       setPromoKind(t.promo_kind ?? null);
-      setBtOffer(t.bt_offer_available ?? null);
-      setBtNote(t.bt_offer_note ?? "");
+      const existingOffers = t.bt_offers ?? [];
+      setBtOffer(existingOffers.length > 0 ? true : null);
+      setBtOffers(existingOffers.map((o: BtOffer) => {
+        if (o.ends) {
+          const d = new Date(`${o.ends}T00:00:00`);
+          return { month: d.getMonth(), year: d.getFullYear(), fee: o.fee_pct != null ? String(o.fee_pct) : "", note: o.note ?? "" };
+        }
+        return { month: null, year: null, fee: o.fee_pct != null ? String(o.fee_pct) : "", note: o.note ?? "" };
+      }));
     } else {
       setPhase("loading");
       setManualPrompt("notfound");
@@ -170,7 +208,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       setPromoYear(null);
       setPromoKind(null);
       setBtOffer(null);
-      setBtNote("");
+      setBtOffers([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
@@ -249,11 +287,13 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       setError("Enter a rate between 0 and 100.");
       return;
     }
+    if (!validateBtOffers(btOffers, btOffer, setError)) return;
     postAndAdvance(
       {
         status: "confirmed",
         apr_pct: Math.round(v * 100) / 100,
         on_promo: false,
+        bt_offers: buildBtOffers(btOffers, btOffer),
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -276,6 +316,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       setError("Pick a month that's still ahead.");
       return;
     }
+    if (!validateBtOffers(btOffers, btOffer, setError)) return;
     postAndAdvance(
       {
         status: "confirmed",
@@ -283,8 +324,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         on_promo: true,
         promo_kind: promoKind,
         promo_end: iso,
-        ...(btOffer != null ? { bt_offer_available: btOffer } : {}),
-        ...(btOffer && btNote.trim() ? { bt_offer_note: btNote.trim().slice(0, 300) } : {}),
+        bt_offers: buildBtOffers(btOffers, btOffer),
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -379,6 +419,152 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     >
       It&apos;s on a 0% deal
     </button>
+  );
+
+  const btSection = (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>Any balance-transfer offers on this card?</FieldLabel>
+        <div role="radiogroup" aria-label="Balance-transfer offers on this card" className="grid grid-cols-2 gap-2">
+          <Chip
+            selected={btOffer === true}
+            onClick={() => {
+              setBtOffer(true);
+              setError(null);
+              if (btOffers.length === 0) setBtOffers([{ month: null, year: null, fee: "", note: "" }]);
+            }}
+          >
+            Yes
+          </Chip>
+          <Chip
+            selected={btOffer === false}
+            onClick={() => {
+              setBtOffer(false);
+              setBtOffers([]);
+              setError(null);
+            }}
+          >
+            No
+          </Chip>
+        </div>
+      </div>
+      {btOffer === true && (
+        <div className="mt-3 space-y-3">
+          {btOffers.map((row, i) => {
+            const rowYearOptions = (() => {
+              const base = [thisYear, thisYear + 1, thisYear + 2, thisYear + 3];
+              if (row.year != null && !base.includes(row.year)) base.push(row.year);
+              return base.sort((a, b) => a - b);
+            })();
+            return (
+              <div key={i} className={i > 0 ? "pt-3 border-t border-slate-100 dark:border-slate-700/60" : ""}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0">
+                    Offer {i + 1}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label={`Remove offer ${i + 1}`}
+                    onClick={() => {
+                      const next = btOffers.filter((_, j) => j !== i);
+                      setBtOffers(next.length === 0 ? [{ month: null, year: null, fee: "", note: "" }] : next);
+                    }}
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>Ends</FieldLabel>
+                    <div role="radiogroup" aria-label={`Month offer ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
+                      {MONTHS.map((m, mi) => (
+                        <Chip
+                          key={m}
+                          selected={row.month === mi}
+                          disabled={row.year === thisYear && mi < thisMonth}
+                          onClick={() => {
+                            const next = [...btOffers];
+                            next[i] = { ...next[i], month: mi };
+                            setBtOffers(next);
+                            setError(null);
+                          }}
+                        >
+                          {m}
+                        </Chip>
+                      ))}
+                    </div>
+                    <div role="radiogroup" aria-label={`Year offer ${i + 1} ends`} className="grid grid-cols-4 gap-2">
+                      {rowYearOptions.map(y => (
+                        <Chip
+                          key={y}
+                          selected={row.year === y}
+                          onClick={() => {
+                            const next = [...btOffers];
+                            const newMonth = (y === thisYear && next[i].month != null && next[i].month! < thisMonth) ? null : next[i].month;
+                            next[i] = { ...next[i], year: y, month: newMonth };
+                            setBtOffers(next);
+                            setError(null);
+                          }}
+                        >
+                          {y}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel>Fee</FieldLabel>
+                    <div className="relative max-w-[120px]">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={row.fee}
+                        onChange={e => {
+                          const next = [...btOffers];
+                          next[i] = { ...next[i], fee: e.target.value };
+                          setBtOffers(next);
+                        }}
+                        placeholder="3"
+                        aria-label={`Fee for offer ${i + 1}, percent`}
+                        className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
+                        %
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <FieldLabel>Note</FieldLabel>
+                    <input
+                      type="text"
+                      value={row.note}
+                      onChange={e => {
+                        const next = [...btOffers];
+                        next[i] = { ...next[i], note: e.target.value };
+                        setBtOffers(next);
+                      }}
+                      maxLength={120}
+                      placeholder="e.g. 0% for 12 months"
+                      aria-label={`Note for offer ${i + 1}`}
+                      className="w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {btOffers.length < 6 && (
+            <button
+              type="button"
+              onClick={() => setBtOffers([...btOffers, { month: null, year: null, fee: "", note: "" }])}
+              className="min-h-[44px] inline-flex items-center text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+            >
+              + Add another offer
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 
   return createPortal(
@@ -520,6 +706,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   )}
                   {showRateInput && rateInput}
                   {zeroDealButton}
+                  {showRateInput && btSection}
                 </div>
               </>
             ) : phase === "candidates" ? (
@@ -555,6 +742,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   <div className="space-y-3">
                     {rateInput}
                     {zeroDealButton}
+                    {btSection}
                   </div>
                 )}
               </>
@@ -565,6 +753,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 </p>
                 {rateInput}
                 {zeroDealButton}
+                {btSection}
               </>
             ) : (
               /* phase === "promo" — the 0% branch */
@@ -635,28 +824,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   </div>
                 </div>
 
-                <div>
-                  <FieldLabel>Any balance-transfer offers available on this card?</FieldLabel>
-                  <div role="radiogroup" aria-label="Balance-transfer offers available" className="grid grid-cols-2 gap-2">
-                    <Chip selected={btOffer === true} onClick={() => setBtOffer(true)}>
-                      Yes
-                    </Chip>
-                    <Chip selected={btOffer === false} onClick={() => { setBtOffer(false); setBtNote(""); }}>
-                      No
-                    </Chip>
-                  </div>
-                  {btOffer === true && (
-                    <input
-                      type="text"
-                      value={btNote}
-                      onChange={e => setBtNote(e.target.value)}
-                      maxLength={300}
-                      placeholder="One line is plenty — e.g. 0% for 12 months, 3% fee"
-                      aria-label="Balance-transfer offer note"
-                      className="mt-2 w-full min-h-[48px] px-3 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm"
-                    />
-                  )}
-                </div>
+                {btSection}
               </>
             )}
 

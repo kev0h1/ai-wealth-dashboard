@@ -37,6 +37,12 @@ def _clean(s) -> str:
     return " ".join(str(s or "").split())
 
 
+class BtOffer(BaseModel):
+    ends: Optional[str] = None      # ISO date
+    fee_pct: Optional[float] = None
+    note: Optional[str] = None
+
+
 async def _user_credit_cards(uid: str) -> list[dict]:
     """Every credit-card account for this user — TrueLayer and Finexer rows
     both live in accounts_col (unified collections)."""
@@ -54,8 +60,7 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         "promo_kind": doc.get("promo_kind"),
         "promo_end": doc.get("promo_end"),
         "min_payment_note": doc.get("min_payment_note"),
-        "bt_offer_available": doc.get("bt_offer_available"),
-        "bt_offer_note": doc.get("bt_offer_note"),
+        "bt_offers": doc.get("bt_offers") or [],
         "status": doc.get("status"),
         "confirmed_at": confirmed_at.isoformat() if isinstance(confirmed_at, datetime) else confirmed_at,
         "product_key": doc.get("product_key"),
@@ -128,9 +133,55 @@ class CardTermsBody(BaseModel):
     promo_kind: Optional[Literal["purchases", "balance_transfer", "both"]] = None
     promo_end: Optional[str] = None          # ISO date
     min_payment_note: Optional[str] = None
+    bt_offers: list[BtOffer] = []
+    # Legacy-tolerance fields — kept for old clients
     bt_offer_available: Optional[bool] = None
     bt_offer_note: Optional[str] = None
     product_key: Optional[str] = None
+
+
+def _normalise_bt_offers(body: "CardTermsBody") -> list[dict]:
+    """Normalise bt_offers from the request body, with legacy fallback."""
+    if not body.bt_offers and body.bt_offer_available is True:
+        # Legacy mapping: single offer from the old flat fields
+        note = _clean(body.bt_offer_note)
+        return [{"ends": None, "fee_pct": None, "note": note[:120] if note else None}]
+
+    offers = body.bt_offers
+    if len(offers) > 6:
+        raise HTTPException(400, "at most 6 balance-transfer offers")
+
+    result = []
+    for offer in offers:
+        # Validate fee_pct
+        fee_pct = offer.fee_pct
+        if fee_pct is not None:
+            if not (0 <= fee_pct <= 15):
+                raise HTTPException(400, "fee_pct must be between 0 and 15")
+            fee_pct = round(fee_pct, 2)
+
+        # Validate ends
+        ends = offer.ends
+        if ends is not None:
+            try:
+                ends_d = date.fromisoformat(ends)
+            except ValueError:
+                raise HTTPException(400, "ends must be an ISO date (YYYY-MM-DD)")
+            if ends_d < date.today():
+                raise HTTPException(400, "ends must be today or in the future")
+            ends = ends_d.isoformat()
+
+        # Clean note
+        note = _clean(offer.note)
+        note = note[:120] if note else None
+
+        # Drop fully blank rows
+        if ends is None and fee_pct is None and not note:
+            continue
+
+        result.append({"ends": ends, "fee_pct": fee_pct, "note": note})
+
+    return result
 
 
 def _clip_note(s: Optional[str]) -> Optional[str]:
@@ -160,8 +211,7 @@ async def save_card_terms(
             "promo_kind": None,
             "promo_end": None,
             "min_payment_note": None,
-            "bt_offer_available": None,
-            "bt_offer_note": None,
+            "bt_offers": [],
             "status": "skipped",
             "confirmed_at": now,
             "product_key": body.product_key,
@@ -182,6 +232,7 @@ async def save_card_terms(
                 raise HTTPException(400, "promo_end must be today or in the future")
             promo_end = promo_end_d.isoformat()
             promo_kind = body.promo_kind
+        bt_offers_list = _normalise_bt_offers(body)
         doc = {
             "user_id": uid,
             "account_id": account_id,
@@ -190,8 +241,7 @@ async def save_card_terms(
             "promo_kind": promo_kind,
             "promo_end": promo_end,
             "min_payment_note": _clip_note(body.min_payment_note),
-            "bt_offer_available": body.bt_offer_available,
-            "bt_offer_note": _clip_note(body.bt_offer_note),
+            "bt_offers": bt_offers_list,
             "status": "confirmed",
             "confirmed_at": now,
             "product_key": body.product_key,

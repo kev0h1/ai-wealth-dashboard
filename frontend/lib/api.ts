@@ -636,6 +636,7 @@ export type CardsStory = {
 
 // ── Card terms (asked, never inferred — open banking has no APR data) ──────
 export type CardPromoKind = "purchases" | "balance_transfer" | "both";
+export type BtOffer = { ends: string | null; fee_pct: number | null; note: string | null };
 
 export type CardTerms = {
   apr_pct: number | null;
@@ -643,8 +644,7 @@ export type CardTerms = {
   promo_kind: CardPromoKind | null;
   promo_end: string | null; // ISO date
   min_payment_note: string | null;
-  bt_offer_available: boolean | null;
-  bt_offer_note: string | null;
+  bt_offers: BtOffer[];
   status: "confirmed" | "skipped" | null;
   confirmed_at: string | null;
   product_key: string | null;
@@ -689,8 +689,7 @@ export type CardTermsSaveBody = {
   promo_kind?: CardPromoKind | null;
   promo_end?: string | null;
   min_payment_note?: string | null;
-  bt_offer_available?: boolean | null;
-  bt_offer_note?: string | null;
+  bt_offers?: BtOffer[];
   product_key?: string | null;
 };
 
