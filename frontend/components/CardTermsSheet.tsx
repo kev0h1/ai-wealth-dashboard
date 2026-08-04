@@ -303,8 +303,6 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     else handleSaveManual();
   }
 
-  if (!mounted) return null;
-
   // ── Derived display bits ──────────────────────────────────────────────────
   const chip = current ? resolveBankChip(current.provider) : null;
   const currencyPrefix = current?.currency === "GBP" || !current ? "£" : `${current.currency} `;
@@ -323,6 +321,10 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     if (promoYear != null && !base.includes(promoYear)) base.push(promoYear);
     return base.sort((a, b) => a - b);
   }, [thisYear, promoYear]);
+
+  // Portal guard — must stay BELOW every hook: an early return above useMemo
+  // made render N and N+1 disagree on hook count (React #310).
+  if (!mounted) return null;
 
   const manualQuestion =
     manualPrompt === "notfound"
