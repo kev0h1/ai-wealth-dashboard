@@ -246,7 +246,8 @@ async def compute_today_items(uid: str) -> list[dict]:
     # separate full listing in step 5 — same fields, one round trip per col.)
     all_uk_accounts: list[dict] = []
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
-                  "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1}
+                  "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
+                  "nickname": 1, "display_name": 1}
     async for acc in accounts_col.find({"user_id": uid}, _acct_proj):
         acc["_str_id"] = str(acc["_id"])
         all_uk_accounts.append(acc)
@@ -1285,13 +1286,92 @@ async def compute_today_items(uid: str) -> list[dict]:
     except Exception as _ct_exc:
         log.warning("ask:card_terms item failed for %s: %s", uid, _ct_exc)
 
+    # ── 8e. CLIFF items (promo rate ending) ────────────────────────────────
+    # A confirmed promo ending within 60 days on a card that carries a balance
+    # is a standing fact worth stating (facts, not coaching — no advice verbs).
+    # One cliff per card at a time (the soonest non-dismissed qualifying promo);
+    # the id carries the promo's end date so dismissing one cliff never
+    # suppresses a different promo's later cliff on the same card.
+    cliff_items: list[dict] = []
+    try:
+        from app.db.collections import card_terms_col
+        from app.routers.card_terms import _promos_from_legacy
+        from app.services.card_rates import is_credit_card_account as _is_cc
+
+        _cliff_cc = [a for a in all_uk_accounts if _is_cc(a)]
+        if _cliff_cc:
+            _cliff_terms = {
+                d.get("account_id"): d
+                async for d in card_terms_col.find({"user_id": uid, "status": "confirmed"})
+            }
+            _cliff_window = 60
+            for _acc in _cliff_cc:
+                _sid = _acc["_str_id"]
+                _doc = _cliff_terms.get(_sid)
+                if not _doc:
+                    continue
+                _bal_mag = abs(live_balances.get(_sid, 0.0))
+                if _bal_mag < 50:
+                    continue
+                _stored = _doc.get("promos")
+                _promos = _stored if isinstance(_stored, list) else _promos_from_legacy(
+                    _doc.get("on_promo"), _doc.get("promo_kind"), _doc.get("promo_end")
+                )
+                _qualifying = []
+                for _p in _promos:
+                    try:
+                        _until_d = date.fromisoformat(str(_p.get("until") or ""))
+                    except ValueError:
+                        continue
+                    _days_left = (_until_d - today_d).days
+                    if 0 <= _days_left <= _cliff_window:   # today inclusive; ended promos excluded
+                        _qualifying.append((_until_d, _p))
+                _qualifying.sort(key=lambda t: t[0])
+                for _until_d, _p in _qualifying:
+                    _cliff_id = f"cliff:{_sid}:{_until_d.isoformat()}"
+                    if _cliff_id in dismissed:
+                        continue   # try the next-soonest promo on this card
+                    _card_name = _clean_name(
+                        _acc.get("nickname") or _acc.get("display_name") or _acc.get("name")
+                    ) or "Credit card"
+                    _when = _until_d.strftime("%-d %b")
+                    _bal_str = f"£{int(round(_bal_mag)):,}"
+                    _promo_rate = f"{float(_p.get('apr_pct') or 0.0):g}%"
+                    if _p.get("kind") == "balance_transfer":
+                        _headline = f"{_promo_rate} on balance transfers at {_card_name} ends {_when} — {_bal_str} is on it."
+                    else:
+                        _headline = f"{_promo_rate} on {_card_name} ends {_when} — {_bal_str} is on it."
+                    _apr = _doc.get("apr_pct")
+                    if _apr:
+                        _monthly = int(round(_bal_mag * float(_apr) / 1200))
+                        _body = f"From then it charges {float(_apr):g}%, about £{_monthly:,} a month."
+                    else:
+                        _body = "Add its standard rate and I can say what that costs."
+                    cliff_items.append({
+                        "id": _cliff_id,
+                        "type": "cliff",
+                        "headline": _headline,
+                        "body": _body,
+                        "action": {"label": "See the card ›", "route": f"/accounts?cardTerms={_sid}"},
+                        "estimated": False,
+                        "_until": _until_d.isoformat(),
+                    })
+                    break   # one cliff per card at a time
+            cliff_items.sort(key=lambda i: i["_until"])
+            for _ci in cliff_items:
+                _ci.pop("_until", None)
+    except Exception as _cliff_exc:
+        log.warning("cliff items failed for %s: %s", uid, _cliff_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
     # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
     # Celebrations get the same allowance as move cards, so covering two accounts is
     # acknowledged twice rather than one card vanishing without a word.
+    # Cliff items slot after celebrations, before asks — important but not this-week urgent.
     result = (
         items[:_MOVE_CARD_CAP]
         + celebration_items[:_MOVE_CARD_CAP]
+        + cliff_items[:2]
         + ask_items[:1]
         + needle_items[:1]
         + rhythm_items

@@ -263,13 +263,14 @@ export default function AccountsPage() {
 
   useEffect(() => { loadCardTerms(); }, [loadCardTerms]);
 
-  // ?cardTerms=1 deep link (companion ask card) — open the sheet, strip the
-  // param. Same live-URL read as the ?id= effect above: the searchParams hook
-  // value can be stale on cached round-trips.
+  // ?cardTerms=1 opens the full card walk (from the ask card).
+  // ?cardTerms=<accountId> opens a single-card session directly (from cliff cards).
+  // Both modes strip the param after opening, same live-URL read pattern.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("cardTerms") === "1") {
-      setCardTermsStartId(null);
+    const ct = params.get("cardTerms");
+    if (ct) {
+      setCardTermsStartId(ct === "1" ? null : ct);
       setCardTermsOpen(true);
       params.delete("cardTerms");
       const rest = params.toString();

@@ -270,6 +270,62 @@ function CelebrationCard({ item, router, maskAmounts }: CelebrationCardProps) {
   );
 }
 
+interface CliffCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  maskAmounts: (text: string) => string;
+}
+
+// Promo-cliff fact card — informational, so NO Penny gradient chip (the
+// gradient marks advice surfaces; this states a fact). Amber mark only:
+// approaching risk, not materialised risk — red stays reserved (Red-is-Risk).
+function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    api.dismissTodayItem(item.id).catch(() => {
+      /* card already removed locally; the backend will re-surface next run */
+    });
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+            {maskAmounts(item.headline)}
+          </p>
+          {item.body && (
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {maskAmounts(item.body)}
+            </p>
+          )}
+          {item.action && (
+            <button
+              onClick={() => router.push(item.action!.route)}
+              className="mt-3 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {item.action.label}
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={handleDismiss}
+          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface MoveCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
@@ -443,7 +499,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const needleItem = items.find(i => i.type === "needle");
   const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask");
+  const cliffItems = items.filter(i => i.type === "cliff");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -455,6 +512,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
     <div className="space-y-3">
         {celebrationItems.map(item => (
           <CelebrationCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+        ))}
+
+        {cliffItems.map(item => (
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline; everything

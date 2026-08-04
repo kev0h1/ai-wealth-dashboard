@@ -366,7 +366,7 @@ export type ConfirmPaydayResponse = {
 
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff";
   headline: string;
   body: string;
   action: CompanionAction | null;
