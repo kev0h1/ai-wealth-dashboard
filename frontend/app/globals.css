@@ -330,10 +330,24 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%);
 }
 
+/* Debt burndown — page-scoped replacement for the ambient glow on /debt-plan.
+   A silhouette, not a data-vis: the as-is projection as atmosphere.
+   Light: any darkening fill would tip muted text under 4.5:1 (baseline 4.52) —
+   so the cleared region above the curve lifts contrast instead.
+   Dark has headroom, so the debt mass below the curve carries the indigo fill. */
+.burndown-above { fill: rgba(255, 255, 255, 0.5); }
+.burndown-below { fill: transparent; }
+.burndown-line  { stroke: rgba(79, 70, 229, 0.14); }
+.dark .burndown-above { fill: transparent; }
+.dark .burndown-below { fill: rgba(129, 140, 248, 0.08); }
+.dark .burndown-line  { stroke: rgba(129, 140, 248, 0.16); }
+body.debt-burndown .app-glow { display: none; }
+
 /* Flatten back to the previous solid surfaces when the user prefers
    reduced transparency, or the browser can't do backdrop-filter. */
 @media (prefers-reduced-transparency: reduce) {
   .app-glow { display: none; }
+  .burndown-bg { display: none; }
   .glass-hero, .glass-card {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -360,6 +374,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .app-glow { display: none; }
+  .burndown-bg { display: none; }
   .glass-hero, .glass-card {
     background: #ffffff;
     border-color: #f1f5f9;

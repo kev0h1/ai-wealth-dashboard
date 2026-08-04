@@ -42,6 +42,11 @@ BAD_HORIZON_MONTHS = 60
 DAYS_PER_MONTH = 30.44          # same precedent as transport.py
 MOVEMENT_FLAT_EPS = 1.0         # monthly movement ≤ this → flat for verdict purposes
 
+PROJECTION_TAIL_MONTHS = 6
+WHATS_WORKING_HORIZON_MONTHS = 36
+EXTRA_CLEAR_HORIZON_MONTHS = 60
+EXTRA_ROUND_GBP = 5
+
 _CACHE_NAME = "debt_plan"
 
 # Regex to parse window length from BT offer notes
@@ -306,6 +311,7 @@ def _amortise(
     monthly_interest_at_first: Optional[float] = None
     payoff_month: Optional[str] = None
     months_to_payoff: Optional[int] = None
+    balance_series: list[float] = []
 
     for i in range(1, HORIZON_MONTHS + 1):
         # Month i's start = first of (current month + i)
@@ -325,9 +331,12 @@ def _amortise(
         B = B - movement + interest
 
         if B <= 0:
+            balance_series.append(0.0)
             payoff_month = _month_label(month_start)
             months_to_payoff = i
             break
+
+        balance_series.append(max(B, 0.0))
 
     return {
         "payoff_month": payoff_month,
@@ -335,6 +344,7 @@ def _amortise(
         "total_interest": _r2(total_interest),
         "first_interest_month": first_interest_month,
         "monthly_interest_at_first": monthly_interest_at_first,
+        "balance_series": balance_series,
     }
 
 
@@ -602,6 +612,124 @@ def _compute_refinance_options(cards: list[dict], today: date) -> list[dict]:
     return options
 
 
+def _walk_with_extra(cards: list[dict], today: date, extra: float) -> tuple[bool, Optional[str]]:
+    """Simulate multi-card payoff with an extra monthly lump added avalanche-style.
+
+    Returns (cleared_within_horizon, debt_free_month_label | None).
+    Unknown rates → no interest (same honesty as _amortise).
+    """
+    balances: dict[str, float] = {c["account_id"]: c["debt"] for c in cards if c["debt"] > 0}
+    if not balances:
+        return True, None
+
+    for i in range(1, EXTRA_CLEAR_HORIZON_MONTHS + 1):
+        month_start = _add_months(today, i)
+
+        # Step 1: apply interest and own payment per card
+        card_map = {c["account_id"]: c for c in cards if c["account_id"] in balances}
+        month_rates: dict[str, Optional[float]] = {}
+        for aid, B in list(balances.items()):
+            if B <= 0:
+                continue
+            c = card_map[aid]
+            rate = _rate_from_schedule(month_start, c.get("rate_schedule") or [])
+            month_rates[aid] = rate
+            interest = B * rate / 1200.0 if rate is not None else 0.0
+            own = c["movement"].get("monthly") or 0.0
+            if own < 0:
+                own = 0.0
+            balances[aid] = max(0.0, B + interest - own)
+
+        # Step 2: avalanche the extra pool with spillover
+        pool = extra
+        while pool > 0.005:
+            open_aids = [aid for aid, B in balances.items() if B > 0]
+            if not open_aids:
+                break
+            # Target: highest known rate > 0; fallback: largest balance
+            target = None
+            best_rate = 0.0
+            for aid in open_aids:
+                r = month_rates.get(aid)
+                if r is not None and r > best_rate:
+                    best_rate = r
+                    target = aid
+            if target is None:
+                # fallback: largest balance
+                target = max(open_aids, key=lambda aid: balances[aid])
+            pay = min(balances[target], pool)
+            balances[target] -= pay
+            pool -= pay
+
+        if all(B <= 0.005 for B in balances.values()):
+            return True, _month_label(month_start)
+
+    return False, None
+
+
+def _compute_extra_to_clear(cards: list[dict], today: date) -> Optional[dict]:
+    """Find the minimum extra monthly pounds (rounded to EXTRA_ROUND_GBP) that clears
+    all material debt within EXTRA_CLEAR_HORIZON_MONTHS.
+
+    Returns None when: no material debt, or even a very large extra can't clear within
+    the horizon (degenerate — likely due to a balance with negative/zero movement that
+    eclipses the extra pool).
+    """
+    with_debt = [c for c in cards if c["debt"] > 0]
+    if not with_debt:
+        return None
+    material_with_debt = [c for c in with_debt if c["debt"] >= MATERIAL_BALANCE]
+    if not material_with_debt:
+        return None  # all balances immaterial
+
+    # Check if current trajectory already clears within horizon
+    ok, dfm = _walk_with_extra(cards, today, 0.0)
+    if ok:
+        return {"amount": 0, "debt_free_month": dfm, "horizon_months": EXTRA_CLEAR_HORIZON_MONTHS}
+
+    # Exponential search for a feasible upper bound
+    total_debt_with = sum(c["debt"] for c in with_debt)
+    bound = 2.0 * total_debt_with  # even paying the full balance twice over in month 1 would clear it
+    hi = 5.0
+    while hi < bound:
+        ok, _ = _walk_with_extra(cards, today, hi)
+        if ok:
+            break
+        hi *= 2.0
+
+    if hi > bound:
+        # Degenerate: even paying ~2x total debt as extra monthly can't clear within cap.
+        # This can happen when a card has negative movement that overwhelms any extra pool.
+        return None
+
+    # Integer bisection: find minimal whole-£ X in [int(hi/2), ceil(hi)]
+    lo_int = int(hi / 2)
+    hi_int = math.ceil(hi)
+
+    # Ensure lo_int is actually infeasible
+    ok_lo, _ = _walk_with_extra(cards, today, float(lo_int))
+    if ok_lo:
+        # lo_int is also feasible — bisect lower
+        hi_int = lo_int
+        lo_int = 0
+
+    while lo_int < hi_int:
+        mid = (lo_int + hi_int) // 2
+        ok_mid, _ = _walk_with_extra(cards, today, float(mid))
+        if ok_mid:
+            hi_int = mid
+        else:
+            lo_int = mid + 1
+
+    # lo_int == hi_int == minimal feasible whole-£ amount
+    x = lo_int
+    amount = math.ceil(x / EXTRA_ROUND_GBP) * EXTRA_ROUND_GBP
+
+    # Final walk with the rounded amount to get the actual debt-free month
+    _, final_dfm = _walk_with_extra(cards, today, float(amount))
+    return {"amount": amount, "debt_free_month": final_dfm, "horizon_months": EXTRA_CLEAR_HORIZON_MONTHS}
+
+
 # ── Main async entry point ────────────────────────────────────────────────────
 
 async def compute_debt_plan(uid: str) -> dict:
@@ -643,6 +771,7 @@ async def compute_debt_plan(uid: str) -> dict:
 
     # ── Per-card computation ──────────────────────────────────────────────────
     cards_out: list[dict] = []
+    balance_series_by_card: dict[str, list[float]] = {}
     for acc in cc_accounts:
         aid = str(acc["_id"])
         card_name = (
@@ -680,6 +809,7 @@ async def compute_debt_plan(uid: str) -> dict:
         # 3. Amortisation (only when there's debt)
         if debt > 0:
             proj = _amortise(debt, movement["monthly"], today, rate_schedule)
+            balance_series_by_card[aid] = proj.get("balance_series", [])
         else:
             proj = {
                 "payoff_month": None,
@@ -743,6 +873,48 @@ async def compute_debt_plan(uid: str) -> dict:
     # ── Refinance options ─────────────────────────────────────────────────────
     refinance_options = _compute_refinance_options(cards_out, today)
 
+    # ── Projection ────────────────────────────────────────────────────────────
+    debt_cards = [c for c in cards_out if c["debt"] > 0]
+    if not debt_cards:
+        projection = []
+    else:
+        # Determine N
+        mtp_vals = [c.get("months_to_payoff") for c in debt_cards]
+        if all(m is not None for m in mtp_vals):
+            N = min(HORIZON_MONTHS, max(mtp_vals) + PROJECTION_TAIL_MONTHS)
+        else:
+            N = HORIZON_MONTHS
+        # Anchor point: current month at current total
+        projection = [{"month": _month_label(today), "total": total_debt}]
+        for i in range(1, N + 1):
+            total_i = 0.0
+            for c in debt_cards:
+                series = balance_series_by_card.get(c["account_id"], [])
+                total_i += series[i - 1] if i - 1 < len(series) else 0.0
+            projection.append({"month": _month_label(_add_months(today, i)), "total": _r2(total_i)})
+
+    # ── What's working ────────────────────────────────────────────────────────
+    whats_working = []
+    for c in cards_out:
+        if c["debt"] < MATERIAL_BALANCE:
+            continue
+        mov = c["movement"].get("monthly")
+        if mov is None or mov <= MOVEMENT_FLAT_EPS:
+            continue
+        mtp = c.get("months_to_payoff")
+        if mtp is None or mtp > WHATS_WORKING_HORIZON_MONTHS:
+            continue
+        whats_working.append({
+            "account_id": c["account_id"],
+            "name": c["name"],
+            "payoff_month": c["payoff_month"],
+            "monthly": mov,
+        })
+    whats_working.sort(key=lambda x: x["payoff_month"])
+
+    # ── Extra to clear ────────────────────────────────────────────────────────
+    extra_to_clear = _compute_extra_to_clear(cards_out, today)
+
     # Strip internal fields before returning (keep output JSON-clean)
     for c in cards_out:
         c.pop("_standard_apr", None)
@@ -756,6 +928,9 @@ async def compute_debt_plan(uid: str) -> dict:
         "totals": totals,
         "scenario_b": scenario_b,
         "refinance_options": refinance_options,
+        "projection": projection,
+        "whats_working": whats_working,
+        "extra_to_clear": extra_to_clear,
     }
 
 

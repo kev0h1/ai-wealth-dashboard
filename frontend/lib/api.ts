@@ -816,6 +816,10 @@ export type DebtPlanTotals = {
   verdict: "good" | "drifting" | "bad";
 };
 
+export type DebtPlanProjectionPoint = { month: string; total: number };
+export type DebtPlanWin = { account_id: string; name: string; payoff_month: string; monthly: number };
+export type DebtPlanExtraToClear = { amount: number; debt_free_month: string; horizon_months: number };
+
 export type DebtPlanView = {
   status: string;
   computed_at: string;
@@ -824,6 +828,9 @@ export type DebtPlanView = {
   totals: DebtPlanTotals;
   scenario_b: DebtPlanScenarioB;
   refinance_options: DebtPlanRefinanceOption[];
+  projection?: DebtPlanProjectionPoint[];
+  whats_working?: DebtPlanWin[];
+  extra_to_clear?: DebtPlanExtraToClear | null;
 };
 
 export const api = {

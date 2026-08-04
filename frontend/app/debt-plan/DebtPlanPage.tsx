@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { api, DebtPlanView, DebtPlanViewCard, CardTermsCard } from "@/lib/api";
+import { api, DebtPlanView, DebtPlanViewCard, CardTermsCard, DebtPlanProjectionPoint } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import { usePreferences } from "@/components/PreferencesContext";
 import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
@@ -78,6 +78,40 @@ function WhisperLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Burndown background ────────────────────────────────────────────────────────
+
+function BurndownBackground({ projection }: { projection: DebtPlanProjectionPoint[] }) {
+  const n = projection.length;
+  if (n < 2) return null;
+
+  const max = Math.max(...projection.map(p => p.total));
+  if (max <= 0) return null;
+
+  const pts = projection.map((p, i) => {
+    const x = ((i / (n - 1)) * 100).toFixed(2);
+    const y = (18 + 82 * (1 - p.total / max)).toFixed(2);
+    return `${x} ${y}`;
+  });
+
+  const linePath = `M ${pts.join(" L ")}`;
+
+  return (
+    <div aria-hidden="true" className="burndown-bg pointer-events-none fixed inset-0 -z-10">
+      <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <path d={linePath + " L 100 0 L 0 0 Z"} className="burndown-above" />
+        <path d={linePath + " L 100 100 L 0 100 Z"} className="burndown-below" />
+        <path
+          d={linePath}
+          className="burndown-line"
+          fill="none"
+          vectorEffect="non-scaling-stroke"
+          strokeWidth={1.5}
+        />
+      </svg>
+    </div>
+  );
+}
+
 // ── Verdict block ──────────────────────────────────────────────────────────────
 
 function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
@@ -122,6 +156,48 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       <p className="text-[15px] leading-relaxed mt-2 text-slate-700 dark:text-slate-200">
         {sentence}
       </p>
+    </div>
+  );
+}
+
+// ── Agency block ("what it would take") ──────────────────────────────────────
+
+function AgencyBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
+  const extra = plan.extra_to_clear;
+  const wins = plan.whats_working ?? [];
+
+  const hasExtra = extra != null;
+  const hasWins = wins.length > 0;
+  if (!hasExtra && !hasWins) return null;
+
+  return (
+    <div>
+      <WhisperLabel>WHAT IT WOULD TAKE</WhisperLabel>
+      <div className="glass-card rounded-2xl p-4 space-y-2">
+        {hasExtra && (
+          extra.amount === 0 ? (
+            <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+              Your current pace already clears every card by {fmtMonth(extra.debt_free_month)}.
+            </p>
+          ) : (
+            <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+              <span className="font-semibold text-slate-900 dark:text-slate-100">
+                {fmtMoney(extra.amount, hide)} more a month
+              </span>{" "}
+              clears every card by {fmtMonth(extra.debt_free_month)}.
+            </p>
+          )
+        )}
+        {wins.map(win => (
+          <p key={win.account_id} className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+            {win.name} is on its way out — clearing{" "}
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+              {fmtMonth(win.payoff_month)}
+            </span>{" "}
+            at your pace.
+          </p>
+        ))}
+      </div>
     </div>
   );
 }
@@ -415,6 +491,13 @@ export default function DebtPlanPage() {
   useEffect(() => { loadPlan(); }, [loadPlan]);
   useEffect(() => { loadCardTerms(); }, [loadCardTerms]);
 
+  const burndownActive = (plan?.projection?.length ?? 0) >= 2;
+  useEffect(() => {
+    if (!burndownActive) return;
+    document.body.classList.add("debt-burndown");
+    return () => { document.body.classList.remove("debt-burndown"); };
+  }, [burndownActive]);
+
   function openSheet(accountId: string | null) {
     setCardTermsStartId(accountId);
     setCardTermsOpen(true);
@@ -434,9 +517,15 @@ export default function DebtPlanPage() {
     (plan.scenario_b.months_sooner > 0 || plan.scenario_b.interest_saved >= 1);
   const showTransferRoutes = (plan?.refinance_options?.length ?? 0) > 0;
 
+  const showAgency = plan != null && (
+    (plan.extra_to_clear != null) ||
+    ((plan.whats_working?.length ?? 0) > 0)
+  );
+
   // Sequential rise-in indices over visible sections (computed once, stable)
   let riseIdx = 1; // verdict always 1
   const riseVerdictIdx = riseIdx++;
+  const riseAgencyIdx = showAgency ? riseIdx++ : 0;
   const riseMissingRatesIdx = showMissingRates ? riseIdx++ : 0;
   const riseTwoTrajectoryIdx = showTwoTrajectory ? riseIdx++ : 0;
   const riseCardRowsIdx = riseIdx++;
@@ -444,6 +533,9 @@ export default function DebtPlanPage() {
 
   return (
     <div className="min-h-dvh pb-36 lg:pb-8">
+      {burndownActive && plan?.projection && (
+        <BurndownBackground projection={plan.projection} />
+      )}
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Back nav */}
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
@@ -474,6 +566,13 @@ export default function DebtPlanPage() {
             <div className="rise-in" style={{ "--rise-index": riseVerdictIdx } as React.CSSProperties}>
               <VerdictBlock plan={plan} hide={hideNetWorth} />
             </div>
+
+            {/* Agency block — "what it would take" */}
+            {showAgency && (
+              <div className="rise-in" style={{ "--rise-index": riseAgencyIdx } as React.CSSProperties}>
+                <AgencyBlock plan={plan} hide={hideNetWorth} />
+              </div>
+            )}
 
             {/* Missing-rates callout */}
             {showMissingRates && (
