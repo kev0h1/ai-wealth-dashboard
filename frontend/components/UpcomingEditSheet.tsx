@@ -18,6 +18,7 @@ interface UpcomingEditSheetProps {
     name: string;
     amount: number;
     expected_date: string;
+    original_date?: string | null;
     type: "bill" | "income";
     category?: string | null;
     edited?: boolean;
@@ -48,6 +49,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
 
   // Destructive confirm two-step state
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [skipping, setSkipping] = useState(false);
 
   // Repeats section state
   const [rulesExpanded, setRulesExpanded] = useState(false);
@@ -111,6 +113,19 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
       onClose();
     } catch {
       setError("Couldn't reset — please try again");
+    }
+  }
+
+  async function handleSkip() {
+    setSkipping(true);
+    try {
+      await api.skipUpcomingOccurrence(item.name, item.original_date ?? item.expected_date);
+      onSaved();
+      onClose();
+    } catch {
+      // stay open on failure, re-enable button
+    } finally {
+      setSkipping(false);
     }
   }
 
@@ -388,6 +403,18 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
                     className="w-full min-h-[48px] rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold active:scale-95 transition-transform focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
                   >
                     Reset to prediction
+                  </button>
+                )}
+
+                {/* Skip this month — only for bills, not income */}
+                {item.type !== "income" && (
+                  <button
+                    type="button"
+                    disabled={skipping}
+                    onClick={handleSkip}
+                    className="w-full min-h-[44px] rounded-xl text-slate-500 dark:text-slate-400 text-sm font-semibold bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+                  >
+                    {skipping ? "Skipping…" : "Skip this month"}
                   </button>
                 )}
 

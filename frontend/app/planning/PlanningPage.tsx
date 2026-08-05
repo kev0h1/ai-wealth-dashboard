@@ -244,6 +244,7 @@ export default function PlanningPage() {
     name: string;
     amount: number;
     expected_date: string;
+    original_date?: string | null;
     type: "bill" | "income";
     category?: string | null;
     edited?: boolean;
@@ -515,7 +516,7 @@ export default function PlanningPage() {
                   if (isPlanned) {
                     setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
                   } else {
-                    setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+                    setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
                   }
                 }}
                 role="button"
@@ -526,7 +527,7 @@ export default function PlanningPage() {
                     if (isPlanned) {
                       setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
                     } else {
-                      setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+                      setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
                     }
                   }
                 }}
