@@ -23,7 +23,7 @@ from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORI
 from app.routers import (
     auth, truelayer, yapily, mono, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
-    analytics, budget, debt, chat, statements, investments, challenges,
+    analytics, budget, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
@@ -52,7 +52,7 @@ for router in [
     auth.router, truelayer.router, yapily.router, mono.router,
     accounts_router.router, transactions_router.router, preferences.router,
     push.router, categories.router, analytics.router, budget.router,
-    debt.router, chat.router, statements.router, investments.router,
+    chat.router, statements.router, investments.router,
     challenges.router, savings_insights.router, savings.router, admin.router,
     manual_accounts.router, profile.router, money_basics.router,
     fuel.router, baskets.router, subscription_router.router, transport.router,

@@ -18,7 +18,6 @@ import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
 import ThisMonthStrip from "@/components/ThisMonthStrip";
-import MoneyAdvisorChat from "@/components/MoneyAdvisorChat";
 import { PinnedWidgetCard } from "@/components/SpendTrends";
 import { useColours } from "@/components/ColourProvider";
 import { isHomeCurrency } from "@/lib/currency";
@@ -480,14 +479,6 @@ export default function HomePage() {
           account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
         />
       )}
-
-      {/* Penny FAB — persistent AI adviser entry point on Home */}
-      <MoneyAdvisorChat
-        insights={null}
-        sym={region === "Kenya" ? "KES " : "£"}
-        firstName={firstName || "there"}
-        page="home"
-      />
 
       <BottomNav />
     </div>

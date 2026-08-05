@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
 from app.db.collections import (
-    debt_plans_col, savings_goals_col, budgets_col, preferences_col,
+    accounts_col, debt_plans_col, savings_goals_col, budgets_col, preferences_col,
     transactions_col, yapily_transactions_col,
 )
 from app.services.region import get_user_region
@@ -20,6 +20,12 @@ from app.services.pay_period import get_pay_period_for_date
 router = APIRouter(tags=["goals"])
 
 _NON_BUDGET = {"Transfer", "Savings", "Debt", "Income"}
+
+
+async def _current_total_debt(uid: str) -> float:
+    accounts = await accounts_col.find({"user_id": uid}).to_list(None)
+    cc = [a for a in accounts if a.get("type") == "credit_card" and a.get("balance", 0) < 0]
+    return round(sum(abs(a["balance"]) for a in cc), 2)
 
 
 async def budget_period_spend(uid: str, start: _date, end: _date) -> dict[str, float]:
@@ -52,7 +58,6 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
     # Debt — the plan's end state is the goal: balance to zero by the target date
     plan = await debt_plans_col.find_one({"_id": uid})
     if plan:
-        from app.routers.debt import _current_total_debt
         current = await _current_total_debt(uid)
         baseline = float(plan.get("debt_at_creation") or 0)
         pct = 100 if current <= 0 else (

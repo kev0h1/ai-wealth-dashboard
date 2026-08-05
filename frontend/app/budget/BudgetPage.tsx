@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { useSearchParams } from "next/navigation";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { MessageCircle, X, Send, Loader2, ChevronLeft, ChevronRight, Sparkles, RotateCcw } from "lucide-react";
-import { BRAND, BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import { BRAND, BRAND_GRADIENT } from "@/lib/brand";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";

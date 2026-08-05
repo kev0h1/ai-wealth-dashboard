@@ -299,7 +299,7 @@ function SpeechBlock({
   if (state === "tight" && hasCardDebt) {
     ctaNode = (
       <button
-        onClick={() => router.push("/debt")}
+        onClick={() => router.push("/debt-plan")}
         className="text-indigo-600 dark:text-indigo-400 font-medium active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
         Want me to show your cards? ›

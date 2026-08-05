@@ -84,7 +84,7 @@ export default function GoalsStrip() {
             No goals set yet. Start tracking debt payoff, a safety net, or your budget pace.
           </p>
           <button
-            onClick={() => router.push("/debt")}
+            onClick={() => router.push("/debt-plan")}
             className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150"
           >
             Start with debt payoff

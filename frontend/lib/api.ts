@@ -391,29 +391,6 @@ export type TodayResponse = {
   items: CompanionItem[];
 };
 
-export type DebtPlanMilestone = {
-  id: string;
-  type: "payment" | "action";
-  text: string;
-  target_balance: number | null;
-  done: boolean;
-  done_at: string | null;
-  /* Live tracking for spend-cap action steps, derived from transactions */
-  live_category?: string;
-  live_target?: number;
-  live_spend?: number;
-};
-
-export type DebtPlan = {
-  target_months: number | null;
-  debt_at_creation: number | null;
-  created_at: string | null;
-  milestones: DebtPlanMilestone[];
-  done_count: number;
-  total_count: number;
-  current_debt: number;
-};
-
 export type SuggestedPlan = {
   mode?: "add" | "replace";
   kind?: "debt" | "savings";
@@ -1001,54 +978,8 @@ export const api = {
     get<Transaction[]>(`/transactions/${id}/similar?scope=${scope}`),
   syncAll: () => post<{ message: string }>("/accounts/sync", {}),
   autoCategorise: () => post<{ message: string }>("/transactions/auto-categorise", {}),
-  debtInsights: () => get<{
-    total_debt: number;
-    accounts: { account_id: string; name: string; provider: string; balance: number; apr: number | null; monthly_interest: number }[];
-    monthly_income: number;
-    monthly_spending: number;
-    monthly_surplus: number;
-    monthly_debt_payment: number;
-    payment_needed_12mo: number;
-    gap_to_12mo: number;
-    months_at_current_rate: number;
-    weighted_apr: number;
-    category_spending: Record<string, number>;
-    recommendations: { category: string; monthly_spend: number; cut_25pct_saves: number; cut_50pct_saves: number }[];
-    recent_discretionary: { id: string; description: string; amount: number; date: string; category: string }[];
-  }>("/debt/insights"),
-  debtChat: (messages: { role: string; content: string }[], session_id?: string, page_context?: string) =>
-    post<{ reply: string; session_id?: string; suggested_plan?: SuggestedPlan | null }>("/debt/chat", { messages, session_id, page_context }),
   taxChat: (messages: { role: string; content: string }[]) =>
     post<{ reply: string }>("/chat/tax", { messages }),
-  getDebtPlan: () => get<{ plan: DebtPlan | null }>("/debt/plan"),
-  saveDebtPlan: (plan: SuggestedPlan) =>
-    fetch(`${API_BASE}/debt/plan`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(plan),
-    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
-  addDebtPlanMilestones: (plan: SuggestedPlan) =>
-    fetch(`${API_BASE}/debt/plan/milestones`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(plan),
-    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null; added: number }>,
-  toggleDebtPlanStep: (stepId: string, done: boolean) =>
-    fetch(`${API_BASE}/debt/plan/step/${encodeURIComponent(stepId)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ done }),
-    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
-  deleteDebtPlanStep: (stepId: string) =>
-    fetch(`${API_BASE}/debt/plan/step/${encodeURIComponent(stepId)}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
-  deleteDebtPlan: () =>
-    fetch(`${API_BASE}/debt/plan`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ plan: DebtPlan | null }>,
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
   saveSavingsGoal: (goal: SavingsGoalInput) =>
@@ -1464,26 +1395,6 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
   confirmPayday: () => post<ConfirmPaydayResponse>("/income/confirm-payday", {}),
-
-  debtBurndown: (targetMonths?: number, strategy?: string, startDate?: string) => get<{
-    burndown: {
-      month: string;
-      actual: number | null;
-      target: number | null;
-      projected: number | null;
-    }[];
-    current_debt: number;
-    target_months: number;
-    target_date: string;
-    monthly_payment_needed: number;
-    currency: string;
-    total_interest_target: number;
-    total_interest_projected: number;
-    weighted_apr: number;
-    strategy: string;
-    has_rates: boolean;
-    start_date: string;
-  }>(`/debt/burndown?${new URLSearchParams({ ...(targetMonths !== undefined ? { target_months: String(targetMonths) } : {}), ...(strategy ? { strategy } : {}), ...(startDate ? { start_date: startDate } : {}) }).toString()}`),
 
   getToday: () => get<TodayResponse>("/today"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),

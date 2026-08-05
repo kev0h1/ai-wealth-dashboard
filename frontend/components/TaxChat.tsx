@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send, Loader2, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import ChatMarkdown from "@/components/ChatMarkdown";
-import { BRAND_GRADIENT } from "@/components/MoneyAdvisorChat";
+import { BRAND_GRADIENT } from "@/lib/brand";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 
 type Msg = { role: "user" | "assistant"; content: string };

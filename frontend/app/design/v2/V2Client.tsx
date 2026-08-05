@@ -339,7 +339,7 @@ export default function V2Client() {
                 )}
                 {showDebtCTA && (
                   <button
-                    onClick={() => router.push("/debt")}
+                    onClick={() => router.push("/debt-plan")}
                     className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                   >
                     See your cards ›

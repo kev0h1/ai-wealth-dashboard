@@ -176,7 +176,7 @@ export default function V1Client() {
     // Single quiet CTA
     if (state === "tight" && (card_debt ?? 0) >= 1000) {
       verdictCTALabel = "See your cards ›";
-      verdictCTAHref = "/debt";
+      verdictCTAHref = "/debt-plan";
     } else if (state === "short") {
       verdictCTALabel = "See what's due ›";
       verdictCTAHref = "/planning";
