@@ -795,6 +795,9 @@ export type DebtPlanViewCard = {
     promo_whole_balance_assumed: boolean;
     assumptions: string[];
   };
+  near_term_source: "upcoming bills" | null;
+  mapping_ambiguous: boolean;
+  near_term_bills: { name: string; amount: number; next_date: string; confidence: number; matched: number; occurrences: number }[];
 };
 
 export type DebtPlanScenarioB =

@@ -291,11 +291,11 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     if (promoOn === true) {
       for (const r of nonBlankRows) {
         if (r.kind == null) {
-          setError("Pick what each promo covers — purchases, balance transfers, or both.");
+          setError("Pick what each deal covers — purchases, balance transfers, or both.");
           return;
         }
         if (r.month == null || r.year == null) {
-          setError("Pick the month and year each promo ends.");
+          setError("Pick the month and year each deal ends.");
           return;
         }
         const isoEnd = endOfMonthIso(r.year, r.month - 1);
@@ -308,7 +308,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         if (r.rate.trim()) {
           const rv = parseFloat(r.rate);
           if (!isFinite(rv) || rv < 0 || rv > 30) {
-            setError("Promo rates are small — enter 0 to 30.");
+            setError("Deal rates are small — enter 0 to 30.");
             return;
           }
         }
@@ -319,7 +319,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         if (r.kind != null && r.month != null && r.year != null) {
           const key = `${r.kind}|${r.year}-${r.month}`;
           if (seen.has(key)) {
-            setError("Two promos of the same kind need different end dates.");
+            setError("Two deals of the same kind need different end dates.");
             return;
           }
           seen.add(key);
@@ -423,6 +423,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const rateInput = (
     <div>
       <FieldLabel>What&apos;s the rate on it?</FieldLabel>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">The card&apos;s standard rate — what it charges once no deal covers the balance.</p>
       <div className="relative max-w-[160px]">
         <input
           type="text"
@@ -458,8 +459,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const promosSection = (
     <div className="space-y-3">
       <div>
-        <FieldLabel>On a promo rate?</FieldLabel>
-        <div role="radiogroup" aria-label="On a promo rate?" className="grid grid-cols-2 gap-2">
+        <FieldLabel>Is any of this {balanceStr} on a 0% deal?</FieldLabel>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Balance transfers you&apos;ve already made count here — add each one and when it ends.</p>
+        <div role="radiogroup" aria-label="Is any of this balance on a 0% deal?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={promoOn === true}
             onClick={() => {
@@ -494,11 +496,11 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
               <div key={i} className={i > 0 ? "pt-3 border-t border-slate-100 dark:border-slate-700/60" : ""}>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0">
-                    Promo {i + 1}
+                    Deal {i + 1}
                   </p>
                   <button
                     type="button"
-                    aria-label={`Remove promo ${i + 1}`}
+                    aria-label={`Remove deal ${i + 1}`}
                     onClick={() => {
                       const next = promoRows.filter((_, j) => j !== i);
                       setPromoRows(next.length === 0 ? [{ kind: null, month: null, year: null, rate: "" }] : next);
@@ -511,7 +513,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 <div className="space-y-3">
                   <div>
                     <FieldLabel>On what?</FieldLabel>
-                    <div role="radiogroup" aria-label={`What promo ${i + 1} covers`} className="grid grid-cols-3 gap-2">
+                    <div role="radiogroup" aria-label={`What deal ${i + 1} covers`} className="grid grid-cols-3 gap-2">
                       {PROMO_KINDS.map(k => (
                         <Chip
                           key={k.value}
@@ -530,7 +532,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   </div>
                   <div>
                     <FieldLabel>Until</FieldLabel>
-                    <div role="radiogroup" aria-label={`Month promo ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
+                    <div role="radiogroup" aria-label={`Month deal ${i + 1} ends`} className="grid grid-cols-4 gap-2 mb-2">
                       {MONTHS.map((m, mi) => (
                         <Chip
                           key={m}
@@ -547,7 +549,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                         </Chip>
                       ))}
                     </div>
-                    <div role="radiogroup" aria-label={`Year promo ${i + 1} ends`} className="grid grid-cols-4 gap-2">
+                    <div role="radiogroup" aria-label={`Year deal ${i + 1} ends`} className="grid grid-cols-4 gap-2">
                       {rowYearOptions.map(y => (
                         <Chip
                           key={y}
@@ -566,7 +568,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     </div>
                   </div>
                   <div>
-                    <FieldLabel>Promo rate</FieldLabel>
+                    <FieldLabel>Deal rate</FieldLabel>
                     <div className="relative max-w-[120px]">
                       <input
                         type="text"
@@ -578,7 +580,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                           setPromoRows(next);
                         }}
                         placeholder="0"
-                        aria-label={`Promo rate for promo ${i + 1}, percent`}
+                        aria-label={`Rate for deal ${i + 1}, percent`}
                         className="w-full min-h-[48px] pl-3 pr-9 rounded-xl bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 text-sm tabular-nums"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none">
@@ -596,7 +598,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
               onClick={() => setPromoRows([...promoRows, { kind: null, month: null, year: null, rate: "" }])}
               className="min-h-[44px] inline-flex items-center text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
             >
-              + Add another promo
+              + Add another deal
             </button>
           )}
         </div>
@@ -607,8 +609,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const btSection = (
     <div className="space-y-3">
       <div>
-        <FieldLabel>Any balance-transfer offers on this card?</FieldLabel>
-        <div role="radiogroup" aria-label="Balance-transfer offers on this card" className="grid grid-cols-2 gap-2">
+        <FieldLabel>Any 0% offers you haven&apos;t used yet?</FieldLabel>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Offers the card is dangling — not ones you&apos;ve already taken.</p>
+        <div role="radiogroup" aria-label="Any 0% offers you haven't used yet?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={btOffer === true}
             onClick={() => {

@@ -463,7 +463,7 @@ async def get_debt_plan_view(uid: str) -> dict:
                         "HTTP-Referer": APP_URL,
                     },
                     json={
-                        "model": "anthropic/claude-haiku-4-5",
+                        "model": "anthropic/claude-sonnet-4-6",
                         "max_tokens": 400,
                         "temperature": 0.2,
                         "messages": [

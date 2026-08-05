@@ -714,6 +714,13 @@ function CardRows({
                 <p className="text-[13px] text-slate-600 dark:text-slate-300">{projectedFlat}</p>
               )}
 
+              {/* Muted note: payment already tracked in upcoming bills */}
+              {card.near_term_source === "upcoming bills" && (
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Its usual payment is already in your upcoming bills
+                </p>
+              )}
+
               {/* Line 4: payoff */}
               {card.payoff_month && (
                 <p className="text-[13px] text-slate-600 dark:text-slate-300">

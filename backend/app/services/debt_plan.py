@@ -33,9 +33,10 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from app.db.collections import accounts_col, card_terms_col, preferences_col, transactions_col
+from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col
 from app.services import response_cache
 from app.services.card_rates import is_credit_card_account
+from app.services.categorisation import series_key
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.routers.card_terms import _promos_from_legacy
 
@@ -54,6 +55,12 @@ PROJECTION_TAIL_MONTHS = 6
 WHATS_WORKING_HORIZON_MONTHS = 36
 EXTRA_CLEAR_HORIZON_MONTHS = 60
 EXTRA_ROUND_GBP = 5
+
+# ── Predicted-bill-to-card-payment mapping constants ─────────────────────────
+PREDICTED_BILL_WINDOW_DAYS = 35      # same horizon the cashflow engine trusts for upcoming bills
+PREDICTED_MATCH_LOOKBACK_DAYS = 120  # history window for bill→card credit matching
+PREDICTED_MATCH_MIN_OCCURRENCES = 2  # matched occurrences required to trust a mapping
+PREDICTED_MATCH_DATE_TOL_DAYS = 5    # bill debit vs card credit date tolerance
 
 _CACHE_NAME = "debt_plan"
 
@@ -312,11 +319,180 @@ def _compute_rate_schedule(
     return segments, standard_apr
 
 
+async def _map_upcoming_bills_to_cards(
+    uid: str,
+    today: date,
+    cc_accounts: list[dict],
+    txns_by_account: dict[str, list[dict]],
+) -> tuple[dict, dict, set]:
+    """Map recurring bill patterns (from cashflow cache) to credit-card accounts.
+
+    Returns:
+        predicted_by_card: {card_account_id: {month_index: total_amount}}
+        bills_by_card:     {card_account_id: [bill_info_dict, ...]}
+        ambiguous_card_ids: set of card ids where a bill matched 2+ cards (excluded from either)
+    """
+    predicted_by_card: dict[str, dict[int, float]] = {}
+    bills_by_card: dict[str, list[dict]] = {}
+    ambiguous_card_ids: set[str] = set()
+
+    try:
+        cache_doc = await cashflow_cache_col.find_one({"_id": uid})
+        if not cache_doc:
+            return predicted_by_card, bills_by_card, ambiguous_card_ids
+
+        recurring_spend = cache_doc.get("recurring_spend") or []
+        if not recurring_spend:
+            return predicted_by_card, bills_by_card, ambiguous_card_ids
+
+        cc_account_ids = {str(a["_id"]) for a in cc_accounts}
+
+        # Candidate patterns: account_id present AND not a credit-card account
+        # (bills charged directly on a card are card spending, not card payments)
+        candidate_patterns = [
+            p for p in recurring_spend
+            if p.get("account_id") and p["account_id"] not in cc_account_ids
+        ]
+        if not candidate_patterns:
+            return predicted_by_card, bills_by_card, ambiguous_card_ids
+
+        source_ids = list({p["account_id"] for p in candidate_patterns})
+        lookback_cutoff = today - timedelta(days=PREDICTED_MATCH_LOOKBACK_DAYS)
+        # MongoDB date fields may be stored as datetime — use datetime for query
+        lookback_cutoff_dt = datetime(lookback_cutoff.year, lookback_cutoff.month, lookback_cutoff.day, tzinfo=timezone.utc)
+
+        # Fetch source-account debit history in one query
+        source_debits_raw = await transactions_col.find(
+            {
+                "account_id": {"$in": source_ids},
+                "transaction_type": "debit",
+                "date": {"$gte": lookback_cutoff_dt},
+            },
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1},
+        ).to_list(None)
+
+        # Group source debits by (account_id, series_key)
+        debit_groups: dict[tuple[str, str], list[dict]] = {}
+        for t in source_debits_raw:
+            t_date = _to_date(t["date"])
+            key = (t["account_id"], series_key(t))
+            debit_groups.setdefault(key, []).append({"amount": float(t["amount"]), "date": t_date})
+
+        # Pre-build card credit lists (credits only, within lookback) from txns_by_account
+        card_credits: dict[str, list[dict]] = {}
+        for acc in cc_accounts:
+            aid = str(acc["_id"])
+            card_credits[aid] = [
+                {"amount": float(t["amount"]), "date": _to_date(t["date"])}
+                for t in txns_by_account.get(aid, [])
+                if t.get("transaction_type") == "credit"
+                and _to_date(t["date"]) >= lookback_cutoff
+            ]
+
+        for pattern in candidate_patterns:
+            pat_account_id = pattern["account_id"]
+            pat_key = pattern["key"]
+            avg_amount = float(pattern.get("avg_amount") or 0.0)
+            avg_interval = float(pattern.get("avg_interval") or 30.0)
+            next_date_str = (pattern.get("next_date") or "")[:10]
+
+            if avg_amount <= 0 or not next_date_str:
+                continue
+
+            # Historical occurrences of this bill on the source account
+            occurrences = debit_groups.get((pat_account_id, pat_key), [])
+            n_total = len(occurrences)
+            if n_total == 0:
+                continue
+
+            # For each credit-card account, count how many occurrences have a
+            # matching credit (amount within tolerance, date within tolerance).
+            # Mark credits as used so one credit closes at most one occurrence.
+            card_match_counts: dict[str, int] = {}
+            for card_aid in cc_account_ids:
+                credits_pool = list(card_credits.get(card_aid, []))  # copy to avoid mutation
+                matched = 0
+                for occ in occurrences:
+                    occ_amt = occ["amount"]
+                    occ_date = occ["date"]
+                    tol_amt = max(1.0, 0.01 * occ_amt)
+                    for ci, cr in enumerate(credits_pool):
+                        if (
+                            abs(cr["amount"] - occ_amt) <= tol_amt
+                            and abs((cr["date"] - occ_date).days) <= PREDICTED_MATCH_DATE_TOL_DAYS
+                        ):
+                            matched += 1
+                            credits_pool.pop(ci)  # mark used
+                            break
+                if matched >= PREDICTED_MATCH_MIN_OCCURRENCES:
+                    card_match_counts[card_aid] = matched
+
+            qualifying_cards = [aid for aid, cnt in card_match_counts.items()]
+            if len(qualifying_cards) == 0:
+                continue
+            elif len(qualifying_cards) > 1:
+                # Ambiguous — map to none, mark all as ambiguous
+                for aid in qualifying_cards:
+                    ambiguous_card_ids.add(aid)
+                continue
+            else:
+                # Exactly one card matched
+                card_aid = qualifying_cards[0]
+                n_matched = card_match_counts[card_aid]
+                confidence = round(n_matched / n_total, 2)
+
+            # Project future occurrences into projection-month indices
+            try:
+                next_d = date.fromisoformat(next_date_str)
+            except (ValueError, TypeError):
+                continue
+
+            interval_days = max(2, round(avg_interval))
+            window_end = today + timedelta(days=PREDICTED_BILL_WINDOW_DAYS)
+
+            # Walk from next_date, collect occurrences within [today, window_end]
+            d = next_d
+            # If next_date is already past, step forward until we're >= today
+            while d < today:
+                d += timedelta(days=interval_days)
+
+            if card_aid not in predicted_by_card:
+                predicted_by_card[card_aid] = {}
+                bills_by_card[card_aid] = []
+
+            recorded_occurrence = False
+            cur_d = d
+            while cur_d <= window_end:
+                # Month index i: how many calendar months ahead is this date?
+                i = (cur_d.year * 12 + cur_d.month) - (today.year * 12 + today.month)
+                i = max(1, i)  # clamp to month 1 minimum (amortisation walk starts month 1)
+                predicted_by_card[card_aid][i] = predicted_by_card[card_aid].get(i, 0.0) + avg_amount
+                if not recorded_occurrence:
+                    # Record bill info once per pattern
+                    bills_by_card[card_aid].append({
+                        "name": pat_key,
+                        "amount": _r2(avg_amount),
+                        "next_date": cur_d.isoformat(),
+                        "confidence": confidence,
+                        "matched": n_matched,
+                        "occurrences": n_total,
+                    })
+                    recorded_occurrence = True
+                cur_d += timedelta(days=interval_days)
+
+    except Exception as exc:
+        log.warning("debt_plan: _map_upcoming_bills_to_cards failed: %s", exc)
+        return {}, {}, set()
+
+    return predicted_by_card, bills_by_card, ambiguous_card_ids
+
+
 def _amortise(
     initial_debt: float,
     monthly_movement: Optional[float],
     today: date,
     rate_schedule: list[dict],
+    predicted_by_month: Optional[dict[int, float]] = None,
 ) -> dict:
     """Monthly amortisation walk for a single card.
 
@@ -352,9 +528,13 @@ def _amortise(
             first_interest_month = _month_label(month_start)
             monthly_interest_at_first = _r2(interest)
 
+        # Use predicted bill amount when available; predicted payments apply even
+        # when the median is None/negative (a real direct debit still fires).
+        pay = predicted_by_month[i] if predicted_by_month and i in predicted_by_month else movement
+
         total_interest += interest
         interest_series.append(interest)
-        B = B - movement + interest
+        B = B - pay + interest
 
         if B <= 0:
             balance_series.append(0.0)
@@ -706,9 +886,14 @@ def _walk_with_extra(cards: list[dict], today: date, extra: float) -> tuple[bool
             rate = _rate_from_schedule(month_start, c.get("_projection_rate_schedule") or [])
             month_rates[aid] = rate
             interest = B * rate / 1200.0 if rate is not None else 0.0
-            own = c["movement"].get("monthly") or 0.0
-            if own < 0:
-                own = 0.0
+            # Use predicted bill amount when present, else median movement
+            pbm = c.get("_predicted_by_month") or {}
+            if pbm and i in pbm:
+                own = pbm[i]
+            else:
+                own = c["movement"].get("monthly") or 0.0
+                if own < 0:
+                    own = 0.0
             balances[aid] = max(0.0, B + interest - own)
 
         # Step 2: avalanche the extra pool with spillover
@@ -1086,6 +1271,15 @@ async def compute_debt_plan(uid: str) -> dict:
     for t in all_cc_txns:
         txns_by_account.setdefault(t["account_id"], []).append(t)
 
+    # ── Map upcoming recurring bills to card-payment credits ──────────────────
+    try:
+        predicted_by_card, bills_by_card, ambiguous_card_ids = await _map_upcoming_bills_to_cards(
+            uid, today, cc_accounts, txns_by_account
+        )
+    except Exception as _mapper_exc:
+        log.warning("debt_plan: bill mapper failed, degrading to median-only: %s", _mapper_exc)
+        predicted_by_card, bills_by_card, ambiguous_card_ids = {}, {}, set()
+
     # ── Per-card computation ──────────────────────────────────────────────────
     cards_out: list[dict] = []
     balance_series_by_card: dict[str, list[float]] = {}
@@ -1194,8 +1388,15 @@ async def compute_debt_plan(uid: str) -> dict:
             )
 
         # 3. Amortisation (only when there's debt)
+        pbm = predicted_by_card.get(aid)  # predicted payment amounts by month index
         if debt > 0:
-            proj = _amortise(debt, movement["monthly"], today, projection_rate_schedule)
+            proj = _amortise(
+                debt,
+                movement["monthly"],
+                today,
+                projection_rate_schedule,
+                predicted_by_month=pbm if pbm else None,
+            )
             balance_series_by_card[aid] = proj.get("balance_series", [])
         else:
             proj = {
@@ -1220,6 +1421,23 @@ async def compute_debt_plan(uid: str) -> dict:
         if terms_doc and terms_doc.get("status") == "confirmed":
             bt_offers = terms_doc.get("bt_offers") or []
 
+        # Near-term source: predicted bills or median
+        if pbm and debt > 0:
+            near_term_source = "upcoming bills"
+            near_term_bills = bills_by_card.get(aid, [])
+            flags["assumptions"].append(
+                "its usual payment is already in your upcoming bills — the projection's first month uses it"
+            )
+        else:
+            near_term_source = None
+            near_term_bills = []
+
+        mapping_ambiguous = aid in ambiguous_card_ids
+        if mapping_ambiguous:
+            flags["assumptions"].append(
+                "an upcoming card payment could belong to more than one card — it isn't counted for either"
+            )
+
         card: dict = {
             "account_id": aid,
             "name": card_name,
@@ -1241,12 +1459,17 @@ async def compute_debt_plan(uid: str) -> dict:
             "zero_interest_lines": zero_interest_lines,
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
+            "near_term_source": near_term_source,
+            "near_term_bills": near_term_bills,
+            "mapping_ambiguous": mapping_ambiguous,
             "flags": flags,
             # Internal fields (prefixed _) consumed by totals / scenario B / refinance
             "_standard_apr": standard_apr,
             "_bt_offers": bt_offers,
             "_interest_series": proj.get("interest_series", []),
             "_projection_rate_schedule": projection_rate_schedule,
+            # Predicted-by-month map used by _walk_with_extra for consistent extra_to_clear
+            "_predicted_by_month": pbm or {},
         }
         cards_out.append(card)
 
@@ -1351,6 +1574,7 @@ async def compute_debt_plan(uid: str) -> dict:
         c.pop("_bt_offers", None)
         c.pop("_interest_series", None)
         c.pop("_projection_rate_schedule", None)
+        c.pop("_predicted_by_month", None)
 
     return {
         "status": "ok",
