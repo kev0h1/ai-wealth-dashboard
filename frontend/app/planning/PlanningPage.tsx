@@ -17,8 +17,109 @@ import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 
+function isCliffSoon(until: string): boolean {
+  const y = parseInt(until.slice(0, 4), 10);
+  const m = parseInt(until.slice(5, 7), 10);
+  const lastDay = new Date(y, m, 0); // last day of that month
+  return (lastDay.getTime() - Date.now()) / 86_400_000 <= 60;
+}
+
+function fmtCliffMonth(ym: string): string {
+  const y = parseInt(ym.slice(0, 4), 10);
+  const m = parseInt(ym.slice(5, 7), 10);
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }); // e.g. "Sep 2026"
+}
+
+function DebtEntryCard({
+  view,
+  hide,
+  onTap,
+}: {
+  view: import("@/lib/api").DebtPlanView | null;
+  hide: boolean;
+  onTap: () => void;
+}) {
+  if (!view) return null;
+
+  const buckets = view.totals.buckets;
+  const carried = buckets?.carried_total ?? 0;
+  const float = buckets?.float_total ?? 0;
+
+  // Decide line 1 copy
+  let line1: string;
+  if (carried >= 1) {
+    line1 = hide ? "£•••• carried on 0% deals" : `£${Math.round(carried).toLocaleString("en-GB")} carried on 0% deals`;
+  } else if (float >= 1) {
+    line1 = hide ? "£•••• of monthly spending, cleared as you go" : `£${Math.round(float).toLocaleString("en-GB")} of monthly spending, cleared as you go`;
+  } else {
+    // No cards worth showing
+    return null;
+  }
+
+  // Find the next cliff across all cards (earliest promo end within a year)
+  const now = Date.now();
+  const ONE_YEAR_MS = 365 * 86_400_000;
+  type Cliff = { until: string; name: string };
+  let nextCliff: Cliff | null = null;
+  for (const card of view.cards) {
+    const seg = card.rate_schedule[0];
+    if (!seg || seg.source !== "promo" || !seg.until) continue;
+    const y = parseInt(seg.until.slice(0, 4), 10);
+    const m = parseInt(seg.until.slice(5, 7), 10);
+    const lastDay = new Date(y, m, 0).getTime();
+    if (lastDay - now > ONE_YEAR_MS) continue; // beyond a year, skip
+    if (!nextCliff) {
+      nextCliff = { until: seg.until, name: card.name };
+    } else {
+      const existY = parseInt(nextCliff.until.slice(0, 4), 10);
+      const existM = parseInt(nextCliff.until.slice(5, 7), 10);
+      const existLastDay = new Date(existY, existM, 0).getTime();
+      if (lastDay < existLastDay) nextCliff = { until: seg.until, name: card.name };
+    }
+  }
+
+  // Line 2
+  let line2: React.ReactNode = null;
+  if (nextCliff) {
+    const soon = isCliffSoon(nextCliff.until);
+    const dateStr = fmtCliffMonth(nextCliff.until);
+    line2 = (
+      <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+        Next 0% ends{" "}
+        <span className={soon ? "text-amber-600 dark:text-amber-400 font-semibold" : ""}>
+          {dateStr}
+        </span>
+        {" "}— {nextCliff.name}
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
+        YOUR CARDS
+      </p>
+      <button
+        onClick={onTap}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
+        className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        aria-label="View your debt plan"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+            {line1}
+          </p>
+          {line2}
+        </div>
+        <span className="text-slate-400 dark:text-slate-500 text-lg flex-shrink-0" aria-hidden="true">›</span>
+      </button>
+    </div>
+  );
+}
+
 export default function PlanningPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, region, hideNetWorth } = usePreferences();
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
@@ -27,6 +128,7 @@ export default function PlanningPage() {
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [debtView, setDebtView] = useState<import("@/lib/api").DebtPlanView | null>(null);
 
   // Derive current period (always current — no prev/next navigation)
   const configKey = JSON.stringify(payPeriodConfig);
@@ -50,6 +152,7 @@ export default function PlanningPage() {
   useEffect(() => {
     api.accounts().catch(() => [] as Account[]).then(accs => setAccounts(accs));
     api.cashflow().then(setCashflow).catch(() => {});
+    api.getDebtPlanView().then(setDebtView).catch(() => {});
   }, []);
 
   // Pay period deep link
@@ -300,6 +403,7 @@ export default function PlanningPage() {
               >
                 + Plan a one-off
               </button>
+              <DebtEntryCard view={debtView} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
             </div>
           );
         }
@@ -519,6 +623,8 @@ export default function PlanningPage() {
             >
               + Plan a one-off
             </button>
+
+            <DebtEntryCard view={debtView} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
 
             {groups.length > 0 && (
               <div className="space-y-3">
