@@ -450,7 +450,9 @@ export default function PlanningPage() {
 
         function renderRow(item: typeof items[0]) {
           const isPlanned = item.type === "bill" && item.planned;
-          const flagged = !isPlanned && item.type === "bill"
+          // Risk doesn't care who authored the bill — planned rows flag the
+          // same as predicted ones when their account can't cover them.
+          const flagged = item.type === "bill"
             ? atRiskBills.some(r => r.name === item.name && r.expected_date === item.expected_date)
             : false;
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
