@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Settings2, AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { api, Account, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -15,7 +15,7 @@ import Spinner from "@/components/Spinner";
 import UpcomingEditSheet from "@/components/UpcomingEditSheet";
 import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
-import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
+import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 
 function isCliffSoon(until: string): boolean {
   const y = parseInt(until.slice(0, 4), 10);
@@ -46,13 +46,9 @@ function DebtEntryCard({
   const carried = buckets?.carried_total ?? 0;
   const float = buckets?.float_total ?? 0;
 
-  // Decide line 1 copy
-  let line1: string;
-  if (carried >= 1) {
-    line1 = hide ? "£•••• carried on 0% deals" : `£${Math.round(carried).toLocaleString("en-GB")} carried on 0% deals`;
-  } else if (float >= 1) {
-    line1 = hide ? "£•••• of monthly spending, cleared as you go" : `£${Math.round(float).toLocaleString("en-GB")} of monthly spending, cleared as you go`;
-  } else {
+  // Decide line 1 copy — calm, no figures (founder direction)
+  const line1 = "Card plan";
+  if (carried < 1 && float < 1) {
     // No cards worth showing
     return null;
   }
@@ -644,16 +640,6 @@ export default function PlanningPage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">PLANNING</p>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">What&apos;s coming</h1>
         </div>
-        {/* Period context card */}
-        <div className="glass-card rounded-2xl p-3">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 text-center">{formatPeriodLocal(periodStart, periodEnd)}</p>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 text-center">Current period</p>
-          <button onClick={() => setSettingsOpen(true)} className="mt-2 flex items-center gap-1.5 mx-auto text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors text-xs">
-            <Settings2 size={12} />
-            <span>Pay period settings</span>
-          </button>
-        </div>
-
         {/* Account shortfall callout */}
         {accountShortfalls.length > 0 && (
           <>
