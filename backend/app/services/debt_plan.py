@@ -62,6 +62,14 @@ PREDICTED_MATCH_LOOKBACK_DAYS = 120  # history window for bill→card credit mat
 PREDICTED_MATCH_MIN_OCCURRENCES = 2  # matched occurrences required to trust a mapping
 PREDICTED_MATCH_DATE_TOL_DAYS = 5    # bill debit vs card credit date tolerance
 
+CYCLE_LAG_DAYS = 35            # one statement cycle — silence about interest only counts once a balance has aged past this
+CLEAR_MATCH_TOL_ABS = 25.0     # £ tolerance for payment ≈ prior-cycle spend
+CLEAR_MATCH_TOL_PCT = 0.15     # relative tolerance for payment ≈ prior-cycle spend
+CLEAR_MATCH_MIN_CYCLES = 2     # matching cycles required to call a card cleared-monthly
+MIN_PAY_RATIO_LO = 0.008       # minimum-payment pattern: credits/balance lower bound (~0.8%)
+MIN_PAY_RATIO_HI = 0.03        # upper bound (~3%)
+MIN_PAY_MIN_PERIODS = 2        # periods showing the pattern required
+
 _CACHE_NAME = "debt_plan"
 
 # Regex to parse window length from BT offer notes
@@ -509,6 +517,7 @@ def _amortise(
     total_interest = 0.0
     first_interest_month: Optional[str] = None
     monthly_interest_at_first: Optional[float] = None
+    balance_at_first_interest: Optional[float] = None
     payoff_month: Optional[str] = None
     months_to_payoff: Optional[int] = None
     balance_series: list[float] = []
@@ -527,6 +536,7 @@ def _amortise(
         if interest > 0.005 and first_interest_month is None:
             first_interest_month = _month_label(month_start)
             monthly_interest_at_first = _r2(interest)
+            balance_at_first_interest = _r2(B)  # B before interest/pay applied
 
         # Use predicted bill amount when available; predicted payments apply even
         # when the median is None/negative (a real direct debit still fires).
@@ -550,6 +560,7 @@ def _amortise(
         "total_interest": _r2(total_interest),
         "first_interest_month": first_interest_month,
         "monthly_interest_at_first": monthly_interest_at_first,
+        "balance_at_first_interest": balance_at_first_interest,
         "balance_series": balance_series,
         "interest_series": interest_series,
     }
@@ -993,6 +1004,7 @@ def _compute_history(
     all_cc_txns: list[dict],
     txns_by_account: dict[str, list[dict]],
     cc_accounts: list[dict],
+    float_account_ids: set = None,
 ) -> dict:
     """Reconstruct the last 12 completed calendar month-ends.
 
@@ -1070,6 +1082,7 @@ def _compute_history(
         return {
             "points": [],
             "trend_3m": 0.0,
+            "trend_3m_all": 0.0,
             "rising": False,
             "assumptions": ["no card transaction history found — debt history cannot be shown"],
         }
@@ -1118,7 +1131,9 @@ def _compute_history(
     A_end_raw = month_ends[-4] if len(month_ends) >= 4 else month_ends[0]
 
     clamped_card_names: list[str] = []
-    trend_deltas: list[float] = []
+    all_trend_deltas: list[float] = []
+    carried_trend_deltas: list[float] = []
+    _float_ids = float_account_ids or set()
 
     for acc in cc_accounts:
         aid = str(acc["_id"])
@@ -1158,7 +1173,9 @@ def _compute_history(
         debt_at_L = _debt_at_m(L_end)
         debt_at_a = _debt_at_m(a_end)
         delta = debt_at_L - debt_at_a
-        trend_deltas.append(delta)
+        all_trend_deltas.append(delta)
+        if aid not in _float_ids:
+            carried_trend_deltas.append(delta)
 
         if clamped:
             card_name = (
@@ -1167,7 +1184,8 @@ def _compute_history(
             month_str = a_end.strftime("%b %Y")
             clamped_card_names.append(f"{card_name} from {month_str}")
 
-    trend_3m = _r2(sum(trend_deltas))
+    trend_3m_all = _r2(sum(all_trend_deltas))
+    trend_3m = _r2(sum(carried_trend_deltas))
     rising = trend_3m > HISTORY_RISING_EPS
 
     for clamped_str in clamped_card_names:
@@ -1175,9 +1193,13 @@ def _compute_history(
             f"3-month trend counts {clamped_str}, when its history begins"
         )
 
+    if _float_ids:
+        assumptions.append("the 3-month trend counts carried cards only — monthly-cleared spending isn't debt")
+
     return {
         "points": points,
         "trend_3m": trend_3m,
+        "trend_3m_all": trend_3m_all,
         "rising": rising,
         "assumptions": assumptions,
     }
@@ -1230,6 +1252,124 @@ def _compute_observed_interest(today: date, txns: list[dict]) -> dict:
         "paying_interest": paying_interest,
         "zero_interest_lines": zero_lines,
     }
+
+
+def _classify_card(
+    debt: float,
+    txns: list[dict],
+    movement: dict,
+    pbm: Optional[dict],
+    current_segment_source: Optional[str],
+    paying_interest: bool,
+    interest_observed_monthly: float,
+    zero_interest_lines: int,
+    has_min_history: bool,
+    usage: Optional[str],
+    today,
+) -> tuple:
+    """Classify a card as cleared_monthly / carried_zero / carried_interest / unclear.
+    Returns (classification: str|None, evidence: list[str], usage_conflict: bool).
+    """
+    from datetime import timedelta
+
+    # Rule 1: no debt
+    if debt <= 0:
+        return (None, [], False)
+
+    # Rule 2: paying interest
+    if paying_interest:
+        usage_conflict = usage == "clear_monthly"
+        return ("carried_interest", [f"interest charges observed — about £{interest_observed_monthly}/month"], usage_conflict)
+
+    # Aged-balance reconstruction (for silence_is_evidence)
+    cutoff = today - timedelta(days=CYCLE_LAG_DAYS)
+    after_credits_since_cutoff = sum(
+        t["amount"] for t in txns
+        if t.get("transaction_type") == "credit" and _to_date(t["date"]) > cutoff
+    )
+    after_debits_since_cutoff = sum(
+        t["amount"] for t in txns
+        if t.get("transaction_type") == "debit" and _to_date(t["date"]) > cutoff
+    )
+    aged_debt = max(0.0, debt + after_credits_since_cutoff - after_debits_since_cutoff)
+
+    silence_is_evidence = (
+        (not paying_interest)
+        and has_min_history
+        and (zero_interest_lines > 0 or aged_debt >= MATERIAL_BALANCE)
+    )
+
+    # Rule 3: cleared_monthly
+    if not paying_interest and has_min_history:
+        # 3a: pbm covers balance
+        if pbm is not None and len(pbm) > 0 and max(pbm.values()) >= debt:
+            max_pbm = max(pbm.values())
+            return (
+                "cleared_monthly",
+                [f"no interest lines · its mapped upcoming payment £{max_pbm:.2f} covers the whole £{debt:.2f} balance"],
+                False,
+            )
+        # 3b: payment-matches-prior-spend pattern
+        per_period = (movement.get("per_period") or [])
+        n_matching = 0
+        n_pairs = 0
+        for i in range(len(per_period) - 1):
+            credits = per_period[i].get("credits", 0.0)
+            prev_debits = per_period[i + 1].get("debits", 0.0)
+            if prev_debits <= 0:
+                continue
+            n_pairs += 1
+            tol = max(CLEAR_MATCH_TOL_ABS, CLEAR_MATCH_TOL_PCT * prev_debits)
+            if abs(credits - prev_debits) <= tol:
+                n_matching += 1
+        if n_matching >= CLEAR_MATCH_MIN_CYCLES:
+            return (
+                "cleared_monthly",
+                [f"no interest lines · payments match the previous cycle's spending in {n_matching} of {n_pairs} cycles"],
+                False,
+            )
+
+    # Rule 4: carried_zero
+    if not paying_interest:
+        # 4a: promo segment
+        if current_segment_source == "promo":
+            return (
+                "carried_zero",
+                ["no interest lines · a recorded 0% deal covers this balance"],
+                False,
+            )
+        # 4b: minimum-payment pattern
+        per_period = (movement.get("per_period") or [])
+        min_pay_periods = []
+        for p in per_period:
+            credits = p.get("credits", 0.0)
+            if credits > 0 and MIN_PAY_RATIO_LO <= credits / debt <= MIN_PAY_RATIO_HI:
+                min_pay_periods.append(credits / debt)
+        count = len(min_pay_periods)
+        if count >= MIN_PAY_MIN_PERIODS and silence_is_evidence:
+            pct = (sum(min_pay_periods) / count) * 100
+            return (
+                "carried_zero",
+                [f"no interest lines · small fixed payments (≈{pct:.1f}% of the balance) across {count} periods — a minimum-payment pattern"],
+                False,
+            )
+
+    # Rule 5: unclear
+    evidence = []
+    if not has_min_history:
+        evidence.append("history too short to read yet")
+    elif not silence_is_evidence:
+        evidence.append("this balance arose within the last statement cycle — no statement has had the chance to charge interest yet")
+    else:
+        evidence.append("no interest appears despite a rate on file — could be cleared in full each statement, or on a 0% deal not on file")
+
+    # Declaration resolves unclear
+    if usage == "clear_monthly":
+        return ("cleared_monthly", evidence + ["you've told me you clear it monthly"], False)
+    if usage == "carry":
+        return ("carried_zero", evidence + ["you've told me you carry this balance; no interest observed"], False)
+
+    return ("unclear", evidence, False)
 
 
 # ── Main async entry point ────────────────────────────────────────────────────
@@ -1296,6 +1436,11 @@ async def compute_debt_plan(uid: str) -> dict:
             available = float(available)
 
         terms_doc = terms_map.get(aid)
+        usage = (
+            terms_doc.get("usage")
+            if terms_doc and terms_doc.get("usage") in ("clear_monthly", "carry")
+            else None
+        )
         txns = txns_by_account.get(aid, [])
 
         # Flags accumulator for this card
@@ -1405,6 +1550,7 @@ async def compute_debt_plan(uid: str) -> dict:
                 "total_interest": 0.0,
                 "first_interest_month": None,
                 "monthly_interest_at_first": None,
+                "balance_at_first_interest": None,
                 "interest_series": [],
             }
 
@@ -1438,6 +1584,22 @@ async def compute_debt_plan(uid: str) -> dict:
                 "an upcoming card payment could belong to more than one card — it isn't counted for either"
             )
 
+        classification, classification_evidence, usage_conflict = _classify_card(
+            debt=debt,
+            txns=txns,
+            movement=movement,
+            pbm=pbm,
+            current_segment_source=current_segment_source,
+            paying_interest=paying_interest,
+            interest_observed_monthly=interest_observed_monthly,
+            zero_interest_lines=zero_interest_lines,
+            has_min_history=has_min_history,
+            usage=usage,
+            today=today,
+        )
+
+        terms_contradiction = terms_contradiction and (classification == "unclear")
+
         card: dict = {
             "account_id": aid,
             "name": card_name,
@@ -1459,10 +1621,15 @@ async def compute_debt_plan(uid: str) -> dict:
             "zero_interest_lines": zero_interest_lines,
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
+            "balance_at_first_interest": proj.get("balance_at_first_interest"),
             "near_term_source": near_term_source,
             "near_term_bills": near_term_bills,
             "mapping_ambiguous": mapping_ambiguous,
             "flags": flags,
+            "classification": classification,
+            "classification_evidence": classification_evidence,
+            "usage": usage,
+            "usage_conflict": usage_conflict,
             # Internal fields (prefixed _) consumed by totals / scenario B / refinance
             "_standard_apr": standard_apr,
             "_bt_offers": bt_offers,
@@ -1474,7 +1641,8 @@ async def compute_debt_plan(uid: str) -> dict:
         cards_out.append(card)
 
     # ── History ───────────────────────────────────────────────────────────────
-    history = _compute_history(today, all_cc_txns, txns_by_account, cc_accounts)
+    float_account_ids = {c["account_id"] for c in cards_out if c.get("classification") == "cleared_monthly"}
+    history = _compute_history(today, all_cc_txns, txns_by_account, cc_accounts, float_account_ids=float_account_ids)
 
     # ── Totals + verdict ──────────────────────────────────────────────────────
     total_debt = _r2(sum(c["debt"] for c in cards_out))
@@ -1499,7 +1667,7 @@ async def compute_debt_plan(uid: str) -> dict:
         "monthly_interest_share": _r2(sum(c["monthly_interest_now"] for c in nonclearing_cards)),
     }
 
-    material_cards = [c for c in cards_out if c["debt"] >= MATERIAL_BALANCE]
+    material_cards = [c for c in cards_out if c["debt"] >= MATERIAL_BALANCE and c.get("classification") != "cleared_monthly"]
 
     # Debt-free month = latest payoff month among material cards
     if not material_cards:
@@ -1518,10 +1686,26 @@ async def compute_debt_plan(uid: str) -> dict:
         "interest_to_clear": interest_to_clear,
         "nonclearing": nonclearing,
         "verdict": verdict,
+        "buckets": {
+            "cleared_monthly": _r2(sum(c["debt"] for c in cards_out if c.get("classification") == "cleared_monthly")),
+            "carried_zero": _r2(sum(c["debt"] for c in cards_out if c.get("classification") == "carried_zero")),
+            "carried_interest": _r2(sum(c["debt"] for c in cards_out if c.get("classification") == "carried_interest")),
+            "unclear": _r2(sum(c["debt"] for c in cards_out if c.get("classification") == "unclear")),
+            "carried_total": _r2(
+                sum(c["debt"] for c in cards_out if c.get("classification") in ("carried_zero", "carried_interest", "unclear"))
+            ),
+            "float_total": _r2(sum(c["debt"] for c in cards_out if c.get("classification") == "cleared_monthly")),
+            "carried_card_count": sum(
+                1 for c in cards_out if c["debt"] > 0 and c.get("classification") != "cleared_monthly"
+            ),
+            "cleared_card_count": sum(
+                1 for c in cards_out if c.get("classification") == "cleared_monthly"
+            ),
+        },
     }
 
     # ── Scenario B ────────────────────────────────────────────────────────────
-    scenario_b = _compute_scenario_b(cards_out, today)
+    scenario_b = _compute_scenario_b([c for c in cards_out if c.get("classification") != "cleared_monthly"], today)
 
     # ── Refinance options ─────────────────────────────────────────────────────
     refinance_options = _compute_refinance_options(cards_out, today)
@@ -1551,6 +1735,8 @@ async def compute_debt_plan(uid: str) -> dict:
     for c in cards_out:
         if c["debt"] < MATERIAL_BALANCE:
             continue
+        if c.get("classification") == "cleared_monthly":
+            continue
         mov = c["movement"].get("monthly")
         if mov is None or mov <= MOVEMENT_FLAT_EPS:
             continue
@@ -1566,7 +1752,7 @@ async def compute_debt_plan(uid: str) -> dict:
     whats_working.sort(key=lambda x: x["payoff_month"])
 
     # ── Extra to clear ────────────────────────────────────────────────────────
-    extra_to_clear = _compute_extra_to_clear(cards_out, today)
+    extra_to_clear = _compute_extra_to_clear([c for c in cards_out if c.get("classification") != "cleared_monthly"], today)
 
     # Strip internal fields before returning (keep output JSON-clean)
     for c in cards_out:

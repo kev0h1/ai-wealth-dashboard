@@ -96,6 +96,7 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         "status": doc.get("status"),
         "confirmed_at": confirmed_at.isoformat() if isinstance(confirmed_at, datetime) else confirmed_at,
         "product_key": doc.get("product_key"),
+        "usage": doc.get("usage") if doc.get("usage") in ("clear_monthly", "carry") else None,
     }
 
 
@@ -173,6 +174,7 @@ class CardTermsBody(BaseModel):
     # Legacy-tolerance fields — kept for old clients
     bt_offer_available: Optional[bool] = None
     bt_offer_note: Optional[str] = None
+    usage: Optional[Literal["clear_monthly", "carry"]] = None
     product_key: Optional[str] = None
 
 
@@ -299,6 +301,7 @@ async def save_card_terms(
     """
     uid = user["email"]
     await _owned_card_or_404(uid, account_id)
+    existing = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"}) or {}
 
     now = datetime.utcnow()
     if body.status == "skipped":
@@ -313,6 +316,7 @@ async def save_card_terms(
             "status": "skipped",
             "confirmed_at": now,
             "product_key": body.product_key,
+            "usage": existing.get("usage"),
         }
     else:
         if body.apr_pct is not None and not (0 <= body.apr_pct <= 100):
@@ -330,6 +334,7 @@ async def save_card_terms(
             "status": "confirmed",
             "confirmed_at": now,
             "product_key": body.product_key,
+            "usage": body.usage,
         }
 
     # Full-document replace: legacy-shaped docs (on_promo/promo_kind/promo_end)

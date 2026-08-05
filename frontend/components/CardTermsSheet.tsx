@@ -168,6 +168,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const [btOffers, setBtOffers] = useState<BtOfferDraft[]>([]);
   const [saving, setSaving] = useState<null | "save" | "later">(null);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<"clear_monthly" | "carry" | null>(null);
 
   useEffect(() => {
     if (!currentId || !current) return;
@@ -202,6 +203,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         }
         return { month: null, year: null, fee: o.fee_pct != null ? String(o.fee_pct) : "", note: o.note ?? "" };
       }));
+      setUsage(t.usage ?? null);
     } else {
       setPhase("loading");
       setManualPrompt("notfound");
@@ -210,6 +212,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       setPromoRows([]);
       setBtOffer(null);
       setBtOffers([]);
+      setUsage(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
@@ -276,6 +279,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         status: "confirmed",
         apr_pct: lookup.representative_apr,
         promos: [],
+        usage,
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -361,6 +365,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         apr_pct: aprPct,
         promos: builtPromos,
         bt_offers: buildBtOffers(btOffers, btOffer),
+        usage,
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -753,6 +758,29 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     </div>
   );
 
+  const usageSection = (
+    <div className="space-y-3">
+      <div>
+        <FieldLabel>How do you use this card?</FieldLabel>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Optional — it helps me read this card&apos;s balance right.</p>
+        <div role="radiogroup" aria-label="How do you use this card?" className="grid grid-cols-2 gap-2">
+          <Chip
+            selected={usage === "clear_monthly"}
+            onClick={() => setUsage(prev => prev === "clear_monthly" ? null : "clear_monthly")}
+          >
+            I clear it monthly
+          </Chip>
+          <Chip
+            selected={usage === "carry"}
+            onClick={() => setUsage(prev => prev === "carry" ? null : "carry")}
+          >
+            I carry a balance
+          </Chip>
+        </div>
+      </div>
+    </div>
+  );
+
   return createPortal(
     <>
       {/* Backdrop — the page behind blurs via #app-shell.sheet-open (useSheetOpen) */}
@@ -894,6 +922,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   {showRateInput && promosSection}
                   {zeroDealButton}
                   {showRateInput && btSection}
+                  {usageSection}
                 </div>
               </>
             ) : phase === "candidates" ? (
@@ -931,6 +960,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     {promosSection}
                     {zeroDealButton}
                     {btSection}
+                    {usageSection}
                   </div>
                 )}
               </>
@@ -944,6 +974,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 {promosSection}
                 {zeroDealButton}
                 {btSection}
+                {usageSection}
               </>
             )}
 

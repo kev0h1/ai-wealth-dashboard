@@ -1344,7 +1344,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     _apr = _doc.get("apr_pct")
                     if _apr:
                         _monthly = int(round(_bal_mag * float(_apr) / 1200))
-                        _body = f"From then it charges {float(_apr):g}%, about £{_monthly:,} a month."
+                        _body = f"From then it'd cost {float(_apr):g}%, about £{_monthly:,} a month, unless it's cleared or moved."
                     else:
                         _body = "Add its standard rate and I can say what that costs."
                     cliff_items.append({
@@ -1380,7 +1380,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             if _traj_id not in dismissed:
                 _monthly_interest_now = _plan["totals"].get("monthly_interest_now") or 0.0
                 _debt_free_month = _plan["totals"]["debt_free_month"]
-                _material_cards = [c for c in _plan["cards"] if c["debt"] >= 50]
+                _material_cards = [c for c in _plan["cards"] if c["debt"] >= 50 and c.get("classification") != "cleared_monthly"]
 
                 def _fmt_month(ym_str: str) -> str:
                     """Format 'YYYY-MM' → 'Mon YYYY' (omit year if same as today)."""
@@ -1407,13 +1407,14 @@ async def compute_today_items(uid: str) -> list[dict]:
                     if not _has_promo:
                         # Also check: if any promo segment's until == previous month
                         _has_promo = any(s["source"] == "promo" for s in _rs)
-                    if _has_promo:
+                    if _has_promo and _c.get("balance_at_first_interest") is not None:
                         if _promo_cliff_month is None or _fim < _promo_cliff_month:
                             _promo_cliff_month = _fim
                             _promo_cliff_card = _c
 
                 _traj_headline: str
                 _traj_body: str
+                _cliff_body: str = ""
 
                 # Interest is always cited as the monthly bleed (£X a month right
                 # now) — figure is observed from interest-charge transactions,
@@ -1424,15 +1425,18 @@ async def compute_today_items(uid: str) -> list[dict]:
                         and _promo_cliff_card is not None
                         and _promo_cliff_month is not None
                         and _promo_cliff_card.get("monthly_interest_at_first")
+                        and _promo_cliff_card.get("balance_at_first_interest")
                     ):
-                        _monthly_int = _promo_cliff_card["monthly_interest_at_first"]
-                        _cliff_mon = _fmt_month(_promo_cliff_month)
+                        _bafi = _promo_cliff_card["balance_at_first_interest"]
+                        _mif = _promo_cliff_card["monthly_interest_at_first"]
                         _traj_headline = (
                             f"At your current pace the cards clear in {_fmt_month(_debt_free_month)}"
-                            f" — {_fmt_gbp(_monthly_int)} a month in interest starts when the"
-                            f" {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                            f" — £{int(round(_bafi)):,} would still be on the {_promo_cliff_card['name']}"
+                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}."
                         )
+                        _cliff_body = f"From then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
                     else:
+                        _cliff_body = ""
                         _dfm_str = _fmt_month(_debt_free_month) if _debt_free_month else "unknown"
                         if _monthly_interest_now >= 1:
                             _traj_headline = (
@@ -1448,45 +1452,64 @@ async def compute_today_items(uid: str) -> list[dict]:
                         _promo_cliff_card is not None
                         and _promo_cliff_month is not None
                         and _promo_cliff_card.get("monthly_interest_at_first")
+                        and _promo_cliff_card.get("balance_at_first_interest")
                     ):
-                        _monthly_int = _promo_cliff_card["monthly_interest_at_first"]
-                        _cliff_mon = _fmt_month(_promo_cliff_month)
-                        _traj_headline = (
-                            f"The cards aren't coming down at your current pace"
-                            f" — {_fmt_gbp(_monthly_int)} a month starts when the"
-                            f" {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                        _bafi = _promo_cliff_card["balance_at_first_interest"]
+                        _mif = _promo_cliff_card["monthly_interest_at_first"]
+                        _n_mat = len(_material_cards)
+                        if _n_mat == 1:
+                            _solo = _material_cards[0]
+                            _traj_headline = (
+                                f"The cards aren't coming down at your current pace"
+                                f" — £{int(round(_solo['debt'])):,} carried on {_solo['name']}."
+                            )
+                        else:
+                            _carried_total = _plan["totals"]["buckets"]["carried_total"]
+                            _traj_headline = (
+                                f"The cards aren't coming down at your current pace"
+                                f" — £{int(round(_carried_total)):,} carried across {_n_mat} cards."
+                            )
+                        _cliff_body = (
+                            f"£{int(round(_bafi)):,} will still be on the {_promo_cliff_card['name']}"
+                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}"
+                            f" — from then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
                         )
                     elif _monthly_interest_now >= 1:
+                        _cliff_body = ""
                         _traj_headline = (
                             f"The cards aren't coming down at your current pace"
                             f" — {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
                         )
                     else:
+                        _cliff_body = ""
                         _n_mat = len(_material_cards)
                         if _n_mat == 1:
                             _solo = _material_cards[0]
                             _traj_headline = (
                                 f"Your card isn't coming down at your current pace"
-                                f" — {_fmt_gbp(_solo['debt'])} on {_solo['name']}."
+                                f" — {_fmt_gbp(_solo['debt'])} carried on {_solo['name']}."
                             )
                         else:
-                            _mat_debt = sum(c["debt"] for c in _material_cards)
+                            _buckets = (_plan["totals"].get("buckets") or {})
+                            _carried_total_fallback = _buckets.get("carried_total") or sum(c["debt"] for c in _material_cards)
                             _traj_headline = (
                                 f"The cards aren't coming down at your current pace"
-                                f" — {_fmt_gbp(_mat_debt)} across {_n_mat} cards."
+                                f" — £{int(round(_carried_total_fallback)):,} carried across {_n_mat} cards."
                             )
 
-                # Body: honest note when any material card has no rate on file
+                # Body: combine cliff sentence + honest note when any material card has no rate on file
                 _no_rate_count = sum(
                     1 for _c in _material_cards if _c.get("flags", {}).get("terms_missing")
                 )
+                _body_parts = []
+                if _cliff_body:
+                    _body_parts.append(_cliff_body)
                 if _no_rate_count > 0:
-                    _traj_body = (
+                    _body_parts.append(
                         f"{_no_rate_count} card{'s have' if _no_rate_count > 1 else ' has'}"
                         f" no rate on file, so interest there isn't counted."
                     )
-                else:
-                    _traj_body = ""
+                _traj_body = " ".join(_body_parts)
 
                 trajectory_items.append({
                     "id": _traj_id,

@@ -282,6 +282,7 @@ function BurndownBackground({
 
 function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
   const { totals } = plan;
+  const buckets = totals.buckets;
 
   let sentence: React.ReactNode;
   const amberDot = (
@@ -294,7 +295,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         <>
           {amberDot}At your current pace the cards aren&apos;t coming down.
           {plan.history?.rising && (
-            <> Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+            <> Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
           )}
         </>
       );
@@ -303,7 +304,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         <>
           {amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)} — further out than five years.
           {plan.history?.rising && (
-            <> Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+            <> Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
           )}
         </>
       );
@@ -323,14 +324,42 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     }
   }
 
+  // Split line — only when buckets are present and float_total >= 1
+  let splitLine: React.ReactNode = null;
+  if (buckets && buckets.float_total >= 1) {
+    const carried = buckets.carried_total;
+    const float = buckets.float_total;
+    const interest = buckets.carried_interest;
+    const zero = buckets.carried_zero;
+    let splitText: React.ReactNode;
+    if (interest >= 1) {
+      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried — {hide ? "••••" : fmtMoney(interest, hide)} of it costing interest · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+    } else if (zero >= 0.9 * carried) {
+      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried on 0% deals · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+    } else {
+      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+    }
+    splitLine = (
+      <p className="text-[13px] mt-1 text-slate-600 dark:text-slate-300">
+        {splitText}
+      </p>
+    );
+  }
+
+  const showFloatBuckets = buckets && buckets.float_total >= 1;
+
   return (
     <div className="glass-hero rounded-3xl p-5">
       <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
-        ACROSS YOUR CARDS
+        {showFloatBuckets ? "CARRIED ON YOUR CARDS" : "ACROSS YOUR CARDS"}
       </p>
       <p className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight mt-1">
-        {hide ? "••••" : "£" + Math.round(totals.debt).toLocaleString("en-GB")}
+        {showFloatBuckets
+          ? (hide ? "••••" : "£" + Math.round(buckets!.carried_total).toLocaleString("en-GB"))
+          : (hide ? "••••" : "£" + Math.round(totals.debt).toLocaleString("en-GB"))
+        }
       </p>
+      {splitLine}
       <p className="text-[15px] leading-relaxed mt-2 text-slate-700 dark:text-slate-200">
         {sentence}
       </p>
@@ -343,6 +372,8 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
 function AgencyBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
   const extra = plan.extra_to_clear;
   const wins = plan.whats_working ?? [];
+  const hasFloat = (plan.totals.buckets?.float_total ?? 0) >= 1;
+  const cardWord = hasFloat ? "carried card" : "card";
 
   const hasExtra = extra != null;
   const hasWins = wins.length > 0;
@@ -355,14 +386,14 @@ function AgencyBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         {hasExtra && (
           extra.amount === 0 ? (
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-              Your current pace already clears every card by {fmtMonth(extra.debt_free_month)}.
+              Your current pace already clears every {cardWord} by {fmtMonth(extra.debt_free_month)}.
             </p>
           ) : (
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
               <span className="font-semibold text-slate-900 dark:text-slate-100">
                 {fmtMoney(extra.amount, hide)} more a month
               </span>{" "}
-              clears every card by {fmtMonth(extra.debt_free_month)}.
+              clears every {cardWord} by {fmtMonth(extra.debt_free_month)}.
             </p>
           )
         )}
@@ -423,16 +454,19 @@ function PennyInsight({
   plan,
   hide,
   onAddRates,
+  onOpenCard,
 }: {
   plan: DebtPlanView;
   hide: boolean;
   onAddRates: () => void;
+  onOpenCard: (accountId: string) => void;
 }) {
   const narration = plan.narration;
   if (!narration?.text) return null;
 
   const text = hide ? maskAmounts(narration.text) : narration.text;
   const hasMissingRates = plan.cards.some(c => c.flags.terms_missing && c.debt > 0);
+  const ask = narration.ask ?? null;
 
   return (
     <section className="glass-card rounded-2xl p-4">
@@ -447,14 +481,21 @@ function PennyInsight({
       <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 max-w-prose">
         {text}
       </p>
-      {hasMissingRates && (
+      {ask ? (
+        <button
+          onClick={() => onOpenCard(ask.account_id)}
+          className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl active:scale-95 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          {ask.kind === "usage" ? "How I use this card" : "Add the deal"}
+        </button>
+      ) : hasMissingRates ? (
         <button
           onClick={onAddRates}
           className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl active:scale-95 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           Add rates
         </button>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -584,7 +625,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           )}
           {plan.history?.rising && (
             <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-              Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
+              Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
             </p>
           )}
           {sb.assumption && (
@@ -678,9 +719,11 @@ function CardRows({
       <div className="glass-card rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/60">
         {cards.map(card => {
           const chip = resolveBankChip(card.provider);
-          // Movement line
-          const hasMovement = card.movement.monthly != null && card.movement.monthly > 1;
-          const projectedFlat = !hasMovement
+          const isCleared = card.classification === "cleared_monthly";
+
+          // Movement line (only for non-cleared cards)
+          const hasMovement = !isCleared && card.movement.monthly != null && card.movement.monthly > 1;
+          const projectedFlat = !isCleared && !hasMovement
             ? (card.flags.assumptions ?? []).find(a => a.includes("projected flat"))
             : undefined;
 
@@ -704,35 +747,51 @@ function CardRows({
               {/* Line 2: rate pill */}
               <RatePill card={card} onClick={() => onOpenSheet(card.account_id)} />
 
-              {/* Line 3: movement */}
-              {hasMovement && (
+              {isCleared ? (
+                /* Cleared-monthly: no movement, no payoff projection */
                 <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                  +{fmtMoney(card.movement.monthly!, hide)}/mo at your pace
+                  Cleared monthly — this is spending, not carried debt.
                 </p>
+              ) : (
+                <>
+                  {/* Line 3: movement */}
+                  {hasMovement && (
+                    <p className="text-[13px] text-slate-600 dark:text-slate-300">
+                      +{fmtMoney(card.movement.monthly!, hide)}/mo at your pace
+                    </p>
+                  )}
+                  {!hasMovement && projectedFlat && (
+                    <p className="text-[13px] text-slate-600 dark:text-slate-300">{projectedFlat}</p>
+                  )}
+
+                  {/* Line 4: payoff */}
+                  {card.payoff_month && (
+                    <p className="text-[13px] text-slate-600 dark:text-slate-300">
+                      Clears {fmtMonth(card.payoff_month)}
+                      {card.total_interest != null && card.total_interest >= 1 && (
+                        <> · {fmtMoney(card.total_interest, hide)} interest</>
+                      )}
+                    </p>
+                  )}
+                  {!card.payoff_month && card.debt > 0 && card.monthly_interest_now >= 1 && (
+                    <p className="text-[13px] text-slate-600 dark:text-slate-300">
+                      Not clearing at your pace · {fmtMoney(card.monthly_interest_now, hide)}/mo interest right now
+                    </p>
+                  )}
+                </>
               )}
-              {!hasMovement && projectedFlat && (
-                <p className="text-[13px] text-slate-600 dark:text-slate-300">{projectedFlat}</p>
+
+              {/* Usage conflict flag — amber, calm, not red */}
+              {card.usage_conflict && (
+                <p className="text-[13px] text-amber-700 dark:text-amber-400">
+                  You said you clear this monthly, but interest charges are appearing — worth a look.
+                </p>
               )}
 
               {/* Muted note: payment already tracked in upcoming bills */}
               {card.near_term_source === "upcoming bills" && (
                 <p className="text-xs text-slate-400 dark:text-slate-500">
                   Its usual payment is already in your upcoming bills
-                </p>
-              )}
-
-              {/* Line 4: payoff */}
-              {card.payoff_month && (
-                <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                  Clears {fmtMonth(card.payoff_month)}
-                  {card.total_interest != null && card.total_interest >= 1 && (
-                    <> · {fmtMoney(card.total_interest, hide)} interest</>
-                  )}
-                </p>
-              )}
-              {!card.payoff_month && card.debt > 0 && card.monthly_interest_now >= 1 && (
-                <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                  Not clearing at your pace · {fmtMoney(card.monthly_interest_now, hide)}/mo interest right now
                 </p>
               )}
             </div>
@@ -906,7 +965,7 @@ export default function DebtPlanPage() {
             {/* Penny insight */}
             {showPennyInsight && (
               <div className="rise-in" style={{ "--rise-index": risePennyInsightIdx } as React.CSSProperties}>
-                <PennyInsight plan={plan} hide={hideNetWorth} onAddRates={() => openSheet(null)} />
+                <PennyInsight plan={plan} hide={hideNetWorth} onAddRates={() => openSheet(null)} onOpenCard={id => openSheet(id)} />
               </div>
             )}
 

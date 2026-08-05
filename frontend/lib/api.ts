@@ -647,6 +647,7 @@ export type CardTerms = {
   status: "confirmed" | "skipped" | null;
   confirmed_at: string | null;
   product_key: string | null;
+  usage: "clear_monthly" | "carry" | null;
 };
 
 export type CardTermsCard = {
@@ -688,6 +689,7 @@ export type CardTermsSaveBody = {
   min_payment_note?: string | null;
   bt_offers?: BtOffer[];
   product_key?: string | null;
+  usage?: "clear_monthly" | "carry" | null;
 };
 
 export interface CycleStoryPeriod {
@@ -797,6 +799,11 @@ export type DebtPlanViewCard = {
   };
   near_term_source: "upcoming bills" | null;
   mapping_ambiguous: boolean;
+  classification: "cleared_monthly" | "carried_zero" | "carried_interest" | "unclear" | null;
+  classification_evidence: string[];
+  usage: "clear_monthly" | "carry" | null;
+  usage_conflict: boolean;
+  balance_at_first_interest: number | null;
   near_term_bills: { name: string; amount: number; next_date: string; confidence: number; matched: number; occurrences: number }[];
 };
 
@@ -839,6 +846,16 @@ export type DebtPlanTotals = {
   interest_to_clear: number;      // interest summed ONLY over cards that clear at current pace
   nonclearing: { count: number; total_balance: number; monthly_interest_share: number };
   verdict: "good" | "drifting" | "bad";
+  buckets?: {
+    cleared_monthly: number;
+    carried_zero: number;
+    carried_interest: number;
+    unclear: number;
+    carried_total: number;
+    float_total: number;
+    carried_card_count: number;
+    cleared_card_count: number;
+  };
 };
 
 export type DebtPlanProjectionPoint = { month: string; total: number };
@@ -847,11 +864,12 @@ export type DebtPlanExtraToClear = { amount: number; debt_free_month: string; ho
 export type DebtPlanHistoryPoint = { month: string; total: number };
 export type DebtPlanHistory = {
   points: DebtPlanHistoryPoint[];
-  trend_3m: number;
+  trend_3m: number;     // trend over CARRIED cards only
+  trend_3m_all: number; // trend over all cards
   rising: boolean;
   assumptions: string[];
 };
-export type DebtPlanNarration = { text: string; source: "llm" | "fallback" };
+export type DebtPlanNarration = { text: string; source: "llm" | "fallback"; ask?: { account_id: string; name: string; provider: string; kind: string } | null };
 
 export type DebtPlanView = {
   status: string;

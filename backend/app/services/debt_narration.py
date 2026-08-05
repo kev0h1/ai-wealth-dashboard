@@ -83,10 +83,6 @@ def _find_contradiction_card(cards: list[dict]) -> Optional[dict]:
 
 
 def _build_facts(plan: dict) -> Optional[dict]:
-    """Build compact, deterministic facts dict from a plan.
-
-    Returns None on any exception (caller falls back to None narration).
-    """
     try:
         totals = plan.get("totals") or {}
         history = plan.get("history") or {}
@@ -94,10 +90,9 @@ def _build_facts(plan: dict) -> Optional[dict]:
         extra_to_clear = plan.get("extra_to_clear")
         whats_working = plan.get("whats_working") or []
         refinance_options = plan.get("refinance_options") or []
+        buckets = totals.get("buckets") or {}
 
-        # growth_card: among cards with debt ≥ MATERIAL_BALANCE,
-        # movement.monthly not None, monthly < −MOVEMENT_FLAT_EPS,
-        # pick the one with the most negative monthly (worst grower).
+        # growth_card
         growth_card = None
         worst_monthly: Optional[float] = None
         for c in cards:
@@ -108,8 +103,6 @@ def _build_facts(plan: dict) -> Optional[dict]:
                 continue
             if worst_monthly is None or mov < worst_monthly:
                 worst_monthly = mov
-                # Get the most recent closed period (index 0 = most recent in per_period,
-                # which is appended walking backward from current period)
                 per_period = (c.get("movement") or {}).get("per_period") or []
                 latest_period = per_period[0] if per_period else {}
                 growth_card = {
@@ -117,18 +110,76 @@ def _build_facts(plan: dict) -> Optional[dict]:
                     "provider": c.get("provider", ""),
                     "spend_last_period": _r2(latest_period.get("debits", 0.0)),
                     "payments_last_period": _r2(latest_period.get("credits", 0.0)),
+                    "has_rate_on_file": any(
+                        seg.get("apr_pct") is not None
+                        for seg in (c.get("rate_schedule") or [])
+                    ),
                 }
 
-        # contradiction_card must be resolved before we can set is_contradiction_card
-        contradiction_card = _find_contradiction_card(cards)
+        # ask_card: largest-debt unclear card with material balance
+        ask_card = None
+        unclear_candidates = [
+            c for c in cards
+            if c.get("debt", 0) >= MATERIAL_BALANCE and c.get("classification") == "unclear"
+        ]
+        if unclear_candidates:
+            ac = max(unclear_candidates, key=lambda c: c.get("debt", 0.0))
+            # Find first standard-segment apr_pct
+            std_apr = None
+            for seg in (ac.get("rate_schedule") or []):
+                if seg.get("source") == "standard" and seg.get("apr_pct") is not None:
+                    std_apr = seg["apr_pct"]
+                    break
+            ask_card = {
+                "account_id": ac.get("account_id", ""),
+                "name": ac.get("name", ""),
+                "provider": ac.get("provider", ""),
+                "apr_pct": std_apr,
+                "debt": ac.get("debt", 0.0),
+                "kind": "usage",
+            }
 
-        # Mark growth_card when it is the same card as the contradiction_card so
-        # narration layers can suppress the incoherent "tell me its rate" tail.
-        if growth_card is not None:
-            growth_card["is_contradiction_card"] = (
-                contradiction_card is not None
-                and growth_card["name"] == contradiction_card["name"]
-            )
+        # usage_conflict_card
+        usage_conflict_card = None
+        conflict_candidates = [c for c in cards if c.get("usage_conflict")]
+        if conflict_candidates:
+            uc = max(conflict_candidates, key=lambda c: c.get("debt", 0.0))
+            usage_conflict_card = {
+                "name": uc.get("name", ""),
+                "provider": uc.get("provider", ""),
+            }
+
+        # cliff: earliest first_interest_month among carried material cards with balance_at_first_interest
+        cliff = None
+        for c in cards:
+            if (c.get("debt") or 0) < MATERIAL_BALANCE:
+                continue
+            if c.get("classification") == "cleared_monthly":
+                continue
+            fim = c.get("first_interest_month")
+            bafi = c.get("balance_at_first_interest")
+            mif = c.get("monthly_interest_at_first")
+            if not fim or bafi is None or mif is None:
+                continue
+            if cliff is None or fim < cliff["month"]:
+                cliff = {
+                    "name": c.get("name", ""),
+                    "provider": c.get("provider", ""),
+                    "month": fim,
+                    "monthly_interest_at_first": mif,
+                    "balance_at_first_interest": bafi,
+                }
+
+        # classifications list
+        classifications = [
+            {
+                "name": c.get("name"),
+                "provider": c.get("provider"),
+                "classification": c.get("classification"),
+                "debt": c.get("debt"),
+            }
+            for c in cards if (c.get("debt") or 0) > 0
+        ]
 
         # whats_working: first entry only
         whats_working_first = None
@@ -146,7 +197,7 @@ def _build_facts(plan: dict) -> Optional[dict]:
             if (c.get("flags") or {}).get("terms_missing") and c.get("debt", 0) > 0
         )
 
-        # refinance_best: max net_saving option
+        # refinance_best
         refinance_best = None
         if refinance_options:
             best = max(refinance_options, key=lambda x: x.get("net_saving", 0))
@@ -166,8 +217,6 @@ def _build_facts(plan: dict) -> Optional[dict]:
                 "debt_free_month": extra_to_clear.get("debt_free_month"),
             }
 
-        # Monthly bleed — the sharpest fact in the app.  All three figures are
-        # deterministic engine outputs (see debt_plan.compute_debt_plan totals).
         nonclearing = totals.get("nonclearing") or {}
 
         facts: dict = {
@@ -181,6 +230,7 @@ def _build_facts(plan: dict) -> Optional[dict]:
                 "monthly_interest_share": nonclearing.get("monthly_interest_share"),
             },
             "history_trend_3m": history.get("trend_3m"),
+            "history_trend_3m_all": history.get("trend_3m_all"),
             "history_rising": history.get("rising"),
             "growth_card": growth_card,
             "extra_to_clear": etc_facts,
@@ -188,7 +238,11 @@ def _build_facts(plan: dict) -> Optional[dict]:
             "missing_rates_count": missing_rates_count,
             "refinance_best": refinance_best,
             "potential_monthly_interest": totals.get("potential_monthly_interest"),
-            "contradiction_card": contradiction_card,
+            "buckets": buckets,
+            "classifications": classifications,
+            "cliff": cliff,
+            "ask_card": ask_card,
+            "usage_conflict_card": usage_conflict_card,
         }
         return facts
 
@@ -215,121 +269,254 @@ async def _get_monthly_surplus(uid: str) -> Optional[float]:
 
 def _fallback_text(facts: dict, monthly_surplus: Optional[float]) -> str:
     """Build deterministic fallback narration from facts. Max 5 sentences."""
-    sentences: list[str] = []
-
-    # (0) Monthly bleed / no-interest opening — leads always
+    buckets = facts.get("buckets") or {}
+    carried_total = buckets.get("carried_total") or 0.0
+    float_total = buckets.get("float_total") or 0.0
+    carried_interest = buckets.get("carried_interest") or 0.0
+    carried_zero = buckets.get("carried_zero") or 0.0
     mi_now = facts.get("monthly_interest_now") or 0.0
+    potential = facts.get("potential_monthly_interest") or 0.0
     nc = facts.get("nonclearing") or {}
     nc_count = nc.get("count") or 0
     nc_share = nc.get("monthly_interest_share") or 0.0
-    potential = facts.get("potential_monthly_interest") or 0.0
-    contradiction_card = facts.get("contradiction_card")
-    if mi_now >= 1.0:
+    cliff = facts.get("cliff")
+    ask_card = facts.get("ask_card")
+    usage_conflict_card = facts.get("usage_conflict_card")
+
+    # Build list of (sentence, droppable) tuples
+    items: list[tuple[str, bool]] = []
+
+    # 1. Opening split
+    if carried_total >= 1 and float_total >= 1:
+        if carried_interest >= 1:
+            opening = (
+                f"You're carrying £{carried_total:,.0f} on your cards"
+                f" — £{carried_interest:,.0f} of it costing interest"
+                f" — plus £{float_total:,.0f} of monthly spending you clear as you go."
+            )
+        elif carried_zero >= 0.9 * carried_total:
+            opening = (
+                f"You're carrying £{carried_total:,.0f} on 0% deals,"
+                f" plus £{float_total:,.0f} of monthly spending you clear as you go."
+            )
+        else:
+            opening = (
+                f"You're carrying £{carried_total:,.0f} on your cards,"
+                f" plus £{float_total:,.0f} of monthly spending you clear as you go."
+            )
+    else:
+        opening = f"You're carrying £{carried_total:,.0f} across your cards."
+    items.append((opening, False))
+
+    # 2. Bleed / no-interest
+    if mi_now >= 1:
         bleed = f"The cards are costing about £{mi_now:,.0f} a month in interest right now."
         if nc_count > 0 and nc_share >= 1.0:
             plural = "cards that aren't" if nc_count > 1 else "card that isn't"
             bleed += f" £{nc_share:,.0f} of that is on {nc_count} {plural} clearing at your pace."
-        sentences.append(bleed)
+        items.append((bleed, False))
     else:
-        # No observed interest — lead with fact, then conditional, then contradiction ask
-        sentences.append("No interest is hitting your cards right now.")
-        if potential >= 1.0:
-            sentences.append(
-                f"If these balances ran past their 0% windows at the rates on file, they'd cost about £{potential:,.0f} a month."
-            )
-        if contradiction_card:
-            provider = contradiction_card.get("provider") or ""
-            name = contradiction_card.get("name") or "card"
-            apr_pct = contradiction_card.get("apr_pct")
-            card_ref = f"{provider} card" if provider else name
-            apr_str = f"{apr_pct}%" if apr_pct is not None else "an unknown rate"
-            sentences.append(
-                f"Your {card_ref} shows no interest charges, though its rate on file is {apr_str} — is that balance on a 0% deal I don't have? Tell me its end date and the picture sharpens."
-            )
+        items.append(("No interest is hitting your cards right now.", False))
+        if potential >= 1:
+            items.append((
+                f"If these balances ran past their 0% windows at the rates on file, they'd cost about £{potential:,.0f} a month.",
+                True,
+            ))
 
-    # (a) History trend
+    # 3. Cliff
+    if cliff:
+        try:
+            from datetime import datetime as _dt
+            cliff_human = _dt.strptime(cliff["month"], "%Y-%m").strftime("%b %Y")
+        except Exception:
+            cliff_human = cliff["month"]
+        bafi = cliff.get("balance_at_first_interest", 0)
+        mif = cliff.get("monthly_interest_at_first", 0)
+        cliff_name = cliff.get("name", "the card")
+        cliff_sentence = (
+            f"£{bafi:,.0f} will still be on {cliff_name} when its 0% ends in {cliff_human}"
+            f" — from then it'd cost about £{mif:,.0f} a month unless it's cleared or moved."
+        )
+        items.append((cliff_sentence, False))
+
+    # 4. Trend (carried-only)
     trend = facts.get("history_trend_3m") or 0.0
-    if trend > 1.0:
-        sentences.append(f"Your card total has risen £{trend:,.0f} over the last three months.")
-    elif trend < -1.0:
-        sentences.append(f"Your card total has come down £{abs(trend):,.0f} over the last three months.")
-    elif not sentences:
-        sentences.append("Your card total has held roughly flat over the last three months.")
+    if trend > 1:
+        items.append((f"Your carried debt has risen £{trend:,.0f} over the last three months.", False))
+    elif trend < -1:
+        items.append((f"Your carried debt has come down £{abs(trend):,.0f} over the last three months.", False))
 
-    # (b) Surplus (only if present and |surplus| > 1)
-    surplus_sentence = None
+    # 5. Surplus (droppable)
     if monthly_surplus is not None and abs(monthly_surplus) > 1.0:
         if monthly_surplus < 0:
             surplus_sentence = f"A typical month currently runs about £{abs(monthly_surplus):,.0f} short after spending."
         else:
             surplus_sentence = f"A typical month leaves about £{monthly_surplus:,.0f} after spending that could point at the cards."
+        items.append((surplus_sentence, True))
 
-    # (c) growth_card
+    # 6. growth_card (droppable)
     gc = facts.get("growth_card")
-    gc_sentence = None
     if gc:
         provider = gc.get("provider") or gc.get("name") or "card"
         card_ref = f"your {provider} card" if gc.get("provider") else gc.get("name", "your card")
         spend = gc.get("spend_last_period", 0)
         pays = gc.get("payments_last_period", 0)
-        if gc.get("is_contradiction_card"):
-            # Rate is already on file; the contradiction question above covers the ask.
-            # Suppress the incoherent "tell me its rate" tail.
+        has_rate = gc.get("has_rate_on_file", True)
+        if has_rate:
             gc_sentence = (
                 f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} of payments last period."
             )
         else:
             gc_sentence = (
-                f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} "
-                f"of payments last period. "
-                f"If that's deliberate, tell me its rate and I'll price it; if not, that's the biggest lever here."
+                f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} of payments last period."
+                f" If that's deliberate, tell me its rate and I'll price it; if not, that's the biggest lever here."
             )
+        items.append((gc_sentence, True))
 
-    # (d) extra_to_clear + whats_working
+    # 7. extra_to_clear (droppable)
     etc = facts.get("extra_to_clear")
-    ww = facts.get("whats_working")
-    etc_sentence = None
-    ww_sentence = None
     if etc and (etc.get("amount") or 0) > 0:
         dfm = _month_label_to_human(etc.get("debt_free_month") or "")
-        etc_sentence = f"£{etc.get('amount', 0):,.0f} more a month clears every card by {dfm}."
+        items.append((f"£{etc.get('amount', 0):,.0f} more a month clears every card by {dfm}.", True))
+
+    # 8. whats_working (droppable)
+    ww = facts.get("whats_working")
     if ww:
         ww_dfm = _month_label_to_human(ww.get("payoff_month") or "")
-        ww_sentence = f"{ww.get('name', 'One card')} is already on its way out, clearing {ww_dfm}."
+        items.append((f"{ww.get('name', 'One card')} is already on its way out, clearing {ww_dfm}.", True))
 
-    # (e) missing rates
+    # 9. ask_card (NEVER dropped)
+    if ask_card:
+        apr_pct = ask_card.get("apr_pct")
+        prov = ask_card.get("provider") or ask_card.get("name") or "card"
+        if apr_pct is not None:
+            ask_sentence = (
+                f"Your {prov} card shows no interest charges even though its rate on file is {apr_pct}%"
+                f" — that could mean you clear it in full each month, or it's on a 0% deal I don't have."
+                f" Tell me how you use it and the picture sharpens."
+            )
+        else:
+            ask_sentence = (
+                f"Your {prov} card's balance doesn't show me enough yet — tell me how you use it and the picture sharpens."
+            )
+        items.append((ask_sentence, False))
+
+    # 10. usage_conflict_card (NEVER dropped)
+    if usage_conflict_card:
+        uc_name = usage_conflict_card.get("name") or usage_conflict_card.get("provider") or "a card"
+        items.append((
+            f"You've told me you clear {uc_name} monthly, but interest charges are appearing on it — worth a look.",
+            False,
+        ))
+
+    # 11. missing rates (droppable)
     n_missing = facts.get("missing_rates_count") or 0
-    missing_sentence = None
     if n_missing > 0:
         s = "s" if n_missing > 1 else ""
-        missing_sentence = (
-            f"{n_missing} card{s} have no rate on file — add them and I can price every lever exactly."
-        )
+        items.append((
+            f"{n_missing} card{s} have no rate on file — add them and I can price every lever exactly.",
+            True,
+        ))
 
-    # Assemble up to 5 sentences, priority: (0), (a), (b), (c), (d)etc, (d)ww, (e)
-    # If >5, drop (b) first, then (d)'s ww clause
-    candidates = list(sentences)  # (0) bleed and/or (a) trend lead
-    if surplus_sentence:
-        candidates.append(surplus_sentence)
-    if gc_sentence:
-        candidates.append(gc_sentence)
-    if etc_sentence:
-        candidates.append(etc_sentence)
-    if ww_sentence:
-        candidates.append(ww_sentence)
-    if missing_sentence:
-        candidates.append(missing_sentence)
+    # Named items: (name, sentence, droppable)
+    # Rebuild items with names for deterministic priority ordering
+    named_items: list[tuple[str, str, bool]] = []
+    _name_cursor = 0
 
-    if len(candidates) > 5:
-        # Drop (b) first
-        if surplus_sentence and surplus_sentence in candidates:
-            candidates.remove(surplus_sentence)
-    if len(candidates) > 5:
-        # Drop ww_sentence
-        if ww_sentence and ww_sentence in candidates:
-            candidates.remove(ww_sentence)
+    # Assign names based on known positions in items list
+    # We'll re-tag by matching known droppable identifiers, and use positional names for mandatory ones
+    _name_map = {
+        "opening": False,
+        "bleed": False,
+        "potential": True,
+        "cliff": False,
+        "trend": False,
+        "surplus": True,
+        "growth": True,
+        "extra_to_clear": True,
+        "whats_working": True,
+        "ask": False,
+        "usage_conflict": False,
+        "missing_rates": True,
+    }
 
-    return " ".join(candidates[:5])
+    # Walk items and assign names in the order they were appended
+    _item_names: list[str] = []
+    _item_idx = 0
+    # opening is always first
+    _item_names.append("opening")
+    _item_idx = 1
+    # bleed or no-interest (always appended after opening)
+    _item_names.append("bleed")
+    _item_idx += 1
+    # potential is appended directly after no-interest when mi_now < 1 and potential >= 1
+    if mi_now < 1 and potential >= 1:
+        _item_names.append("potential")
+        _item_idx += 1
+    # cliff
+    if cliff:
+        _item_names.append("cliff")
+        _item_idx += 1
+    # trend
+    trend_val = facts.get("history_trend_3m") or 0.0
+    if trend_val > 1 or trend_val < -1:
+        _item_names.append("trend")
+        _item_idx += 1
+    # surplus
+    if monthly_surplus is not None and abs(monthly_surplus) > 1.0:
+        _item_names.append("surplus")
+        _item_idx += 1
+    # growth_card
+    if facts.get("growth_card"):
+        _item_names.append("growth")
+        _item_idx += 1
+    # extra_to_clear
+    etc = facts.get("extra_to_clear")
+    if etc and (etc.get("amount") or 0) > 0:
+        _item_names.append("extra_to_clear")
+        _item_idx += 1
+    # whats_working
+    if facts.get("whats_working"):
+        _item_names.append("whats_working")
+        _item_idx += 1
+    # ask_card
+    if ask_card:
+        _item_names.append("ask")
+        _item_idx += 1
+    # usage_conflict
+    if usage_conflict_card:
+        _item_names.append("usage_conflict")
+        _item_idx += 1
+    # missing_rates
+    if (facts.get("missing_rates_count") or 0) > 0:
+        _item_names.append("missing_rates")
+        _item_idx += 1
+
+    # Pair names with sentences
+    sentences_list = [s for s, _ in items]
+    named_items = [
+        (_item_names[i], sentences_list[i], _name_map.get(_item_names[i], False))
+        for i in range(min(len(_item_names), len(sentences_list)))
+    ]
+
+    # Drop order: remove droppables in this order until count <= 5
+    DROP_ORDER = ["surplus", "whats_working", "growth", "potential", "extra_to_clear", "missing_rates"]
+
+    # If still over 5 after all droppables gone, sacrifice mandatory sentences in this order
+    # (opening, ask, usage_conflict are NEVER sacrificed)
+    MANDATORY_SACRIFICE_ORDER = ["cliff", "trend", "bleed"]
+
+    for drop_name in DROP_ORDER:
+        if len(named_items) <= 5:
+            break
+        named_items = [(n, s, d) for n, s, d in named_items if n != drop_name]
+
+    for drop_name in MANDATORY_SACRIFICE_ORDER:
+        if len(named_items) <= 5:
+            break
+        named_items = [(n, s, d) for n, s, d in named_items if n != drop_name]
+
+    return " ".join(s for _, s, _ in named_items)
 
 
 _GBP_RE = re.compile(r"£\s?([\d,]+(?:\.\d{1,2})?)")
@@ -418,37 +605,32 @@ async def get_debt_plan_view(uid: str) -> dict:
                 "Write ONE plain paragraph, 3–5 short sentences, no headings, no bullet points, "
                 "no newlines within or between sentences.\n\n"
                 "Sentence order:\n"
-                "(1) The monthly bleed / no-interest opening — ALWAYS lead with this:\n"
-                "  • If monthly_interest_now is at least 1: open with 'The cards are costing about "
-                "£{monthly_interest_now} a month in interest right now.' If nonclearing.count > 0, add "
-                "that £{nonclearing.monthly_interest_share} of that is on {nonclearing.count} cards that "
-                "aren't clearing at your pace. State the facts flat — no added emphasis, no exclamation.\n"
-                "  • If monthly_interest_now is 0 or absent: open EXACTLY with 'No interest is hitting "
-                "your cards right now.' If potential_monthly_interest is present and at least 1, follow "
-                "with EXACTLY: 'If these balances ran past their 0% windows at the rates on file, they'd "
-                "cost about £{potential_monthly_interest} a month.' Then if contradiction_card is present, "
-                "EXACTLY one question in this shape: 'Your {provider} card shows no interest charges, "
-                "though its rate on file is {apr_pct}% — is that balance on a 0% deal I don't have? "
-                "Tell me its end date and the picture sharpens.' Never ask about more than one card.\n"
-                "(2) The situation — if history_rising is true, the total has risen £{history_trend_3m} "
-                "over the last three months; if monthly_surplus is negative, connect it ('a typical month "
-                "runs about £X short after spending').\n"
-                "(3) If growth_card is present, EXACTLY one sentence in this shape, asking rather than "
-                "assuming intent: \"Most of the growth is your {provider} card — £{spend_last_period} of "
-                "spending against £{payments_last_period} of payments last period. If that's deliberate, "
-                "tell me its rate and I'll price it; if not, that's the biggest lever here.\" "
-                "(refer to the card as 'your {provider} card' when provider is set, else the name). "
-                "EXCEPTION: if growth_card.is_contradiction_card is true, end the sentence after "
-                "'…of payments last period.' — do NOT add the 'tell me its rate' clause (its rate "
-                "is already on file and the contradiction question above covers it).\n"
-                "(4) The fastest lever — extra_to_clear ('£{amount} more a month clears every card by "
-                "{Mon YYYY}') and/or whats_working ('{name} is already on its way out, clearing {Mon YYYY}'); "
-                "include refinance_best when present.\n"
-                "(5) If missing_rates_count > 0, close with one sentence that adding those rates lets "
-                "every lever be priced exactly.\n\n"
-                "Fit within 5 sentences: when everything is present, drop the surplus link first, then "
-                "whats_working.\n\n"
-                "Month labels 'YYYY-MM' must be written as 'Mon YYYY' (e.g. 2031-08 → Aug 2031).\n\n"
+                "(1) Opening split — ALWAYS lead:\n"
+                "  • If buckets.carried_total >= 1 AND buckets.float_total >= 1:\n"
+                "    - If carried_interest >= 1: 'You're carrying £{carried_total} on your cards — £{carried_interest} of it costing interest — plus £{float_total} of monthly spending you clear as you go.'\n"
+                "    - elif carried_zero >= 90% of carried_total: 'You're carrying £{carried_total} on 0% deals, plus £{float_total} of monthly spending you clear as you go.'\n"
+                "    - else: 'You're carrying £{carried_total} on your cards, plus £{float_total} of monthly spending you clear as you go.'\n"
+                "  • If float_total < 1: 'You're carrying £{carried_total} across your cards.'\n"
+                "(2) Bleed / no-interest:\n"
+                "  • If monthly_interest_now >= 1: 'The cards are costing about £{monthly_interest_now} a month in interest right now.' If nonclearing.count > 0, add that £{nonclearing.monthly_interest_share} is on N cards not clearing.\n"
+                "  • Else: 'No interest is hitting your cards right now.' If potential_monthly_interest >= 1: 'If these balances ran past their 0% windows at the rates on file, they'd cost about £{potential} a month.'\n"
+                "(3) Cliff (when facts.cliff is present) — CONDITIONAL framing, NEVER 'starts':\n"
+                "  '£{balance_at_first_interest} will still be on {name} when its 0% ends in {Mon YYYY} — from then it'd cost about £{monthly_interest_at_first} a month unless it's cleared or moved.'\n"
+                "(4) Trend (uses history_trend_3m — carried-only):\n"
+                "  • trend > 1: 'Your carried debt has risen £{trend} over the last three months.'\n"
+                "  • trend < -1: 'Your carried debt has come down £{abs(trend)} over the last three months.'\n"
+                "(5) Surplus (droppable): a typical month sentence when monthly_surplus present.\n"
+                "(6) growth_card (droppable): 'Most of the growth is your {provider} card — £{spend} of spending against £{payments} of payments last period.' Append 'If that's deliberate, tell me its rate and I'll price it; if not, that's the biggest lever here.' ONLY when has_rate_on_file is False.\n"
+                "(7) extra_to_clear (droppable): '£{amount} more a month clears every card by {Mon YYYY}.'\n"
+                "(8) whats_working (droppable): '{name} is already on its way out, clearing {Mon YYYY}.'\n"
+                "(9) ask_card (NEVER dropped — when present):\n"
+                "  • If apr_pct not None: 'Your {provider} card shows no interest charges even though its rate on file is {apr_pct}% — that could mean you clear it in full each month, or it's on a 0% deal I don't have. Tell me how you use it and the picture sharpens.'\n"
+                "  • If apr_pct None: 'Your {provider} card's balance doesn't show me enough yet — tell me how you use it and the picture sharpens.'\n"
+                "  CRITICAL: Only ask about the ONE card in ask_card. NEVER ask about any card whose classification is cleared_monthly or carried_zero.\n"
+                "(10) usage_conflict_card (NEVER dropped — when present): 'You've told me you clear {name} monthly, but interest charges are appearing on it — worth a look.'\n"
+                "(11) missing_rates_count (droppable): close with adding rates sentence.\n\n"
+                "Fit-within-5 drop order: surplus first, then whats_working, then growth_card, then the potential conditional, then extra_to_clear, then the missing-rates close. The opening split, the ask_card question and the usage_conflict sentence are NEVER dropped.\n\n"
+                "Month labels 'YYYY-MM' must be written as 'Mon YYYY' (e.g. 2027-06 → Jun 2027).\n\n"
                 "CRITICAL: The output must be a single paragraph with no newlines, no bullet points, "
                 "no headings, no markdown. 3–5 sentences only."
             )
@@ -488,6 +670,19 @@ async def get_debt_plan_view(uid: str) -> dict:
     if narration_dict is None:
         fallback = _fallback_text(facts, monthly_surplus)
         narration_dict = {"text": fallback, "source": "fallback"}
+
+    ask_payload = None
+    ask_card_facts = facts.get("ask_card")
+    if ask_card_facts:
+        ask_payload = {
+            "account_id": ask_card_facts["account_id"],
+            "name": ask_card_facts["name"],
+            "provider": ask_card_facts["provider"],
+            "kind": ask_card_facts["kind"],
+        }
+
+    # Attach ask to narration_dict
+    narration_dict["ask"] = ask_payload
 
     # Store in memo
     _narration_memo[uid] = (facts_hash, narration_dict)
