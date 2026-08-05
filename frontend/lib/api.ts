@@ -780,7 +780,12 @@ export type DebtPlanViewCard = {
   payoff_month: string | null;         // "YYYY-MM"
   months_to_payoff: number | null;
   total_interest: number | null;       // null = never clears at current pace (no capped integral)
-  monthly_interest_now: number;        // balance × APR/1200 today
+  monthly_interest_now: number;        // observed interest-charge debits, median monthly — never derived
+  interest_observed_monthly: number;
+  paying_interest: boolean;
+  terms_contradiction: boolean;
+  potential_monthly_interest: number;
+  zero_interest_lines: number;
   first_interest_month: string | null; // "YYYY-MM"
   monthly_interest_at_first: number | null;
   flags: {
@@ -826,7 +831,8 @@ export type DebtPlanRefinanceOption = {
 export type DebtPlanTotals = {
   debt: number;
   debt_free_month: string | null;
-  monthly_interest_now: number;   // Σ balance × APR/1200 across interest-bearing cards, today
+  monthly_interest_now: number;   // Σ observed interest-charge debits across cards, never derived
+  potential_monthly_interest: number;  // conditional: what balances WOULD cost at the rates on file
   interest_to_clear: number;      // interest summed ONLY over cards that clear at current pace
   nonclearing: { count: number; total_balance: number; monthly_interest_share: number };
   verdict: "good" | "drifting" | "bad";

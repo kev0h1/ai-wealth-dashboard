@@ -19,6 +19,12 @@ Tunable product-level constants (never user-specific):
   BAD_HORIZON_MONTHS    — debt-free date further than this → "bad"
   DAYS_PER_MONTH        — calendar-neutral month length (same as transport.py)
   MOVEMENT_FLAT_EPS     — monthly movement ≤ this → counts as flat for verdict
+
+Observed-interest grounding (added):
+  monthly_interest_now / interest_observed_monthly are derived from observed
+  interest-charge transaction debits (regex: _INTEREST_TXN_RE), never from
+  balance × APR arithmetic.  The APR-derived figure is only ever emitted as
+  potential_monthly_interest (conditional: "what these balances WOULD cost").
 """
 import calendar
 import logging
@@ -53,6 +59,18 @@ _CACHE_NAME = "debt_plan"
 
 # Regex to parse window length from BT offer notes
 _WINDOW_MONTHS_RE = re.compile(r"(\d+)\s*month", re.IGNORECASE)
+
+OBSERVED_INTEREST_WINDOW_DAYS = 97   # ~3 statement months of observed interest charges
+PAYING_INTEREST_WINDOW_DAYS = 62     # ~2 statement months — "is interest hitting now?"
+OBSERVED_MIN_HISTORY_DAYS = 45       # need history at least this old to trust "no interest observed"
+
+# Interest-charge transaction descriptions (UK card issuers).  Deliberately does
+# NOT match fee lines ("BALANCE TRANSFER FEE", "ANNUAL FEE", "FUNDS TRANSFER FEE",
+# "RETURNED PAYMENT FEE") — fees are not interest.
+_INTEREST_TXN_RE = re.compile(
+    r"\binterest\b|purch\s*int|fin(?:ance)?\s+charge|cred\s*int|int\s+charged",
+    re.IGNORECASE,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -433,14 +451,14 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
 
     # At least one pooled card must have a known rate > 0
     has_known_rate = any(
-        any(seg["apr_pct"] is not None and seg["apr_pct"] > 0 for seg in (c.get("rate_schedule") or []))
+        any(seg["apr_pct"] is not None and seg["apr_pct"] > 0 for seg in (c.get("_projection_rate_schedule") or []))
         for c in pooled
     )
     if not has_known_rate:
         return {
             "months_sooner": None,
             "interest_saved": None,
-            "note": "no pooled card carries a known interest rate — avalanche cannot be computed",
+            "note": "no pooled card is being charged interest in your transactions — dearest-card-first saves nothing until a deal changes",
         }
 
     balances: dict[str, float] = {c["account_id"]: c["debt"] for c in pooled}
@@ -461,7 +479,7 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
                 interests[aid] = 0.0
                 rates[aid] = None
                 continue
-            rate_pct = _rate_from_schedule(month_start, c.get("rate_schedule") or [])
+            rate_pct = _rate_from_schedule(month_start, c.get("_projection_rate_schedule") or [])
             rates[aid] = rate_pct
             interests[aid] = B * (rate_pct / 1200.0) if rate_pct is not None else 0.0
 
@@ -581,7 +599,7 @@ def _compute_refinance_options(cards: list[dict], today: date) -> list[dict]:
             continue
 
         # Source must bear interest at a known rate > 0 somewhere in the horizon
-        src_rate_schedule = src.get("rate_schedule") or []
+        src_rate_schedule = src.get("_projection_rate_schedule") or []
         has_positive_rate = any(
             seg["apr_pct"] is not None and seg["apr_pct"] > 0 for seg in src_rate_schedule
         )
@@ -685,7 +703,7 @@ def _walk_with_extra(cards: list[dict], today: date, extra: float) -> tuple[bool
             if B <= 0:
                 continue
             c = card_map[aid]
-            rate = _rate_from_schedule(month_start, c.get("rate_schedule") or [])
+            rate = _rate_from_schedule(month_start, c.get("_projection_rate_schedule") or [])
             month_rates[aid] = rate
             interest = B * rate / 1200.0 if rate is not None else 0.0
             own = c["movement"].get("monthly") or 0.0
@@ -980,6 +998,55 @@ def _compute_history(
     }
 
 
+def _compute_observed_interest(today: date, txns: list[dict]) -> dict:
+    """Derive observed interest figures from a card's transaction history.
+
+    A match = debit where _INTEREST_TXN_RE matches description+merchant_name.
+    Returns:
+      interest_observed_monthly: median monthly interest charge (observed), 0 if none.
+      paying_interest: True iff any interest charge in the last PAYING_INTEREST_WINDOW_DAYS.
+      zero_interest_lines: count of pattern-matching debits with amount ≈ 0 (affirmative
+        evidence some issuers post — e.g. Barclays "Interest On Your… £0.00").
+    """
+    cutoff_observed = today - timedelta(days=OBSERVED_INTEREST_WINDOW_DAYS)
+    cutoff_paying = today - timedelta(days=PAYING_INTEREST_WINDOW_DAYS)
+
+    matches: list[dict] = []
+    zero_lines = 0
+
+    for t in txns:
+        if t.get("transaction_type") != "debit":
+            continue
+        text = f"{t.get('description') or ''} {t.get('merchant_name') or ''}"
+        if not _INTEREST_TXN_RE.search(text):
+            continue
+        amt = float(t.get("amount") or 0.0)
+        txn_date = _to_date(t["date"])
+        if amt <= 0.005:
+            # Zero-amount interest line (affirmative evidence of £0 interest)
+            if txn_date >= cutoff_paying:
+                zero_lines += 1
+        else:
+            matches.append({"date": txn_date, "amount": amt})
+
+    paying_interest = any(m["date"] >= cutoff_paying for m in matches)
+
+    # Monthly median of observed interest charges (last OBSERVED_INTEREST_WINDOW_DAYS)
+    recent_matches = [m for m in matches if m["date"] >= cutoff_observed]
+    monthly_sums: dict[str, float] = {}
+    for m in recent_matches:
+        label = _month_label(m["date"])
+        monthly_sums[label] = monthly_sums.get(label, 0.0) + m["amount"]
+    month_vals = list(monthly_sums.values()) if monthly_sums else []
+    interest_observed_monthly = _r2(_median(month_vals)) if month_vals else 0.0
+
+    return {
+        "interest_observed_monthly": interest_observed_monthly,
+        "paying_interest": paying_interest,
+        "zero_interest_lines": zero_lines,
+    }
+
+
 # ── Main async entry point ────────────────────────────────────────────────────
 
 async def compute_debt_plan(uid: str) -> dict:
@@ -1011,7 +1078,7 @@ async def compute_debt_plan(uid: str) -> dict:
     if cc_account_ids:
         all_cc_txns = await transactions_col.find(
             {"account_id": {"$in": cc_account_ids}},
-            {"account_id": 1, "amount": 1, "transaction_type": 1, "date": 1},
+            {"account_id": 1, "amount": 1, "transaction_type": 1, "date": 1, "description": 1, "merchant_name": 1},
         ).to_list(None)
 
     # Index transactions by account_id
@@ -1056,18 +1123,79 @@ async def compute_debt_plan(uid: str) -> dict:
         # 2. Rate schedule
         rate_schedule, standard_apr = _compute_rate_schedule(today, terms_doc, flags)
 
-        # 2b. Monthly interest RIGHT NOW: today's balance × today's APR / 1200.
-        # Decomposable per card; promo 0% counts as 0; unknown rate counts as 0
-        # (the missing-rate assumption is already surfaced).
+        # 2b. Observed interest from transaction history
+        obs = _compute_observed_interest(today, txns)
+        interest_observed_monthly = obs["interest_observed_monthly"]
+        paying_interest = obs["paying_interest"]
+        zero_interest_lines = obs["zero_interest_lines"]
+
+        # monthly_interest_now = observed figure (never derived arithmetic)
+        monthly_interest_now = interest_observed_monthly
+
+        # potential_monthly_interest = what the balance WOULD cost at the rates on file
+        # (conditional — only meaningful if these balances stopped being 0%)
         current_month_start = date(today.year, today.month, 1)
         current_rate = _rate_from_schedule(current_month_start, rate_schedule) if rate_schedule else None
-        monthly_interest_now = (
+        potential_monthly_interest = (
             _r2(debt * current_rate / 1200.0) if (debt > 0 and current_rate) else 0.0
         )
 
+        # Determine current segment source (for terms_contradiction check)
+        current_segment_source: Optional[str] = None
+        if rate_schedule:
+            for seg in rate_schedule:
+                seg_from = seg["from"]
+                seg_until = seg["until"]
+                month_str = _month_label(current_month_start)
+                if seg_until is None:
+                    if month_str >= seg_from:
+                        current_segment_source = seg["source"]
+                        break
+                else:
+                    if seg_from <= month_str <= seg_until:
+                        current_segment_source = seg["source"]
+                        break
+
+        # Minimum evidence: need at least OBSERVED_MIN_HISTORY_DAYS of history
+        has_min_history = bool(txns) and (
+            (today - min(_to_date(t["date"]) for t in txns)).days >= OBSERVED_MIN_HISTORY_DAYS
+        )
+
+        # terms_contradiction: rate on file says interest, transactions say none — ASK the user
+        terms_contradiction = bool(
+            debt >= MATERIAL_BALANCE
+            and standard_apr is not None and standard_apr > 0
+            and current_segment_source == "standard"
+            and not paying_interest
+            and has_min_history
+        )
+
+        # Projection grounding: base projection on observed behaviour
+        if paying_interest:
+            # Observed interest → project at file rates (as before)
+            projection_rate_schedule = rate_schedule
+        elif current_segment_source == "promo":
+            # Recorded 0% deal — observed silence confirms recorded terms;
+            # post-promo cliff stays because user told us this deal
+            projection_rate_schedule = rate_schedule
+        else:
+            # No observed interest AND schedule claims interest now (or nothing on file)
+            # → project observed behaviour: no interest
+            projection_rate_schedule = []
+
+        # When we emptied the schedule but the file had interest-bearing segments,
+        # surface an assumption so the user understands the projection
+        if not projection_rate_schedule and any(
+            seg["apr_pct"] is not None and seg["apr_pct"] > 0
+            for seg in rate_schedule
+        ):
+            flags["assumptions"].append(
+                "no interest seen in your transactions — projected without it until you tell me the deal behind it"
+            )
+
         # 3. Amortisation (only when there's debt)
         if debt > 0:
-            proj = _amortise(debt, movement["monthly"], today, rate_schedule)
+            proj = _amortise(debt, movement["monthly"], today, projection_rate_schedule)
             balance_series_by_card[aid] = proj.get("balance_series", [])
         else:
             proj = {
@@ -1106,6 +1234,11 @@ async def compute_debt_plan(uid: str) -> dict:
             "months_to_payoff": proj["months_to_payoff"],
             "total_interest": card_interest_total,
             "monthly_interest_now": monthly_interest_now,
+            "interest_observed_monthly": interest_observed_monthly,
+            "paying_interest": paying_interest,
+            "terms_contradiction": terms_contradiction,
+            "potential_monthly_interest": potential_monthly_interest,
+            "zero_interest_lines": zero_interest_lines,
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
             "flags": flags,
@@ -1113,6 +1246,7 @@ async def compute_debt_plan(uid: str) -> dict:
             "_standard_apr": standard_apr,
             "_bt_offers": bt_offers,
             "_interest_series": proj.get("interest_series", []),
+            "_projection_rate_schedule": projection_rate_schedule,
         }
         cards_out.append(card)
 
@@ -1122,8 +1256,11 @@ async def compute_debt_plan(uid: str) -> dict:
     # ── Totals + verdict ──────────────────────────────────────────────────────
     total_debt = _r2(sum(c["debt"] for c in cards_out))
 
-    # The monthly bleed, TODAY: Σ balance × APR/1200 across interest-bearing cards.
+    # The monthly bleed: Σ observed interest-charge debits across cards, never derived arithmetic.
     monthly_interest_now_total = _r2(sum(c["monthly_interest_now"] for c in cards_out))
+
+    # Conditional: what balances WOULD cost at the rates on file (never stated as current fact)
+    potential_monthly_interest_total = _r2(sum(c["potential_monthly_interest"] for c in cards_out))
 
     # Interest to clear: summed ONLY over cards that actually clear at current
     # pace.  Cards that never clear within the cap contribute nothing here —
@@ -1154,6 +1291,7 @@ async def compute_debt_plan(uid: str) -> dict:
         "debt": total_debt,
         "debt_free_month": debt_free_month,
         "monthly_interest_now": monthly_interest_now_total,
+        "potential_monthly_interest": potential_monthly_interest_total,
         "interest_to_clear": interest_to_clear,
         "nonclearing": nonclearing,
         "verdict": verdict,
@@ -1212,6 +1350,7 @@ async def compute_debt_plan(uid: str) -> dict:
         c.pop("_standard_apr", None)
         c.pop("_bt_offers", None)
         c.pop("_interest_series", None)
+        c.pop("_projection_rate_schedule", None)
 
     return {
         "status": "ok",

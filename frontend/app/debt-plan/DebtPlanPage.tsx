@@ -467,13 +467,13 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
   const { scenario_b, totals, cards } = plan;
   const nc = totals.nonclearing;
 
-  const showAsItStands = totals.monthly_interest_now >= 1 || nc.count > 0;
+  const showAsItStands = totals.monthly_interest_now >= 1 || (nc.count > 0 && nc.monthly_interest_share >= 1) || totals.potential_monthly_interest >= 1;
 
   const sb = "note" in scenario_b ? null : scenario_b;
   const showDearest =
     sb != null &&
     sb.debt_free_month != null &&
-    ((sb.interest_saved != null && sb.interest_saved >= 1) || (sb.months_sooner ?? 0) > 0);
+    sb.interest_saved != null && sb.interest_saved >= 50;
 
   if (!showAsItStands && !showDearest) return null;
 
@@ -526,25 +526,41 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
             As it stands
           </p>
-          <p className="mt-1">
-            <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              {fmtMoney(totals.monthly_interest_now, hide)}
-            </span>{" "}
-            <span className="text-sm text-slate-700 dark:text-slate-200">
-              a month in interest right now
-            </span>
-          </p>
-          {nc.count > 0 && nc.monthly_interest_share >= 1 && (
-            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2">
-              {fmtMoney(nc.monthly_interest_share, hide)} of that is on {nc.count}{" "}
-              {nc.count === 1 ? "card that isn’t" : "cards that aren’t"} clearing at your pace.
-            </p>
-          )}
-          {totals.interest_to_clear >= 1 && (
-            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
-              {fmtMoney(totals.interest_to_clear, hide)} to clear{" "}
-              {nc.count > 0 ? "the rest" : "them at your pace"}.
-            </p>
+          {totals.monthly_interest_now >= 1 ? (
+            <>
+              <p className="mt-1">
+                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  {fmtMoney(totals.monthly_interest_now, hide)}
+                </span>{" "}
+                <span className="text-sm text-slate-700 dark:text-slate-200">
+                  a month in interest right now
+                </span>
+              </p>
+              {nc.count > 0 && nc.monthly_interest_share >= 1 && (
+                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2">
+                  {fmtMoney(nc.monthly_interest_share, hide)} of that is on {nc.count}{" "}
+                  {nc.count === 1 ? "card that isn’t" : "cards that aren’t"} clearing at your pace.
+                </p>
+              )}
+              {totals.interest_to_clear >= 1 && (
+                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
+                  {fmtMoney(totals.interest_to_clear, hide)} to clear{" "}
+                  {nc.count > 0 ? "the rest" : "them at your pace"}.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 mt-2">
+                No interest is hitting your cards right now.
+              </p>
+              {totals.potential_monthly_interest >= 1 && (
+                <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
+                  If these balances ran past their 0% windows at the rates on file, they&apos;d cost about{" "}
+                  {fmtMoney(totals.potential_monthly_interest, hide)} a month.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -812,10 +828,11 @@ export default function DebtPlanPage() {
   const showMissingRates = plan != null && plan.cards.some(c => c.flags.terms_missing && c.debt > 0);
   const showTwoTrajectory = plan != null && (
     plan.totals.monthly_interest_now >= 1 ||
-    plan.totals.nonclearing.count > 0 ||
+    (plan.totals.nonclearing.count > 0 && plan.totals.nonclearing.monthly_interest_share >= 1) ||
+    plan.totals.potential_monthly_interest >= 1 ||
     (!("note" in plan.scenario_b) &&
       plan.scenario_b.debt_free_month != null &&
-      ((plan.scenario_b.interest_saved ?? 0) >= 1 || (plan.scenario_b.months_sooner ?? 0) > 0))
+      (plan.scenario_b.interest_saved ?? 0) >= 50)
   );
   const showTransferRoutes = (plan?.refinance_options?.length ?? 0) > 0;
 

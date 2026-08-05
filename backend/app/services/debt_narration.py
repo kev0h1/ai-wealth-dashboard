@@ -57,6 +57,31 @@ def _collect_numeric_leaves(obj, values: set[float]) -> None:
         values.add(abs(round(f)))
 
 
+def _find_contradiction_card(cards: list[dict]) -> Optional[dict]:
+    """Among cards with terms_contradiction True, pick the one with the largest debt.
+
+    Returns {"name", "provider", "apr_pct", "debt"} where apr_pct is the card's
+    standard rate: the first rate_schedule segment with source == "standard".
+    Returns None when no contradiction cards.
+    """
+    candidates = [c for c in cards if c.get("terms_contradiction") and (c.get("debt") or 0) >= MATERIAL_BALANCE]
+    if not candidates:
+        return None
+    card = max(candidates, key=lambda c: c.get("debt", 0.0))
+    # Find standard rate
+    std_apr: Optional[float] = None
+    for seg in (card.get("rate_schedule") or []):
+        if seg.get("source") == "standard" and seg.get("apr_pct") is not None:
+            std_apr = seg["apr_pct"]
+            break
+    return {
+        "name": card.get("name", ""),
+        "provider": card.get("provider", ""),
+        "apr_pct": std_apr,
+        "debt": card.get("debt", 0.0),
+    }
+
+
 def _build_facts(plan: dict) -> Optional[dict]:
     """Build compact, deterministic facts dict from a plan.
 
@@ -93,6 +118,17 @@ def _build_facts(plan: dict) -> Optional[dict]:
                     "spend_last_period": _r2(latest_period.get("debits", 0.0)),
                     "payments_last_period": _r2(latest_period.get("credits", 0.0)),
                 }
+
+        # contradiction_card must be resolved before we can set is_contradiction_card
+        contradiction_card = _find_contradiction_card(cards)
+
+        # Mark growth_card when it is the same card as the contradiction_card so
+        # narration layers can suppress the incoherent "tell me its rate" tail.
+        if growth_card is not None:
+            growth_card["is_contradiction_card"] = (
+                contradiction_card is not None
+                and growth_card["name"] == contradiction_card["name"]
+            )
 
         # whats_working: first entry only
         whats_working_first = None
@@ -151,6 +187,8 @@ def _build_facts(plan: dict) -> Optional[dict]:
             "whats_working": whats_working_first,
             "missing_rates_count": missing_rates_count,
             "refinance_best": refinance_best,
+            "potential_monthly_interest": totals.get("potential_monthly_interest"),
+            "contradiction_card": contradiction_card,
         }
         return facts
 
@@ -179,17 +217,35 @@ def _fallback_text(facts: dict, monthly_surplus: Optional[float]) -> str:
     """Build deterministic fallback narration from facts. Max 5 sentences."""
     sentences: list[str] = []
 
-    # (0) Monthly bleed — leads when present
+    # (0) Monthly bleed / no-interest opening — leads always
     mi_now = facts.get("monthly_interest_now") or 0.0
     nc = facts.get("nonclearing") or {}
     nc_count = nc.get("count") or 0
     nc_share = nc.get("monthly_interest_share") or 0.0
+    potential = facts.get("potential_monthly_interest") or 0.0
+    contradiction_card = facts.get("contradiction_card")
     if mi_now >= 1.0:
         bleed = f"The cards are costing about £{mi_now:,.0f} a month in interest right now."
         if nc_count > 0 and nc_share >= 1.0:
             plural = "cards that aren't" if nc_count > 1 else "card that isn't"
             bleed += f" £{nc_share:,.0f} of that is on {nc_count} {plural} clearing at your pace."
         sentences.append(bleed)
+    else:
+        # No observed interest — lead with fact, then conditional, then contradiction ask
+        sentences.append("No interest is hitting your cards right now.")
+        if potential >= 1.0:
+            sentences.append(
+                f"If these balances ran past their 0% windows at the rates on file, they'd cost about £{potential:,.0f} a month."
+            )
+        if contradiction_card:
+            provider = contradiction_card.get("provider") or ""
+            name = contradiction_card.get("name") or "card"
+            apr_pct = contradiction_card.get("apr_pct")
+            card_ref = f"{provider} card" if provider else name
+            apr_str = f"{apr_pct}%" if apr_pct is not None else "an unknown rate"
+            sentences.append(
+                f"Your {card_ref} shows no interest charges, though its rate on file is {apr_str} — is that balance on a 0% deal I don't have? Tell me its end date and the picture sharpens."
+            )
 
     # (a) History trend
     trend = facts.get("history_trend_3m") or 0.0
@@ -216,11 +272,18 @@ def _fallback_text(facts: dict, monthly_surplus: Optional[float]) -> str:
         card_ref = f"your {provider} card" if gc.get("provider") else gc.get("name", "your card")
         spend = gc.get("spend_last_period", 0)
         pays = gc.get("payments_last_period", 0)
-        gc_sentence = (
-            f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} "
-            f"of payments last period. "
-            f"If that's deliberate, tell me its rate and I'll price it; if not, that's the biggest lever here."
-        )
+        if gc.get("is_contradiction_card"):
+            # Rate is already on file; the contradiction question above covers the ask.
+            # Suppress the incoherent "tell me its rate" tail.
+            gc_sentence = (
+                f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} of payments last period."
+            )
+        else:
+            gc_sentence = (
+                f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} "
+                f"of payments last period. "
+                f"If that's deliberate, tell me its rate and I'll price it; if not, that's the biggest lever here."
+            )
 
     # (d) extra_to_clear + whats_working
     etc = facts.get("extra_to_clear")
@@ -355,11 +418,18 @@ async def get_debt_plan_view(uid: str) -> dict:
                 "Write ONE plain paragraph, 3–5 short sentences, no headings, no bullet points, "
                 "no newlines within or between sentences.\n\n"
                 "Sentence order:\n"
-                "(1) The monthly bleed — if monthly_interest_now is present and at least 1, open with it "
-                "plainly: 'The cards are costing about £{monthly_interest_now} a month in interest right "
-                "now.' If nonclearing.count > 0, add that £{nonclearing.monthly_interest_share} of that "
-                "is on {nonclearing.count} cards that aren't clearing at your pace. State the facts flat "
-                "— no added emphasis, no exclamation, no dramatising.\n"
+                "(1) The monthly bleed / no-interest opening — ALWAYS lead with this:\n"
+                "  • If monthly_interest_now is at least 1: open with 'The cards are costing about "
+                "£{monthly_interest_now} a month in interest right now.' If nonclearing.count > 0, add "
+                "that £{nonclearing.monthly_interest_share} of that is on {nonclearing.count} cards that "
+                "aren't clearing at your pace. State the facts flat — no added emphasis, no exclamation.\n"
+                "  • If monthly_interest_now is 0 or absent: open EXACTLY with 'No interest is hitting "
+                "your cards right now.' If potential_monthly_interest is present and at least 1, follow "
+                "with EXACTLY: 'If these balances ran past their 0% windows at the rates on file, they'd "
+                "cost about £{potential_monthly_interest} a month.' Then if contradiction_card is present, "
+                "EXACTLY one question in this shape: 'Your {provider} card shows no interest charges, "
+                "though its rate on file is {apr_pct}% — is that balance on a 0% deal I don't have? "
+                "Tell me its end date and the picture sharpens.' Never ask about more than one card.\n"
                 "(2) The situation — if history_rising is true, the total has risen £{history_trend_3m} "
                 "over the last three months; if monthly_surplus is negative, connect it ('a typical month "
                 "runs about £X short after spending').\n"
@@ -367,7 +437,10 @@ async def get_debt_plan_view(uid: str) -> dict:
                 "assuming intent: \"Most of the growth is your {provider} card — £{spend_last_period} of "
                 "spending against £{payments_last_period} of payments last period. If that's deliberate, "
                 "tell me its rate and I'll price it; if not, that's the biggest lever here.\" "
-                "(refer to the card as 'your {provider} card' when provider is set, else the name).\n"
+                "(refer to the card as 'your {provider} card' when provider is set, else the name). "
+                "EXCEPTION: if growth_card.is_contradiction_card is true, end the sentence after "
+                "'…of payments last period.' — do NOT add the 'tell me its rate' clause (its rate "
+                "is already on file and the contradiction question above covers it).\n"
                 "(4) The fastest lever — extra_to_clear ('£{amount} more a month clears every card by "
                 "{Mon YYYY}') and/or whats_working ('{name} is already on its way out, clearing {Mon YYYY}'); "
                 "include refinance_best when present.\n"

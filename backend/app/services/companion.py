@@ -1416,7 +1416,8 @@ async def compute_today_items(uid: str) -> list[dict]:
                 _traj_body: str
 
                 # Interest is always cited as the monthly bleed (£X a month right
-                # now) — never a horizon-capped interest integral.
+                # now) — figure is observed from interest-charge transactions,
+                # never derived arithmetic. Never a horizon-capped integral.
                 if _verdict_str == "drifting":
                     if (
                         _debt_free_month
