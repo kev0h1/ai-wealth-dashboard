@@ -80,6 +80,82 @@ function WhisperLabel({ children }: { children: React.ReactNode }) {
 
 // ── Burndown background ────────────────────────────────────────────────────────
 
+/**
+ * Monotone cubic interpolation (Fritsch-Carlson, 1980).
+ * Converts an array of {x, y} points into an SVG path string
+ * using C (cubic bezier) commands. The curve never overshoots
+ * or dips below/above actual data points — safe for financial balances.
+ * Returns null if fewer than 2 points.
+ */
+function monotoneCubicPath(pts: Array<{ x: number; y: number }>): string | null {
+  const n = pts.length;
+  if (n < 2) return null;
+  if (n === 2) {
+    // Straight line as a degenerate cubic
+    return `M ${pts[0].x} ${pts[0].y} C ${pts[0].x} ${pts[0].y} ${pts[1].x} ${pts[1].y} ${pts[1].x} ${pts[1].y}`;
+  }
+
+  // 1. Compute slopes of chords
+  const dx: number[] = [];
+  const dy: number[] = [];
+  const m: number[] = new Array(n).fill(0);
+
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1].x - pts[i].x;
+    dy[i] = pts[i + 1].y - pts[i].y;
+  }
+
+  // 2. Initialize tangents using Fritsch-Carlson
+  for (let i = 0; i < n; i++) {
+    if (i === 0) {
+      m[i] = dy[0] / dx[0];
+    } else if (i === n - 1) {
+      m[i] = dy[n - 2] / dx[n - 2];
+    } else {
+      const slope0 = dy[i - 1] / dx[i - 1];
+      const slope1 = dy[i] / dx[i];
+      if (slope0 * slope1 <= 0) {
+        m[i] = 0; // sign change → flat tangent to prevent overshoot
+      } else {
+        // Weighted harmonic mean
+        const w0 = 2 * dx[i] + dx[i - 1];
+        const w1 = dx[i] + 2 * dx[i - 1];
+        m[i] = (w0 + w1) / (w0 / slope0 + w1 / slope1);
+      }
+    }
+  }
+
+  // 3. Clamp tangents to prevent overshoot (alpha-beta condition)
+  for (let i = 0; i < n - 1; i++) {
+    const s = dy[i] / dx[i];
+    if (Math.abs(s) < 1e-10) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const alpha = m[i] / s;
+    const beta = m[i + 1] / s;
+    const tau = alpha * alpha + beta * beta;
+    if (tau > 9) {
+      const factor = 3 / Math.sqrt(tau);
+      m[i] = factor * alpha * s;
+      m[i + 1] = factor * beta * s;
+    }
+  }
+
+  // 4. Emit SVG path
+  const fmt = (v: number) => v.toFixed(3);
+  let d = `M ${fmt(pts[0].x)} ${fmt(pts[0].y)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const cp1x = pts[i].x + dx[i] / 3;
+    const cp1y = pts[i].y + (m[i] * dx[i]) / 3;
+    const cp2x = pts[i + 1].x - dx[i] / 3;
+    const cp2y = pts[i + 1].y - (m[i + 1] * dx[i]) / 3;
+    d += ` C ${fmt(cp1x)} ${fmt(cp1y)} ${fmt(cp2x)} ${fmt(cp2y)} ${fmt(pts[i + 1].x)} ${fmt(pts[i + 1].y)}`;
+  }
+  return d;
+}
+
 function BurndownBackground({
   history,
   projection,
@@ -106,31 +182,28 @@ function BurndownBackground({
   const hasHistory = historyPts.length >= 1;
   const seamX = hasHistory ? 30 : 0;
 
-  // History x positions: 0 to 30 (inclusive)
-  const historyCoords = historyPts.map((p, i) => {
-    const x = historyPts.length === 1
+  // Build point arrays for monotone interpolation
+  const historyPtsXY = historyPts.map((p, i) => ({
+    x: historyPts.length === 1
       ? 0
-      : ((i / (historyPts.length - 1)) * seamX).toFixed(2);
-    return `${x} ${toY(p.total)}`;
-  });
+      : (i / (historyPts.length - 1)) * seamX,
+    y: parseFloat(toY(p.total)),
+  }));
 
-  // Projection x positions: seam→100
-  // projection[0] is the "today" point = shared seam
-  const projCoords = projection.map((p, i) => {
-    const x = projection.length === 1
+  const projPtsXY = projection.map((p, i) => ({
+    x: projection.length === 1
       ? seamX
-      : (seamX + ((i / (projection.length - 1)) * (100 - seamX))).toFixed(2);
-    return `${x} ${toY(p.total)}`;
-  });
+      : seamX + (i / (projection.length - 1)) * (100 - seamX),
+    y: parseFloat(toY(p.total)),
+  }));
 
-  // Solid segment = history.points followed by projection[0] (the seam/today point)
-  // Only render solid path when we have ≥2 solid points
-  const solidCoords = [...historyCoords, projCoords[0]];
-  const hasSolid = solidCoords.length >= 2;
+  // Solid = history + seam point (projection[0])
+  const solidPtsXY = [...historyPtsXY, projPtsXY[0]];
+  const hasSolid = solidPtsXY.length >= 2;
 
-  // Dashed = full projection
-  const forecastPath = `M ${projCoords.join(" L ")}`;
-  const solidPath = hasSolid ? `M ${solidCoords.join(" L ")}` : null;
+  // Build cubic paths
+  const forecastPath = monotoneCubicPath(projPtsXY);
+  const solidPath = hasSolid ? monotoneCubicPath(solidPtsXY) : null;
 
   return (
     <div
@@ -142,15 +215,32 @@ function BurndownBackground({
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
       >
+        {/* SVG filter for soft glow on the line */}
+        <defs>
+          <filter id="burndown-glow" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="0.8" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         {/* 1. Dashed projection path */}
-        <path
-          d={forecastPath}
-          className="burndown-line-forecast"
-          fill="none"
-          vectorEffect="non-scaling-stroke"
-          strokeWidth={1.5}
-          strokeDasharray="3 5"
-        />
+        {forecastPath && (
+          <path
+            d={forecastPath}
+            className="burndown-line-forecast"
+            fill="none"
+            vectorEffect="non-scaling-stroke"
+            strokeWidth={8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="16 10"
+            filter="url(#burndown-glow)"
+          />
+        )}
+
         {/* 2. Solid history path */}
         {solidPath && (
           <path
@@ -158,9 +248,13 @@ function BurndownBackground({
             className="burndown-line"
             fill="none"
             vectorEffect="non-scaling-stroke"
-            strokeWidth={1.5}
+            strokeWidth={8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter="url(#burndown-glow)"
           />
         )}
+
         {/* 3. Seam line */}
         {hasHistory && (
           <line

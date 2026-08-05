@@ -337,10 +337,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    bumps its muted text one step toward ink (slate-600 / dark slate-300) to fund the
    headroom. Colours never leave the app's indigo + slate token families. */
 
-.burndown-line          { stroke: rgba(79,70,229,0.22); }
-.dark .burndown-line    { stroke: rgba(129,140,248,0.34); }
-.burndown-line-forecast { stroke: rgba(79,70,229,0.11); }
-.dark .burndown-line-forecast { stroke: rgba(129,140,248,0.16); }
+.burndown-line          { stroke: rgba(79,70,229,0.13); }
+.dark .burndown-line    { stroke: rgba(129,140,248,0.18); }
+.burndown-line-forecast { stroke: rgba(79,70,229,0.07); }
+.dark .burndown-line-forecast { stroke: rgba(129,140,248,0.10); }
 .burndown-seam          { stroke: rgba(100,116,139,0.12); }
 .dark .burndown-seam    { stroke: rgba(148,163,184,0.14); }
 
