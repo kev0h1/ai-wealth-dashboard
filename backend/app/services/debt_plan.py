@@ -15,7 +15,7 @@ Doctrine
 Tunable product-level constants (never user-specific):
   HORIZON_MONTHS        — how far we project (10 years)
   MATERIAL_BALANCE      — minimum debt (£) for a card to affect the verdict
-  GOOD_INTEREST_CEILING — total interest below which the verdict is "good"
+  GOOD_INTEREST_CEILING — interest-to-clear below which the verdict is "good"
   BAD_HORIZON_MONTHS    — debt-free date further than this → "bad"
   DAYS_PER_MONTH        — calendar-neutral month length (same as transport.py)
   MOVEMENT_FLAT_EPS     — monthly movement ≤ this → counts as flat for verdict
@@ -306,7 +306,9 @@ def _amortise(
     lands on the first of next month.
 
     Returns payoff_month, months_to_payoff, total_interest,
-    first_interest_month, monthly_interest_at_first, and _rate_schedule.
+    first_interest_month, monthly_interest_at_first, balance_series and
+    interest_series (per-month interest amounts, aligned with month 1..N;
+    the series ends at payoff for clearing cards).
     """
     movement = monthly_movement if (monthly_movement is not None and monthly_movement > 0) else 0.0
     B = initial_debt
@@ -316,6 +318,7 @@ def _amortise(
     payoff_month: Optional[str] = None
     months_to_payoff: Optional[int] = None
     balance_series: list[float] = []
+    interest_series: list[float] = []
 
     for i in range(1, HORIZON_MONTHS + 1):
         # Month i's start = first of (current month + i)
@@ -332,6 +335,7 @@ def _amortise(
             monthly_interest_at_first = _r2(interest)
 
         total_interest += interest
+        interest_series.append(interest)
         B = B - movement + interest
 
         if B <= 0:
@@ -349,6 +353,7 @@ def _amortise(
         "first_interest_month": first_interest_month,
         "monthly_interest_at_first": monthly_interest_at_first,
         "balance_series": balance_series,
+        "interest_series": interest_series,
     }
 
 
@@ -403,13 +408,24 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
     Cards with movement None or <= 0 are excluded from the pool; they keep
     their demonstrated movement in both scenarios (may be 0).  All allocations
     must be >= 0 — we never model extra borrowing.
+
+    Comparison semantics (one stated window, internally consistent):
+    - The comparison window = this scenario's own payoff horizon (months to
+      clear the pooled cards, avalanche-style).
+    - ``as_is_interest_over_window`` = as-is cumulative interest over exactly
+      that window, summed over the SAME pooled cards — so
+      ``interest_saved = as_is_interest_over_window - total_interest`` is the
+      literal subtraction and holds everything outside the pool equal.
+    - ``months_sooner`` exists only when BOTH trajectories clear within the
+      projection cap; otherwise it is None and ``as_is_clears`` carries the
+      truthful shape (the as-is path never clears).
     """
     pooled = [c for c in cards if c["debt"] > 0 and (c["movement"].get("monthly") or 0) > 0]
 
     if not pooled:
         return {
-            "months_sooner": 0,
-            "interest_saved": 0.0,
+            "months_sooner": None,
+            "interest_saved": None,
             "note": "no cards with both debt and positive movement — pool is empty",
         }
 
@@ -422,8 +438,8 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
     )
     if not has_known_rate:
         return {
-            "months_sooner": 0,
-            "interest_saved": 0.0,
+            "months_sooner": None,
+            "interest_saved": None,
             "note": "no pooled card carries a known interest rate — avalanche cannot be computed",
         }
 
@@ -470,8 +486,8 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
 
         if pool < holdings_sum:
             return {
-                "months_sooner": 0,
-                "interest_saved": 0.0,
+                "months_sooner": None,
+                "interest_saved": None,
                 "note": "monthly pool insufficient to cover minimum holdings on non-target cards",
             }
 
@@ -496,25 +512,56 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
             months_b = i
             break
 
-    # Scenario A months for pooled cards (worst = last to clear)
-    a_months = max(
-        (c.get("months_to_payoff") or (HORIZON_MONTHS + 1)) for c in pooled
-    )
-    b_months = months_b if months_b is not None else (HORIZON_MONTHS + 1)
-    months_sooner = max(0, a_months - b_months)
+    # As-is truth for the pooled cards
+    pooled_nonclearing_count = sum(1 for c in pooled if c.get("payoff_month") is None)
+    as_is_clears = pooled_nonclearing_count == 0
+    as_is_debt_free_month: Optional[str] = None
+    if as_is_clears:
+        as_is_debt_free_month = max(c["payoff_month"] for c in pooled)
 
-    total_interest_a = sum(c.get("total_interest", 0.0) or 0.0 for c in pooled)
-    interest_saved = _r2(max(0.0, total_interest_a - total_interest_b))
+    # Comparison over ONE stated window: this scenario's own payoff horizon.
+    # As-is cumulative interest over that window, same pooled cards.
+    window_months: Optional[int] = months_b
+    as_is_interest_over_window: Optional[float] = None
+    interest_saved: Optional[float] = None
+    if window_months is not None:
+        aiw = 0.0
+        for c in pooled:
+            series = c.get("_interest_series") or []
+            aiw += sum(series[:window_months])
+        as_is_interest_over_window = _r2(aiw)
+        interest_saved = _r2(as_is_interest_over_window - _r2(total_interest_b))
+
+    # months_sooner only means something when BOTH trajectories clear in cap
+    months_sooner: Optional[int] = None
+    if as_is_clears and months_b is not None:
+        a_months = max(c["months_to_payoff"] for c in pooled)
+        months_sooner = max(0, a_months - months_b)
+
+    covers_all_debt = len(pooled) == sum(1 for c in cards if c["debt"] > 0)
+    assumption = (
+        "same total monthly movement, minimums elsewhere, remainder to the priciest rate "
+        "— a simplification of avalanche"
+    )
+    if not covers_all_debt:
+        assumption += (
+            "; cards whose balance isn't currently coming down sit outside this comparison "
+            "and follow the same path in both"
+        )
 
     return {
         "debt_free_month": debt_free_month_b,
         "total_interest": _r2(total_interest_b),
-        "months_sooner": months_sooner,
+        "window_months": window_months,
+        "as_is_interest_over_window": as_is_interest_over_window,
         "interest_saved": interest_saved,
-        "assumption": (
-            "same total monthly movement, minimums elsewhere, remainder to the priciest rate "
-            "— a simplification of avalanche"
-        ),
+        "months_sooner": months_sooner,
+        "as_is_clears": as_is_clears,
+        "as_is_debt_free_month": as_is_debt_free_month,
+        "pooled_count": len(pooled),
+        "pooled_nonclearing_count": pooled_nonclearing_count,
+        "covers_all_debt": covers_all_debt,
+        "assumption": assumption,
     }
 
 
@@ -1009,6 +1056,15 @@ async def compute_debt_plan(uid: str) -> dict:
         # 2. Rate schedule
         rate_schedule, standard_apr = _compute_rate_schedule(today, terms_doc, flags)
 
+        # 2b. Monthly interest RIGHT NOW: today's balance × today's APR / 1200.
+        # Decomposable per card; promo 0% counts as 0; unknown rate counts as 0
+        # (the missing-rate assumption is already surfaced).
+        current_month_start = date(today.year, today.month, 1)
+        current_rate = _rate_from_schedule(current_month_start, rate_schedule) if rate_schedule else None
+        monthly_interest_now = (
+            _r2(debt * current_rate / 1200.0) if (debt > 0 and current_rate) else 0.0
+        )
+
         # 3. Amortisation (only when there's debt)
         if debt > 0:
             proj = _amortise(debt, movement["monthly"], today, rate_schedule)
@@ -1020,7 +1076,16 @@ async def compute_debt_plan(uid: str) -> dict:
                 "total_interest": 0.0,
                 "first_interest_month": None,
                 "monthly_interest_at_first": None,
+                "interest_series": [],
             }
+
+        # A card that never clears within the projection cap must not carry the
+        # capped interest integral — arithmetically defined, humanly meaningless.
+        # Its total_interest is null; monthly_interest_now carries the true cost.
+        clears = proj["payoff_month"] is not None
+        card_interest_total: Optional[float] = (
+            proj["total_interest"] if (debt <= 0 or clears) else None
+        )
 
         # bt_offers from terms doc (stored on card_terms, not account)
         bt_offers: list[dict] = []
@@ -1039,13 +1104,15 @@ async def compute_debt_plan(uid: str) -> dict:
             "rate_schedule": rate_schedule,
             "payoff_month": proj["payoff_month"],
             "months_to_payoff": proj["months_to_payoff"],
-            "total_interest": proj["total_interest"],
+            "total_interest": card_interest_total,
+            "monthly_interest_now": monthly_interest_now,
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
             "flags": flags,
             # Internal fields (prefixed _) consumed by totals / scenario B / refinance
             "_standard_apr": standard_apr,
             "_bt_offers": bt_offers,
+            "_interest_series": proj.get("interest_series", []),
         }
         cards_out.append(card)
 
@@ -1054,7 +1121,24 @@ async def compute_debt_plan(uid: str) -> dict:
 
     # ── Totals + verdict ──────────────────────────────────────────────────────
     total_debt = _r2(sum(c["debt"] for c in cards_out))
-    total_interest = _r2(sum(c["total_interest"] or 0.0 for c in cards_out))
+
+    # The monthly bleed, TODAY: Σ balance × APR/1200 across interest-bearing cards.
+    monthly_interest_now_total = _r2(sum(c["monthly_interest_now"] for c in cards_out))
+
+    # Interest to clear: summed ONLY over cards that actually clear at current
+    # pace.  Cards that never clear within the cap contribute nothing here —
+    # their truth is the monthly bleed, not a horizon-capped integral.
+    clearing_cards = [c for c in cards_out if c["debt"] > 0 and c["payoff_month"] is not None]
+    interest_to_clear = _r2(sum(c["total_interest"] or 0.0 for c in clearing_cards))
+
+    # Non-clearing cards at current pace
+    nonclearing_cards = [c for c in cards_out if c["debt"] > 0 and c["payoff_month"] is None]
+    nonclearing = {
+        "count": len(nonclearing_cards),
+        "total_balance": _r2(sum(c["debt"] for c in nonclearing_cards)),
+        "monthly_interest_share": _r2(sum(c["monthly_interest_now"] for c in nonclearing_cards)),
+    }
+
     material_cards = [c for c in cards_out if c["debt"] >= MATERIAL_BALANCE]
 
     # Debt-free month = latest payoff month among material cards
@@ -1064,12 +1148,14 @@ async def compute_debt_plan(uid: str) -> dict:
         payoffs = [c.get("payoff_month") for c in material_cards]
         debt_free_month = None if any(p is None for p in payoffs) else max(payoffs)
 
-    verdict = _verdict(material_cards, debt_free_month, total_interest, history_rising=history["rising"])
+    verdict = _verdict(material_cards, debt_free_month, interest_to_clear, history_rising=history["rising"])
 
     totals = {
         "debt": total_debt,
         "debt_free_month": debt_free_month,
-        "total_interest": total_interest,
+        "monthly_interest_now": monthly_interest_now_total,
+        "interest_to_clear": interest_to_clear,
+        "nonclearing": nonclearing,
         "verdict": verdict,
     }
 
@@ -1125,6 +1211,7 @@ async def compute_debt_plan(uid: str) -> dict:
     for c in cards_out:
         c.pop("_standard_apr", None)
         c.pop("_bt_offers", None)
+        c.pop("_interest_series", None)
 
     return {
         "status": "ok",

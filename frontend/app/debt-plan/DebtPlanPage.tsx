@@ -197,8 +197,14 @@ function BurndownBackground({
     y: parseFloat(toY(p.total)),
   }));
 
-  // Solid = history + seam point (projection[0])
-  const solidPtsXY = [...historyPtsXY, projPtsXY[0]];
+  // Solid = history + seam point (projection[0]).
+  // The last history point and the projection anchor both land on seamX —
+  // drop the point that precedes a duplicate x, else the cubic tangents
+  // divide by zero (dx = 0 → NaN in the SVG path).
+  const solidMerged = [...historyPtsXY, projPtsXY[0]];
+  const solidPtsXY = solidMerged.filter(
+    (p, i) => i === solidMerged.length - 1 || solidMerged[i + 1].x - p.x > 1e-6
+  );
   const hasSolid = solidPtsXY.length >= 2;
 
   // Build cubic paths
@@ -304,7 +310,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     }
   } else if (totals.verdict === "drifting") {
     sentence = (
-      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)} — {fmtMoney(totals.total_interest, hide)} of that will be interest.</>
+      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)} — {fmtMoney(totals.interest_to_clear, hide)} of that will be interest.</>
     );
   } else {
     // good
@@ -312,7 +318,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       sentence = <>Nothing material on the cards right now.</>;
     } else {
       sentence = (
-        <>At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, with {fmtMoney(totals.total_interest, hide)} interest.</>
+        <>At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, with {fmtMoney(totals.interest_to_clear, hide)} interest.</>
       );
     }
   }
@@ -453,57 +459,122 @@ function PennyInsight({
   );
 }
 
-// ── Two-trajectory block ──────────────────────────────────────────────────────
+// ── Trajectory blocks: AS IT STANDS (monthly bleed) + DEAREST CARD FIRST ──────
+// One stated comparison window; every figure reconcilable by subtraction.
+// No horizon-capped interest integrals anywhere.
 
-function TwoTrajectoryBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
+function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
   const { scenario_b, totals, cards } = plan;
+  const nc = totals.nonclearing;
 
-  // Degenerate: has `note` key
-  const isDegenerate = "note" in scenario_b;
-  if (isDegenerate) return null;
-  if (!("months_sooner" in scenario_b)) return null;
-  if (scenario_b.months_sooner === 0 && scenario_b.interest_saved < 1) return null;
+  const showAsItStands = totals.monthly_interest_now >= 1 || nc.count > 0;
+
+  const sb = "note" in scenario_b ? null : scenario_b;
+  const showDearest =
+    sb != null &&
+    sb.debt_free_month != null &&
+    ((sb.interest_saved != null && sb.interest_saved >= 1) || (sb.months_sooner ?? 0) > 0);
+
+  if (!showAsItStands && !showDearest) return null;
 
   const pool = Math.round(
     cards
       .filter(c => c.debt > 0 && c.movement.monthly != null && c.movement.monthly! > 0)
       .reduce((sum, c) => sum + c.movement.monthly!, 0)
   );
+  const poolStr = hide ? "••••" : "£" + pool.toLocaleString("en-GB");
+
+  // Dearest-card-first sentence — one window (the scenario's own payoff month)
+  let dearestSentence: React.ReactNode = null;
+  if (sb != null && sb.debt_free_month != null) {
+    const clearsWhat = sb.covers_all_debt ? "everything" : "every card you’re paying down";
+    const byMonth = fmtMonth(sb.debt_free_month);
+    if (!sb.as_is_clears && sb.as_is_interest_over_window != null) {
+      const k = sb.pooled_nonclearing_count;
+      const dontClear =
+        k === sb.pooled_count
+          ? "none of those cards clear at all"
+          : k === 1
+          ? "1 of those cards doesn’t clear at all"
+          : `${k} of those cards don’t clear at all`;
+      dearestSentence = (
+        <>
+          {`Same ${poolStr} a month, dearest card first — clears ${clearsWhat} by `}
+          <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
+          {` with ${fmtMoney(sb.total_interest, hide)} interest. As it stands, ${dontClear}; by ${byMonth} they’d have cost ${fmtMoney(sb.as_is_interest_over_window, hide)}.`}
+        </>
+      );
+    } else if (sb.as_is_clears && sb.as_is_interest_over_window != null) {
+      const soonerClause =
+        sb.months_sooner != null && sb.months_sooner > 0
+          ? `, ${sb.months_sooner} months sooner than your current pace${sb.as_is_debt_free_month ? ` (${fmtMonth(sb.as_is_debt_free_month)})` : ""}`
+          : "";
+      dearestSentence = (
+        <>
+          {`Same ${poolStr} a month, dearest card first — clears ${clearsWhat} by `}
+          <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
+          {` with ${fmtMoney(sb.total_interest, hide)} interest${soonerClause}. As it stands the same cards would have cost ${fmtMoney(sb.as_is_interest_over_window, hide)} by ${byMonth}.`}
+        </>
+      );
+    }
+  }
 
   return (
-    <div className="glass-card rounded-2xl p-4 space-y-3">
-      <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
-          As it stands
-        </p>
-        <div className="text-right">
-          {totals.debt_free_month && (
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmtMonth(totals.debt_free_month)}</p>
+    <div className="space-y-3">
+      {showAsItStands && (
+        <div className="glass-card rounded-2xl p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
+            As it stands
+          </p>
+          <p className="mt-1">
+            <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              {fmtMoney(totals.monthly_interest_now, hide)}
+            </span>{" "}
+            <span className="text-sm text-slate-700 dark:text-slate-200">
+              a month in interest right now
+            </span>
+          </p>
+          {nc.count > 0 && nc.monthly_interest_share >= 1 && (
+            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2">
+              {fmtMoney(nc.monthly_interest_share, hide)} of that is on {nc.count}{" "}
+              {nc.count === 1 ? "card that isn’t" : "cards that aren’t"} clearing at your pace.
+            </p>
           )}
-          <p className="text-[12px] text-slate-600 dark:text-slate-300">{fmtMoney(totals.total_interest, hide)} interest</p>
-        </div>
-      </div>
-      <div className="flex justify-between items-baseline">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
-          Dearest card first
-        </p>
-        <div className="text-right">
-          {scenario_b.debt_free_month && (
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{fmtMonth(scenario_b.debt_free_month)}</p>
+          {totals.interest_to_clear >= 1 && (
+            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
+              {fmtMoney(totals.interest_to_clear, hide)} to clear{" "}
+              {nc.count > 0 ? "the rest" : "them at your pace"}.
+            </p>
           )}
-          <p className="text-[12px] text-slate-600 dark:text-slate-300">{fmtMoney(scenario_b.total_interest, hide)} interest</p>
         </div>
-      </div>
-      <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-        Same {hide ? "••••" : "£" + pool.toLocaleString("en-GB")} a month, pointed at the dearest card first — debt-free {scenario_b.months_sooner} months sooner, {fmtMoney(scenario_b.interest_saved, hide)} less interest.
-      </p>
-      {plan.history?.rising && (
-        <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-          Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
-        </p>
       )}
-      {"assumption" in scenario_b && scenario_b.assumption && (
-        <p className="text-[12px] text-slate-600 dark:text-slate-300 italic">{scenario_b.assumption}</p>
+
+      {showDearest && sb != null && (
+        <div className="glass-card rounded-2xl p-4 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
+            Dearest card first
+          </p>
+          <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+            {dearestSentence}
+          </p>
+          {sb.interest_saved != null && sb.interest_saved >= 1 && (
+            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+              That&apos;s{" "}
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                {fmtMoney(sb.interest_saved, hide)}
+              </span>{" "}
+              less interest.
+            </p>
+          )}
+          {plan.history?.rising && (
+            <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+              Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
+            </p>
+          )}
+          {sb.assumption && (
+            <p className="text-[12px] text-slate-600 dark:text-slate-300 italic">{sb.assumption}</p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -631,9 +702,14 @@ function CardRows({
               {card.payoff_month && (
                 <p className="text-[13px] text-slate-600 dark:text-slate-300">
                   Clears {fmtMonth(card.payoff_month)}
-                  {card.total_interest >= 1 && (
+                  {card.total_interest != null && card.total_interest >= 1 && (
                     <> · {fmtMoney(card.total_interest, hide)} interest</>
                   )}
+                </p>
+              )}
+              {!card.payoff_month && card.debt > 0 && card.monthly_interest_now >= 1 && (
+                <p className="text-[13px] text-slate-600 dark:text-slate-300">
+                  Not clearing at your pace · {fmtMoney(card.monthly_interest_now, hide)}/mo interest right now
                 </p>
               )}
             </div>
@@ -734,10 +810,13 @@ export default function DebtPlanPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const showMissingRates = plan != null && plan.cards.some(c => c.flags.terms_missing && c.debt > 0);
-  const showTwoTrajectory = plan != null &&
-    !("note" in plan.scenario_b) &&
-    "months_sooner" in plan.scenario_b &&
-    (plan.scenario_b.months_sooner > 0 || plan.scenario_b.interest_saved >= 1);
+  const showTwoTrajectory = plan != null && (
+    plan.totals.monthly_interest_now >= 1 ||
+    plan.totals.nonclearing.count > 0 ||
+    (!("note" in plan.scenario_b) &&
+      plan.scenario_b.debt_free_month != null &&
+      ((plan.scenario_b.interest_saved ?? 0) >= 1 || (plan.scenario_b.months_sooner ?? 0) > 0))
+  );
   const showTransferRoutes = (plan?.refinance_options?.length ?? 0) > 0;
 
   const showAgency = plan != null && (
@@ -817,10 +896,10 @@ export default function DebtPlanPage() {
               </div>
             )}
 
-            {/* Two-trajectory block */}
+            {/* Trajectory blocks: monthly bleed + dearest-card-first comparison */}
             {showTwoTrajectory && (
               <div className="rise-in" style={{ "--rise-index": riseTwoTrajectoryIdx } as React.CSSProperties}>
-                <TwoTrajectoryBlock plan={plan} hide={hideNetWorth} />
+                <TrajectoryBlocks plan={plan} hide={hideNetWorth} />
               </div>
             )}
 

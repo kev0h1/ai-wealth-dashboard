@@ -1378,7 +1378,7 @@ async def compute_today_items(uid: str) -> list[dict]:
         if _verdict_str != "good":
             _traj_id = f"trajectory:{_verdict_str}:{today_d.strftime('%Y-%m')}"
             if _traj_id not in dismissed:
-                _total_interest = _plan["totals"]["total_interest"]
+                _monthly_interest_now = _plan["totals"].get("monthly_interest_now") or 0.0
                 _debt_free_month = _plan["totals"]["debt_free_month"]
                 _material_cards = [c for c in _plan["cards"] if c["debt"] >= 50]
 
@@ -1415,25 +1415,33 @@ async def compute_today_items(uid: str) -> list[dict]:
                 _traj_headline: str
                 _traj_body: str
 
+                # Interest is always cited as the monthly bleed (£X a month right
+                # now) — never a horizon-capped interest integral.
                 if _verdict_str == "drifting":
                     if (
                         _debt_free_month
-                        and _total_interest >= 1
                         and _promo_cliff_card is not None
                         and _promo_cliff_month is not None
+                        and _promo_cliff_card.get("monthly_interest_at_first")
                     ):
+                        _monthly_int = _promo_cliff_card["monthly_interest_at_first"]
                         _cliff_mon = _fmt_month(_promo_cliff_month)
                         _traj_headline = (
                             f"At your current pace the cards clear in {_fmt_month(_debt_free_month)}"
-                            f" — {_fmt_gbp(_total_interest)} of that will be interest,"
-                            f" starting when the {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                            f" — {_fmt_gbp(_monthly_int)} a month in interest starts when the"
+                            f" {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
                         )
                     else:
                         _dfm_str = _fmt_month(_debt_free_month) if _debt_free_month else "unknown"
-                        _traj_headline = (
-                            f"At your current pace the cards clear in {_dfm_str}"
-                            f" — {_fmt_gbp(_total_interest)} of that will be interest."
-                        )
+                        if _monthly_interest_now >= 1:
+                            _traj_headline = (
+                                f"At your current pace the cards clear in {_dfm_str}"
+                                f" — {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
+                            )
+                        else:
+                            _traj_headline = (
+                                f"At your current pace the cards clear in {_dfm_str}."
+                            )
                 else:  # bad
                     if (
                         _promo_cliff_card is not None
@@ -1446,6 +1454,11 @@ async def compute_today_items(uid: str) -> list[dict]:
                             f"The cards aren't coming down at your current pace"
                             f" — {_fmt_gbp(_monthly_int)} a month starts when the"
                             f" {_promo_cliff_card['name']} 0% ends in {_cliff_mon}."
+                        )
+                    elif _monthly_interest_now >= 1:
+                        _traj_headline = (
+                            f"The cards aren't coming down at your current pace"
+                            f" — {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
                         )
                     else:
                         _n_mat = len(_material_cards)

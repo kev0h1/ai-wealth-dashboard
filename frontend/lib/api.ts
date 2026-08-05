@@ -779,7 +779,8 @@ export type DebtPlanViewCard = {
   rate_schedule: DebtPlanRateSegment[];
   payoff_month: string | null;         // "YYYY-MM"
   months_to_payoff: number | null;
-  total_interest: number;
+  total_interest: number | null;       // null = never clears at current pace (no capped integral)
+  monthly_interest_now: number;        // balance × APR/1200 today
   first_interest_month: string | null; // "YYYY-MM"
   monthly_interest_at_first: number | null;
   flags: {
@@ -792,8 +793,21 @@ export type DebtPlanViewCard = {
 };
 
 export type DebtPlanScenarioB =
-  | { months_sooner: 0; interest_saved: 0; note: string }
-  | { debt_free_month: string | null; total_interest: number; months_sooner: number; interest_saved: number; assumption: string };
+  | { months_sooner: null; interest_saved: null; note: string }
+  | {
+      debt_free_month: string | null;
+      total_interest: number;                    // scenario's own interest to clear the pooled cards
+      window_months: number | null;              // comparison window = scenario's payoff horizon
+      as_is_interest_over_window: number | null; // as-is interest over that window, same pooled cards
+      interest_saved: number | null;             // = as_is_interest_over_window − total_interest
+      months_sooner: number | null;              // only when BOTH trajectories clear within cap
+      as_is_clears: boolean;
+      as_is_debt_free_month: string | null;
+      pooled_count: number;
+      pooled_nonclearing_count: number;
+      covers_all_debt: boolean;
+      assumption: string;
+    };
 
 export type DebtPlanRefinanceOption = {
   source_account_id: string;
@@ -812,7 +826,9 @@ export type DebtPlanRefinanceOption = {
 export type DebtPlanTotals = {
   debt: number;
   debt_free_month: string | null;
-  total_interest: number;
+  monthly_interest_now: number;   // Σ balance × APR/1200 across interest-bearing cards, today
+  interest_to_clear: number;      // interest summed ONLY over cards that clear at current pace
+  nonclearing: { count: number; total_balance: number; monthly_interest_share: number };
   verdict: "good" | "drifting" | "bad";
 };
 

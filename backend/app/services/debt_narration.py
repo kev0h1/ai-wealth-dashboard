@@ -130,9 +130,20 @@ def _build_facts(plan: dict) -> Optional[dict]:
                 "debt_free_month": extra_to_clear.get("debt_free_month"),
             }
 
+        # Monthly bleed — the sharpest fact in the app.  All three figures are
+        # deterministic engine outputs (see debt_plan.compute_debt_plan totals).
+        nonclearing = totals.get("nonclearing") or {}
+
         facts: dict = {
             "total_debt": totals.get("debt"),
             "verdict": totals.get("verdict"),
+            "monthly_interest_now": totals.get("monthly_interest_now"),
+            "interest_to_clear": totals.get("interest_to_clear"),
+            "nonclearing": {
+                "count": nonclearing.get("count"),
+                "total_balance": nonclearing.get("total_balance"),
+                "monthly_interest_share": nonclearing.get("monthly_interest_share"),
+            },
             "history_trend_3m": history.get("trend_3m"),
             "history_rising": history.get("rising"),
             "growth_card": growth_card,
@@ -168,13 +179,25 @@ def _fallback_text(facts: dict, monthly_surplus: Optional[float]) -> str:
     """Build deterministic fallback narration from facts. Max 5 sentences."""
     sentences: list[str] = []
 
+    # (0) Monthly bleed — leads when present
+    mi_now = facts.get("monthly_interest_now") or 0.0
+    nc = facts.get("nonclearing") or {}
+    nc_count = nc.get("count") or 0
+    nc_share = nc.get("monthly_interest_share") or 0.0
+    if mi_now >= 1.0:
+        bleed = f"The cards are costing about £{mi_now:,.0f} a month in interest right now."
+        if nc_count > 0 and nc_share >= 1.0:
+            plural = "cards that aren't" if nc_count > 1 else "card that isn't"
+            bleed += f" £{nc_share:,.0f} of that is on {nc_count} {plural} clearing at your pace."
+        sentences.append(bleed)
+
     # (a) History trend
     trend = facts.get("history_trend_3m") or 0.0
     if trend > 1.0:
         sentences.append(f"Your card total has risen £{trend:,.0f} over the last three months.")
     elif trend < -1.0:
         sentences.append(f"Your card total has come down £{abs(trend):,.0f} over the last three months.")
-    else:
+    elif not sentences:
         sentences.append("Your card total has held roughly flat over the last three months.")
 
     # (b) Surplus (only if present and |surplus| > 1)
@@ -220,9 +243,9 @@ def _fallback_text(facts: dict, monthly_surplus: Optional[float]) -> str:
             f"{n_missing} card{s} have no rate on file — add them and I can price every lever exactly."
         )
 
-    # Assemble up to 5 sentences, priority: (a), (b), (c), (d)etc, (d)ww, (e)
+    # Assemble up to 5 sentences, priority: (0), (a), (b), (c), (d)etc, (d)ww, (e)
     # If >5, drop (b) first, then (d)'s ww clause
-    candidates = [sentences[0]]  # (a) always first
+    candidates = list(sentences)  # (0) bleed and/or (a) trend lead
     if surplus_sentence:
         candidates.append(surplus_sentence)
     if gc_sentence:
@@ -332,19 +355,26 @@ async def get_debt_plan_view(uid: str) -> dict:
                 "Write ONE plain paragraph, 3–5 short sentences, no headings, no bullet points, "
                 "no newlines within or between sentences.\n\n"
                 "Sentence order:\n"
-                "(1) The situation — if history_rising is true, the total has risen £{history_trend_3m} "
+                "(1) The monthly bleed — if monthly_interest_now is present and at least 1, open with it "
+                "plainly: 'The cards are costing about £{monthly_interest_now} a month in interest right "
+                "now.' If nonclearing.count > 0, add that £{nonclearing.monthly_interest_share} of that "
+                "is on {nonclearing.count} cards that aren't clearing at your pace. State the facts flat "
+                "— no added emphasis, no exclamation, no dramatising.\n"
+                "(2) The situation — if history_rising is true, the total has risen £{history_trend_3m} "
                 "over the last three months; if monthly_surplus is negative, connect it ('a typical month "
                 "runs about £X short after spending').\n"
-                "(2) If growth_card is present, EXACTLY one sentence in this shape, asking rather than "
+                "(3) If growth_card is present, EXACTLY one sentence in this shape, asking rather than "
                 "assuming intent: \"Most of the growth is your {provider} card — £{spend_last_period} of "
                 "spending against £{payments_last_period} of payments last period. If that's deliberate, "
                 "tell me its rate and I'll price it; if not, that's the biggest lever here.\" "
                 "(refer to the card as 'your {provider} card' when provider is set, else the name).\n"
-                "(3) The fastest lever — extra_to_clear ('£{amount} more a month clears every card by "
+                "(4) The fastest lever — extra_to_clear ('£{amount} more a month clears every card by "
                 "{Mon YYYY}') and/or whats_working ('{name} is already on its way out, clearing {Mon YYYY}'); "
                 "include refinance_best when present.\n"
-                "(4) If missing_rates_count > 0, close with one sentence that adding those rates lets "
+                "(5) If missing_rates_count > 0, close with one sentence that adding those rates lets "
                 "every lever be priced exactly.\n\n"
+                "Fit within 5 sentences: when everything is present, drop the surplus link first, then "
+                "whats_working.\n\n"
                 "Month labels 'YYYY-MM' must be written as 'Mon YYYY' (e.g. 2031-08 → Aug 2031).\n\n"
                 "CRITICAL: The output must be a single paragraph with no newlines, no bullet points, "
                 "no headings, no markdown. 3–5 sentences only."
