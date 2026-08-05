@@ -22,7 +22,7 @@ from app.db.collections import (
     statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
-    upcoming_rules_col, planned_expenses_col,
+    upcoming_rules_col, planned_expenses_col, investment_notes_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
@@ -127,7 +127,24 @@ async def get_kpis(user: dict = Depends(current_user)):
     # GBP net worth only — a KES statement upload must not be summed as £
     stmt_accs     = [a for a in stmt_accs_all if str(a.get("currency", "GBP")).upper() == "GBP"]
     inv_accs      = await investment_accounts_col.find({"user_id": uid}).to_list(None)
-    investment_total = sum(a.get("total_value", 0) for a in inv_accs)
+    # Aggregate contract notes since each account's statement date (display_value semantics)
+    inv_notes     = await investment_notes_col.find({"user_id": uid}).to_list(None)
+    _stmt_dates   = {a["_id"]: a.get("statement_date") for a in inv_accs}
+    _notes_by_acc: dict = {}
+    for _n in inv_notes:
+        _notes_by_acc.setdefault(_n["account_id"], []).append(_n)
+    investment_total = sum(
+        a.get("total_value", 0) + sum(
+            _n.get("amount", 0)
+            for _n in _notes_by_acc.get(a["_id"], [])
+            if (
+                _stmt_dates.get(a["_id"]) is None
+                or _n.get("trade_date") is None
+                or _n["trade_date"] > _stmt_dates[a["_id"]]
+            )
+        )
+        for a in inv_accs
+    )
 
     if not accounts and not yapily_accs and not stmt_accs and not inv_accs:
         return KPIResponse(net_worth=0, cash=0, runway=0, investments=0, pensions=0, last_updated=_last_sync)

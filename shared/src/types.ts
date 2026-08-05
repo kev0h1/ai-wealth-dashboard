@@ -198,6 +198,21 @@ export interface InvestmentAccount {
   statement_date: string | null;
   last_refreshed: string | null;
   updated_at: string;
+  added_since: number;
+  notes_since: number;
+  display_value: number;
+}
+
+export interface InvestmentNote {
+  id: string;
+  trade_date: string;
+  kind: "purchase" | "sale";
+  amount: number;  // signed: + purchase, - sale
+  fund_name: string;
+  units: number | null;
+  price_per_unit: number | null;
+  reference: string | null;
+  superseded: boolean;
 }
 
 export interface InvestmentHolding {

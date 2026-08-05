@@ -2,7 +2,7 @@ import { getToken } from "./auth";
 import type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
-  ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
+  ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo,
@@ -10,7 +10,7 @@ import type {
 export type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
-  ChallengesData, InvestmentAccount, InvestmentHolding, BudgetItem,
+  ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo,
@@ -1306,6 +1306,49 @@ export const api = {
       throw new Error((b?.detail as string) || `Error ${r.status}`);
     }
     return r.json() as Promise<{ updated: number; new_total: number }>;
+  },
+
+  investmentNotes: (accountId: string) =>
+    get<InvestmentNote[]>(`/investment/accounts/${encodeURIComponent(accountId)}/notes`),
+
+  uploadInvestmentNote: async (accountId: string, file: File, password?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (password) form.append("password", password);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 150_000);
+    let r: Response;
+    try {
+      r = await fetch(`${API_BASE}/investment/accounts/${encodeURIComponent(accountId)}/notes/upload`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: form,
+        signal: controller.signal,
+      });
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") throw new Error("Request timed out. Please try again.");
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+    clearTimeout(timer);
+    if (!r.ok) {
+      let detail = `Server error (${r.status})`;
+      try { const b = await r.json(); if (b?.detail) detail = b.detail; } catch { try { detail = await r.text() || detail; } catch { /* ignore */ } }
+      throw new Error(detail);
+    }
+    return r.json() as Promise<{ note: InvestmentNote; account: InvestmentAccount }>;
+  },
+
+  deleteInvestmentNote: async (noteId: string) => {
+    const r = await fetch(`${API_BASE}/investment/notes/${encodeURIComponent(noteId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({})) as Record<string, unknown>;
+      throw new Error((b?.detail as string) || `Error ${r.status}`);
+    }
+    return r.json() as Promise<{ deleted: string; account: InvestmentAccount }>;
   },
 
   challenges: () => get<ChallengesData>("/challenges"),

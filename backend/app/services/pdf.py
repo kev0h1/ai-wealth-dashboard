@@ -130,6 +130,7 @@ async def llm_parse_investment_statement(text: str) -> dict:
         "Return ONLY a single valid JSON object — no markdown fences, no explanation.\n\n"
         "Required schema:\n"
         "{\n"
+        '  "doc_type": "<\'statement\' | \'contract_note\' | \'other\' — classify this document>",\n'
         '  "provider": "<e.g. Vanguard, Wealthify, Hargreaves Lansdown>",\n'
         '  "account_type": "<e.g. ISA, GIA, SIPP, Pension, Stocks and Shares ISA>",\n'
         '  "account_reference": "<the plan/account reference number>",\n'
@@ -177,3 +178,54 @@ async def llm_parse_investment_statement(text: str) -> dict:
         return parsed
     except Exception as e:
         raise HTTPException(422, f"LLM investment parsing failed: {e}")
+
+
+async def llm_parse_contract_note(text: str) -> dict:
+    prompt = (
+        "You are a financial data extraction assistant. Below is raw text from an investment contract note "
+        "(a per-trade confirmation issued by a broker or fund platform — e.g. Vanguard, Hargreaves Lansdown, "
+        "Fidelity, AJ Bell — when a purchase or sale is executed).\n"
+        "Return ONLY a single valid JSON object — no markdown fences, no explanation.\n\n"
+        "Required schema:\n"
+        "{\n"
+        '  "doc_type": "<\'contract_note\' | \'statement\' | \'other\' — classify this document>",\n'
+        '  "provider": "<e.g. Vanguard, Hargreaves Lansdown, Fidelity>",\n'
+        '  "account_reference": "<plan/account reference number, or null if absent>",\n'
+        '  "trade_date": "<ISO date of the trade, e.g. 2026-07-15>",\n'
+        '  "kind": "<\'purchase\' | \'sale\'>",\n'
+        '  "amount": <total consideration as a positive number — the money value of the trade>,\n'
+        '  "fund_name": "<full fund/ETF/stock name>",\n'
+        '  "units": <units/shares transacted as a number, or null>,\n'
+        '  "price_per_unit": <price per unit in GBP, or null>,\n'
+        '  "reference": "<contract note / deal reference number, or null if absent>"\n'
+        "}\n\n"
+        "Rules:\n"
+        "- doc_type must be 'contract_note' if this is a per-trade confirmation; 'statement' if it looks like a periodic portfolio statement; 'other' otherwise.\n"
+        "- amount is always positive regardless of whether this is a purchase or sale.\n"
+        "- trade_date is the date the deal was executed, not the settlement date.\n"
+        "- reference is the unique contract note or deal reference printed on the document; null if absent.\n\n"
+        "DOCUMENT TEXT:\n" + text[:12000]
+    )
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            r = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+            )
+        resp_data = r.json()
+        if r.status_code != 200 or "choices" not in resp_data:
+            err = resp_data.get("error", {})
+            msg = err.get("message", str(resp_data)) if isinstance(err, dict) else str(err)
+            raise ValueError(f"OpenRouter error ({r.status_code}): {msg}")
+        raw = resp_data["choices"][0]["message"]["content"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed = json.loads(raw.strip())
+        if not isinstance(parsed, dict) or "doc_type" not in parsed:
+            raise ValueError("LLM response missing required keys")
+        return parsed
+    except Exception as e:
+        raise HTTPException(422, f"LLM contract note parsing failed: {e}")

@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText } from "lucide-react";
+import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import AccountMiniCard, { BANK_META, accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
@@ -201,6 +201,17 @@ export default function AccountsPage() {
   const [loadingHoldings, setLoadingHoldings] = useState<string | null>(null);
   const [refreshingInvestment, setRefreshingInvestment] = useState<string | null>(null);
   const [deletingInvestment, setDeletingInvestment] = useState<string | null>(null);
+  const [investmentNotes, setInvestmentNotes] = useState<Record<string, InvestmentNote[]>>({});
+  const [loadingNotes, setLoadingNotes] = useState<string | null>(null);
+  const [noteUploadError, setNoteUploadError] = useState<Record<string, string | null>>({});
+  const [statementUploadError, setStatementUploadError] = useState<Record<string, string | null>>({});
+  const [uploadingNote, setUploadingNote] = useState<string | null>(null);
+  const [deletingNote, setDeletingNote] = useState<string | null>(null);
+  const [confirmDeleteNote, setConfirmDeleteNote] = useState<string | null>(null);
+  const [showNoteUploadFor, setShowNoteUploadFor] = useState<string | null>(null);
+  const [noteFile, setNoteFile] = useState<File | null>(null);
+  const [notePassword, setNotePassword] = useState("");
+  const [showNotePassword, setShowNotePassword] = useState(false);
   const isSyncing = searchParams.get("syncing") === "1";
 
   // Offline (manually-tracked) accounts
@@ -545,6 +556,7 @@ export default function AccountsPage() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [pinMsg, setPinMsg] = useState<string | null>(null);
   const pinMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noteFileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     api.getPreferences().then(p => setPinnedIds(p.home_pinned_accounts ?? [])).catch(() => {});
   }, []);
@@ -949,6 +961,7 @@ export default function AccountsPage() {
       return;
     }
     setExpandedInvestment(id);
+    // Load holdings if not cached
     if (!investmentHoldings[id]) {
       setLoadingHoldings(id);
       try {
@@ -956,6 +969,15 @@ export default function AccountsPage() {
         setInvestmentHoldings(prev => ({ ...prev, [id]: h }));
       } catch { /* ignore */ }
       finally { setLoadingHoldings(null); }
+    }
+    // Load notes if not cached
+    if (!investmentNotes[id]) {
+      setLoadingNotes(id);
+      try {
+        const notes = await api.investmentNotes(id);
+        setInvestmentNotes(prev => ({ ...prev, [id]: notes }));
+      } catch { /* ignore */ }
+      finally { setLoadingNotes(null); }
     }
   }
 
@@ -986,6 +1008,48 @@ export default function AccountsPage() {
       if (expandedInvestment === id) setExpandedInvestment(null);
     } catch { alert("Failed to remove investment account."); }
     finally { setDeletingInvestment(null); }
+  }
+
+  async function handleUploadNote(accountId: string) {
+    if (!noteFile || uploadingNote) return;
+    setUploadingNote(accountId);
+    setNoteUploadError(prev => ({ ...prev, [accountId]: null }));
+    try {
+      const res = await api.uploadInvestmentNote(accountId, noteFile, notePassword || undefined);
+      setInvestmentAccounts(prev => prev.map(a => a.id === accountId ? res.account : a));
+      setInvestmentNotes(prev => ({ ...prev, [accountId]: [res.note, ...(prev[accountId] ?? [])] }));
+      setNoteFile(null);
+      setNotePassword("");
+      setShowNoteUploadFor(null);
+      if (noteFileRef.current) noteFileRef.current.value = "";
+    } catch (err: unknown) {
+      setNoteUploadError(prev => ({ ...prev, [accountId]: err instanceof Error ? err.message : "Upload failed" }));
+    } finally {
+      setUploadingNote(null);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string, accountId: string) {
+    setDeletingNote(noteId);
+    try {
+      const res = await api.deleteInvestmentNote(noteId);
+      setInvestmentAccounts(prev => prev.map(a => a.id === accountId ? res.account : a));
+      setInvestmentNotes(prev => ({
+        ...prev,
+        [accountId]: (prev[accountId] ?? []).filter(n => n.id !== noteId),
+      }));
+      setConfirmDeleteNote(null);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to delete note");
+    } finally {
+      setDeletingNote(null);
+    }
+  }
+
+  function refreshNotesForAccount(accountId: string) {
+    api.investmentNotes(accountId)
+      .then(notes => setInvestmentNotes(prev => ({ ...prev, [accountId]: notes })))
+      .catch(() => {});
   }
 
   // Backend already filters by region — accounts contains only the right source.
@@ -2279,12 +2343,49 @@ export default function AccountsPage() {
               const isRefreshing = refreshingInvestment === inv.id;
               const isDeleting = deletingInvestment === inv.id;
               const isLoadingH = loadingHoldings === inv.id;
+              const isLoadingN = loadingNotes === inv.id;
               const refreshDate = inv.last_refreshed
                 ? new Date(inv.last_refreshed).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
                 : null;
 
+              // Display value (display_value if available, else total_value)
+              const displayValue = inv.display_value ?? inv.total_value;
+              const addedSince = inv.added_since ?? 0;
+              const notesSince = inv.notes_since ?? 0;
+
+              // Statement date formatted
+              const stmtDate = inv.statement_date
+                ? new Date(inv.statement_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                : null;
+
+              // Decomposed value line
+              let decomposedLine: React.ReactNode = null;
+              if (stmtDate) {
+                if (notesSince > 0 && addedSince !== 0) {
+                  const sign = addedSince > 0 ? "+" : "−";
+                  const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  const verb = addedSince > 0 ? "added" : "net trades";
+                  const noteWord = notesSince === 1 ? "contract note" : "contract notes";
+                  decomposedLine = (
+                    <span>Valued £{(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · {sign}£{absVal} {verb} since ({notesSince} {noteWord})</span>
+                  );
+                } else {
+                  decomposedLine = <span>Valued £{displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · statement</span>;
+                }
+              }
+
+              // Notes for this account
+              const allNotes = investmentNotes[inv.id] ?? [];
+              const activeNotes = allNotes.filter(n => !n.superseded);
+              const supersededCount = allNotes.filter(n => n.superseded).length;
+
+              const isShowingNoteUpload = showNoteUploadFor === inv.id;
+              const thisNoteError = noteUploadError[inv.id] ?? null;
+              const thisStatementError = statementUploadError[inv.id] ?? null;
+
               return (
                 <div key={inv.id} className="glass-card rounded-2xl overflow-hidden">
+                  {/* Account header row */}
                   <button
                     onClick={() => handleToggleInvestment(inv.id)}
                     className="w-full flex items-center justify-between px-4 py-3.5 text-left"
@@ -2305,7 +2406,7 @@ export default function AccountsPage() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                       <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                        {hideNetWorth ? "••••" : `£${inv.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
                       {isExpanded ? <ChevronUp size={14} className="text-slate-500 dark:text-slate-400" /> : <ChevronDown size={14} className="text-slate-500 dark:text-slate-400" />}
                     </div>
@@ -2313,6 +2414,7 @@ export default function AccountsPage() {
 
                   {isExpanded && (
                     <div className="border-t border-slate-50 dark:border-slate-700">
+                      {/* Action bar: refresh / remove */}
                       <div className="flex items-center gap-2 px-4 py-2.5">
                         <button
                           onClick={() => handleRefreshInvestment(inv.id)}
@@ -2333,6 +2435,198 @@ export default function AccountsPage() {
                         </button>
                       </div>
 
+                      {/* ── Decomposed value ── */}
+                      {decomposedLine && (
+                        <div className="px-4 pb-3">
+                          <p className="text-xs text-slate-400 dark:text-slate-500 leading-snug">{decomposedLine}</p>
+                        </div>
+                      )}
+
+                      {/* ── How this account stays current (always visible) ── */}
+                      <div className="mx-4 mb-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-4">
+                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2 uppercase tracking-wide">How this account stays current</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
+                          A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives — then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
+                        </p>
+
+                        {/* Upload action buttons */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setShowInvestmentUpload(true)}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white dark:bg-slate-600 border border-slate-200 dark:border-slate-500 text-xs font-semibold text-slate-700 dark:text-slate-200 active:scale-95 transition-all hover:bg-slate-50 dark:hover:bg-slate-500"
+                          >
+                            <Upload size={13} />
+                            Upload statement
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowNoteUploadFor(isShowingNoteUpload ? null : inv.id);
+                              setNoteFile(null);
+                              setNotePassword("");
+                              setNoteUploadError(prev => ({ ...prev, [inv.id]: null }));
+                              if (noteFileRef.current) noteFileRef.current.value = "";
+                            }}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold active:scale-95 transition-all"
+                          >
+                            <FileText size={13} />
+                            Add contract note
+                          </button>
+                        </div>
+
+                        {/* Inline contract note upload form */}
+                        {isShowingNoteUpload && (
+                          <div className="mt-3 space-y-2">
+                            {/* Password field */}
+                            <div className="relative">
+                              <input
+                                type={showNotePassword ? "text" : "password"}
+                                value={notePassword}
+                                onChange={(e) => setNotePassword(e.target.value)}
+                                placeholder="PDF password (if protected)"
+                                className="w-full text-xs bg-white dark:bg-slate-600 dark:text-slate-100 border border-slate-200 dark:border-slate-500 rounded-xl px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-indigo-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowNotePassword(!showNotePassword)}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                              >
+                                {showNotePassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                              </button>
+                            </div>
+
+                            {/* File picker */}
+                            <button
+                              type="button"
+                              onClick={() => noteFileRef.current?.click()}
+                              className="w-full border border-dashed border-slate-300 dark:border-slate-500 rounded-xl py-2.5 px-3 flex items-center gap-2 hover:bg-white dark:hover:bg-slate-600 transition-colors text-left"
+                            >
+                              {noteFile ? (
+                                <>
+                                  <FileText size={14} className="text-indigo-500 flex-shrink-0" />
+                                  <span className="text-xs text-slate-700 dark:text-slate-200 font-medium truncate">{noteFile.name}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload size={14} className="text-slate-400 flex-shrink-0" />
+                                  <span className="text-xs text-slate-400">Choose PDF contract note…</span>
+                                </>
+                              )}
+                            </button>
+                            <input
+                              ref={noteFileRef}
+                              type="file"
+                              accept=".pdf"
+                              className="sr-only"
+                              onChange={(e) => {
+                                setNoteFile(e.target.files?.[0] ?? null);
+                                setNoteUploadError(prev => ({ ...prev, [inv.id]: null }));
+                              }}
+                            />
+
+                            {/* Error message */}
+                            {thisNoteError && (
+                              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
+                                <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{thisNoteError}</p>
+                              </div>
+                            )}
+
+                            {/* Submit button */}
+                            <button
+                              onClick={() => handleUploadNote(inv.id)}
+                              disabled={!noteFile || uploadingNote === inv.id}
+                              className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                            >
+                              {uploadingNote === inv.id ? (
+                                <><RefreshCw size={12} className="animate-spin" /> Uploading…</>
+                              ) : (
+                                <><FileText size={12} /> Import note</>
+                              )}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Statement upload error */}
+                        {thisStatementError && (
+                          <div className="mt-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
+                            <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{thisStatementError}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Contract notes list ── */}
+                      {(isLoadingN) ? (
+                        <div className="flex items-center justify-center py-4 mb-2">
+                          <Spinner size={20} />
+                        </div>
+                      ) : activeNotes.length > 0 ? (
+                        <div className="mx-4 mb-4">
+                          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Contract Notes</p>
+                          <div className="bg-white dark:bg-slate-800 rounded-xl divide-y divide-slate-50 dark:divide-slate-700 border border-slate-100 dark:border-slate-700">
+                            {activeNotes.map(note => {
+                              const noteDate = new Date(note.trade_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                              const isSale = note.kind === "sale";
+                              const absAmount = Math.abs(note.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                              const isConfirmingDelete = confirmDeleteNote === note.id;
+                              const isDeletingThis = deletingNote === note.id;
+
+                              return (
+                                <div key={note.id} className="px-3 py-2.5 flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-xs text-slate-500 dark:text-slate-400">{noteDate}</span>
+                                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{note.fund_name}</span>
+                                      {isSale && (
+                                        <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">sold</span>
+                                      )}
+                                    </div>
+                                    <p className={`text-xs font-semibold mt-0.5 ${isSale ? "text-rose-500 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                      {isSale ? "−" : "+"}£{absAmount}
+                                    </p>
+                                  </div>
+                                  <div className="flex-shrink-0 flex items-center gap-1">
+                                    {isConfirmingDelete ? (
+                                      <>
+                                        <button
+                                          onClick={() => handleDeleteNote(note.id, inv.id)}
+                                          disabled={isDeletingThis}
+                                          className="text-xs font-semibold text-rose-500 px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-900/20 active:scale-95 transition-all"
+                                        >
+                                          {isDeletingThis ? "…" : "Delete"}
+                                        </button>
+                                        <button
+                                          onClick={() => setConfirmDeleteNote(null)}
+                                          className="text-xs text-slate-400 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-700 active:scale-95 transition-all"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => setConfirmDeleteNote(note.id)}
+                                        className="w-6 h-6 flex items-center justify-center rounded-lg text-slate-300 dark:text-slate-600 hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                                        aria-label="Delete note"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {supersededCount > 0 && (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 px-1">
+                              {supersededCount} earlier {supersededCount === 1 ? "note" : "notes"} folded into your {stmtDate} statement
+                            </p>
+                          )}
+                        </div>
+                      ) : supersededCount > 0 ? (
+                        <p className="text-xs text-slate-400 dark:text-slate-500 mx-4 mb-4 px-1">
+                          {supersededCount} earlier {supersededCount === 1 ? "note" : "notes"} folded into your {stmtDate} statement
+                        </p>
+                      ) : null}
+
+                      {/* ── Holdings ── */}
                       {isLoadingH ? (
                         <div className="flex items-center justify-center py-6">
                           <Spinner size={24} />
@@ -2342,7 +2636,7 @@ export default function AccountsPage() {
                       ) : (
                         <div className="divide-y divide-slate-50 dark:divide-slate-700">
                           {holdings.map(h => {
-                            const displayValue = h.current_value ?? h.statement_value;
+                            const hDisplayValue = h.current_value ?? h.statement_value;
                             const displayPrice = h.current_price ?? h.price_per_unit;
                             const hasLivePrice = h.current_price !== null;
                             return (
@@ -2364,7 +2658,7 @@ export default function AccountsPage() {
                                     )}
                                   </div>
                                   <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
-                                    {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                                    {hideNetWorth ? "••••" : `£${hDisplayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                                   </p>
                                 </div>
                               </div>

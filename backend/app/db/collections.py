@@ -70,6 +70,7 @@ manual_account_mirrors_col = db["manual_account_mirrors"]
 # Investments
 investment_accounts_col = db["investment_accounts"]
 investment_holdings_col = db["investment_holdings"]
+investment_notes_col    = db["investment_contract_notes"]  # per-trade contract notes, additive between statements
 
 # Grocery receipts / price intelligence
 shopping_baskets_col    = db["shopping_baskets"]
