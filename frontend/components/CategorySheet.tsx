@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
@@ -245,22 +244,6 @@ export default function CategorySheet({ name, title, total, count, transactions,
   const colour = colours[name] ?? CATEGORY_COLOURS[name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [toolOpen, setToolOpen] = useState(false);
-  const router = useRouter();
-  const [debtVerdict, setDebtVerdict] = useState<{ totalDebt: number; debtFreeLabel: string } | null>(null);
-
-  useEffect(() => {
-    if (name !== "Debt") return;
-    api.debtInsights().then(d => {
-      const months = d.months_at_current_rate;
-      let debtFreeLabel = "";
-      if (months && isFinite(months) && months > 0 && months < 600) {
-        const target = new Date();
-        target.setMonth(target.getMonth() + Math.ceil(months));
-        debtFreeLabel = target.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-      }
-      setDebtVerdict({ totalDebt: d.total_debt, debtFreeLabel });
-    }).catch(() => {});
-  }, [name]);
 
   if (!mounted) return null;
 
@@ -311,30 +294,6 @@ export default function CategorySheet({ name, title, total, count, transactions,
         <div className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {door && <DoorBlock door={door} />}
           {/* Compact tool launchers — collapsed by default so transactions lead */}
-          {name === "Debt" && (
-            <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                {debtVerdict ? (
-                  <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
-                    <span className="font-semibold text-slate-700 dark:text-slate-200">
-                      £{debtVerdict.totalDebt.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} left
-                    </span>
-                    {debtVerdict.debtFreeLabel && (
-                      <> · debt-free {debtVerdict.debtFreeLabel} at this rate</>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Payoff planner</p>
-                )}
-              </div>
-              <button
-                onClick={() => router.push("/debt")}
-                className="flex-shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors whitespace-nowrap"
-              >
-                See your payoff plan ›
-              </button>
-            </div>
-          )}
           {name.toLowerCase() === "transport" && (
             <div className="border-b border-slate-100 dark:border-slate-700">
               <button
