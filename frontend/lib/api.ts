@@ -76,6 +76,7 @@ export type UpcomingBill = {
   original_date?: string | null;
   planned?: boolean;
   planned_id?: string;
+  days_past_due?: number;
 };
 
 export type PlannedExpense = { id: string; name: string; amount: number; date: string; account_id?: string | null; created_at?: string };
@@ -937,6 +938,7 @@ export const api = {
   goalsSummary: () => get<{ goals: GoalSummary[] }>("/goals/summary"),
   allTransactions: (days = 365) => get<Transaction[]>(`/transactions?days=${days}`),
   dismissRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/dismiss-recurring", { key }),
+  skipUpcomingOccurrence: (key: string, date: string) => post<{ ok: boolean }>("/cashflow/skip-occurrence", { key, date }),
   restoreRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/restore-recurring", { key }),
   editUpcoming: (params: { key: string; date: string; new_date?: string | null; new_amount?: number | null; scope: "one" | "future" }) =>
     post<{ ok: boolean }>("/cashflow/edit-upcoming", params),

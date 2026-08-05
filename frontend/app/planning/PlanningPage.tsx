@@ -278,6 +278,12 @@ export default function PlanningPage() {
     timer: ReturnType<typeof setTimeout>;
   } | null>(null);
 
+  const lastSkipRef = useRef<{
+    name: string;
+    date: string;
+    item: CashflowData["upcoming_bills"][0];
+  } | null>(null);
+
   function flushPlannedDelete() {
     const p = lastPlannedDeleteRef.current;
     if (!p) return;
@@ -343,6 +349,37 @@ export default function PlanningPage() {
     setUndoNonce(n => n + 1);
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => setUndoBar(null), 6000);
+  }
+
+  function skipOccurrence(item: CashflowData["upcoming_bills"][0]) {
+    const dateKey = item.original_date ?? item.expected_date;
+    lastSkipRef.current = { name: item.name, date: dateKey, item };
+    setCashflow(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        upcoming_bills: prev.upcoming_bills.filter(
+          b => !(b.name === item.name && b.expected_date === item.expected_date)
+        ),
+      };
+    });
+    api.skipUpcomingOccurrence(item.name, dateKey)
+      .then(() => {
+        api.cashflow().then(setCashflow).catch(() => {});
+      })
+      .catch(() => {
+        // Revert: restore the item
+        const saved = lastSkipRef.current;
+        if (!saved) return;
+        setCashflow(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            upcoming_bills: [...prev.upcoming_bills, saved.item].sort((a, b) => a.days_away - b.days_away),
+          };
+        });
+        lastSkipRef.current = null;
+      });
   }
 
   async function undoLastDismiss() {
@@ -448,6 +485,11 @@ export default function PlanningPage() {
           return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
         }
 
+        function formatPendingDate(iso: string) {
+          const d = new Date(iso);
+          return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+        }
+
         function renderRow(item: typeof items[0]) {
           const isPlanned = item.type === "bill" && item.planned;
           // Risk doesn't care who authored the bill — planned rows flag the
@@ -525,20 +567,55 @@ export default function PlanningPage() {
                     </p>
                   )}
                   {item.at_risk && !item.account_short && (
-                    <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400">Overall balance will be low</p>
+                    <>
+                      <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400">Overall balance will be low</p>
+                      {item.type === "bill" && (item.account_bank || item.account_name) && (
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                          · {item.account_bank || item.account_name}
+                        </p>
+                      )}
+                    </>
                   )}
                   {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && (
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                       {item.account_bank || item.account_name}
                     </p>
                   )}
-
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
-                  {item.type === "bill" && item.pending && (
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                      expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })} — hasn&apos;t left yet
+                  {item.type === "bill" && !item.account_short && !item.is_credit_card && !item.at_risk && (item.account_bank || item.account_name) && (
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                      · {item.account_bank || item.account_name}
                     </p>
                   )}
+
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
+                  {item.type === "bill" && item.pending && (() => {
+                    const dpd = item.days_past_due ?? 0;
+                    if (dpd >= 5) {
+                      const pendingDateStr = formatPendingDate(item.original_date ?? item.expected_date);
+                      const isDebt = item.category === "Debt";
+                      return (
+                        <div>
+                          <p className={`text-[11px] leading-snug ${isDebt ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
+                            {isDebt
+                              ? `Expected ${pendingDateStr} — hasn't left. A missed card payment can mean fees, so worth checking today.`
+                              : `Expected ${pendingDateStr} — we haven't seen it leave. Worth checking with them.`}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); skipOccurrence(item); }}
+                            className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
+                          >
+                            Dismiss for this month
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                        expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })} — hasn&apos;t left yet
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 <div className="text-right flex-shrink-0">

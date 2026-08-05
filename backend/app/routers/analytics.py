@@ -40,8 +40,9 @@ UK_BANK_HOLIDAYS_EW: frozenset = frozenset({
     "2027-01-01", "2027-03-26", "2027-03-29", "2027-05-03", "2027-05-31",
     "2027-08-30", "2027-12-27", "2027-12-28",
 })
-PENDING_GIVE_UP_DAYS = 7        # unmatched this long past due -> treat cycle as skipped
-OBSERVATION_LOOKBACK_DAYS = 3   # a debit up to 3 days BEFORE the expected date closes it
+PENDING_GIVE_UP_DAYS = 10       # unmatched bills stay visible past-due long enough for the day-5 ask to be seen and acted on before auto-drop
+ASK_PAST_DUE_DAYS = 5           # past-due bills escalate from quiet notice to an explicit ask at this age
+OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anchor; 3 days caused paid bills to sit "pending" then be silently skipped
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -362,6 +363,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
             "occurrences":  1,
             "ai_predicted": True,
             "category":     c.get("category"),
+            "account_id":   c.get("account_id"),
         })
 
     _ai_recurring_cache[user_id] = (datetime.now(), result)
@@ -656,12 +658,50 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         if key in single_debits:
             single_debits[key]["count"] += 1
         else:
-            single_debits[key] = {"key": key, "avg_amount": abs(float(t.get("amount", 0))), "last_date": t["date"], "count": 1, "category": cat}
+            single_debits[key] = {"key": key, "avg_amount": abs(float(t.get("amount", 0))), "last_date": t["date"], "count": 1, "category": cat, "account_id": str(t.get("account_id") or "") or None}
 
-    ai_candidates = [v for v in single_debits.values() if v["count"] == 1 and v["avg_amount"] >= 10]
+    def _prefix_token(key: str) -> str:
+        # First token of the key; use first two joined if token[0] < 6 chars
+        # e.g. "NETFLIX.COM 18665797172" → "NETFLIX.COM"; "EE 203832" → "EE 203832"
+        parts = key.split()
+        return parts[0] if len(parts[0]) >= 6 else " ".join(parts[:2])
+
+    def _within_15pct(a: float, b: float) -> bool:
+        ref = max(a, b)
+        return ref == 0 or abs(a - b) / ref <= 0.15
+
+    heuristic_prefixes = {_prefix_token(k): r["avg_amount"] for r in recurring_spend for k in [r["key"]]}
+
+    raw_candidates = [v for v in single_debits.values() if v["count"] == 1 and v["avg_amount"] >= 10]
+    # Drop candidates whose prefix+amount already match a deterministic recurring entry
+    # (e.g. "NETFLIX.COM 203832 LND" shadowed by heuristic "NETFLIX.COM 18665797172", same £12.99)
+    filtered_candidates: list[dict] = []
+    for c in raw_candidates:
+        pfx = _prefix_token(c["key"])
+        if pfx in heuristic_prefixes and _within_15pct(c["avg_amount"], heuristic_prefixes[pfx]):
+            continue  # Netflix phantom-bill guard: same prefix+~amount already heuristic-detected
+        filtered_candidates.append(c)
+    # Among remaining candidates with matching prefix+amount, keep only the most recent
+    best_by_prefix: dict[str, dict] = {}
+    for c in filtered_candidates:
+        pfx = _prefix_token(c["key"])
+        existing = best_by_prefix.get(pfx)
+        if existing is None:
+            best_by_prefix[pfx] = c
+        elif _within_15pct(c["avg_amount"], existing["avg_amount"]) and c["last_date"] > existing["last_date"]:
+            # same prefix+~amount: keep the one with the most recent last_date
+            best_by_prefix[pfx] = c
+        # different amounts under same prefix → keep both via separate prefix keys (won't collide here)
+    ai_candidates = list(best_by_prefix.values())
     ai_predictions = await _ai_recurring_predict(ai_candidates, uid)
     for pred in ai_predictions:
-        if pred["key"] not in heuristic_keys and pred["key"] not in dismissed:
+        pfx = _prefix_token(pred["key"])
+        # Guard: don't append if an existing recurring_spend entry shares prefix+~amount
+        dup = any(
+            _prefix_token(r["key"]) == pfx and _within_15pct(pred.get("avg_amount", 0), r["avg_amount"])
+            for r in recurring_spend
+        )
+        if pred["key"] not in heuristic_keys and pred["key"] not in dismissed and not dup:
             recurring_spend.append(pred)
 
     recurring_keys = {r["key"] for r in recurring_spend}
@@ -983,6 +1023,49 @@ async def clear_override(body: dict, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@router.post("/cashflow/skip-occurrence")
+async def skip_occurrence(body: dict, user: dict = Depends(current_user)):
+    """Mark a single upcoming bill occurrence as user-dismissed (per-occurrence skip).
+
+    The skip can be undone with POST /cashflow/clear-override using the same key+date.
+    """
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    date_str = (body.get("date") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+    if not date_str:
+        raise HTTPException(400, "date required")
+    try:
+        _date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(400, "invalid date format — use ISO 8601 (YYYY-MM-DD)")
+
+    doc = {
+        "uid": uid,
+        "key": key,
+        "date": date_str,
+        "scope": "one",
+        "skip": True,
+        "created_at": datetime.now(),
+    }
+    await upcoming_overrides_col.update_one(
+        {"uid": uid, "key": key, "scope": "one", "date": date_str},
+        {"$set": doc},
+        upsert=True,
+    )
+    # Fast rebuild from cached patterns — mirror edit_upcoming's cache-invalidation pattern
+    cached = await cashflow_cache_col.find_one({"_id": uid})
+    if cached:
+        result = await _build_cashflow_response(cached, uid=uid)
+        await cashflow_cache_col.update_one(
+            {"_id": uid},
+            {"$set": {"_override_rebuild": datetime.now()}},
+        )
+    response_cache.invalidate(uid)
+    return {"ok": True}
+
+
 @router.post("/cashflow/preview-rule")
 async def preview_rule(body: dict, user: dict = Depends(current_user)):
     """Parse plain-English recurrence description via Haiku → return schedule + next 3 dates."""
@@ -1251,9 +1334,10 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 d = d + timedelta(days=max(2, round(interval)))
         return out
 
-    def _apply_overrides_to_occurrence(key: str, occ_date_str: str, amount: float) -> tuple[str, float, bool]:
-        """Returns (final_date_str, final_amount, edited_flag)."""
+    def _apply_overrides_to_occurrence(key: str, occ_date_str: str, amount: float) -> tuple[str, float, bool, bool]:
+        """Returns (final_date_str, final_amount, edited_flag, skipped_flag)."""
         edited = False
+        skipped = False
         final_date = occ_date_str
         final_amount = amount
         for ov in overrides:
@@ -1262,6 +1346,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             scope = ov.get("scope", "one")
             ov_date = ov.get("date", "")
             if scope == "one" and occ_date_str == ov_date:
+                if ov.get("skip"):
+                    skipped = True
+                    return final_date, final_amount, edited, skipped
                 if ov.get("new_date"):
                     final_date = ov["new_date"]
                 if ov.get("new_amount") is not None:
@@ -1294,7 +1381,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                         edited = True
                     except Exception:
                         pass
-        return final_date, final_amount, edited
+        return final_date, final_amount, edited, skipped
 
     raw_bills = []
     _bill_occ_dates: list = []  # (date_obj, amount) tuples for weekly projection
@@ -1302,7 +1389,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         entries = []
         for occ in _occurrences(r, include_past_due=True):
             occ_date_str = occ.date().isoformat()
-            final_date, final_amount, edited = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            final_date, final_amount, edited, skipped = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            if skipped:
+                continue  # per-occurrence user dismiss; can be undone via clear-override
             D = _date.fromisoformat(final_date)
             if D > window_end.date():
                 continue
@@ -1327,6 +1416,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
                 "pending":         pending,
+                "days_past_due":   (today_d - D).days if pending else 0,
                 "original_date":   final_date if display_d.isoformat() != final_date else None,
             })
         # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
@@ -1362,7 +1452,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if pdate_d > window_end.date():
                 continue
             if pdate_d < today_d and (today_d - pdate_d).days > PENDING_GIVE_UP_DAYS:
-                continue          # past the expiry horizon (planned.py owns the flip)
+                continue          # past the expiry horizon; planned.py owns the flip to "missed" — planned expenses keep their own 7-day semantic (they already surface "missed" explicitly); recurring bills now use 10 with an ask at 5
             pending = pdate_d <= today_d      # due date arrived/passed, nothing observed
             display_d = _next_working_day(max(pdate_d, today_d)) if pending else _next_working_day(pdate_d)
             if display_d > window_end.date():
@@ -1400,6 +1490,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "planned":         True,
                 "planned_id":      str(pdoc["_id"]),
                 "pending":         pending,
+                "days_past_due":   (today_d - pdate_d).days if pending else 0,
                 "original_date":   pdate_d.isoformat() if display_d != pdate_d else None,
             })
 
@@ -1409,7 +1500,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     for r in income_patterns:
         for occ in _occurrences(r):
             occ_date_str = occ.date().isoformat()
-            final_date, final_amount, edited = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            final_date, final_amount, edited, skipped = _apply_overrides_to_occurrence(r["key"], occ_date_str, r["avg_amount"])
+            if skipped:
+                continue
             final_date_obj = _date.fromisoformat(final_date)
             days_away = (final_date_obj - today.date()).days
             if final_date_obj > window_end.date():
