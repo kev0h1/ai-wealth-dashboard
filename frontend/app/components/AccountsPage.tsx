@@ -212,6 +212,14 @@ export default function AccountsPage() {
   const [noteFile, setNoteFile] = useState<File | null>(null);
   const [notePassword, setNotePassword] = useState("");
   const [showNotePassword, setShowNotePassword] = useState(false);
+  // Cold-start "Add contract note" — accountless upload from Investments tab header
+  const [showColdStartNote, setShowColdStartNote] = useState(false);
+  const [coldStartFile, setColdStartFile] = useState<File | null>(null);
+  const [coldStartPassword, setColdStartPassword] = useState("");
+  const [showColdStartPassword, setShowColdStartPassword] = useState(false);
+  const [coldStartError, setColdStartError] = useState<string | null>(null);
+  const [uploadingColdStart, setUploadingColdStart] = useState(false);
+  const coldStartFileRef = useRef<HTMLInputElement>(null);
   const isSyncing = searchParams.get("syncing") === "1";
 
   // Offline (manually-tracked) accounts
@@ -1043,6 +1051,25 @@ export default function AccountsPage() {
       alert(err instanceof Error ? err.message : "Failed to delete note");
     } finally {
       setDeletingNote(null);
+    }
+  }
+
+  async function handleUploadColdStartNote() {
+    if (!coldStartFile || uploadingColdStart) return;
+    setUploadingColdStart(true);
+    setColdStartError(null);
+    try {
+      await api.uploadInvestmentNoteColdStart(coldStartFile, coldStartPassword || undefined);
+      // Refresh the full accounts list so the new (or updated) account appears
+      await loadAccounts();
+      setColdStartFile(null);
+      setColdStartPassword("");
+      setShowColdStartNote(false);
+      if (coldStartFileRef.current) coldStartFileRef.current.value = "";
+    } catch (err: unknown) {
+      setColdStartError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploadingColdStart(false);
     }
   }
 
@@ -2114,13 +2141,100 @@ export default function AccountsPage() {
             </div>
           )
         ) : (
-          <button
-            onClick={() => setShowInvestmentUpload(true)}
-            className="flex w-full items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-4"
-          >
-            <Upload size={14} />
-            Upload Statement
-          </button>
+          <div className="mb-4">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowInvestmentUpload(true)}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-white"
+              >
+                <Upload size={14} />
+                Upload Statement
+              </button>
+              <button
+                onClick={() => {
+                  setShowColdStartNote(v => !v);
+                  setColdStartFile(null);
+                  setColdStartPassword("");
+                  setColdStartError(null);
+                  if (coldStartFileRef.current) coldStartFileRef.current.value = "";
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
+              >
+                <FileText size={14} />
+                Add contract note
+              </button>
+            </div>
+            {/* Hidden file input — always in DOM so the ref is stable */}
+            <input
+              ref={coldStartFileRef}
+              type="file"
+              accept=".pdf"
+              className="sr-only"
+              onChange={e => {
+                setColdStartFile(e.target.files?.[0] ?? null);
+                setColdStartError(null);
+              }}
+            />
+            {/* Cold-start contract note upload form */}
+            {showColdStartNote && (
+              <div className="mt-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-3 space-y-2">
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                  No statement yet? Upload a contract note to create an account and start tracking from £0.
+                </p>
+                {/* Password field */}
+                <div className="relative">
+                  <input
+                    type={showColdStartPassword ? "text" : "password"}
+                    value={coldStartPassword}
+                    onChange={e => setColdStartPassword(e.target.value)}
+                    placeholder="PDF password (if protected)"
+                    className="w-full text-xs bg-white dark:bg-slate-600 dark:text-slate-100 border border-slate-200 dark:border-slate-500 rounded-xl px-3 py-2 pr-9 outline-none focus:ring-2 focus:ring-indigo-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowColdStartPassword(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  >
+                    {showColdStartPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                {/* File picker */}
+                <button
+                  type="button"
+                  onClick={() => coldStartFileRef.current?.click()}
+                  className="w-full border border-dashed border-slate-300 dark:border-slate-500 rounded-xl py-2.5 px-3 flex items-center gap-2 hover:bg-white dark:hover:bg-slate-600 transition-colors text-left"
+                >
+                  {coldStartFile ? (
+                    <>
+                      <FileText size={14} className="text-indigo-500 flex-shrink-0" />
+                      <span className="text-xs text-slate-700 dark:text-slate-200 font-medium truncate">{coldStartFile.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={14} className="text-slate-400 flex-shrink-0" />
+                      <span className="text-xs text-slate-400">Choose PDF contract note…</span>
+                    </>
+                  )}
+                </button>
+                {coldStartError && (
+                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
+                    <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{coldStartError}</p>
+                  </div>
+                )}
+                <button
+                  onClick={handleUploadColdStartNote}
+                  disabled={!coldStartFile || uploadingColdStart}
+                  className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                >
+                  {uploadingColdStart ? (
+                    <><RefreshCw size={12} className="animate-spin" /> Uploading…</>
+                  ) : (
+                    <><FileText size={12} /> Import note</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Tab bar */}
@@ -2352,25 +2466,58 @@ export default function AccountsPage() {
               const displayValue = inv.display_value ?? inv.total_value;
               const addedSince = inv.added_since ?? 0;
               const notesSince = inv.notes_since ?? 0;
+              const isProvisional = (inv as InvestmentAccount & { provisional?: boolean }).provisional === true;
 
-              // Statement date formatted
+              // Statement date formatted — guarded against null
               const stmtDate = inv.statement_date
                 ? new Date(inv.statement_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
                 : null;
 
-              // Decomposed value line
+              // Whether prices were refreshed after the statement
+              const hasRefreshAfterStatement =
+                !isProvisional &&
+                inv.last_refreshed !== null &&
+                inv.statement_date !== null &&
+                new Date(inv.last_refreshed) > new Date(inv.statement_date);
+
+              // Decomposed value line (Change 2 + Change 3)
               let decomposedLine: React.ReactNode = null;
-              if (stmtDate) {
-                if (notesSince > 0 && addedSince !== 0) {
-                  const sign = addedSince > 0 ? "+" : "−";
-                  const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  const verb = addedSince > 0 ? "added" : "net trades";
-                  const noteWord = notesSince === 1 ? "contract note" : "contract notes";
-                  decomposedLine = (
-                    <span>Valued £{(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · {sign}£{absVal} {verb} since ({notesSince} {noteWord})</span>
-                  );
+              if (isProvisional) {
+                // Provisional: running total from £0
+                decomposedLine = (
+                  <span>No statement yet — running total of your contract notes, from £0.</span>
+                );
+              } else if (stmtDate) {
+                if (hasRefreshAfterStatement) {
+                  // Prices refreshed after statement — show refresh form
+                  const stmtValue = displayValue - addedSince;
+                  const stmtValueStr = stmtValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  const displayValueStr = displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  if (notesSince > 0 && addedSince !== 0) {
+                    const sign = addedSince > 0 ? "+" : "−";
+                    const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const noteWord = notesSince === 1 ? "contract note" : "contract notes";
+                    decomposedLine = (
+                      <span>£{displayValueStr} · prices refreshed {refreshDate} · {sign}£{absVal} added since {stmtDate} statement ({notesSince} {noteWord})</span>
+                    );
+                  } else {
+                    decomposedLine = (
+                      <span>£{stmtValueStr} · prices refreshed {refreshDate} · statement {stmtDate}</span>
+                    );
+                  }
                 } else {
-                  decomposedLine = <span>Valued £{displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · statement</span>;
+                  // No refresh since statement — keep existing form
+                  if (notesSince > 0 && addedSince !== 0) {
+                    const sign = addedSince > 0 ? "+" : "−";
+                    const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const verb = addedSince > 0 ? "added" : "net trades";
+                    const noteWord = notesSince === 1 ? "contract note" : "contract notes";
+                    decomposedLine = (
+                      <span>Valued £{(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · {sign}£{absVal} {verb} since ({notesSince} {noteWord})</span>
+                    );
+                  } else {
+                    decomposedLine = <span>Valued £{displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · statement</span>;
+                  }
                 }
               }
 
@@ -2395,9 +2542,16 @@ export default function AccountsPage() {
                         <TrendingUp size={16} className="text-indigo-500" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
-                          {inv.provider} {inv.account_type}
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                            {inv.provider} {inv.account_type}
+                          </p>
+                          {isProvisional && (
+                            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                              no statement yet
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-400 mt-0.5">
                           {inv.account_reference}
                           {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
@@ -2446,6 +2600,9 @@ export default function AccountsPage() {
                       <div className="mx-4 mb-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-4">
                         <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2 uppercase tracking-wide">How this account stays current</p>
                         <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
+                          {isProvisional && (
+                            <>This account started from a contract note, so its value is a running total from £0 — upload your first statement to set the real value.<br /><br /></>
+                          )}
                           A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives — then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
                         </p>
 
@@ -2614,13 +2771,13 @@ export default function AccountsPage() {
                               );
                             })}
                           </div>
-                          {supersededCount > 0 && (
+                          {supersededCount > 0 && stmtDate && (
                             <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 px-1">
                               {supersededCount} earlier {supersededCount === 1 ? "note" : "notes"} folded into your {stmtDate} statement
                             </p>
                           )}
                         </div>
-                      ) : supersededCount > 0 ? (
+                      ) : supersededCount > 0 && stmtDate ? (
                         <p className="text-xs text-slate-400 dark:text-slate-500 mx-4 mb-4 px-1">
                           {supersededCount} earlier {supersededCount === 1 ? "note" : "notes"} folded into your {stmtDate} statement
                         </p>

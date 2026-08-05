@@ -16,6 +16,8 @@ from app.services.mono_sync import sync_mono_connection
 from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.db.collections import investment_accounts_col
+from app.services.investment_prices import refresh_account_prices
 
 
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
@@ -170,11 +172,36 @@ async def task_period_digests(ctx):
     return {"checked": len(uids)}
 
 
+async def task_refresh_investment_prices(ctx):
+    """Refresh live prices for all investment accounts that have holdings.
+
+    Runs daily at 06:30 UTC. Per-account exceptions are swallowed so one
+    stale fetch doesn't abort the whole run.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    all_accs = await investment_accounts_col.find({}).to_list(None)
+    for acc in all_accs:
+        account_id = acc["_id"]
+        provider   = acc.get("provider", "Unknown")
+        try:
+            result = await refresh_account_prices(acc)
+            logger.info(
+                "investment price refresh: account=%s provider=%s updated=%s new_total=%.2f",
+                account_id, provider, result["updated"], result["new_total"],
+            )
+        except Exception as e:
+            logger.warning("investment price refresh failed for %s (%s): %s", account_id, provider, e)
+
+
 class WorkerSettings:
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
-                 task_sync_finexer, task_reconcile_truelayer, task_period_digests]
+                 task_sync_finexer, task_reconcile_truelayer, task_period_digests,
+                 task_refresh_investment_prices]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
+        cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
         # 07:00 UTC = start-of-morning UK; the task is a no-op except on each
         # user's period boundary
         cron(task_period_digests, hour=7, minute=0, run_at_startup=False),

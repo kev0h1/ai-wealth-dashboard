@@ -3,15 +3,15 @@ import hashlib
 import re
 from datetime import datetime
 
-import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.config import TAVILY_API_KEY
 from app.core.subscription import Tier, require_tier
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
+from app.services.investment_prices import refresh_account_prices
 
 router = APIRouter(tags=["investments"])
 
@@ -59,7 +59,42 @@ async def _investment_display(acc: dict, notes: list[dict] | None = None) -> dic
         "statement_date":    acc.get("statement_date").isoformat() if acc.get("statement_date") else None,
         "last_refreshed":    acc.get("last_refreshed").isoformat() if acc.get("last_refreshed") else None,
         "updated_at":        acc.get("updated_at", datetime.now()).isoformat(),
+        "provisional":       acc.get("provisional", False),
     }
+
+
+async def _extract_and_parse_note(file: UploadFile, password: str) -> tuple[str, dict]:
+    """Extract text from upload and parse as contract note.
+
+    Returns (raw_text, parsed_dict).
+    Raises HTTPException 422 if extraction fails, text is empty, or the
+    document is classified as a statement rather than a contract note.
+    """
+    content  = await file.read()
+    filename = (file.filename or "").lower()
+
+    if filename.endswith(".pdf") or content[:4] == b"%PDF":
+        raw_text = await extract_pdf_text(content, password=password)
+        if not raw_text.strip():
+            raise HTTPException(422, "Could not extract text — wrong PDF password or unsupported format")
+    else:
+        try:
+            raw_text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raw_text = content.decode("latin-1")
+
+    if not raw_text.strip():
+        raise HTTPException(422, "Could not extract text from file")
+
+    parsed = await llm_parse_contract_note(raw_text)
+
+    if parsed.get("doc_type") == "statement":
+        raise HTTPException(
+            422,
+            "This looks like a statement, not a contract note — use Upload statement instead. Statements set the value; contract notes add trades on top.",
+        )
+
+    return raw_text, parsed
 
 
 @router.get("/investment/accounts")
@@ -120,6 +155,18 @@ async def investment_upload(
     except (ValueError, TypeError):
         statement_date = datetime.now()
 
+    # Provisional id-alignment: if the derived acc_id is new but the user has
+    # exactly one PROVISIONAL account for this provider_slug, write to that
+    # provisional account's id instead so notes stay attached.
+    provisional_check = await investment_accounts_col.find_one({"_id": acc_id})
+    if not provisional_check:
+        prov_prefix = f"inv-{uid}-{provider_slug}-"
+        prov_candidates = await investment_accounts_col.find(
+            {"user_id": uid, "_id": {"$regex": f"^{re.escape(prov_prefix)}"}, "provisional": True}
+        ).to_list(None)
+        if len(prov_candidates) == 1:
+            acc_id = prov_candidates[0]["_id"]
+
     # Stale-statement guard: reject if incoming statement is older than stored one
     existing = await investment_accounts_col.find_one({"_id": acc_id})
     if existing:
@@ -137,7 +184,8 @@ async def investment_upload(
         {"$set": {
             "user_id": uid, "provider": provider, "account_type": account_type,
             "account_reference": account_reference, "currency": currency,
-            "total_value": total_value, "statement_date": statement_date, "updated_at": datetime.now(),
+            "total_value": total_value, "statement_date": statement_date,
+            "provisional": False, "updated_at": datetime.now(),
         }},
         upsert=True,
     )
@@ -184,31 +232,10 @@ async def upload_contract_note(
     user: dict = Depends(current_user),
     _sub=Depends(require_tier(Tier.PREMIUM)),
 ):
-    uid     = user["email"]
-    content = await file.read()
-    filename = (file.filename or "").lower()
+    uid             = user["email"]
+    _raw_text, parsed = await _extract_and_parse_note(file, password)
 
-    if filename.endswith(".pdf") or content[:4] == b"%PDF":
-        raw_text = await extract_pdf_text(content, password=password)
-        if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text — wrong PDF password or unsupported format")
-    else:
-        try:
-            raw_text = content.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            raw_text = content.decode("latin-1")
-
-    if not raw_text.strip():
-        raise HTTPException(422, "Could not extract text from file")
-
-    parsed = await llm_parse_contract_note(raw_text)
-
-    # Guard: statement uploaded to contract-note flow
-    if parsed.get("doc_type") == "statement":
-        raise HTTPException(
-            422,
-            "This looks like a statement, not a contract note — use Upload statement instead. Statements set the value; contract notes add trades on top.",
-        )
+    # Guard: statement uploaded to contract-note flow (already handled in helper)
 
     # Load and validate account
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
@@ -226,7 +253,7 @@ async def upload_contract_note(
     except (ValueError, TypeError):
         raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
 
-    # Invariant 1: trade_date must be after statement_date
+    # Invariant 1: trade_date must be after statement_date (skip when None)
     if stmt_date:
         sd = stmt_date if isinstance(stmt_date, datetime) else datetime.combine(stmt_date, datetime.min.time())
         if trade_date <= sd:
@@ -236,14 +263,14 @@ async def upload_contract_note(
             )
 
     # Extract other fields
-    kind          = str(parsed.get("kind") or "purchase").lower()
-    raw_amount    = float(parsed.get("amount") or 0)
-    amount        = raw_amount if kind != "sale" else -raw_amount  # POSITIVE for purchase, NEGATIVE for sale
-    fund_name     = str(parsed.get("fund_name") or "").strip()
-    units         = parsed.get("units")
+    kind           = str(parsed.get("kind") or "purchase").lower()
+    raw_amount     = float(parsed.get("amount") or 0)
+    amount         = raw_amount if kind != "sale" else -raw_amount
+    fund_name      = str(parsed.get("fund_name") or "").strip()
+    units          = parsed.get("units")
     price_per_unit = parsed.get("price_per_unit")
-    reference     = parsed.get("reference") or None
-    provider      = str(parsed.get("provider") or acc.get("provider") or "Unknown")
+    reference      = parsed.get("reference") or None
+    provider       = str(parsed.get("provider") or acc.get("provider") or "Unknown")
 
     # Invariant 2: deduplicate
     if reference:
@@ -252,18 +279,18 @@ async def upload_contract_note(
         note_id = hashlib.sha256(f"{account_id}|{trade_date_str}|{raw_amount:.2f}|{fund_name.lower().strip()}".encode()).hexdigest()[:24]
 
     note_doc = {
-        "_id":           note_id,
-        "user_id":       uid,
-        "account_id":    account_id,
-        "trade_date":    trade_date,
-        "kind":          kind,
-        "amount":        amount,
-        "fund_name":     fund_name,
-        "units":         units,
+        "_id":            note_id,
+        "user_id":        uid,
+        "account_id":     account_id,
+        "trade_date":     trade_date,
+        "kind":           kind,
+        "amount":         amount,
+        "fund_name":      fund_name,
+        "units":          units,
         "price_per_unit": price_per_unit,
-        "reference":     reference,
-        "provider":      provider,
-        "created_at":    datetime.now(),
+        "reference":      reference,
+        "provider":       provider,
+        "created_at":     datetime.now(),
     }
 
     try:
@@ -274,8 +301,137 @@ async def upload_contract_note(
             f"This contract note looks like one you've already added ({fund_name} · {trade_date.strftime('%-d %b %Y')} · £{raw_amount:,.2f}). Duplicates would double-count the trade.",
         )
 
-    # Refresh account display
-    acc_fresh = await investment_accounts_col.find_one({"_id": account_id})
+    acc_fresh   = await investment_accounts_col.find_one({"_id": account_id})
+    acc_display = await _investment_display(acc_fresh)
+
+    return {
+        "note": {
+            "id":         note_id,
+            "trade_date": trade_date.isoformat(),
+            "kind":       kind,
+            "amount":     amount,
+            "fund_name":  fund_name,
+            "units":      units,
+            "reference":  reference,
+        },
+        "account": acc_display,
+    }
+
+
+@router.post("/investment/notes/upload")
+async def upload_contract_note_global(
+    file: UploadFile,
+    password: str = Form(default=""),
+    user: dict = Depends(current_user),
+    _sub=Depends(require_tier(Tier.PREMIUM)),
+):
+    """Upload a contract note without specifying an account.
+
+    Account resolution:
+    - Derive provider_slug from parsed provider.
+    - If the user has EXACTLY ONE account with that provider_slug prefix, attach to it.
+    - Otherwise create a provisional account (total_value=0, statement_date=None).
+    """
+    uid               = user["email"]
+    _raw_text, parsed = await _extract_and_parse_note(file, password)
+
+    # Parse trade date
+    trade_date_str = parsed.get("trade_date")
+    if not trade_date_str:
+        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+    try:
+        trade_date = datetime.fromisoformat(trade_date_str)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+
+    # Extract fields
+    kind              = str(parsed.get("kind") or "purchase").lower()
+    raw_amount        = float(parsed.get("amount") or 0)
+    amount            = raw_amount if kind != "sale" else -raw_amount
+    fund_name         = str(parsed.get("fund_name") or "").strip()
+    units             = parsed.get("units")
+    price_per_unit    = parsed.get("price_per_unit")
+    reference         = parsed.get("reference") or None
+    provider          = str(parsed.get("provider") or "Unknown")
+    account_reference = str(parsed.get("account_reference") or "")
+
+    provider_slug = re.sub(r"[^a-z0-9]", "", provider.lower())
+
+    # Account resolution
+    prefix = f"inv-{uid}-{provider_slug}-"
+    existing_accs = await investment_accounts_col.find(
+        {"user_id": uid, "_id": {"$regex": f"^{re.escape(prefix)}"}}
+    ).to_list(None)
+
+    if len(existing_accs) == 1:
+        # Attach to the single matching account
+        acc        = existing_accs[0]
+        account_id = acc["_id"]
+        stmt_date  = acc.get("statement_date")
+
+        # Invariant 1: skip when statement_date is None (provisional account)
+        if stmt_date:
+            sd = stmt_date if isinstance(stmt_date, datetime) else datetime.combine(stmt_date, datetime.min.time())
+            if trade_date <= sd:
+                raise HTTPException(
+                    422,
+                    f"This contract note is dated {trade_date.strftime('%-d %b %Y')} — on or before your latest statement ({sd.strftime('%-d %b %Y')}), so its value is already counted. Only notes newer than the statement can be added.",
+                )
+    else:
+        # Create or find provisional account
+        ref_slug   = re.sub(r"[^a-z0-9]", "", account_reference.lower())[:12]
+        account_id = (
+            f"inv-{uid}-{provider_slug}-{ref_slug}"
+            if ref_slug
+            else f"inv-{uid}-{provider_slug}-{hashlib.sha256(uid.encode()).hexdigest()[:8]}"
+        )
+        existing = await investment_accounts_col.find_one({"_id": account_id})
+        if not existing:
+            await investment_accounts_col.insert_one({
+                "_id":               account_id,
+                "user_id":           uid,
+                "provider":          provider,
+                "account_type":      "",
+                "account_reference": account_reference,
+                "currency":          "GBP",
+                "total_value":       0.0,
+                "statement_date":    None,
+                "provisional":       True,
+                "updated_at":        datetime.now(),
+            })
+        acc = await investment_accounts_col.find_one({"_id": account_id})
+        # No invariant-1 check needed: provisional account has statement_date=None
+
+    # Invariant 2: deduplicate
+    if reference:
+        note_id = hashlib.sha256(f"{account_id}|ref:{reference}".encode()).hexdigest()[:24]
+    else:
+        note_id = hashlib.sha256(f"{account_id}|{trade_date_str}|{raw_amount:.2f}|{fund_name.lower().strip()}".encode()).hexdigest()[:24]
+
+    note_doc = {
+        "_id":            note_id,
+        "user_id":        uid,
+        "account_id":     account_id,
+        "trade_date":     trade_date,
+        "kind":           kind,
+        "amount":         amount,
+        "fund_name":      fund_name,
+        "units":          units,
+        "price_per_unit": price_per_unit,
+        "reference":      reference,
+        "provider":       provider,
+        "created_at":     datetime.now(),
+    }
+
+    try:
+        await investment_notes_col.insert_one(note_doc)
+    except DuplicateKeyError:
+        raise HTTPException(
+            422,
+            f"This contract note looks like one you've already added ({fund_name} · {trade_date.strftime('%-d %b %Y')} · £{raw_amount:,.2f}). Duplicates would double-count the trade.",
+        )
+
+    acc_fresh   = await investment_accounts_col.find_one({"_id": account_id})
     acc_display = await _investment_display(acc_fresh)
 
     return {
@@ -376,69 +532,5 @@ async def refresh_investment_prices(account_id: str, user: dict = Depends(curren
         raise HTTPException(404, "Investment account not found")
     if not TAVILY_API_KEY:
         raise HTTPException(422, "Tavily API key not configured — add TAVILY_API_KEY to backend/.env")
-
-    holdings      = await investment_holdings_col.find({"account_id": account_id}).to_list(None)
-    updated_count = 0
-    new_total     = 0.0
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        for h in holdings:
-            name     = h.get("name", "")
-            isin     = h.get("isin")
-            units    = h.get("units")
-            stmt_val = h.get("statement_value", 0)
-            query    = f"{isin} fund unit price GBP" if isin else f"{name} fund unit price GBP today"
-            try:
-                tr = await client.post(
-                    "https://api.tavily.com/search",
-                    json={"api_key": TAVILY_API_KEY, "query": query, "search_depth": "basic", "max_results": 3},
-                )
-                if tr.status_code != 200:
-                    new_total += stmt_val
-                    continue
-                results = tr.json().get("results", [])
-                if not results:
-                    new_total += stmt_val
-                    continue
-
-                snippets     = "\n\n".join(f"Source: {res.get('url', '')}\n{res.get('content', '')[:500]}" for res in results[:3])
-                price_prompt = (
-                    f'Extract the current unit/NAV price in GBP for this holding: "{name}" (ISIN: {isin or "N/A"}).\n'
-                    f"Search results:\n{snippets}\n\n"
-                    f"Return ONLY a JSON number (e.g. 289.95) or null if the price cannot be determined. No other text."
-                )
-                lr = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": price_prompt}], "temperature": 0},
-                    timeout=30,
-                )
-                if lr.status_code != 200:
-                    new_total += stmt_val
-                    continue
-
-                price_raw     = lr.json()["choices"][0]["message"]["content"].strip().strip("`").strip()
-                try:
-                    current_price = float(price_raw) if price_raw.lower() != "null" else None
-                except ValueError:
-                    current_price = None
-
-                current_value = round(units * current_price, 2) if units and current_price else None
-                await investment_holdings_col.update_one(
-                    {"_id": h["_id"]},
-                    {"$set": {"current_price": current_price, "current_value": current_value, "last_refreshed": datetime.now()}},
-                )
-                new_total += current_value if current_value is not None else stmt_val
-                if current_price is not None:
-                    updated_count += 1
-            except Exception:
-                new_total += stmt_val
-                continue
-
-    if updated_count > 0 or holdings:
-        await investment_accounts_col.update_one(
-            {"_id": account_id},
-            {"$set": {"total_value": new_total, "last_refreshed": datetime.now()}},
-        )
-
-    return {"updated": updated_count, "new_total": round(new_total, 2)}
+    result = await refresh_account_prices(acc)
+    return result
