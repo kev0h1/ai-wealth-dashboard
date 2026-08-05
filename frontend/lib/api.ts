@@ -819,6 +819,14 @@ export type DebtPlanTotals = {
 export type DebtPlanProjectionPoint = { month: string; total: number };
 export type DebtPlanWin = { account_id: string; name: string; payoff_month: string; monthly: number };
 export type DebtPlanExtraToClear = { amount: number; debt_free_month: string; horizon_months: number };
+export type DebtPlanHistoryPoint = { month: string; total: number };
+export type DebtPlanHistory = {
+  points: DebtPlanHistoryPoint[];
+  trend_3m: number;
+  rising: boolean;
+  assumptions: string[];
+};
+export type DebtPlanNarration = { text: string; source: "llm" | "fallback" };
 
 export type DebtPlanView = {
   status: string;
@@ -831,6 +839,8 @@ export type DebtPlanView = {
   projection?: DebtPlanProjectionPoint[];
   whats_working?: DebtPlanWin[];
   extra_to_clear?: DebtPlanExtraToClear | null;
+  history?: DebtPlanHistory;
+  narration?: DebtPlanNarration | null;
 };
 
 export const api = {

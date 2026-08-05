@@ -330,48 +330,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%);
 }
 
-/* Debt burndown — page-scoped art direction on /debt-plan (?v=1|2|3, default 3).
-   V1 ink silhouette over a reduced glow · V2 indigo wash, the curve as light
-   source · V3 standard glow restored + line only. Alphas are computed ceilings:
-   the verdict and in-card muted text hold ≥4.5:1 through the glass over every
-   backdrop region (above curve, below curve, on the line); this page bumps its
-   muted text one step toward ink (slate-600 / dark slate-300) to fund the
+/* Debt burndown — THE debt-plan background (/debt-plan page). Standard app glow
+   restored; the burndown-line is the historical-solid portion, burndown-line-forecast
+   is the projection (dashed). Alphas are computed ceilings: the verdict and in-card
+   muted text hold ≥4.5:1 through the glass over every backdrop region; this page
+   bumps its muted text one step toward ink (slate-600 / dark slate-300) to fund the
    headroom. Colours never leave the app's indigo + slate token families. */
 
-/* Ambient glow: hidden for v1 (carries its own reduced luma) and v2
-   (the wash replaces it); v3 keeps the standard app-wide glow. */
-body.bd-v1 .app-glow,
-body.bd-v2 .app-glow { display: none; }
-
-/* V1 — ink silhouette: slate line + ≤5% slate mass below, over a half-
-   intensity copy of the glow recipe so the glass keeps a lit backdrop. */
-.bd-v1 .burndown-luma {
-  background:
-    radial-gradient(ellipse 50% 44% at 50% 42%, rgba(99, 102, 241, 0.125), rgba(99, 102, 241, 0.065) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.05), rgba(139, 92, 246, 0.025) 45%, transparent 70%);
-}
-.dark .bd-v1 .burndown-luma {
-  background:
-    radial-gradient(ellipse 50% 44% at 50% 42%, rgba(99, 102, 241, 0.16), rgba(99, 102, 241, 0.08) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.065), rgba(139, 92, 246, 0.0325) 45%, transparent 70%);
-}
-.bd-v1 .burndown-below { fill: rgba(100, 116, 139, 0.05); }
-.bd-v1 .burndown-line  { stroke: rgba(100, 116, 139, 0.15); }
-.dark .bd-v1 .burndown-below { fill: rgba(148, 163, 184, 0.05); }
-.dark .bd-v1 .burndown-line  { stroke: rgba(148, 163, 184, 0.30); }
-
-/* V2 — indigo wash: the primary-button indigo as the page's light source,
-   fading to transparent toward the page bottom (SVG gradient stops below). */
-.bd-v2 .burndown-line { stroke: rgba(79, 70, 229, 0.18); }
-.dark .bd-v2 .burndown-line { stroke: rgba(129, 140, 248, 0.40); }
-.bd-v2 .bd-wash-top { stop-color: rgba(79, 70, 229, 0.10); }
-.bd-v2 .bd-wash-bottom { stop-color: rgba(79, 70, 229, 0); }
-.dark .bd-v2 .bd-wash-top { stop-color: rgba(129, 140, 248, 0.18); }
-.dark .bd-v2 .bd-wash-bottom { stop-color: rgba(129, 140, 248, 0); }
-
-/* V3 — system background + one honest line. */
-.bd-v3 .burndown-line { stroke: rgba(79, 70, 229, 0.20); }
-.dark .bd-v3 .burndown-line { stroke: rgba(129, 140, 248, 0.30); }
+.burndown-line          { stroke: rgba(79,70,229,0.22); }
+.dark .burndown-line    { stroke: rgba(129,140,248,0.34); }
+.burndown-line-forecast { stroke: rgba(79,70,229,0.11); }
+.dark .burndown-line-forecast { stroke: rgba(129,140,248,0.16); }
+.burndown-seam          { stroke: rgba(100,116,139,0.12); }
+.dark .burndown-seam    { stroke: rgba(148,163,184,0.14); }
 
 /* Flatten back to the previous solid surfaces when the user prefers
    reduced transparency, or the browser can't do backdrop-filter. */

@@ -20,6 +20,7 @@ Tunable product-level constants (never user-specific):
   DAYS_PER_MONTH        — calendar-neutral month length (same as transport.py)
   MOVEMENT_FLAT_EPS     — monthly movement ≤ this → counts as flat for verdict
 """
+import calendar
 import logging
 import math
 import re
@@ -41,6 +42,7 @@ GOOD_INTEREST_CEILING = 50.0
 BAD_HORIZON_MONTHS = 60
 DAYS_PER_MONTH = 30.44          # same precedent as transport.py
 MOVEMENT_FLAT_EPS = 1.0         # monthly movement ≤ this → flat for verdict purposes
+HISTORY_RISING_EPS = 1.0         # 3-month trend above this → rising
 
 PROJECTION_TAIL_MONTHS = 6
 WHATS_WORKING_HORIZON_MONTHS = 36
@@ -152,6 +154,8 @@ def _compute_movement(
             "start": ps.isoformat(),
             "end": pe.isoformat(),
             "net": _r2(net),
+            "credits": _r2(credits),
+            "debits": _r2(debits),
             "_length": period_length,
         })
 
@@ -161,7 +165,7 @@ def _compute_movement(
         flags["assumptions"].append(
             "fewer than 2 closed pay periods of history — movement unknown, projected flat"
         )
-        covered_out = [{"start": p["start"], "end": p["end"], "net": p["net"]} for p in per_period]
+        covered_out = [{"start": p["start"], "end": p["end"], "net": p["net"], "credits": p["credits"], "debits": p["debits"]} for p in per_period]
         return {
             "monthly": None,
             "per_period": covered_out,
@@ -174,7 +178,7 @@ def _compute_movement(
     median_period_length = _median([float(p["_length"]) for p in per_period])
     monthly = median_net * DAYS_PER_MONTH / median_period_length if median_period_length > 0 else 0.0
 
-    covered_out = [{"start": p["start"], "end": p["end"], "net": p["net"]} for p in per_period]
+    covered_out = [{"start": p["start"], "end": p["end"], "net": p["net"], "credits": p["credits"], "debits": p["debits"]} for p in per_period]
     return {
         "monthly": _r2(monthly),
         "per_period": covered_out,
@@ -350,8 +354,10 @@ def _amortise(
 
 # ── Verdict ───────────────────────────────────────────────────────────────────
 
-def _verdict(material_cards: list[dict], debt_free_month: Optional[str], total_interest: float) -> str:
-    """Compute 'bad', 'good', or 'drifting'."""
+def _verdict(material_cards: list[dict], debt_free_month: Optional[str], total_interest: float, history_rising: bool = False) -> str:
+    """Compute 'bad', 'good', or 'drifting'. history_rising=True forces bad when material cards exist."""
+    if history_rising and material_cards:
+        return "bad"
     if not material_cards:
         return "good"
 
@@ -730,6 +736,203 @@ def _compute_extra_to_clear(cards: list[dict], today: date) -> Optional[dict]:
     return {"amount": amount, "debt_free_month": final_dfm, "horizon_months": EXTRA_CLEAR_HORIZON_MONTHS}
 
 
+# ── History ───────────────────────────────────────────────────────────────────
+
+def _compute_history(
+    today: date,
+    all_cc_txns: list[dict],
+    txns_by_account: dict[str, list[dict]],
+    cc_accounts: list[dict],
+) -> dict:
+    """Reconstruct the last 12 completed calendar month-ends.
+
+    balance_at(m) = current_balance − sum(credit amounts with date > m)
+                  + sum(debit amounts with date > m)
+    debt_at(m) = max(0.0, −balance_at(m))
+
+    A card contributes to month m ONLY if its earliest transaction date ≤ m.
+    """
+    # Build last 12 completed month-ends (oldest first)
+    month_ends: list[date] = []
+    yr, mo = today.year, today.month
+    # step back to previous month
+    for _ in range(12):
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            yr -= 1
+        last_day = calendar.monthrange(yr, mo)[1]
+        month_ends.insert(0, date(yr, mo, last_day))
+    # month_ends is now oldest→newest, 12 entries
+
+    assumptions: list[str] = []
+    points_by_month: dict[str, float] = {}  # "YYYY-MM" → total debt
+    covered_cards_by_month: dict[str, int] = {}  # "YYYY-MM" → count of covered cards
+
+    per_card_earliest: dict[str, date | None] = {}
+    for acc in cc_accounts:
+        aid = str(acc["_id"])
+        txns = txns_by_account.get(aid, [])
+        if txns:
+            per_card_earliest[aid] = min(_to_date(t["date"]) for t in txns)
+        else:
+            per_card_earliest[aid] = None
+
+    for acc in cc_accounts:
+        aid = str(acc["_id"])
+        earliest = per_card_earliest.get(aid)
+        if earliest is None:
+            continue  # no transactions → contributes to no month
+
+        raw_balance = float(acc.get("balance") or 0.0)
+        txns = txns_by_account.get(aid, [])
+
+        for m_end in month_ends:
+            if earliest > m_end:
+                continue  # card history doesn't reach this month
+
+            # Reconstruct balance at m_end
+            after_credits = sum(
+                t["amount"] for t in txns
+                if t.get("transaction_type") == "credit" and _to_date(t["date"]) > m_end
+            )
+            after_debits = sum(
+                t["amount"] for t in txns
+                if t.get("transaction_type") == "debit" and _to_date(t["date"]) > m_end
+            )
+            balance_at_m = raw_balance - after_credits + after_debits
+            debt_at_m = max(0.0, -balance_at_m)
+
+            label = _month_label(m_end)
+            points_by_month[label] = _r2(points_by_month.get(label, 0.0) + debt_at_m)
+            covered_cards_by_month[label] = covered_cards_by_month.get(label, 0) + 1
+
+    # Build points list oldest→newest, truncated to first month with ≥1 covered card
+    all_labels = [_month_label(m) for m in month_ends]
+    first_covered_idx = None
+    for i, lbl in enumerate(all_labels):
+        if covered_cards_by_month.get(lbl, 0) >= 1:
+            first_covered_idx = i
+            break
+
+    if first_covered_idx is None:
+        # No card has any transactions
+        return {
+            "points": [],
+            "trend_3m": 0.0,
+            "rising": False,
+            "assumptions": ["no card transaction history found — debt history cannot be shown"],
+        }
+
+    points = [
+        {"month": lbl, "total": points_by_month.get(lbl, 0.0)}
+        for lbl in all_labels[first_covered_idx:]
+    ]
+
+    # Assumptions: coverage gaps
+    first_emitted_label = all_labels[first_covered_idx]
+    oldest_possible = all_labels[0]
+    if first_emitted_label != oldest_possible:
+        # Parse first_emitted_label as "YYYY-MM"
+        first_month_date = date.fromisoformat(f"{first_emitted_label}-01")
+        first_mon_str = first_month_date.strftime("%b %Y")
+        assumptions.append(
+            f"card history starts {first_mon_str} — earlier months aren't shown"
+        )
+
+    # Check if any within-range months have partial coverage
+    # i.e. some card has earliest > first_emitted but ≤ last month
+    partial_cards = 0
+    for acc in cc_accounts:
+        aid = str(acc["_id"])
+        earliest = per_card_earliest.get(aid)
+        if earliest is None:
+            continue
+        # find the first month-end >= earliest
+        card_first_covered = None
+        for m_end in month_ends:
+            if earliest <= m_end:
+                card_first_covered = _month_label(m_end)
+                break
+        if card_first_covered and card_first_covered > first_emitted_label:
+            partial_cards += 1
+
+    if partial_cards > 0:
+        assumptions.append(
+            f"{partial_cards} card(s) have shorter history and only count from their first observed month — earlier totals are partial"
+        )
+
+    # trend_3m: latest completed month-end L, anchor A = 3 months before L
+    # For each covered card: anchor a = max(A, card's first covered month-end); delta = debt_at(L) − debt_at(a)
+    L_end = month_ends[-1]  # latest completed month-end
+    A_end_raw = month_ends[-4] if len(month_ends) >= 4 else month_ends[0]
+
+    clamped_card_names: list[str] = []
+    trend_deltas: list[float] = []
+
+    for acc in cc_accounts:
+        aid = str(acc["_id"])
+        earliest = per_card_earliest.get(aid)
+        if earliest is None:
+            continue
+
+        # Find card's first covered month-end
+        card_first_m_end = None
+        for m_end in month_ends:
+            if earliest <= m_end:
+                card_first_m_end = m_end
+                break
+
+        if card_first_m_end is None or card_first_m_end > L_end:
+            continue  # no coverage at L — skip
+
+        # Anchor
+        a_end = max(A_end_raw, card_first_m_end)
+        clamped = (a_end != A_end_raw)
+
+        raw_balance = float(acc.get("balance") or 0.0)
+        txns = txns_by_account.get(aid, [])
+
+        def _debt_at_m(m_end_inner: date) -> float:
+            after_credits_inner = sum(
+                t["amount"] for t in txns
+                if t.get("transaction_type") == "credit" and _to_date(t["date"]) > m_end_inner
+            )
+            after_debits_inner = sum(
+                t["amount"] for t in txns
+                if t.get("transaction_type") == "debit" and _to_date(t["date"]) > m_end_inner
+            )
+            bal = raw_balance - after_credits_inner + after_debits_inner
+            return max(0.0, -bal)
+
+        debt_at_L = _debt_at_m(L_end)
+        debt_at_a = _debt_at_m(a_end)
+        delta = debt_at_L - debt_at_a
+        trend_deltas.append(delta)
+
+        if clamped:
+            card_name = (
+                acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
+            ).strip()
+            month_str = a_end.strftime("%b %Y")
+            clamped_card_names.append(f"{card_name} from {month_str}")
+
+    trend_3m = _r2(sum(trend_deltas))
+    rising = trend_3m > HISTORY_RISING_EPS
+
+    for clamped_str in clamped_card_names:
+        assumptions.append(
+            f"3-month trend counts {clamped_str}, when its history begins"
+        )
+
+    return {
+        "points": points,
+        "trend_3m": trend_3m,
+        "rising": rising,
+        "assumptions": assumptions,
+    }
+
+
 # ── Main async entry point ────────────────────────────────────────────────────
 
 async def compute_debt_plan(uid: str) -> dict:
@@ -846,6 +1049,9 @@ async def compute_debt_plan(uid: str) -> dict:
         }
         cards_out.append(card)
 
+    # ── History ───────────────────────────────────────────────────────────────
+    history = _compute_history(today, all_cc_txns, txns_by_account, cc_accounts)
+
     # ── Totals + verdict ──────────────────────────────────────────────────────
     total_debt = _r2(sum(c["debt"] for c in cards_out))
     total_interest = _r2(sum(c["total_interest"] or 0.0 for c in cards_out))
@@ -858,7 +1064,7 @@ async def compute_debt_plan(uid: str) -> dict:
         payoffs = [c.get("payoff_month") for c in material_cards]
         debt_free_month = None if any(p is None for p in payoffs) else max(payoffs)
 
-    verdict = _verdict(material_cards, debt_free_month, total_interest)
+    verdict = _verdict(material_cards, debt_free_month, total_interest, history_rising=history["rising"])
 
     totals = {
         "debt": total_debt,
@@ -931,6 +1137,7 @@ async def compute_debt_plan(uid: str) -> dict:
         "projection": projection,
         "whats_working": whats_working,
         "extra_to_clear": extra_to_clear,
+        "history": history,
     }
 
 

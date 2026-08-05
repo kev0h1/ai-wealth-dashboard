@@ -4,7 +4,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { api, DebtPlanView, DebtPlanViewCard, CardTermsCard, DebtPlanProjectionPoint } from "@/lib/api";
+import { api, DebtPlanView, DebtPlanViewCard, CardTermsCard, DebtPlanProjectionPoint, DebtPlanHistory } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import { usePreferences } from "@/components/PreferencesContext";
 import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
@@ -81,57 +81,98 @@ function WhisperLabel({ children }: { children: React.ReactNode }) {
 // ── Burndown background ────────────────────────────────────────────────────────
 
 function BurndownBackground({
+  history,
   projection,
-  variant,
 }: {
+  history?: DebtPlanHistory;
   projection: DebtPlanProjectionPoint[];
-  variant: 1 | 2 | 3;
 }) {
-  const n = projection.length;
-  if (n < 2) return null;
+  const historyPts = history?.points ?? [];
 
-  const max = Math.max(...projection.map(p => p.total));
+  // Need at least the projection to render
+  const totalPts = historyPts.length + projection.length;
+  if (totalPts < 2 || projection.length === 0) return null;
+
+  // Combined y-scale: max total across history + projection
+  const allTotals = [...historyPts.map(p => p.total), ...projection.map(p => p.total)];
+  const max = Math.max(...allTotals);
   if (max <= 0) return null;
 
-  const pts = projection.map((p, i) => {
-    const x = ((i / (n - 1)) * 100).toFixed(2);
-    const y = (18 + 82 * (1 - p.total / max)).toFixed(2);
-    return `${x} ${y}`;
+  const toY = (total: number) => (18 + 82 * (1 - total / max)).toFixed(2);
+
+  // X mapping — art direction (not axis-true):
+  // history occupies left 30%, projection spans 30→100
+  // when no history: projection spans 0→100
+  const hasHistory = historyPts.length >= 1;
+  const seamX = hasHistory ? 30 : 0;
+
+  // History x positions: 0 to 30 (inclusive)
+  const historyCoords = historyPts.map((p, i) => {
+    const x = historyPts.length === 1
+      ? 0
+      : ((i / (historyPts.length - 1)) * seamX).toFixed(2);
+    return `${x} ${toY(p.total)}`;
   });
 
-  const linePath = `M ${pts.join(" L ")}`;
+  // Projection x positions: seam→100
+  // projection[0] is the "today" point = shared seam
+  const projCoords = projection.map((p, i) => {
+    const x = projection.length === 1
+      ? seamX
+      : (seamX + ((i / (projection.length - 1)) * (100 - seamX))).toFixed(2);
+    return `${x} ${toY(p.total)}`;
+  });
+
+  // Solid segment = history.points followed by projection[0] (the seam/today point)
+  // Only render solid path when we have ≥2 solid points
+  const solidCoords = [...historyCoords, projCoords[0]];
+  const hasSolid = solidCoords.length >= 2;
+
+  // Dashed = full projection
+  const forecastPath = `M ${projCoords.join(" L ")}`;
+  const solidPath = hasSolid ? `M ${solidCoords.join(" L ")}` : null;
 
   return (
     <div
       aria-hidden="true"
-      className={`burndown-bg bd-v${variant} pointer-events-none fixed inset-0 -z-10 overflow-hidden`}
+      className="burndown-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden"
     >
-      {variant === 1 && (
-        <div className="burndown-luma absolute left-1/2 -translate-x-1/2 top-[4vh] h-[560px] w-[135vw] max-w-[780px]" />
-      )}
-      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {variant === 2 && (
-          <defs>
-            <linearGradient id="bdWash" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" className="bd-wash-top" />
-              <stop offset="1" className="bd-wash-bottom" />
-            </linearGradient>
-          </defs>
-        )}
-        {variant !== 3 && (
-          <path
-            d={linePath + " L 100 100 L 0 100 Z"}
-            className="burndown-below"
-            fill={variant === 2 ? "url(#bdWash)" : undefined}
-          />
-        )}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+      >
+        {/* 1. Dashed projection path */}
         <path
-          d={linePath}
-          className="burndown-line"
+          d={forecastPath}
+          className="burndown-line-forecast"
           fill="none"
           vectorEffect="non-scaling-stroke"
           strokeWidth={1.5}
+          strokeDasharray="3 5"
         />
+        {/* 2. Solid history path */}
+        {solidPath && (
+          <path
+            d={solidPath}
+            className="burndown-line"
+            fill="none"
+            vectorEffect="non-scaling-stroke"
+            strokeWidth={1.5}
+          />
+        )}
+        {/* 3. Seam line */}
+        {hasHistory && (
+          <line
+            x1={seamX}
+            y1={12}
+            x2={seamX}
+            y2={100}
+            className="burndown-seam"
+            vectorEffect="non-scaling-stroke"
+            strokeWidth={1}
+          />
+        )}
       </svg>
     </div>
   );
@@ -149,10 +190,22 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
 
   if (totals.verdict === "bad") {
     if (!totals.debt_free_month) {
-      sentence = <>{amberDot}At your current pace the cards aren&apos;t coming down.</>;
+      sentence = (
+        <>
+          {amberDot}At your current pace the cards aren&apos;t coming down.
+          {plan.history?.rising && (
+            <> Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+          )}
+        </>
+      );
     } else {
       sentence = (
-        <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)} — further out than five years.</>
+        <>
+          {amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)} — further out than five years.
+          {plan.history?.rising && (
+            <> Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+          )}
+        </>
       );
     }
   } else if (totals.verdict === "drifting") {
@@ -260,6 +313,52 @@ function MissingRatesCallout({
   );
 }
 
+// ── Penny insight block ───────────────────────────────────────────────────────
+
+function maskAmounts(text: string): string {
+  return text.replace(/£[\d,]+(\.\d+)?/g, "£••••");
+}
+
+function PennyInsight({
+  plan,
+  hide,
+  onAddRates,
+}: {
+  plan: DebtPlanView;
+  hide: boolean;
+  onAddRates: () => void;
+}) {
+  const narration = plan.narration;
+  if (!narration?.text) return null;
+
+  const text = hide ? maskAmounts(narration.text) : narration.text;
+  const hasMissingRates = plan.cards.some(c => c.flags.terms_missing && c.debt > 0);
+
+  return (
+    <section className="glass-card rounded-2xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+        >
+          ✦ Penny
+        </span>
+      </div>
+      <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 max-w-prose">
+        {text}
+      </p>
+      {hasMissingRates && (
+        <button
+          onClick={onAddRates}
+          className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl active:scale-95 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          Add rates
+        </button>
+      )}
+    </section>
+  );
+}
+
 // ── Two-trajectory block ──────────────────────────────────────────────────────
 
 function TwoTrajectoryBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
@@ -304,6 +403,11 @@ function TwoTrajectoryBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean 
       <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
         Same {hide ? "••••" : "£" + pool.toLocaleString("en-GB")} a month, pointed at the dearest card first — debt-free {scenario_b.months_sooner} months sooner, {fmtMoney(scenario_b.interest_saved, hide)} less interest.
       </p>
+      {plan.history?.rising && (
+        <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
+          Your total has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
+        </p>
+      )}
       {"assumption" in scenario_b && scenario_b.assumption && (
         <p className="text-[12px] text-slate-600 dark:text-slate-300 italic">{scenario_b.assumption}</p>
       )}
@@ -495,12 +599,6 @@ export default function DebtPlanPage() {
   const [cardTermsReady, setCardTermsReady] = useState(false);
   const [cardTermsOpen, setCardTermsOpen] = useState(false);
   const [cardTermsStartId, setCardTermsStartId] = useState<string | null>(null);
-  const [variant, setVariant] = useState<1 | 2 | 3>(3);
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("v");
-    if (v === "1") setVariant(1);
-    else if (v === "2") setVariant(2);
-  }, []);
 
   const loadPlan = useCallback(async () => {
     try {
@@ -522,13 +620,12 @@ export default function DebtPlanPage() {
   useEffect(() => { loadPlan(); }, [loadPlan]);
   useEffect(() => { loadCardTerms(); }, [loadCardTerms]);
 
-  const burndownActive = (plan?.projection?.length ?? 0) >= 2;
+  const burndownActive = (plan?.projection?.length ?? 0) >= 1;
   useEffect(() => {
     if (!burndownActive) return;
-    const vClass = `bd-v${variant}`;
-    document.body.classList.add("debt-burndown", vClass);
-    return () => { document.body.classList.remove("debt-burndown", vClass); };
-  }, [burndownActive, variant]);
+    document.body.classList.add("debt-burndown");
+    return () => { document.body.classList.remove("debt-burndown"); };
+  }, [burndownActive]);
 
   function openSheet(accountId: string | null) {
     setCardTermsStartId(accountId);
@@ -554,10 +651,13 @@ export default function DebtPlanPage() {
     ((plan.whats_working?.length ?? 0) > 0)
   );
 
+  const showPennyInsight = plan != null && !!plan.narration?.text;
+
   // Sequential rise-in indices over visible sections (computed once, stable)
   let riseIdx = 1; // verdict always 1
   const riseVerdictIdx = riseIdx++;
   const riseAgencyIdx = showAgency ? riseIdx++ : 0;
+  const risePennyInsightIdx = showPennyInsight ? riseIdx++ : 0;
   const riseMissingRatesIdx = showMissingRates ? riseIdx++ : 0;
   const riseTwoTrajectoryIdx = showTwoTrajectory ? riseIdx++ : 0;
   const riseCardRowsIdx = riseIdx++;
@@ -566,7 +666,7 @@ export default function DebtPlanPage() {
   return (
     <div className="min-h-dvh pb-36 lg:pb-8">
       {burndownActive && plan?.projection && (
-        <BurndownBackground projection={plan.projection} variant={variant} />
+        <BurndownBackground history={plan.history} projection={plan.projection} />
       )}
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Back nav */}
@@ -603,6 +703,13 @@ export default function DebtPlanPage() {
             {showAgency && (
               <div className="rise-in" style={{ "--rise-index": riseAgencyIdx } as React.CSSProperties}>
                 <AgencyBlock plan={plan} hide={hideNetWorth} />
+              </div>
+            )}
+
+            {/* Penny insight */}
+            {showPennyInsight && (
+              <div className="rise-in" style={{ "--rise-index": risePennyInsightIdx } as React.CSSProperties}>
+                <PennyInsight plan={plan} hide={hideNetWorth} onAddRates={() => openSheet(null)} />
               </div>
             )}
 
