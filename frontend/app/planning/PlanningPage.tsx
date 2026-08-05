@@ -572,7 +572,7 @@ export default function PlanningPage() {
                       <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400">Overall balance will be low</p>
                       {item.type === "bill" && (item.account_bank || item.account_name) && (
                         <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                          · {item.account_bank || item.account_name}
+                          {item.account_bank || item.account_name}
                         </p>
                       )}
                     </>
@@ -584,7 +584,7 @@ export default function PlanningPage() {
                   )}
                   {item.type === "bill" && !item.account_short && !item.is_credit_card && !item.at_risk && (item.account_bank || item.account_name) && (
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                      · {item.account_bank || item.account_name}
+                      {item.account_bank || item.account_name}
                     </p>
                   )}
 
