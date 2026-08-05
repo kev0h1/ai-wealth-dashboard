@@ -315,19 +315,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* Ambient glow — a single light source (child of .app-glow in app/layout.tsx).
-   One upper-third field, centred: an indigo core with a faint violet fringe
-   biased low. Both layers reach transparent well before the element's own
-   edge — no filter blur — so the light sits behind each page's hero/anchor,
-   fades out by mid-viewport, and contributes nothing at the page gutters. */
+   One upper-third CORE, centred: an indigo core with a faint violet fringe
+   biased low — vertical geometry is px-locked to the original 560px field so
+   the core renders identically at any element height. A third, very faint
+   indigo TAIL is anchored at the viewport bottom (the element ends at 100vh)
+   so every glass surface has a whisper of field behind it — same light,
+   longer falloff, never a second source. All layers reach transparent before
+   the element's own edge — no filter blur — and the tail is centred and
+   narrow enough that the page gutters still read as bare canvas. Alphas are
+   contrast ceilings: tail peak 0.045 light / 0.03 dark keeps in-card muted
+   text at 4.4:1+ (vs the accepted 3.9:1 worst case under the core). */
 .glow-ambient {
   background:
-    radial-gradient(ellipse 50% 44% at 50% 42%, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.13) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 70%);
+    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.13) 45%, transparent 72%),
+    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 70%),
+    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.045), rgba(99, 102, 241, 0.027) 55%, transparent 92%);
 }
 .dark .glow-ambient {
   background:
-    radial-gradient(ellipse 50% 44% at 50% 42%, rgba(99, 102, 241, 0.32), rgba(99, 102, 241, 0.16) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 54% at 50% 58%, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%);
+    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.32), rgba(99, 102, 241, 0.16) 45%, transparent 72%),
+    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%),
+    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.018) 55%, transparent 92%);
 }
 
 /* Debt burndown — THE debt-plan background (/debt-plan page). Standard app glow
