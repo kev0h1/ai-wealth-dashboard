@@ -1,0 +1,6 @@
+.android-sdk/
+capacitor-spike/
+frontend/out/
+mobile/
+backups/
+.claude/

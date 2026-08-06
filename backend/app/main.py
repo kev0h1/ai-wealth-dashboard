@@ -37,6 +37,10 @@ if _dsn := os.getenv("SENTRY_DSN"):
 app = FastAPI(title="Wealth Dashboard API")
 
 _cors_origins = [APP_URL]
+# Capacitor mobile WebView origins (Android WebView with androidScheme "https"
+# reports Origin: https://localhost; some WebViews use the capacitor: scheme).
+_cors_origins.append("https://localhost")
+_cors_origins.append("capacitor://localhost")
 if os.getenv("DEV_MODE"):
     _cors_origins.append("http://localhost:3000")
 app.add_middleware(

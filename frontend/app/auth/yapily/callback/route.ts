@@ -9,6 +9,7 @@ function publicBase(request: NextRequest): string {
 }
 
 export async function GET(request: NextRequest) {
+  if (process.env.MOBILE_EXPORT === "1") return new Response(null, { status: 204 });
   const { searchParams } = new URL(request.url);
   const base = publicBase(request);
 

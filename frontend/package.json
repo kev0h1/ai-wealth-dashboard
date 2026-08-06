@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:mobile": "bash scripts/build-mobile.sh",
     "start": "next start",
     "lint": "eslint"
   },

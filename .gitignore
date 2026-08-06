@@ -38,3 +38,9 @@ backups/
 .railway-config-pull-*/
 backend/bot_state.json
 skills-lock.json
+
+# Mobile / Capacitor spike artifacts — never commit or deploy
+.android-sdk/
+capacitor-spike/
+frontend/out/
+mobile/node_modules/
