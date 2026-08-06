@@ -41,6 +41,10 @@ skills-lock.json
 
 # Mobile / Capacitor spike artifacts — never commit or deploy
 .android-sdk/
-capacitor-spike/
+capacitor-spike/node_modules/
+capacitor-spike/www/
+capacitor-spike/android/
+capacitor-spike/ios/
+capacitor-spike/dist/
 frontend/out/
 mobile/node_modules/

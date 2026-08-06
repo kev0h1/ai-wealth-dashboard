@@ -1,0 +1,48 @@
+# Codemagic CI — Capacitor iOS build.
+# The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
+# One-time setup in the Codemagic UI: add an App Store Connect API key integration named "CodemagicASC".
+workflows:
+  ios-capacitor:
+    name: iOS Capacitor (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: CodemagicASC
+    environment:
+      xcode: latest
+      cocoapods: default
+      node: 20
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: co.uk.auriqltd.wealth
+    scripts:
+      - name: Build web (mobile static export)
+        script: |
+          cd frontend
+          npm ci
+          npm run build:mobile
+          rm -rf "$CM_BUILD_DIR/capacitor-spike/www"
+          cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
+      - name: Add + sync Capacitor iOS
+        script: |
+          cd "$CM_BUILD_DIR/capacitor-spike"
+          npm ci
+          npx cap add ios 2>/dev/null || true
+          npx cap sync ios
+      - name: Install CocoaPods deps
+        script: |
+          cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
+          pod install
+      - name: Set up provisioning profiles
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
+          xcode-project build-ipa --workspace "App.xcworkspace" --scheme "App"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { getToken, setToken, clearToken } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { api, API_BASE } from "@/lib/api";
 import LoginScreen from "@/components/LoginScreen";
 import Onboarding from "@/components/Onboarding";
 
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const res = await fetch("/api/auth/session/validate", {
+        const res = await fetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
         });

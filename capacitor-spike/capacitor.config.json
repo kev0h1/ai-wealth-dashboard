@@ -1,0 +1,8 @@
+{
+  "appId": "co.uk.auriqltd.wealth",
+  "appName": "Wealth Dashboard",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

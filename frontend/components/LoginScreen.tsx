@@ -1,10 +1,24 @@
 "use client";
 
+import { API_BASE } from "@/lib/api";
+import { isNativePlatform, nativeGoogleLogin } from "@/lib/nativeAuth";
+
 interface LoginScreenProps {
   error?: string | null;
 }
 
 export default function LoginScreen({ error }: LoginScreenProps) {
+  async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!isNativePlatform()) return; // web: let the href redirect happen as before
+    e.preventDefault();
+    const ok = await nativeGoogleLogin();
+    if (ok) {
+      window.location.reload();
+    } else {
+      alert("Sign-in failed. Please try again.");
+    }
+  }
+
   return (
     <div className="min-h-dvh flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
@@ -33,7 +47,8 @@ export default function LoginScreen({ error }: LoginScreenProps) {
           )}
 
           <a
-            href="/api/auth/google"
+            href={`${API_BASE}/auth/google`}
+            onClick={handleGoogleClick}
             className="flex items-center justify-center gap-3 w-full py-3.5 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition font-medium text-slate-700 dark:text-slate-100 text-sm shadow-sm"
           >
             <svg width="20" height="20" viewBox="0 0 48 48">

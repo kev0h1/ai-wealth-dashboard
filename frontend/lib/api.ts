@@ -16,7 +16,7 @@ export type {
   SubscriptionInfo,
 } from "@wealth/shared";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export const logoUrl = (domain: string) => `${API_BASE}/logo/${encodeURIComponent(domain)}`;
 
