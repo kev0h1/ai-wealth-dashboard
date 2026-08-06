@@ -221,7 +221,7 @@ export default function MonthPage() {
       : "text-slate-900 dark:text-slate-100";
 
   return (
-    <main className="min-h-dvh pb-36 lg:pb-8">
+    <main className="min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto space-y-8">
 
         {/* ── Header ──────────────────────────────────────────────────────── */}

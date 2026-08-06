@@ -155,7 +155,7 @@ export default function CardsPage() {
   const maxAbsDelta = trajSlice.reduce((m, t) => Math.max(m, Math.abs(t.delta)), 0);
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-8">
+    <div className="min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto space-y-8">
 
         {/* ── Section 1: Header ─────────────────────────────────────────────── */}

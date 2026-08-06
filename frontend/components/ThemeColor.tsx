@@ -20,6 +20,16 @@ export default function ThemeColor() {
       document.head.appendChild(meta);
     }
     meta.content = darkMode ? DARK : LIGHT;
+
+    // Native status-bar icon color (Capacitor): dark icons on light bg, light icons on dark bg.
+    (async () => {
+      try {
+        const { Capacitor } = await import("@capacitor/core");
+        if (!Capacitor.isNativePlatform()) return;
+        const { StatusBar, Style } = await import("@capacitor/status-bar");
+        await StatusBar.setStyle({ style: darkMode ? Style.Dark : Style.Light });
+      } catch {}
+    })();
   }, [darkMode]);
 
   return null;

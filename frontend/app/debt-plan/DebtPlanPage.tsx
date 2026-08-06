@@ -920,7 +920,7 @@ export default function DebtPlanPage() {
   const riseTransferRoutesIdx = showTransferRoutes ? riseIdx++ : 0;
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-8">
+    <div className="min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {burndownActive && plan?.projection && (
         <BurndownBackground history={plan.history} projection={plan.projection} />
       )}

@@ -32,7 +32,7 @@ export default function ReceiptsPage() {
   }
 
   return (
-    <div className="min-h-dvh">
+    <div className="min-h-dvh" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="sticky top-0 z-10 bg-[#f0f2f7]/90 dark:bg-[#0f172a]/90 backdrop-blur-sm border-b border-slate-200/60 dark:border-slate-700/60 safe-top">
         <div className="flex items-center gap-1 px-2 py-2">
           <button
