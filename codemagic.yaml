@@ -1,6 +1,6 @@
 # Codemagic CI — Capacitor iOS build.
 # The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
-# One-time setup in the Codemagic UI: add an App Store Connect API key integration named "CodemagicASC".
+# One-time setup in the Codemagic UI: add an App Store Connect API key integration named "Auriq".
 workflows:
   ios-capacitor:
     name: iOS Capacitor (TestFlight)
@@ -12,9 +12,8 @@ workflows:
       xcode: latest
       cocoapods: default
       node: 20
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: co.uk.auriqltd.wealth
+      vars:
+        BUNDLE_ID: "co.uk.auriqltd.wealth"
     scripts:
       - name: Build web (mobile static export)
         script: |
@@ -27,18 +26,28 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike"
           npm ci
-          npx cap add ios 2>/dev/null || true
+          if [ ! -d ios ]; then npx cap add ios; fi
           npx cap sync ios
       - name: Install CocoaPods deps
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
           pod install
-      - name: Set up provisioning profiles
-        script: xcode-project use-profiles
+      - name: Set up code signing (create cert/profile if missing)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
+          xcode-project use-profiles
       - name: Build IPA
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
-          xcode-project build-ipa --workspace "App.xcworkspace" --scheme "App"
+          xcode-project build-ipa \
+            --workspace "App.xcworkspace" \
+            --scheme "App" \
+            --ipa-directory "$CM_BUILD_DIR/build/ios/ipa"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
