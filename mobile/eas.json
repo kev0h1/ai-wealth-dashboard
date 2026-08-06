@@ -8,6 +8,10 @@
         "buildType": "apk"
       }
     },
+    "preview-ios": {
+      "distribution": "internal",
+      "ios": {}
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"
