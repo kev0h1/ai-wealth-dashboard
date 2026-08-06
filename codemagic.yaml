@@ -1,7 +1,11 @@
 # Codemagic CI — Capacitor iOS build.
 # The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
 # Capacitor 8 iOS uses Swift Package Manager (no CocoaPods / Podfile).
-# One-time setup in the Codemagic UI: add an App Store Connect API key integration named "AURIQ LTD".
+# Setup in the Codemagic UI:
+#   1. App Store Connect API key integration named "AURIQ LTD" (done).
+#   2. Team settings -> Code signing identities: generate the iOS distribution
+#      certificate and an App Store provisioning profile for the bundle id below.
+#      The ios_signing block fetches them from there at build time.
 workflows:
   ios-capacitor:
     name: iOS Capacitor (TestFlight)
@@ -12,8 +16,9 @@ workflows:
     environment:
       xcode: latest
       node: 22
-      vars:
-        BUNDLE_ID: "co.uk.auriqltd.wealth"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: co.uk.auriqltd.wealth
     scripts:
       - name: Build web (mobile static export)
         script: |
@@ -28,13 +33,8 @@ workflows:
           npm ci
           if [ ! -d ios ]; then npx cap add ios; fi
           npx cap sync ios
-      - name: Set up code signing (create cert/profile if missing)
+      - name: Apply provisioning profiles
         script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-          keychain add-certificates
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
           xcode-project use-profiles
       - name: Build IPA
