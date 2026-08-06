@@ -86,7 +86,7 @@ function AlertBanner({ type, message, onDismiss }: {
 }) {
   const colors = {
     syncing: { bg: tw.color.indigo50, border: EXT.indigo200, text: EXT.indigo800 },
-    reconnect: { bg: tw.color.rose50, border: tw.color.rose300, text: tw.color.rose700 },
+    reconnect: { bg: "#fff1f2", border: tw.color.rose300, text: tw.color.rose700 },
     expired: { bg: tw.color.amber50, border: EXT.amber200, text: EXT.amber800 },
   }[type];
 
@@ -267,7 +267,7 @@ export default function AccountsScreen() {
   async function handleReconnect(account: Account) {
     try {
       const { auth_url } = await accountsApi.finexerConnectLink();
-      await openBrowserAsync(auth_url, { presentationStyle: 1, showTitle: false });
+      await openBrowserAsync(auth_url, { showTitle: false });
       // Poll for reconnect
       await loadAll();
     } catch {
@@ -370,7 +370,7 @@ export default function AccountsScreen() {
           onFinexer={async () => {
             try {
               const { auth_url } = await accountsApi.finexerConnectLink();
-              await openBrowserAsync(auth_url, { presentationStyle: 1, showTitle: false });
+              await openBrowserAsync(auth_url, { showTitle: false });
               loadAll();
             } catch {}
           }}

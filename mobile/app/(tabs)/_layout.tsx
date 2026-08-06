@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Tabs } from "expo-router";
 import { PlatformPressable } from "expo-router/build/react-navigation/elements";
-import { Home, PieChart, Target, Lightbulb, Settings } from "lucide-react-native";
+import { Home, PieChart, CalendarClock, Lightbulb, Settings } from "lucide-react-native";
 import { useTheme } from "@/lib/ThemeContext";
 import {
   View,
@@ -14,6 +14,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import { router } from "expo-router";
+import { useAuth } from "@/lib/AuthContext";
+import { api } from "@/lib/api";
 
 const ACTIVE = "#4f46e5";
 const INACTIVE = "#94a3b8";
@@ -23,6 +26,17 @@ const BG_DARK = "#0f172a";
 export default function TabLayout() {
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
   const { dark: darkMode } = useTheme();
+  const { token } = useAuth();
+
+  useEffect(() => {
+    if (!token) return;
+    api.getProfile().then((p) => {
+      if (!p.onboarding_complete) {
+        router.replace("/onboarding");
+      }
+    }).catch(() => {});
+  }, [token]);
+
   const tryUnlock = useCallback(async () => {
     try {
       const pref = await SecureStore.getItemAsync("biometric_lock");
@@ -112,11 +126,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="budget"
+        name="planning"
         options={{
-          title: "Budget",
+          title: "Planning",
           tabBarIcon: ({ color, size }: { color: ColorValue; size: number }) => (
-            <Target color={color as string} size={size} />
+            <CalendarClock color={color as string} size={size} />
           ),
         }}
       />

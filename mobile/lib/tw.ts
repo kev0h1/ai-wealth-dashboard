@@ -67,15 +67,23 @@ export const tw = {
     slate400: "#94a3b8", slate500: "#64748b", slate600: "#475569", slate700: "#334155",
     slate800: "#1e293b", slate900: "#0f172a",
     // indigo
-    indigo50: "#eef2ff", indigo400: "#818cf8", indigo500: "#6366f1", indigo600: "#4f46e5", indigo700: "#4338ca", indigo900: "#312e81",
+    indigo50:  "#eef2ff", indigo200: "#c7d2fe", indigo300: "#a5b4fc",
+    indigo400: "#818cf8", indigo500: "#6366f1", indigo600: "#4f46e5",
+    indigo700: "#4338ca", indigo800: "#3730a3", indigo900: "#312e81",
     // violet (Penny gradient end + spotlight link)
-    violet600: "#7c3aed",
-    // emerald
-    emerald400: "#34d399", emerald500: "#10b981", emerald600: "#065f46", emerald100: "#d1fae5",
+    violet50:  "#f5f3ff", violet200: "#ddd6fe", violet500: "#8b5cf6",
+    violet600: "#7c3aed", violet800: "#5b21b6",
+    // emerald — FIX: emerald600 was wrong (#065f46 ≈ emerald-900); correct value is #059669
+    emerald50:  "#ecfdf5", emerald100: "#d1fae5", emerald200: "#a7f3d0",
+    emerald400: "#34d399", emerald500: "#10b981", emerald600: "#059669",
+    emerald800: "#065f46",
     // amber
-    amber50: "#fffbeb", amber400: "#fbbf24", amber500: "#f59e0b", amber600: "#d97706", amber700: "#b45309", amber900: "#78350f",
-    // rose / red (negative balances)
-    rose300: "#fca5a5", rose700: "#b91c1c", red600: "#dc2626",
+    amber50:  "#fffbeb", amber200: "#fde68a", amber300: "#fcd34d",
+    amber400: "#fbbf24", amber500: "#f59e0b", amber600: "#d97706",
+    amber700: "#b45309", amber800: "#92400e", amber900: "#78350f",
+    // rose / red
+    rose500: "#f43f5e", rose300: "#fca5a5", rose700: "#b91c1c",
+    rose800: "#9f1239", red600: "#dc2626",
     white: "#ffffff",
     // app canvas + card tokens (globals.css :root / .dark)
     canvasLight: "#f0f2f7", canvasDark: "#0f172a",

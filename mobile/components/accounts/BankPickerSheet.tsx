@@ -64,7 +64,6 @@ export function BankPickerSheet({ visible, onClose, dark, onConnecting }: BankPi
       onConnecting?.();
       onClose();
       await openBrowserAsync(auth_url, {
-        presentationStyle: 1, // fullScreen
         showTitle: false,
       });
     } catch (err) {

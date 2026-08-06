@@ -327,7 +327,7 @@ export function InvestmentSection({
           onRefreshPrices={() => handleRefreshPrices(account.id)}
           onDelete={() => handleDelete(account.id)}
           onUploadStatement={onUploadStatement}
-          onUploadNote={(file, password) => handleUploadNote(account.id, file, password)}
+          onUploadNote={async (file, password) => { await handleUploadNote(account.id, file, password); }}
           onDeleteNote={(noteId) => handleDeleteNote(account.id, noteId)}
         />
       ))}

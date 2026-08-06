@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   View,
   ScrollView,
@@ -10,29 +10,40 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { Sparkles } from "lucide-react-native";
 import { useAuth } from "@/lib/AuthContext";
 import { useTheme } from "@/lib/ThemeContext";
 import DashboardWebView from "@/components/DashboardWebView";
 import { useHomeData } from "@/lib/useHomeData";
-import { HomeHeader } from "@/components/home/HomeHeader";
-import { NetWorthHero } from "@/components/home/NetWorthHero";
-import { GoalsCard } from "@/components/home/GoalsCard";
-import { ComingUpCard } from "@/components/home/ComingUpCard";
-import { SpotlightCard } from "@/components/home/SpotlightCard";
-import { AccountsGrid } from "@/components/home/AccountsGrid";
-import { RecentTransactions } from "@/components/home/RecentTransactions";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "@/lib/api";
-import type { ValueDelivered } from "@/lib/api";
+import type { SafeToSpend, NeedleSummary, CompanionItem } from "@/lib/api";
 import { tw } from "@/lib/tw";
+
+// Existing components (signatures unchanged)
+import { HomeHeader } from "@/components/home/HomeHeader";
+import { AccountsGrid } from "@/components/home/AccountsGrid";
+import { RecentTransactions } from "@/components/home/RecentTransactions";
+
+// New components
+import { SafeToSpendCard } from "@/components/home/SafeToSpendCard";
+import { HomeBrief } from "@/components/home/HomeBrief";
+import { UpcomingBillsStrip } from "@/components/home/UpcomingBillsStrip";
+import { ThisMonthStrip } from "@/components/home/ThisMonthStrip";
+import { HomeInsightSpotlight } from "@/components/home/HomeInsightSpotlight";
+import { IndexBlock } from "@/components/home/IndexBlock";
+import { ReauthBanners } from "@/components/home/ReauthBanners";
 
 function ErrorCard({ onRetry, dark }: { onRetry: () => void; dark: boolean }) {
   return (
     <View
       style={[
         styles.errorCard,
-        { backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight, borderColor: dark ? tw.color.cardBorderDark : tw.color.cardBorderLight },
+        {
+          backgroundColor: dark ? tw.color.cardDark : tw.color.cardLight,
+          borderColor: dark
+            ? tw.color.cardBorderDark
+            : tw.color.cardBorderLight,
+        },
       ]}
     >
       <Text style={[styles.errorCardText, { color: tw.color.slate400 }]}>
@@ -51,49 +62,12 @@ function ErrorCard({ onRetry, dark }: { onRetry: () => void; dark: boolean }) {
   );
 }
 
-function ValueDeliveredRow({
-  valueDelivered,
-  onPress,
-}: {
-  valueDelivered: ValueDelivered | null;
-  onPress: () => void;
-}) {
-  if (
-    !valueDelivered ||
-    (valueDelivered.total_monthly_saving === 0 && !valueDelivered.verified_monthly_saving)
-  ) {
-    return null;
-  }
-
-  const verified = valueDelivered.verified_monthly_saving ?? 0;
-  const monthly = valueDelivered.total_monthly_saving;
-  const n = valueDelivered.insights_acted_on;
-
-  const gbp = (num: number) => num.toLocaleString("en-GB", { maximumFractionDigits: 0 });
-  const label =
-    verified > 0
-      ? `£${gbp(verified)}/mo saved · £${gbp(monthly)}/mo more possible`
-      : `£${gbp(monthly)}/mo potential savings across ${n} insight${n === 1 ? "" : "s"}`;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.valueDeliveredRow,
-        { opacity: pressed ? 0.7 : 1 },
-      ]}
-    >
-      <Sparkles size={11} color={tw.color.indigo400} />
-      <Text style={styles.valueDeliveredText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function NativeHomeScreen() {
   const { dark } = useTheme();
   const router = useRouter();
   const { width: winW } = useWindowDimensions();
   const gutter = Math.max(0, (winW - 430) / 2) + tw.space[4];
+
   const {
     data,
     loading,
@@ -106,7 +80,32 @@ function NativeHomeScreen() {
     toggleHideBalances,
   } = useHomeData();
 
-  const canvasColor = dark ? tw.color.canvasDark : tw.color.canvasLight;
+  // Augmented data from new endpoints
+  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
+  const [todayItems, setTodayItems] = useState<CompanionItem[]>([]);
+  const [needle, setNeedle] = useState<NeedleSummary | null>(null);
+  const [augLoading, setAugLoading] = useState(true);
+
+  const fetchAugmented = useCallback(async () => {
+    setAugLoading(true);
+    const [stsRes, todayRes, needleRes] = await Promise.allSettled([
+      api.safeToSpend(),
+      api.getToday(),
+      api.getNeedleSummary(),
+    ]);
+    if (stsRes.status === "fulfilled") setSafeToSpend(stsRes.value);
+    if (todayRes.status === "fulfilled") setTodayItems(todayRes.value.items ?? []);
+    if (needleRes.status === "fulfilled") setNeedle(needleRes.value);
+    setAugLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchAugmented();
+  }, [fetchAugmented]);
+
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([refresh(), fetchAugmented()]);
+  }, [refresh, fetchAugmented]);
 
   const handleDismissInsight = useCallback(async () => {
     if (!data?.spotlightInsight) return;
@@ -125,83 +124,119 @@ function NativeHomeScreen() {
     [router],
   );
 
+  const canvasColor = dark ? tw.color.canvasDark : tw.color.canvasLight;
+  const isFirstLoad = loading && !data;
+
   return (
     <View style={[styles.screen, { backgroundColor: canvasColor }]}>
       <SafeAreaView style={{ flex: 1, backgroundColor: canvasColor }} edges={["top"]}>
         <ScrollView
           refreshControl={
             <RefreshControl
-              refreshing={loading && !data}
-              onRefresh={refresh}
+              refreshing={isFirstLoad}
+              onRefresh={handleRefresh}
               tintColor={dark ? tw.color.slate100 : tw.color.indigo600}
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, { paddingHorizontal: gutter }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingHorizontal: gutter },
+          ]}
         >
           <HomeHeader
             firstName={data?.userName?.split(" ")[0]?.trim()}
             syncing={syncing}
             syncError={syncError}
             onSync={handleSync}
-            onTutorial={() => router.push({ pathname: "/web", params: { path: "/", title: "Guide", tutorial: "1" } } as any)}
+            onTutorial={() =>
+              router.push({
+                pathname: "/web",
+                params: { path: "/", title: "Guide", tutorial: "1" },
+              } as any)
+            }
             dark={dark}
           />
 
           {error && !data ? (
-            <ErrorCard onRetry={refresh} dark={dark} />
+            <ErrorCard onRetry={handleRefresh} dark={dark} />
           ) : (
             <>
-              <NetWorthHero
-                kpis={data?.kpis ?? null}
-                loading={loading && !data}
+              {/* 1. HomeBrief: greeting + companion items */}
+              <HomeBrief
+                firstName={data?.userName?.split(" ")[0]?.trim()}
+                companionItems={todayItems}
                 dark={dark}
-                hidden={hideBalances}
-                onToggleHide={toggleHideBalances}
+                onRefresh={fetchAugmented}
               />
 
-              <ValueDeliveredRow
-                valueDelivered={data?.valueDelivered ?? null}
-                onPress={() => router.navigate("/(tabs)/insights" as any)}
-              />
-
-              <GoalsCard
-                goals={data?.goals ?? []}
-                loading={loading && !data}
+              {/* 2. WHERE YOU STAND: SafeToSpendCard + IndexBlock */}
+              {safeToSpend && (
+                <SafeToSpendCard
+                  data={safeToSpend}
+                  suppressCTA={todayItems.some((i) => i.type === "move")}
+                  dark={dark}
+                />
+              )}
+              {/* IndexBlock always renders — Mirror row is unconditional */}
+              <IndexBlock
+                data={data?.valueDelivered ?? null}
                 dark={dark}
-                onNavigate={(url) => handleNavigateWeb(url, "Goals")}
+                onNavigate={() => router.navigate("/(tabs)/insights" as any)}
               />
 
-              <ComingUpCard
+              {/* 3. Reauth banners — after WHERE YOU STAND, before YOUR MONEY */}
+              <ReauthBanners
+                accounts={data?.accounts ?? []}
+                reauthIds={[]}
+                dark={dark}
+              />
+
+              {/* 4. YOUR MONEY: section label + KPI strips */}
+              <View style={styles.sectionLabelRow}>
+                <Text style={[styles.sectionLabel, { color: dark ? tw.color.slate500 : tw.color.slate400 }]}>
+                  Your money
+                </Text>
+              </View>
+              <UpcomingBillsStrip
                 cashflow={data?.cashflow ?? null}
-                loading={loading && !data}
+                loading={isFirstLoad}
                 dark={dark}
-                onPress={() => router.navigate("/(tabs)/spend" as any)}
               />
-
-              <SpotlightCard
+              <ThisMonthStrip
+                needle={needle}
+                loading={augLoading && !needle}
+                dark={dark}
+              />
+              <HomeInsightSpotlight
                 insight={data?.spotlightInsight ?? null}
-                loaded={!loading || !!data}
+                loaded={!isFirstLoad || !!data}
                 dark={dark}
                 onDismiss={handleDismissInsight}
                 onNavigate={() => router.navigate("/(tabs)/insights" as any)}
               />
 
+              {/* 5. YOUR ESTATE: accounts grid */}
               <AccountsGrid
                 accounts={data?.accounts ?? []}
                 investmentAccounts={data?.investmentAccounts ?? []}
-                loading={loading && !data}
+                loading={isFirstLoad}
                 dark={dark}
                 hidden={hideBalances}
                 pinnedIds={data?.pinnedAccountIds ?? []}
                 onManage={() => handleNavigateWeb("/accounts", "Accounts")}
-                onAccountPress={(_id) => handleNavigateWeb(`/accounts`, "Accounts")}
-                onInvestmentsPress={() => handleNavigateWeb("/investments", "Investments")}
+                onAccountPress={(_id) =>
+                  handleNavigateWeb("/accounts", "Accounts")
+                }
+                onInvestmentsPress={() =>
+                  handleNavigateWeb("/investments", "Investments")
+                }
               />
 
+              {/* 6. Recent transactions */}
               <RecentTransactions
                 transactions={data?.transactions ?? []}
-                loading={loading && !data}
+                loading={isFirstLoad}
                 dark={dark}
                 onSeeAll={() => router.navigate("/(tabs)/spend" as any)}
               />
@@ -246,7 +281,17 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: tw.space[4],
     paddingBottom: 100,
-    gap: tw.space[5],
+    gap: tw.space[4],
+  },
+  sectionLabelRow: {
+    marginBottom: -tw.space[1], // collapse gap so strips sit mb-3 below label
+  },
+  sectionLabel: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: tw.weight.semibold as "600",
+    textTransform: "uppercase",
+    letterSpacing: tw.tracking(tw.trackingEm.wide, 11),
   },
   errorCard: {
     borderRadius: tw.radius["2xl"],
@@ -268,17 +313,5 @@ const styles = StyleSheet.create({
     color: tw.color.white,
     fontWeight: tw.weight.semibold,
     ...tw.text.sm,
-  },
-  valueDeliveredRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: -8,
-    paddingHorizontal: tw.space[1],
-  },
-  valueDeliveredText: {
-    color: tw.color.indigo400,
-    ...tw.text.xs,
-    fontWeight: tw.weight.medium,
   },
 });
