@@ -473,6 +473,127 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
   );
 }
 
+interface RhythmCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  maskAmounts: (text: string) => string;
+  onRefresh?: () => void;
+}
+
+function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
+  const [hidden, setHidden] = useState(false);
+  const [busy, setBusy] = useState<null | "one_off" | "new_normal">(null);
+
+  // All hooks above any conditional return (React #310)
+  if (hidden) return null;
+
+  const category = item.payload?.category ?? "";
+  const multiple = item.payload?.multiple ?? 0;
+  const spent = item.payload?.spent ?? 0;
+  const dominant = item.payload?.dominant ?? null;
+
+  // Headline: amount-led form for very large multiples (≥20), otherwise multiple-led
+  const fmtMultiple = multiple.toFixed(1) + "×";
+  const fmtSpent = "£" + Math.round(spent).toLocaleString("en-GB");
+  const isLarge = multiple >= 20;
+
+  const headline = isLarge
+    ? `${fmtSpent} in ${category} — way above your usual`
+    : `${category} ran ${fmtMultiple} your usual`;
+
+  // Dominant line: trim merchant name to ~28 chars
+  let dominantLine: string | null = null;
+  if (dominant) {
+    const name = dominant.name.length > 28 ? dominant.name.slice(0, 27) + "…" : dominant.name;
+    const amt = "£" + Math.round(dominant.amount).toLocaleString("en-GB");
+    const d = new Date(dominant.date);
+    const dateStr = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    dominantLine = `Mostly one payment — ${name}, ${amt} on ${dateStr}.`;
+  }
+
+  async function handleIntent(answer: "one_off" | "new_normal") {
+    if (busy) return;
+    setBusy(answer);
+    // Optimistic: hide immediately
+    setHidden(true);
+    try {
+      await api.recordTrendIntent(category, answer);
+      onRefresh?.();
+    } catch {
+      // If the POST fails, the card is already gone locally; backend will re-surface next run
+    }
+  }
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    api.dismissTodayItem(item.id).catch(() => {});
+  }
+
+  function handleChangeThis() {
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("wealth_open_category", category);
+    }
+    router.push("/spend");
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          {/* Headline */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+            {headline}
+          </p>
+          {/* Body: spent line */}
+          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            {maskAmounts(fmtSpent + " so far this period.")}
+          </p>
+          {/* Dominant transaction line */}
+          {dominantLine && (
+            <p className="mt-0.5 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {maskAmounts(dominantLine)}
+            </p>
+          )}
+          {/* Actions */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => handleIntent("one_off")}
+              disabled={busy !== null}
+              className="inline-flex items-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+            >
+              That was a one-off
+            </button>
+            <button
+              onClick={() => handleIntent("new_normal")}
+              disabled={busy !== null}
+              className="inline-flex items-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+            >
+              That&apos;s my new normal
+            </button>
+            <button
+              onClick={handleChangeThis}
+              disabled={busy !== null}
+              className="inline-flex items-center text-indigo-600 dark:text-indigo-400 text-sm font-semibold px-3 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+            >
+              I&apos;d like to change this
+            </button>
+          </div>
+        </div>
+        {/* Dismiss button */}
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={handleDismiss}
+          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface BriefBodyProps {
   items: CompanionItem[];
   safeToSpend: SafeToSpend | null;
@@ -504,7 +625,8 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const celebrationItems = items.filter(i => i.type === "celebration");
   const cliffItems = items.filter(i => i.type === "cliff");
   const trajectoryItems = items.filter(i => i.type === "trajectory");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory");
+  const rhythmItems = items.filter(i => i.type === "rhythm");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -524,6 +646,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
         {trajectoryItems.map(item => (
           <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+        ))}
+
+        {rhythmItems.map(item => (
+          <RhythmCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} onRefresh={onRefresh} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline; everything

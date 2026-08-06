@@ -385,6 +385,14 @@ export type CompanionItem = {
   amount?: number;
   secondary_action?: CompanionAction | null;
   proposal?: PaydayProposal;
+  // payload — present when type === "rhythm"; carries category, multiple, spent, period_end, dominant
+  payload?: {
+    category?: string;
+    multiple?: number;
+    spent?: number;
+    period_end?: string;
+    dominant?: { name: string; amount: number; date: string } | null;
+  } | null;
 };
 
 export type TodayResponse = {

@@ -1522,6 +1522,152 @@ async def compute_today_items(uid: str) -> list[dict]:
     except Exception as _traj_exc:
         log.warning("trajectory item failed for %s: %s", uid, _traj_exc)
 
+    # ── 8g. RHYTHM CHECKPOINT items (category overspend question) ────────────────
+    # Surfaces the rhythm question ("X ran N× your usual") on the Home brief.
+    # At most ONE item per brief; highest multiple wins; Consent Rule: skip categories
+    # already answered or aimed at this period.
+    rhythm_checkpoint_items: list[dict] = []
+    try:
+        from app.services.pace import (
+            _NON_SPEND as _PACE_NON_SPEND,
+            _BASELINE_DAYS as _PACE_BASELINE_DAYS,
+            _read_cached_baseline,
+            _write_cached_baseline,
+            _total_baseline,
+            load_spend_txns as _load_spend_txns,
+        )
+        from app.services.checkpoints import engaged_categories as _engaged_categories
+        from app.db.collections import transactions_col as _rc_txns_col, yapily_transactions_col as _rc_yapily_col
+
+        # ── resolve the current period ─────────────────────────────────────────
+        from app.services.pay_period import get_pay_period_for_date as _get_period
+        _rc_period_start, _rc_period_end = _get_period(today_d, pay_cfg)
+
+        # ── load baseline (reuse cache — same key pace uses) ───────────────────
+        _rc_baseline_key = _rc_period_start.isoformat()
+        _rc_cached = await _read_cached_baseline(uid, _rc_baseline_key)
+        if _rc_cached is not None:
+            _rc_baseline, _rc_months = _rc_cached
+            _rc_txns = await _load_spend_txns(uid, _rc_period_start, _rc_period_end)
+        else:
+            _rc_txns = await _load_spend_txns(
+                uid,
+                _rc_period_start - timedelta(days=_PACE_BASELINE_DAYS),
+                _rc_period_end,
+            )
+            _rc_baseline, _rc_months = _total_baseline(_rc_txns, _rc_period_start)
+            await _write_cached_baseline(uid, _rc_baseline_key, _rc_baseline, _rc_months)
+
+        # thin history guard — same rule pace uses
+        _rc_thin = _rc_months < 2
+
+        # ── per-category period totals ─────────────────────────────────────────
+        _rc_cat_spent: dict[str, float] = {}
+        for _t in _rc_txns:
+            if _rc_period_start <= _t["date"] <= _rc_period_end:
+                _c = _t["category"]
+                _rc_cat_spent[_c] = _rc_cat_spent.get(_c, 0.0) + _t["amount"]
+
+        # ── days elapsed (pace rule: suppress multiple when < 5 days in) ───────
+        _rc_days_elapsed = max(1, (today_d - _rc_period_start).days)
+        _rc_suppress = _rc_days_elapsed < 5
+
+        # ── Consent Rule: categories already answered/aimed this period ────────
+        _rc_engaged = await _engaged_categories(uid, _rc_period_end)
+
+        # ── score each eligible category ──────────────────────────────────────
+        _rc_candidates: list[tuple[float, float, str]] = []  # (multiple, spent, category)
+        for _cat, _spent in _rc_cat_spent.items():
+            if _cat in _PACE_NON_SPEND:
+                continue
+            if _cat in _rc_engaged:
+                continue
+            if _rc_suppress:
+                continue
+            _usual_30d = _rc_baseline.get(_cat)
+            if _rc_thin or not _usual_30d:
+                continue
+            _usual_rate = _usual_30d / 30
+            _rate = _spent / max(_rc_days_elapsed, 1)
+            _multiple = round(_rate / _usual_rate, 1)
+            if _multiple < 2.0:
+                continue
+            if _spent < 40.0:
+                continue
+            _rc_candidates.append((_multiple, _spent, _cat))
+
+        if _rc_candidates:
+            # highest multiple, tie-break by spent
+            _rc_candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+            _rc_mult, _rc_spent, _rc_cat = _rc_candidates[0]
+            _rc_item_id = f"rhythm:{_rc_cat}:{_rc_period_end.isoformat()}"
+
+            if _rc_item_id not in dismissed:
+                # ── dominant: largest single transaction if it accounts for ≥70% ──
+                _rc_dominant = None
+                try:
+                    from datetime import datetime as _datetime
+                    _rc_start_dt = _datetime(_rc_period_start.year, _rc_period_start.month, _rc_period_start.day)
+                    _rc_end_dt = _datetime(_rc_period_end.year, _rc_period_end.month, _rc_period_end.day, 23, 59, 59)
+                    _rc_raw_txns: list[dict] = []
+                    for _col in (_rc_txns_col, _rc_yapily_col):
+                        async for _doc in _col.find(
+                            {
+                                "user_id": uid,
+                                "transaction_type": {"$in": ["debit", "credit"]},
+                                "date": {"$gte": _rc_start_dt, "$lte": _rc_end_dt},
+                            },
+                            {
+                                "amount": 1, "date": 1, "category": 1, "custom_category": 1,
+                                "transaction_type": 1, "merchant_name": 1, "description": 1,
+                            },
+                        ):
+                            _doc_cat = _doc.get("custom_category") or _doc.get("category") or "Other"
+                            if _doc_cat != _rc_cat:
+                                continue
+                            _doc_amt = abs(float(_doc.get("amount") or 0))
+                            if _doc.get("transaction_type") == "credit":
+                                _doc_amt = -_doc_amt
+                            if _doc_amt <= 0:
+                                continue
+                            _rc_raw_txns.append({
+                                "amount": _doc_amt,
+                                "name": (_doc.get("merchant_name") or _doc.get("description") or "").strip(),
+                                "date": (
+                                    _doc["date"].date()
+                                    if hasattr(_doc.get("date"), "date")
+                                    else _doc.get("date")
+                                ),
+                            })
+                    if _rc_raw_txns and _rc_spent > 0:
+                        _rc_biggest = max(_rc_raw_txns, key=lambda x: x["amount"])
+                        if _rc_biggest["amount"] / _rc_spent >= 0.70:
+                            _rc_dominant = {
+                                "name": _rc_biggest["name"],
+                                "amount": round(_rc_biggest["amount"], 2),
+                                "date": _rc_biggest["date"].isoformat() if hasattr(_rc_biggest["date"], "isoformat") else str(_rc_biggest["date"]),
+                            }
+                except Exception as _dom_exc:
+                    log.warning("rhythm checkpoint dominant failed for %s: %s", uid, _dom_exc)
+
+                rhythm_checkpoint_items.append({
+                    "id": _rc_item_id,
+                    "type": "rhythm",
+                    "headline": f"{_rc_cat} is running {_rc_mult:.1f}× your usual",
+                    "body": f"£{_rc_spent:.2f} so far this period.",
+                    "action": None,
+                    "estimated": False,
+                    "payload": {
+                        "category": _rc_cat,
+                        "multiple": _rc_mult,
+                        "spent": round(_rc_spent, 2),
+                        "period_end": _rc_period_end.isoformat(),
+                        "dominant": _rc_dominant,
+                    },
+                })
+    except Exception as _rc_exc:
+        log.warning("rhythm checkpoint item failed for %s: %s", uid, _rc_exc)
+
     # ── 9. Merge and cap at 3 ───────────────────────────────────────────────
     # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
     # Celebrations get the same allowance as move cards, so covering two accounts is
@@ -1534,6 +1680,7 @@ async def compute_today_items(uid: str) -> list[dict]:
         + cliff_items[:2]
         + trajectory_items[:1]
         + ask_items[:1]
+        + rhythm_checkpoint_items[:1]
         + needle_items[:1]
         + rhythm_items
     )

@@ -105,6 +105,7 @@ export default function SpendPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(searchParams.get("manage") === "1");
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
+  const [pendingCategory, setPendingCategory] = useState<string | null>(null);
   const [periodOffset, setPeriodOffset] = useState(0);
   const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(0) ?? {});
   const signalsOffsetRef = useRef(0);
@@ -163,6 +164,16 @@ export default function SpendPage() {
     api.getSubscription()
       .then(s => setIsPro(s.tier !== "free"))
       .catch(() => setIsPro(true));
+  }, []);
+
+  // Category deep-link — e.g. from RhythmCard "I'd like to change this"
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const cat = sessionStorage.getItem("wealth_open_category");
+    if (cat) {
+      sessionStorage.removeItem("wealth_open_category");
+      setPendingCategory(cat);
+    }
   }, []);
 
   // Page is ready once both accounts and transactions are loaded.
@@ -240,6 +251,16 @@ export default function SpendPage() {
       }))
       .sort((a, b) => b.total - a.total);
   }, [homeTxns]);
+
+  // Open the matching category once categories have loaded (deep-link from RhythmCard)
+  useEffect(() => {
+    if (!pendingCategory) return;
+    const match = categories.find(c => c.name === pendingCategory);
+    if (match) {
+      setPendingCategory(null);
+      setOpenCategory(match);
+    }
+  }, [pendingCategory, categories]);
 
   // Untracked categories — only Transfer (both directions)
   const untrackedCategories = useMemo((): CategoryData[] => {
