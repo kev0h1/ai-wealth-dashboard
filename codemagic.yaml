@@ -7,7 +7,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
-      app_store_connect: CodemagicASC
+      app_store_connect: Auriq
     environment:
       xcode: latest
       cocoapods: default
