@@ -11,7 +11,7 @@ workflows:
     environment:
       xcode: latest
       cocoapods: default
-      node: 20
+      node: 22
       vars:
         BUNDLE_ID: "co.uk.auriqltd.wealth"
     scripts:
