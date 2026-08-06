@@ -37,7 +37,7 @@ interface Props {
 
 export default function InvestmentMiniCard({ account, onClick, hidden, grid, calm, glass }: Props) {
   const meta = PROVIDER_META[providerKey(account.provider)] ?? { bg: "linear-gradient(135deg,#3730a3,#4f46e5)" };
-  const value = account.total_value;
+  const value = account.display_value ?? account.total_value;
   const valueStr = `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   // ── Calm variant (Home grid) ─────────────────────────────────────────────
@@ -63,6 +63,11 @@ export default function InvestmentMiniCard({ account, onClick, hidden, grid, cal
         {/* Provider name */}
         <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate mb-0.5">
           {account.provider}
+        </p>
+
+        {/* Updated date */}
+        <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate mb-1">
+          {`Updated ${new Date(account.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
         </p>
 
         {/* Value */}

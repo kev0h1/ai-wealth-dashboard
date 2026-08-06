@@ -208,6 +208,7 @@ export default function AccountsPage() {
   const [uploadingNote, setUploadingNote] = useState<string | null>(null);
   const [deletingNote, setDeletingNote] = useState<string | null>(null);
   const [confirmDeleteNote, setConfirmDeleteNote] = useState<string | null>(null);
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
   const [showNoteUploadFor, setShowNoteUploadFor] = useState<string | null>(null);
   const [noteFile, setNoteFile] = useState<File | null>(null);
   const [notePassword, setNotePassword] = useState("");
@@ -2016,7 +2017,7 @@ export default function AccountsPage() {
     <div className="min-h-dvh pb-36" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header */}
       <div
-        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700"
+        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-card"
       >
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Accounts</h1>
@@ -2719,7 +2720,7 @@ export default function AccountsPage() {
                         <div className="mx-4 mb-4">
                           <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Contract Notes</p>
                           <div className="bg-white dark:bg-slate-800 rounded-xl divide-y divide-slate-50 dark:divide-slate-700 border border-slate-100 dark:border-slate-700">
-                            {activeNotes.map(note => {
+                            {(expandedNotes[inv.id] ? activeNotes : activeNotes.slice(-6)).map(note => {
                               const noteDate = new Date(note.trade_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
                               const isSale = note.kind === "sale";
                               const absAmount = Math.abs(note.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2771,6 +2772,14 @@ export default function AccountsPage() {
                               );
                             })}
                           </div>
+                          {activeNotes.length > 6 && (
+                            <button
+                              onClick={() => setExpandedNotes(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}
+                              className="mt-1.5 px-1 text-xs font-semibold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 active:opacity-70 transition-colors"
+                            >
+                              {expandedNotes[inv.id] ? "Show fewer" : `Show all ${activeNotes.length}`}
+                            </button>
+                          )}
                           {supersededCount > 0 && stmtDate && (
                             <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 px-1">
                               {supersededCount} earlier {supersededCount === 1 ? "note" : "notes"} folded into your {stmtDate} statement
