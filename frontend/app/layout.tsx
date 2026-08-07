@@ -5,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import ScrollReset from "@/components/ScrollReset";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import ThemeColor from "@/components/ThemeColor";
+import BiometricLock from "@/components/BiometricLock";
 import { TutorialProvider } from "@/components/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
 
@@ -65,7 +66,9 @@ export default function RootLayout({
             <ScrollReset />
             <Sidebar />
             <div id="app-shell">
-              {children}
+              <BiometricLock>
+                {children}
+              </BiometricLock>
             </div>
           </TutorialProvider>
         </Providers>

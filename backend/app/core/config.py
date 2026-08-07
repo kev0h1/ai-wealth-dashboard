@@ -77,6 +77,26 @@ VAPID_PUBLIC_KEY_B64: str  = (
     ).rstrip(b"=").decode()
 )
 
+# ── APNs / native iOS Push ──────────────────────────────────────────────────────
+APNS_KEY_ID       = os.getenv("APNS_KEY_ID", "")
+APNS_TEAM_ID      = os.getenv("APNS_TEAM_ID", "")
+APNS_BUNDLE_ID    = os.getenv("APNS_BUNDLE_ID", "co.uk.auriqltd.wealth")
+APNS_USE_SANDBOX  = os.getenv("APNS_USE_SANDBOX", "false").lower() in ("1", "true", "yes")
+
+_apns_key_file = _BACKEND_DIR / ".apns_auth_key.p8"
+_apns_key_path = Path(os.getenv("APNS_AUTH_KEY_PATH")) if os.getenv("APNS_AUTH_KEY_PATH") else _apns_key_file
+
+if _apns_key_env := os.getenv("APNS_AUTH_KEY"):
+    APNS_AUTH_KEY_PEM = _apns_key_env.replace("\\n", "\n")
+elif _apns_key_path.exists():
+    APNS_AUTH_KEY_PEM = _apns_key_path.read_text()
+else:
+    # Unlike VAPID, an APNs key is issued by Apple and cannot be generated
+    # locally. If none is configured, APNs stays disabled (no-op on send).
+    APNS_AUTH_KEY_PEM = None
+
+APNS_CONFIGURED: bool = bool(APNS_KEY_ID and APNS_TEAM_ID and APNS_AUTH_KEY_PEM)
+
 # ── Mono (Kenya) ──────────────────────────────────────────────────────────────
 MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
 MONO_PUBLIC_KEY  = os.getenv("MONO_PUBLIC_KEY", "")

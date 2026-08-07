@@ -1675,21 +1675,16 @@ export default function AccountsPage() {
     // Use the shared brand resolver so Finexer accounts (logo_url/bg_colors) get
     // the same branding as the card, and TrueLayer accounts fall through to BANK_META.
     const brand = accountBrand(selectedAccount);
-    const providerBg = brand.background;
-    const headerTextColor = brand.textOnBrand;
+    const isSavings = selectedAccount.type.toLowerCase().includes("saving") || (selectedAccount.subtype ?? "").toLowerCase().includes("saving");
 
     return (
       <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         {/* Header */}
-        <div
-          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6"
-          style={{ background: providerBg, color: headerTextColor }}
-        >
+        <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-card">
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={handleBack}
-              className="flex items-center gap-1.5 transition-colors"
-              style={{ color: headerTextColor === "#fff" ? "rgba(255,255,255,0.8)" : "rgba(15,23,42,0.6)" }}
+              className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
             >
               <ArrowLeft size={18} />
               <span className="text-sm font-medium">Accounts</span>
@@ -1698,7 +1693,7 @@ export default function AccountsPage() {
               {isManual ? (
                 <button
                   onClick={() => manualAcc && openEditManual(manualAcc)}
-                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors"
+                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
                 >
                   <Pencil size={13} />
                   Edit
@@ -1706,7 +1701,7 @@ export default function AccountsPage() {
               ) : isStatement ? (
                 <button
                   onClick={() => setShowMpesaUpload(true)}
-                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors"
+                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
                 >
                   <Upload size={13} />
                   Add statement
@@ -1714,7 +1709,7 @@ export default function AccountsPage() {
               ) : (
                 <button
                   onClick={() => handleReconnect(selectedAccount?.provider_id, selectedAccount)}
-                  className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors"
+                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
                 >
                   <RefreshCw size={13} />
                   Reconnect
@@ -1733,7 +1728,7 @@ export default function AccountsPage() {
                   }
                 }}
                 disabled={deletingAccount}
-                className="flex items-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-white/90 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 min-h-[44px] bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 px-3 py-1.5 rounded-xl text-xs font-semibold text-red-600 dark:text-red-400 transition-colors disabled:opacity-50"
               >
                 <Trash2 size={13} />
                 {deletingAccount ? "Removing…" : "Remove"}
@@ -1741,19 +1736,30 @@ export default function AccountsPage() {
             </div>
           </div>
 
-          <h1 className="text-xl font-bold mb-1">{selectedAccount.name}</h1>
+          <div className="flex items-center gap-3 mb-3">
+            <BankBadge
+              logoSrc={brand.logoSrc}
+              initials={brand.initials}
+              altText={brand.label}
+              brandBg={brand.background}
+            />
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 min-w-0 truncate">{selectedAccount.name}</h1>
+          </div>
 
           <div className="flex items-center gap-3 mt-2">
             <span
               className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                isCredit ? "bg-pink-400/30 text-pink-100" : "bg-indigo-400/30 text-indigo-100"
+                isCredit
+                  ? "bg-pink-50 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300"
+                  : isSavings
+                  ? "bg-amber-100 dark:bg-amber-400/20 text-amber-700 dark:text-amber-300"
+                  : "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
               }`}
             >
               {typeLabel(selectedAccount.type, selectedAccount.subtype)}
             </span>
             <span
-              className="text-2xl font-bold"
-              style={{ color: balance < 0 ? (headerTextColor === "#fff" ? "#fca5a5" : "#b91c1c") : headerTextColor }}
+              className={`text-2xl font-bold num ${balance < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-slate-100"}`}
             >
               {hideNetWorth ? "••••" : `${balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             </span>

@@ -12,6 +12,7 @@ backend/.session_secret
 backend/.vapid_private_key
 backend/.webhook_secret
 backend/.token_key
+backend/.apns_auth_key.p8
 backend/store.json
 
 # Python cache

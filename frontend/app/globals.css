@@ -65,6 +65,37 @@ body {
   display: none;
 }
 
+/* Hide the WebView scrollbar on touch/coarse-pointer devices (iOS Capacitor
+   shows an ugly track in both themes) — scroll stays fully functional,
+   momentum scroll preserved. Gated to `(hover: none) and (pointer: coarse)`
+   so desktop web (mouse/trackpad, hover-capable) keeps its scrollbar thumb
+   and drag-to-scroll; this only touches phones/tablets, including the iOS
+   WKWebView. Same technique as .scrollbar-hide, applied to the real scroll
+   containers: the document and the primary app-shell wrapper (#app-shell,
+   defined below). */
+@media (hover: none) and (pointer: coarse) {
+  html,
+  body,
+  #app-shell {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  #app-shell::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Sidebar's internal nav scroller (frontend/components/Sidebar.tsx — the
+     only <aside><nav class="overflow-y-auto">...</nav></aside> in the app) */
+  aside nav::-webkit-scrollbar {
+    display: none;
+  }
+  aside nav {
+    scrollbar-width: none;
+  }
+}
+
 /* Safe area padding for mobile notch/home indicator */
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);

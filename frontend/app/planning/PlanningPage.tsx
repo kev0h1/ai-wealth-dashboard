@@ -166,7 +166,8 @@ export default function PlanningPage() {
     const nextPaydayMs = periodEnd.getTime() + 86400000;
     const scopedBills = cashflow.upcoming_bills.filter(
       (b) => new Date(b.expected_date).getTime() < nextPaydayMs &&
-             b.account_balance != null && b.account_balance >= 0
+             b.account_balance != null && b.account_balance >= 0 &&
+             !b.is_credit_card
     );
     if (scopedBills.length === 0) return [];
     const running: Record<string, number> = {};
@@ -223,7 +224,8 @@ export default function PlanningPage() {
           b => (b.account_id ?? "__null__") === accountId &&
                new Date(b.expected_date).getTime() < nextPaydayMs &&
                b.account_balance != null &&
-               b.account_balance >= 0
+               b.account_balance >= 0 &&
+               !b.is_credit_card
         );
         const billsSum = scopedBills.reduce((s, b) => s + b.amount, 0);
         const shortfall = billsSum - balance;
@@ -450,7 +452,11 @@ export default function PlanningPage() {
           } else {
             running -= item.amount;
             const acctBalance = item.account_balance ?? null;
-            const is_credit_card = acctBalance !== null && acctBalance < 0;
+            // Prefer the real backend-computed flag; fall back to the old
+            // balance-sign proxy only if a stale payload omits it.
+            const is_credit_card = item.is_credit_card !== undefined
+              ? item.is_credit_card
+              : (acctBalance !== null && acctBalance < 0);
             const account_short = !is_credit_card && acctBalance !== null && item.amount > acctBalance;
             return { ...item, balance_after: running, at_risk: running < 0, account_short, is_credit_card };
           }

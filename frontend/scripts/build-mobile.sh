@@ -45,4 +45,7 @@ for f in "${FILES[@]}"; do
   perl -0pi -e 's/(const BACKEND = process\.env\.BACKEND_URL \|\| "http:\/\/localhost:8000";\n)/$1\nexport const dynamic = "force-static";\n/' "$f"
 done
 
-MOBILE_EXPORT=1 NEXT_PUBLIC_API_URL=https://wealth.auriqltd.co.uk/api next build
+# MOBILE_API_URL lets CI (or a local override) point the built app at a
+# different backend (e.g. a UAT environment) without editing this script.
+# Falls back to production when unset.
+MOBILE_EXPORT=1 NEXT_PUBLIC_API_URL="${MOBILE_API_URL:-https://wealth.auriqltd.co.uk/api}" next build

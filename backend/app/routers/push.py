@@ -1,12 +1,22 @@
 """Web Push subscription endpoints."""
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.core.auth import current_user
 from app.core.config import VAPID_PUBLIC_KEY_B64
-from app.db.collections import push_subscriptions_col, expo_push_tokens_col
+from app.db.collections import push_subscriptions_col, expo_push_tokens_col, apns_tokens_col
 
 router = APIRouter(tags=["push"])
+
+
+class APNsRegisterBody(BaseModel):
+    token: str
+    platform: str = "ios"
+
+
+class APNsUnregisterBody(BaseModel):
+    token: str
 
 
 @router.get("/push/vapid-public-key")
@@ -66,4 +76,26 @@ async def native_unsubscribe(request: Request, user: dict = Depends(current_user
     token = data.get("token")
     if token:
         await expo_push_tokens_col.delete_one({"_id": token, "user_id": user["email"]})
+    return {"ok": True}
+
+
+@router.post("/push/apns/register")
+async def apns_register(body: APNsRegisterBody, user: dict = Depends(current_user)):
+    """Register an APNs device token from the native iOS app."""
+    await apns_tokens_col.update_one(
+        {"_id": body.token},
+        {"$set": {
+            "_id": body.token, "user_id": user["email"],
+            "token": body.token, "platform": body.platform,
+            "updated_at": datetime.now(),
+        },
+         "$setOnInsert": {"created_at": datetime.now()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@router.delete("/push/apns/register")
+async def apns_unregister(body: APNsUnregisterBody, user: dict = Depends(current_user)):
+    await apns_tokens_col.delete_one({"_id": body.token, "user_id": user["email"]})
     return {"ok": True}

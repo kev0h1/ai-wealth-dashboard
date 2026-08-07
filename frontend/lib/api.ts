@@ -69,6 +69,7 @@ export type UpcomingBill = {
   account_name?: string | null;
   account_bank?: string | null;
   account_balance?: number | null;
+  is_credit_card?: boolean;
   category?: string | null;
   edited?: boolean;
   rule_label?: string | null;
@@ -1459,6 +1460,24 @@ export const api = {
       method: "DELETE",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ endpoint }),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
+  // Native (Capacitor) push — APNs on iOS, FCM on Android. Mirrors
+  // subscribePush/unsubscribePush above but keyed by raw device token
+  // instead of a Web Push subscription. `platform` should be
+  // Capacitor.getPlatform() from the caller; defaults to "ios" if omitted.
+  registerApnsToken: (token: string, platform: string = "ios") =>
+    fetch(`${API_BASE}/push/apns/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ token, platform }),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
+  unregisterApnsToken: (token: string) =>
+    fetch(`${API_BASE}/push/apns/register`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ token }),
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),

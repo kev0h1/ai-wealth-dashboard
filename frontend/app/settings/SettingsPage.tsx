@@ -5,6 +5,14 @@ import { RotateCcw, LogOut, Loader2, AlertCircle, Bell, BellOff, ChevronRight, C
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
+import { isNativePlatform } from "@/lib/nativeAuth";
+import { initCapacitorPush, unregisterCapacitorPush, isCapacitorPushRegistered } from "@/lib/capacitorPush";
+import {
+  isAvailable as checkBiometryAvailability,
+  authenticate as authenticateBiometrics,
+  isLockEnabled as isBiometricLockEnabled,
+  setLockEnabled as setBiometricLockEnabled,
+} from "@/lib/biometrics";
 import BottomNav from "@/components/BottomNav";
 import TutorialTrigger from "@/components/TutorialTrigger";
 import Toggle from "@/components/Toggle";
@@ -33,10 +41,19 @@ export default function SettingsPage() {
   const [hasChildBenefit, setHasChildBenefit] = useState(false);
   const [financeMsg, setFinanceMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  // Biometric lock — the preference lives in the native shell (the gate runs
-  // before this page loads), so read/write goes over the message bridge
+  // Biometric lock.
+  // - Capacitor: read/write goes straight to the plugin + localStorage
+  //   (frontend/lib/biometrics.ts) — the gate (BiometricLock) reads the same pref.
+  // - Expo shell: the preference lives in the native wrapper, so read/write
+  //   goes over the message bridge instead.
   const [bioState, setBioState] = useState<{ supported: boolean; enabled: boolean } | null>(null);
   useEffect(() => {
+    if (isNativePlatform()) {
+      checkBiometryAvailability().then(({ supported }) => {
+        setBioState({ supported, enabled: supported && isBiometricLockEnabled() });
+      }).catch(() => {});
+      return;
+    }
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
     if (!rn) return;
     const id = Math.random().toString(36).slice(2);
@@ -51,9 +68,20 @@ export default function SettingsPage() {
     return () => window.removeEventListener("native-biometrics", onResult);
   }, []);
 
-  function toggleBiometrics() {
+  async function toggleBiometrics() {
     if (!bioState) return;
     const next = !bioState.enabled;
+    if (isNativePlatform()) {
+      if (next) {
+        // Confirm biometrics actually work before persisting the pref —
+        // otherwise a failed/cancelled prompt would lock the user out next launch.
+        const ok = await authenticateBiometrics("Enable biometric unlock");
+        if (!ok) return;
+      }
+      setBiometricLockEnabled(next);
+      setBioState({ ...bioState, enabled: next });
+      return;
+    }
     setBioState({ ...bioState, enabled: next });
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
     rn?.postMessage(JSON.stringify({ type: "biometrics:set", enabled: next }));
@@ -200,7 +228,15 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    // Inside the mobile app's WebView, push is handled natively via Expo —
+    // Capacitor (iOS/Android app shell): push goes through our own APNs/FCM
+    // client (frontend/lib/capacitorPush.ts) — neither the Expo bridge nor
+    // Web Push APIs exist in this WKWebView, so this must come first.
+    if (isNativePlatform()) {
+      setNotifPermission("native");
+      isCapacitorPushRegistered().then(setNotifEnabled).catch(() => {});
+      return;
+    }
+    // Inside the Expo mobile app's WebView, push is handled natively —
     // web push APIs are absent but notifications still work.
     if (typeof window !== "undefined" && (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView) {
       setNotifPermission("native");
@@ -224,6 +260,22 @@ export default function SettingsPage() {
     setNotifLoading(true);
     setNotifError("");
     try {
+      if (isNativePlatform()) {
+        if (notifEnabled) {
+          await unregisterCapacitorPush();
+          setNotifEnabled(false);
+        } else {
+          const result = await initCapacitorPush();
+          if (result === "granted") {
+            setNotifEnabled(true);
+          } else if (result === "denied") {
+            setNotifError("Notifications are blocked — enable them in your phone's Settings app.");
+          } else {
+            setNotifError("Couldn't enable notifications on this device.");
+          }
+        }
+        return;
+      }
       if (notifEnabled) {
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
@@ -322,10 +374,34 @@ export default function SettingsPage() {
           </div>
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
-              <div className="flex items-center gap-3">
-                <Bell size={16} className="text-indigo-500 flex-shrink-0" />
-                <p className="text-xs text-slate-500 dark:text-slate-400">Notifications are delivered by the app — manage them in your phone&apos;s notification settings.</p>
-              </div>
+              isNativePlatform() ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Bell size={16} className={notifEnabled ? "text-indigo-500" : "text-slate-400"} />
+                    <div>
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Push notifications</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are delivered by the app</p>
+                    </div>
+                  </div>
+                  {notifLoading ? (
+                    <div className="relative w-12 h-6 flex items-center justify-center">
+                      <Loader2 size={12} className="animate-spin text-slate-400" />
+                    </div>
+                  ) : (
+                    <Toggle
+                      checked={notifEnabled}
+                      onChange={handleToggleNotifications}
+                      label="Push notifications"
+                      disabled={notifLoading}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <Bell size={16} className="text-indigo-500 flex-shrink-0" />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Notifications are delivered by the app — manage them in your phone&apos;s notification settings.</p>
+                </div>
+              )
             ) : notifPermission === "unsupported" ? (
               <div className="flex items-center gap-3">
                 <BellOff size={16} className="text-slate-400 flex-shrink-0" />

@@ -1,16 +1,94 @@
-"""Push notification helpers — Web Push (PWA) + Expo push (native app)."""
+"""Push notification helpers — Web Push (PWA) + Expo push (native app) + APNs (native iOS)."""
 import json
+import time
 import asyncio
 import logging
 import httpx
+import jwt
 from pywebpush import webpush, WebPushException
 from py_vapid import Vapid
-from app.core.config import VAPID_SUBJECT, VAPID_PRIVATE_KEY_PEM
-from app.db.collections import push_subscriptions_col, expo_push_tokens_col
+from app.core.config import (
+    VAPID_SUBJECT, VAPID_PRIVATE_KEY_PEM,
+    APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID, APNS_USE_SANDBOX,
+    APNS_AUTH_KEY_PEM, APNS_CONFIGURED,
+)
+from app.db.collections import push_subscriptions_col, expo_push_tokens_col, apns_tokens_col
 
 _vapid = Vapid.from_pem(VAPID_PRIVATE_KEY_PEM.encode())
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+
+APNS_HOST_PROD    = "https://api.push.apple.com"
+APNS_HOST_SANDBOX = "https://api.development.push.apple.com"
+_APNS_JWT_MAX_AGE = 50 * 60  # regenerate before Apple's 60-minute cap
+
+_apns_jwt_cache: dict = {"token": None, "iat": 0}
+_apns_warned_unconfigured = False
+
+
+def _apns_provider_jwt() -> str:
+    """Return a cached ES256 provider JWT for APNs, regenerating when stale."""
+    now = time.time()
+    if _apns_jwt_cache["token"] is None or (now - _apns_jwt_cache["iat"]) > _APNS_JWT_MAX_AGE:
+        token = jwt.encode(
+            {"iss": APNS_TEAM_ID, "iat": int(now)},
+            APNS_AUTH_KEY_PEM,
+            algorithm="ES256",
+            headers={"kid": APNS_KEY_ID},
+        )
+        _apns_jwt_cache["token"] = token
+        _apns_jwt_cache["iat"] = now
+    return _apns_jwt_cache["token"]
+
+
+async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") -> None:
+    """Deliver to the user's native iOS (APNs) device tokens. Prunes dead tokens."""
+    global _apns_warned_unconfigured
+    try:
+        if not APNS_CONFIGURED:
+            if not _apns_warned_unconfigured:
+                logging.warning("APNs not configured (missing key/team id) — native iOS push disabled.")
+                _apns_warned_unconfigured = True
+            return
+
+        tokens = await apns_tokens_col.find({"user_id": user_id}).to_list(None)
+        if not tokens:
+            return
+
+        host = APNS_HOST_SANDBOX if APNS_USE_SANDBOX else APNS_HOST_PROD
+        payload = {"aps": {"alert": {"title": title, "body": body}, "sound": "default"}, "url": url}
+        provider_jwt = _apns_provider_jwt()
+        headers = {
+            "authorization": f"bearer {provider_jwt}",
+            "apns-topic": APNS_BUNDLE_ID,
+            "apns-push-type": "alert",
+            "apns-priority": "10",
+            "content-type": "application/json",
+        }
+
+        dead = []
+        async with httpx.AsyncClient(http2=True, timeout=15) as client:
+            for t in tokens:
+                device_token = t["_id"]
+                try:
+                    resp = await client.post(f"{host}/3/device/{device_token}", headers=headers, json=payload)
+                    if resp.status_code == 410:
+                        dead.append(device_token)
+                    elif resp.status_code == 400:
+                        reason = (resp.json() or {}).get("reason")
+                        if reason in ("BadDeviceToken", "Unregistered"):
+                            dead.append(device_token)
+                        else:
+                            logging.warning("APNs 400 for %s: %s", user_id, reason)
+                    elif resp.status_code >= 400:
+                        logging.warning("APNs send error for %s (%s): %s", user_id, resp.status_code, resp.text)
+                except Exception as e:
+                    logging.warning("APNs send exception for %s: %s", user_id, e)
+
+        if dead:
+            await apns_tokens_col.delete_many({"_id": {"$in": dead}})
+    except Exception as e:
+        logging.warning("APNs push error for %s: %s", user_id, e)
 
 
 async def send_expo_push(user_id: str, title: str, body: str, url: str = "/") -> None:
@@ -45,6 +123,7 @@ async def send_expo_push(user_id: str, title: str, body: str, url: str = "/") ->
 
 async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/") -> None:
     await send_expo_push(user_id, title, body, url)
+    await send_apns_push(user_id, title, body, url)
     subs = await push_subscriptions_col.find({"user_id": user_id}).to_list(None)
     if not subs:
         return

@@ -28,6 +28,7 @@ challenges_col          = db["challenges"]
 account_rates_col       = db["account_rates"]
 push_subscriptions_col  = db["push_subscriptions"]
 expo_push_tokens_col    = db["expo_push_tokens"]
+apns_tokens_col         = db["apns_tokens"]
 notification_state_col  = db["notification_state"]
 
 # Mono (Kenya)

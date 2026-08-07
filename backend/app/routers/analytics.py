@@ -29,6 +29,7 @@ from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
 from app.services.categorisation import series_key, has_date_fragment
+from app.services.card_rates import is_credit_card_account
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -43,6 +44,15 @@ UK_BANK_HOLIDAYS_EW: frozenset = frozenset({
 PENDING_GIVE_UP_DAYS = 10       # unmatched bills stay visible past-due long enough for the day-5 ask to be seen and acted on before auto-drop
 ASK_PAST_DUE_DAYS = 5           # past-due bills escalate from quiet notice to an explicit ask at this age
 OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anchor; 3 days caused paid bills to sit "pending" then be silently skipped
+
+# Bump whenever the shape/semantics of cashflow_cache_col docs change in a way
+# that makes older cached docs unsafe to serve as-is. v2 added "is_credit_card"
+# to every bill entry (see is_credit_card_account) — pre-v2 docs predate the
+# field entirely, so `.get("is_credit_card", False)` on them silently resolves
+# to a concrete False (indistinguishable from a real "not a credit card"
+# answer) instead of "unknown". Readers must treat missing/low version as
+# stale and force a recompute rather than trust that default.
+PATTERNS_VERSION = 2
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -624,15 +634,23 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         {"user_id": uid, "date": {"$gte": cutoff}}, proj
     ).to_list(None)
 
+    # accounts_col/yapily_accounts_col docs today only ever populate "type"/
+    # "subtype" (see truelayer_sync.py, finexer_sync.py); "account_type"/
+    # "account_subtype" are projected too for forward-compat with
+    # is_credit_card_account's dual lookup (mirrors companion.py/behaviour.py/
+    # needle.py) in case a future writer uses the longer key names.
+    acct_proj_map = {"name": 1, "balance": 1, "currency": 1, "provider": 1,
+                      "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1}
     acct_docs = (
-        await accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1, "provider": 1}).to_list(None)
-        + await yapily_accounts_col.find({"user_id": uid}, {"name": 1, "balance": 1, "currency": 1, "provider": 1}).to_list(None)
+        await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
+        + await yapily_accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
     )
     account_map: dict[str, dict] = {
         str(a["_id"]): {
             "name": a.get("name", "Account"),
             "balance": round(float(a.get("balance", 0)), 2),
             "provider": a.get("provider"),
+            "is_credit_card": is_credit_card_account(a),
         }
         for a in acct_docs
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
@@ -752,6 +770,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "account_name":    acct["name"] if acct else None,
             "account_bank":    acct.get("provider") if acct else None,
             "account_balance": acct["balance"] if acct else None,
+            "is_credit_card":  acct.get("is_credit_card", False) if acct else False,
             "category":        r.get("category"),
         }
 
@@ -776,6 +795,7 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             _ai_recurring_cache.pop(uid, None)
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
+        data["patterns_version"] = PATTERNS_VERSION
         # Refresh the memoised monthly cash-flow alongside the patterns so
         # per-request callers (safe-to-spend, debt, savings) read it for free.
         try:
@@ -812,8 +832,15 @@ async def at_risk_count(user: dict = Depends(current_user)):
     time is insufficient — reflecting payment sequencing and incoming income.
     """
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
-    if not cached:
-        return {"count": 0}
+    if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+        # This badge drives a user-visible red "at risk" count — a stale/pre-fix
+        # cache doc (missing is_credit_card) can misclassify a credit card as a
+        # debit account and inflate it with a false alarm. Recompute
+        # synchronously rather than ever serving that doc for this endpoint.
+        await compute_and_cache_cashflow(user["email"])
+        cached = await cashflow_cache_col.find_one({"_id": user["email"]})
+        if not cached:
+            return {"count": 0}
     resp = await _build_cashflow_response(cached, uid=user["email"])
 
     from app.services.pay_period import get_pay_period_for_date as _get_period, _next_payday as _calc_next_payday
@@ -831,10 +858,14 @@ async def at_risk_count(user: dict = Depends(current_user)):
     window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] < _days_to_pay]
     window_income = [i for i in resp["upcoming_income"] if i["days_away"] < _days_to_pay]
 
-    # Skip bills where we have no balance data (credit cards / unknown accounts).
+    # Skip bills where we have no balance data, or the bill is on a credit card
+    # (credit cards have a credit limit, not an available balance, so a bill
+    # against one must never count toward at-risk/shortfall).
     assessable_bills = [
         b for b in window_bills
-        if b.get("account_balance") is not None and b["account_balance"] >= 0
+        if b.get("account_balance") is not None
+        and b["account_balance"] >= 0
+        and not b.get("is_credit_card")
     ]
     if not assessable_bills:
         return {"count": 0}
@@ -1429,6 +1460,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_name":    r.get("account_name"),
                 "account_bank":    _bank_label(r.get("account_bank")),
                 "account_balance": r.get("account_balance"),
+                "is_credit_card":  r.get("is_credit_card", False),
                 "category":        r.get("category"),
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
@@ -1478,13 +1510,17 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             acc_name = None
             acc_bank = None
             acc_balance = None
+            acc_is_credit_card = False
             acc_id = pdoc.get("account_id")
             if acc_id:
                 _acct_doc = None
                 for _col in (accounts_col, yapily_accounts_col):
+                    # account_type/account_subtype: forward-compat projection,
+                    # see acct_proj_map comment above — no current writer sets them.
                     _acct_doc = await _col.find_one(
                         {"_id": _try_oid_inner(acc_id)},
-                        {"name": 1, "provider": 1, "balance": 1},
+                        {"name": 1, "provider": 1, "balance": 1,
+                         "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1},
                     )
                     if _acct_doc:
                         break
@@ -1492,6 +1528,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     acc_name = _acct_doc.get("name")
                     acc_bank = _bank_label(_acct_doc.get("provider"))
                     acc_balance = float(_acct_doc["balance"]) if _acct_doc.get("balance") is not None else None
+                    acc_is_credit_card = is_credit_card_account(_acct_doc)
             raw_bills.append({
                 "name":            pdoc["name"],
                 "amount":          float(pdoc["amount"]),
@@ -1501,6 +1538,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_name":    acc_name,
                 "account_bank":    acc_bank,
                 "account_balance": acc_balance,
+                "is_credit_card":  acc_is_credit_card,
                 "category":        "Planned",
                 "edited":          False,
                 "rule_label":      None,
@@ -1596,6 +1634,14 @@ async def get_cashflow(user: dict = Depends(current_user)):
     uid    = user["email"]
     cached = await cashflow_cache_col.find_one({"_id": uid})
 
+    if cached and (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+        # Pre-fix (or unversioned) cache doc — e.g. bills serialised before the
+        # is_credit_card flag existed, where the missing key resolves to a
+        # false-but-confident False rather than "unknown". Recompute
+        # synchronously so this response never serves that stale doc, even once.
+        await compute_and_cache_cashflow(uid)
+        cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+
     if cached:
         # Serve cache immediately; if stale, kick off a background refresh for next load
         computed_at = cached.get("computed_at")
@@ -1607,6 +1653,7 @@ async def get_cashflow(user: dict = Depends(current_user)):
         # No cache yet — compute live, store, then return
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
+        data["patterns_version"] = PATTERNS_VERSION
         await cashflow_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
         resp = await _build_cashflow_response(data, uid=uid)
 

@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { Wallet, Sparkles, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
+import { isNativePlatform } from "@/lib/nativeAuth";
+import {
+  isAvailable as checkBiometryAvailability,
+  authenticate as authenticateBiometrics,
+  setLockEnabled as setBiometricLockEnabled,
+} from "@/lib/biometrics";
 import BankPickerSheet from "@/components/BankPickerSheet";
 
 interface OnboardingProps {
@@ -61,8 +67,14 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [bioSupported, setBioSupported] = useState(false);
+  const [bioVerifying, setBioVerifying] = useState(false);
+  const [bioError, setBioError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (isNativePlatform()) {
+      checkBiometryAvailability().then(({ supported }) => setBioSupported(supported)).catch(() => {});
+      return;
+    }
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
     if (!rn) return;
     const id = Math.random().toString(36).slice(2);
@@ -78,8 +90,36 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   }, []);
 
   function setBiometrics(enabled: boolean) {
+    if (isNativePlatform()) {
+      setBiometricLockEnabled(enabled);
+      return;
+    }
     const rn = (window as unknown as { ReactNativeWebView?: { postMessage: (s: string) => void } }).ReactNativeWebView;
     rn?.postMessage(JSON.stringify({ type: "biometrics:set", enabled }));
+  }
+
+  // BiometricLock gates every route including /settings, so a lock pref
+  // must never be persisted without a confirmed successful auth — otherwise
+  // a failed/denied first Face ID prompt would strand the user with no
+  // in-app way to turn it back off. Mirrors SettingsPage's toggleBiometrics.
+  async function handleEnableBiometrics() {
+    if (isNativePlatform()) {
+      setBioVerifying(true);
+      setBioError(null);
+      const ok = await authenticateBiometrics("Enable biometric unlock");
+      setBioVerifying(false);
+      if (!ok) {
+        setBioError("Couldn't verify — try again, or skip for now.");
+        return;
+      }
+      setBiometricLockEnabled(true);
+      finish();
+      return;
+    }
+    // Expo bridge: fire-and-forget, matching its existing (pre-existing,
+    // unchanged) behaviour — the native wrapper owns confirmation there.
+    setBiometrics(true);
+    finish();
   }
 
   function bankDoneNext() {
@@ -299,11 +339,15 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
         </div>
 
         <button
-          onClick={() => { setBiometrics(true); finish(); }}
-          className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-[0.98] mb-3"
+          onClick={() => void handleEnableBiometrics()}
+          disabled={bioVerifying}
+          className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none transition-all active:scale-[0.98] disabled:opacity-50 mb-3"
         >
-          Enable biometric unlock
+          {bioVerifying ? "Verifying…" : "Enable biometric unlock"}
         </button>
+        {bioError && (
+          <p className="text-xs text-rose-500 text-center mb-3">{bioError}</p>
+        )}
         <button
           onClick={() => { setBiometrics(false); finish(); }}
           className="w-full py-2.5 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
