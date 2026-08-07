@@ -591,27 +591,31 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
         </button>
       </div>
 
-      {/* Full-width wrapping chip row — outside the icon-indented column so
-          two answers fit per line instead of stacking one per line */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => handleIntent("one_off")}
-          disabled={busy !== null}
-          className="inline-flex items-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-        >
-          A one-off
-        </button>
-        <button
-          onClick={() => handleIntent("new_normal")}
-          disabled={busy !== null}
-          className="inline-flex items-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-        >
-          My new normal
-        </button>
+      {/* Answer pair — outside the icon-indented column, full width. The two
+          real answers sit in a symmetric 50/50 grid; the softer "change this"
+          escape hatch drops below as its own quiet, ghost-styled full-width row
+          so it reads as subordinate to the pair. */}
+      <div className="mt-3 flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => handleIntent("one_off")}
+            disabled={busy !== null}
+            className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          >
+            A one-off
+          </button>
+          <button
+            onClick={() => handleIntent("new_normal")}
+            disabled={busy !== null}
+            className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          >
+            My new normal
+          </button>
+        </div>
         <button
           onClick={handleChangeThis}
           disabled={busy !== null}
-          className="inline-flex items-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          className="inline-flex items-center justify-center w-full text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-700/40 active:scale-95 transition-[transform,background-color,color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
         >
           I&apos;d like to change this
         </button>
