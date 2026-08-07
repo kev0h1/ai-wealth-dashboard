@@ -33,7 +33,14 @@ def _mobile_done_page() -> HTMLResponse:
     return HTMLResponse(
         "<!doctype html><html><body style=\"font-family:system-ui;text-align:center;"
         "padding:48px 24px;color:#1e293b\"><h2>You're signed in</h2>"
-        "<p style=\"color:#64748b\">You can return to the app now.</p></body></html>"
+        "<p style=\"color:#64748b\">You can return to the app now.</p>"
+        "<p><a href=\"wealthdash://auth-done\" "
+        "style=\"display:inline-block;margin-top:16px;padding:12px 24px;"
+        "background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;"
+        "font-weight:600\">Return to app</a></p>"
+        "<script>setTimeout(function(){window.location.href="
+        "\"wealthdash://auth-done\";},300);</script>"
+        "</body></html>"
     )
 
 
