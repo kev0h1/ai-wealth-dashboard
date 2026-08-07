@@ -13,6 +13,10 @@ backend/.vapid_private_key
 backend/.webhook_secret
 backend/.token_key
 backend/.apns_auth_key.p8
+backend/.fcm_service_account.json
+*service-account*.json
+*service_account*.json
+*firebase-adminsdk*.json
 backend/store.json
 
 # Python cache

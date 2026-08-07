@@ -1480,6 +1480,23 @@ export const api = {
       body: JSON.stringify({ token }),
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
 
+  // Native (Capacitor) push — FCM on Android. Mirrors
+  // registerApnsToken/unregisterApnsToken above but for the Android
+  // registration token emitted by @capacitor/push-notifications.
+  registerFcmToken: (token: string, platform: string = "android") =>
+    fetch(`${API_BASE}/push/fcm/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ token, platform }),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
+  unregisterFcmToken: (token: string) =>
+    fetch(`${API_BASE}/push/fcm/register`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ token }),
+    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
 
   getIncomeStreams: () => get<IncomeStream[]>("/income/streams"),

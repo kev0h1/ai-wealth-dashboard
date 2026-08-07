@@ -3,7 +3,7 @@ import { api } from "./api";
 
 // Last APNs/FCM token we registered with the backend, so `unregisterCapacitorPush`
 // can tell the server which token to drop without re-reading it from the OS.
-const TOKEN_STORAGE_KEY = "wd_apns_token";
+const TOKEN_STORAGE_KEY = "wd_push_token";
 
 function isNative(): boolean {
   try {
@@ -50,7 +50,12 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
       } catch {
         /* ignore */
       }
-      api.registerApnsToken(token.value, platform()).catch((e) => {
+      const plat = platform();
+      const registration =
+        plat === "android"
+          ? api.registerFcmToken(token.value, plat)
+          : api.registerApnsToken(token.value, plat);
+      registration.catch((e) => {
         console.error("[capacitorPush] failed to send token to backend", e);
       });
     });
@@ -82,7 +87,11 @@ export async function unregisterCapacitorPush(): Promise<void> {
       /* ignore */
     }
     if (token) {
-      await api.unregisterApnsToken(token).catch(() => {});
+      const unregistration =
+        platform() === "android"
+          ? api.unregisterFcmToken(token)
+          : api.unregisterApnsToken(token);
+      await unregistration.catch(() => {});
       try {
         localStorage.removeItem(TOKEN_STORAGE_KEY);
       } catch {

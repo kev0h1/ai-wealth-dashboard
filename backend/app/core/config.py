@@ -97,6 +97,33 @@ else:
 
 APNS_CONFIGURED: bool = bool(APNS_KEY_ID and APNS_TEAM_ID and APNS_AUTH_KEY_PEM)
 
+# ── FCM / native Android Push ────────────────────────────────────────────────
+FCM_PROJECT_ID = os.getenv("FCM_PROJECT_ID", "")
+
+_fcm_sa_file = _BACKEND_DIR / ".fcm_service_account.json"
+_fcm_sa_path = Path(os.getenv("FCM_SERVICE_ACCOUNT_PATH")) if os.getenv("FCM_SERVICE_ACCOUNT_PATH") else _fcm_sa_file
+
+if _fcm_sa_env := os.getenv("FCM_SERVICE_ACCOUNT_JSON"):
+    FCM_SERVICE_ACCOUNT_JSON = _fcm_sa_env
+elif _fcm_sa_path.exists():
+    FCM_SERVICE_ACCOUNT_JSON = _fcm_sa_path.read_text()
+else:
+    # Like APNs, a Firebase service-account key is issued by Google and
+    # cannot be generated locally. If none is configured, FCM stays
+    # disabled (no-op on send).
+    FCM_SERVICE_ACCOUNT_JSON = None
+
+_FCM_SA_PARSEABLE = False
+if FCM_SERVICE_ACCOUNT_JSON:
+    try:
+        import json as _json
+        _json.loads(FCM_SERVICE_ACCOUNT_JSON)
+        _FCM_SA_PARSEABLE = True
+    except Exception:
+        _FCM_SA_PARSEABLE = False
+
+FCM_CONFIGURED: bool = bool(FCM_PROJECT_ID and FCM_SERVICE_ACCOUNT_JSON and _FCM_SA_PARSEABLE)
+
 # ── Mono (Kenya) ──────────────────────────────────────────────────────────────
 MONO_SECRET_KEY = os.getenv("MONO_SECRET_KEY", "")
 MONO_PUBLIC_KEY  = os.getenv("MONO_PUBLIC_KEY", "")
