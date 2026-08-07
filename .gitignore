@@ -53,3 +53,6 @@ capacitor-spike/ios/
 capacitor-spike/dist/
 frontend/out/
 mobile/node_modules/
+
+# Built APKs — never commit binaries
+*.apk
