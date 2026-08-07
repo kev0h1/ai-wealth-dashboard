@@ -41,11 +41,10 @@ workflows:
         script: |
           cd frontend
           npm ci
-          # MOBILE_API_URL points the built app at a backend. Defaults to UAT so
-          # TestFlight testers hit the UAT backend; override with a Codemagic
-          # environment variable (or env group) to build against prod.
-          export MOBILE_API_URL="${MOBILE_API_URL:-https://uat.wealth.auriqltd.co.uk/api}"
-          npm run build:mobile
+          # Android (Capacitor APK) builds always bake the UAT API base by
+          # default (npm run build:mobile). TestFlight/iOS is the one pipeline
+          # that keeps prod, so it explicitly uses build:mobile:prod here.
+          npm run build:mobile:prod
           rm -rf "$CM_BUILD_DIR/capacitor-spike/www"
           cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
       - name: Add + sync Capacitor iOS

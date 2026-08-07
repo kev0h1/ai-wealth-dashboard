@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "build:mobile": "bash scripts/build-mobile.sh",
+    "build:mobile:prod": "MOBILE_API_BASE=https://wealth.auriqltd.co.uk/api bash scripts/build-mobile.sh",
     "start": "next start",
     "lint": "eslint"
   },

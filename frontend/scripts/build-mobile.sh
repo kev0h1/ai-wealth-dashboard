@@ -45,7 +45,9 @@ for f in "${FILES[@]}"; do
   perl -0pi -e 's/(const BACKEND = process\.env\.BACKEND_URL \|\| "http:\/\/localhost:8000";\n)/$1\nexport const dynamic = "force-static";\n/' "$f"
 done
 
-# MOBILE_API_URL lets CI (or a local override) point the built app at a
-# different backend (e.g. a UAT environment) without editing this script.
-# Falls back to production when unset.
-MOBILE_EXPORT=1 NEXT_PUBLIC_API_URL="${MOBILE_API_URL:-https://wealth.auriqltd.co.uk/api}" next build
+# MOBILE_API_BASE lets CI (or a local override) point the built app at a
+# different backend. Falls back to UAT when unset — Kevin's standing rule is
+# that Android APK builds always bake the UAT API base by default; only an
+# explicit MOBILE_API_BASE override (see package.json's build:mobile:prod,
+# used by the Codemagic/TestFlight iOS pipeline) bakes prod.
+MOBILE_EXPORT=1 NEXT_PUBLIC_API_URL="${MOBILE_API_BASE:-https://uat.wealth.auriqltd.co.uk/api}" next build
