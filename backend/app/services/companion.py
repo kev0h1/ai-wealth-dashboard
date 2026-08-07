@@ -24,6 +24,7 @@ from app.db.collections import (
 
 log = logging.getLogger(__name__)
 from app.routers.analytics import _build_cashflow_response, income_credit_ok
+from app.services.card_rates import is_credit_card_account
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -235,10 +236,15 @@ async def compute_today_items(uid: str) -> list[dict]:
     window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] < days_to_pay]
     window_income = [i for i in resp["upcoming_income"] if i["days_away"] < days_to_pay]
 
-    # Skip bills with no balance data (credit cards / unknown accounts)
+    # Skip bills where we have no balance data, or the bill is on a credit card
+    # (credit cards have a credit limit, not an available balance, so a bill
+    # against one must never count toward at-risk/shortfall). Must match
+    # at_risk_count's assessable_bills filter in app/routers/analytics.py.
     assessable_bills = [
         b for b in window_bills
-        if b.get("account_balance") is not None and b["account_balance"] >= 0
+        if b.get("account_balance") is not None
+        and b["account_balance"] >= 0
+        and not b.get("is_credit_card")
     ]
 
     # ── 3. Load ALL accounts ONCE; seed live balances from the same listing ─
@@ -389,6 +395,11 @@ async def compute_today_items(uid: str) -> list[dict]:
     source_min_run: dict[str, float] = {}
     for acc in all_uk_accounts + offline_accounts:
         sid = acc["_str_id"]
+        # Belt-and-braces: a linked credit card must never enter the source
+        # pool, regardless of what _is_current/_is_savings match — its
+        # balance is debt against a credit limit, not money to move.
+        if is_credit_card_account(acc):
+            continue
         bal = live_balances.get(sid, float(acc.get("balance") or 0))
         if _is_current(acc) or _is_savings(acc) or _is_offline(acc):
             mn = _source_min_running(sid, bal)
