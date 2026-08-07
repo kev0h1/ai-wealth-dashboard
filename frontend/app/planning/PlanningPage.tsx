@@ -444,7 +444,13 @@ export default function PlanningPage() {
           );
         }
 
-        let running = cashflow.available_balance ?? 0;
+        // "Spendable everywhere" (Kevin, 2026-08): runway uses the same
+        // spendable-cash pool as the Home Safe-to-Spend hero — savings are
+        // never silently folded in. Falls back to available_balance for
+        // caches computed before spendable_balance existed.
+        const spendableNow = cashflow.spendable_balance ?? cashflow.available_balance ?? 0;
+        const savingsNow = cashflow.savings_balance ?? 0;
+        let running = spendableNow;
         const items = rawItems.map(item => {
           if (item.type === "income") {
             running += item.amount;
@@ -468,7 +474,7 @@ export default function PlanningPage() {
           return d < nextPaydayMidnight;
         });
         const runwayBillsTotal = billsBeforePayday.reduce((s, b) => s + b.amount, 0);
-        const runway = (cashflow.available_balance ?? 0) - runwayBillsTotal;
+        const runway = spendableNow - runwayBillsTotal;
         const runwayNegative = runway < 0;
 
         const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
@@ -659,7 +665,7 @@ export default function PlanningPage() {
 
         return (
           <div className="space-y-4">
-            {cashflow.available_balance != null && (
+            {(cashflow.spendable_balance ?? cashflow.available_balance) != null && (
               <div className={`rounded-2xl px-4 py-4 ${
                 runwayNegative
                   ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
@@ -678,13 +684,18 @@ export default function PlanningPage() {
                       {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                      {sym}{(cashflow.available_balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} now
+                      {sym}{spendableNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} now
                       {" − "}
                       {sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} bills
                       {isCalendarMonth
                         ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
                         : ` · ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
                     </p>
+                    {savingsNow > 0 && (
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
+                        + {sym}{savingsNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} in savings if needed
+                      </p>
+                    )}
                   </div>
                   {accountShortfalls.length > 0 && (
                     <span className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">

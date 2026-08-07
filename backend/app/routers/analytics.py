@@ -617,6 +617,42 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
     return max(amts) / min(amts) <= 1.5
 
 
+def _split_balances(accs: list[dict]) -> tuple[float, float]:
+    """Split live account balances into (spendable_cash, savings_total).
+
+    Mirrors compute_safe_to_spend's (the Home Safe-to-Spend hero) account
+    classification rules exactly, so every surface that shows "spendable
+    cash" agrees with every other and can never silently diverge:
+      - GBP-only (currency in {"GBP", ""})
+      - subtype contains "saving" (case-insensitive) -> savings account,
+        summed into savings_total (only positive balances)
+      - type or subtype contains "credit" (case-insensitive) -> credit
+        card, excluded from both buckets
+      - negative balances excluded from both buckets (the hero tracks these
+        separately as card/overdraft debt; see compute_safe_to_spend)
+      - accounts with no subtype and no credit marker fall back to
+        spendable, so the figure is never silently zero (covers e.g. Mono
+        accounts, which don't populate subtype today)
+    """
+    spendable = 0.0
+    savings = 0.0
+    for acc in accs:
+        if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
+            continue
+        bal = float(acc.get("balance") or 0)
+        if bal < 0:
+            continue
+        subtype = (acc.get("subtype") or "").lower()
+        acc_type = (acc.get("type") or "").lower()
+        if "credit" in acc_type or "credit" in subtype:
+            continue
+        if "saving" in subtype:
+            savings += bal
+            continue
+        spendable += bal
+    return round(spendable, 2), round(savings, 2)
+
+
 async def _compute_cashflow_patterns(uid: str) -> dict:
     """
     Full cashflow computation — scans 90 days of transactions, runs AI prediction,
@@ -746,7 +782,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
-    acct_proj = {"balance": 1, "currency": 1}
+    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1}
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
@@ -758,6 +794,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
         and float(a.get("balance", 0)) > 0
     ), 2)
+    # Same pool as the Home Safe-to-Spend hero, split spendable vs savings so
+    # the Planning runway can use exactly the hero's "spendable cash" figure
+    # instead of the all-positive-balances sum above (which silently counts
+    # savings). See _split_balances docstring for the shared classification
+    # rules.
+    spendable_balance, savings_balance = _split_balances(all_accounts)
 
     def _serialise_pattern(r: dict) -> dict:
         acct = account_map.get(r.get("account_id") or "") if r.get("account_id") else None
@@ -782,6 +824,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         ],
         "avg_daily_spend":  round(avg_daily_spend, 2),
         "available_balance": available_balance,
+        "spendable_balance": spendable_balance,
+        "savings_balance":  savings_balance,
     }
 
 
@@ -1601,6 +1645,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         "upcoming_income":   upcoming_income,
         "avg_daily_spend":   round(avg_daily, 2),
         "available_balance": cached.get("available_balance", 0),
+        # Spendable-cash pool, parity with the Home Safe-to-Spend hero. May be
+        # absent on caches computed before this field existed — the None
+        # default lets consumers fall back to available_balance rather than
+        # silently rendering a stale/incorrect 0.
+        "spendable_balance": cached.get("spendable_balance"),
+        "savings_balance":   cached.get("savings_balance", 0),
     }
 
 
@@ -1798,12 +1848,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
     def _is_savings(acc: dict) -> bool:
         return "saving" in (acc.get("subtype") or "").lower()
 
-    def _is_credit(acc: dict) -> bool:
-        return (
-            "credit" in acc.get("type", "").lower()
-            or "credit" in (acc.get("subtype") or "").lower()
-        )
-
     def _try_oid(v: str):
         try:
             return ObjectId(v)
@@ -1818,25 +1862,22 @@ async def compute_safe_to_spend(uid: str) -> dict:
         {"user_id": uid}, {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
     ).to_list(None)
 
-    spendable_cash = 0.0
+    # Shared with the Planning runway (_split_balances) so the two surfaces
+    # can never diverge; savings_total is unused here — the hero shows a
+    # single spendable figure, not a savings breakout.
+    spendable_cash, _ = _split_balances(all_accs_raw)
+
     card_debt_total = 0.0
     for acc in all_accs_raw:
         # GBP only
         if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
             continue
-        bal = float(acc.get("balance") or 0)
         if _is_savings(acc):
             continue
-        if _is_credit(acc):
-            # Credit cards: accumulate outstanding debt (negative balance = owe money)
-            if bal < 0:
-                card_debt_total += abs(bal)
-            continue
+        bal = float(acc.get("balance") or 0)
         if bal < 0:
-            # Negative-balance current account — treat as card-like debt
+            # Negative-balance credit card or current account — treat as debt
             card_debt_total += abs(bal)
-            continue
-        spendable_cash += bal
     card_debt = round(card_debt_total, 2)
 
     # ── 4. Build chronological event timeline today → next_payday ─────────────

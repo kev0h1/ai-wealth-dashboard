@@ -113,6 +113,10 @@ export type CashflowData = {
   upcoming_income: UpcomingBill[];
   avg_daily_spend: number;
   available_balance: number;
+  /** Spendable cash only (excludes savings) — same pool as the Home Safe-to-Spend hero. Absent on caches computed before this field existed. */
+  spendable_balance?: number | null;
+  /** Savings-account balances, shown as a separate quiet line — never silently folded into runway. */
+  savings_balance?: number;
   next_payday: string | null;
   payday_source: "confirmed" | "period" | null;
   income_suggestion: IncomeSuggestion | null;
