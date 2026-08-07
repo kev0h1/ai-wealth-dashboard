@@ -127,6 +127,29 @@ workflows:
           else
             echo "Push entitlement (aps-environment / CODE_SIGN_ENTITLEMENTS) SKIPPED (IOS_PUSH_ENABLED != true) — signing a no-push TestFlight build"
           fi
+      - name: Set unique build number
+        script: |
+          # App Store Connect rejects a TestFlight upload that reuses a
+          # (CFBundleShortVersionString, CFBundleVersion) pair. Capacitor's
+          # `cap add ios` template ships a static CFBundleVersion of 1, so the
+          # second and every subsequent upload of the same marketing version
+          # collides with "The provided entity includes an attribute with a
+          # value that has already been used" — this step fixes that by
+          # stamping CFBundleVersion with Codemagic's auto-incrementing
+          # $BUILD_NUMBER before the IPA is built. Marketing version
+          # (CFBundleShortVersionString) is left untouched — bumping the
+          # build number alone is enough to make the pair unique.
+          cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
+          echo "Setting build number to $BUILD_NUMBER"
+          agvtool new-version -all "$BUILD_NUMBER" || \
+            sed -i '' "s/CURRENT_PROJECT_VERSION = [^;]*;/CURRENT_PROJECT_VERSION = $BUILD_NUMBER;/g" App.xcodeproj/project.pbxproj
+          # Confirm it took
+          agvtool what-version -terse || grep -m1 "CURRENT_PROJECT_VERSION" App.xcodeproj/project.pbxproj
+          # If this ever collides again (e.g. agvtool/sed both silently no-op
+          # on a future Capacitor project layout change), switch to reading
+          # the last-used build number from App Store Connect instead:
+          #   app-store-connect get-latest-testflight-build-number <app_apple_id>
+          # and incrementing that by 1.
       - name: Apply provisioning profiles
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
