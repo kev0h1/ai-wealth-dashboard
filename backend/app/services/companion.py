@@ -1263,7 +1263,7 @@ async def compute_today_items(uid: str) -> list[dict]:
     try:
         if "ask:card_terms" not in dismissed:
             from app.db.collections import card_terms_col
-            from app.services.card_rates import is_ask_eligible, is_credit_card_account
+            from app.services.card_rates import is_ask_eligible
 
             _cc_accounts = [a for a in all_uk_accounts if is_credit_card_account(a)]
             _has_balance = any(
