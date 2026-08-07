@@ -66,9 +66,8 @@ export default function BottomNav() {
 
   return (
     <nav
-      className="lg:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-slate-900 z-50"
+      className="glass-nav lg:hidden fixed bottom-0 inset-x-0 z-50"
       style={{
-        boxShadow: "0 -1px 0 rgba(0,0,0,0.08)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}
     >
@@ -79,6 +78,7 @@ export default function BottomNav() {
             <Link
               key={href}
               href={href}
+              aria-current={active ? "page" : undefined}
               className="relative flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors"
               style={{ textDecoration: "none" }}
             >
@@ -92,7 +92,7 @@ export default function BottomNav() {
                 <Icon
                   size={22}
                   strokeWidth={active ? 2.5 : 1.8}
-                  className={active ? "text-indigo-600" : "text-slate-400"}
+                  className={active ? "text-indigo-600" : "text-slate-500 dark:text-slate-400"}
                 />
                 {href === "/insights" && newInsights > 0 && (
                   <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-violet-500 text-white text-[9px] font-bold flex items-center justify-center">
@@ -106,7 +106,7 @@ export default function BottomNav() {
                 )}
               </span>
               <span
-                className={`relative text-[11px] font-medium leading-none ${active ? "text-indigo-600" : "text-slate-400"}`}
+                className={`relative text-[11px] font-medium leading-none ${active ? "text-indigo-600" : "text-slate-500 dark:text-slate-400"}`}
               >
                 {label}
               </span>

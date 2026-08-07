@@ -345,6 +345,40 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: rgba(255, 255, 255, 0.06);
 }
 
+/* ── Safe-area top frost (mobile shell only) ──────────────────────────────
+   Edge-to-edge WebView means scrolling content would otherwise collide with
+   the status-bar clock/Wi-Fi glyphs. This fixed bar is pinned above the
+   scroll and frosts whatever passes underneath — a pure masking surface,
+   not a card, so it stays app-canvas-tinted rather than white/ink. Height is
+   set inline in app/layout.tsx (dynamic env()); this class only owns the
+   fill. --safe-area-inset-top is Capacitor 8.3+'s native inset variable
+   (see ThemeColor.tsx notes); env() is the fallback for older WebViews. */
+.safe-top-frost {
+  background: rgba(240, 242, 247, 0.72);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.dark .safe-top-frost {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+/* ── Glass bottom nav — edge-to-edge frost, hairline top border replaces
+   the old drop shadow. More opaque than .glass-card (0.90 vs 0.55): a
+   persistent nav needs its icon/label contrast to hold up against ANY
+   content scrolling underneath (a white card, the indigo/violet Penny
+   hero, a dark chart), not just the one card it happens to sit over, so it
+   trades a little glassiness for guaranteed AA legibility. */
+.glass-nav {
+  background: rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+.dark .glass-nav {
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* Ambient glow — a single light source (child of .app-glow in app/layout.tsx).
    One upper-third CORE, centred: an indigo core with a faint violet fringe
    biased low — vertical geometry is px-locked to the original 560px field so
@@ -411,6 +445,22 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: #ffffff;
   }
   .dark .penny-fab-disc { background: #1e293b; }
+  .safe-top-frost {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #f0f2f7;
+  }
+  .dark .safe-top-frost { background: #0f172a; }
+  .glass-nav {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #ffffff;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+  .dark .glass-nav {
+    background: #0f172a;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .app-glow { display: none; }
@@ -434,6 +484,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: #ffffff;
   }
   .dark .penny-fab-disc { background: #1e293b; }
+  .safe-top-frost { background: #f0f2f7; }
+  .dark .safe-top-frost { background: #0f172a; }
+  .glass-nav {
+    background: #ffffff;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+  .dark .glass-nav {
+    background: #0f172a;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
 }
 
 /* ── Story slide transition ──────────────────────────────────────────────── */

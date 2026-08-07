@@ -62,6 +62,20 @@ export default function RootLayout({
           <TutorialProvider>
             <ServiceWorkerRegistrar />
             <ThemeColor />
+            {/* Status-bar safe-area frost — mobile shell only (desktop uses the
+                sidebar, no overlay). Fixed above the scroll so content frosts
+                out before it reaches the clock/Wi-Fi glyphs, instead of
+                colliding with them. Height matches the env() inset every page
+                already pads by (reliable on iOS; on Android this is 0 until
+                edge-to-edge + a real inset plugin land, at which point this
+                frost is simply zero-height and inert — no regression). z-40:
+                above page content, below BottomNav (z-50) and every
+                sheet/modal (z-[60]+). */}
+            <div
+              aria-hidden="true"
+              className="safe-top-frost lg:hidden fixed inset-x-0 top-0 z-40 pointer-events-none"
+              style={{ height: "env(safe-area-inset-top, 0px)" }}
+            />
             <TutorialOverlay />
             <ScrollReset />
             <Sidebar />
