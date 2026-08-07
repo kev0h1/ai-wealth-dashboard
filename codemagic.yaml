@@ -63,48 +63,70 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string wealthdash" "$PLIST"
           # Face ID usage string — required by iOS to show the biometric-auth prompt
-          # (used by @aparajita/capacitor-biometric-auth for app-lock).
+          # (used by @aparajita/capacitor-biometric-auth for app-lock). Needs no
+          # special entitlement/capability, so this stays on unconditionally.
           /usr/libexec/PlistBuddy -c "Print :NSFaceIDUsageDescription" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :NSFaceIDUsageDescription string 'Unlock Wealth Dashboard with Face ID.'" "$PLIST"
-          # Background mode for remote (push) notifications.
-          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
+          # Background mode for remote (push) notifications — gated behind
+          # IOS_PUSH_ENABLED (see the "Add Push Notifications entitlement" step
+          # below for why: signing fails until the provisioning profile grants
+          # Push, so this ships off by default for a clean no-push TestFlight
+          # build. Set IOS_PUSH_ENABLED=true as a Codemagic env var to re-enable.
+          if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
+          else
+            echo "Push background mode (UIBackgroundModes remote-notification) SKIPPED (IOS_PUSH_ENABLED != true) — signing a no-push TestFlight build"
+          fi
       - name: Add Push Notifications entitlement (aps-environment)
         script: |
-          # Capacitor's `cap add ios` template ships no entitlements file and no
-          # CODE_SIGN_ENTITLEMENTS build setting. This step creates
-          # App.entitlements with aps-environment=production (TestFlight/App
-          # Store use production APNs) and wires CODE_SIGN_ENTITLEMENTS into both
-          # build configs of the App target so Xcode actually signs with it.
-          #
-          # This does NOT grant the Push Notifications capability on Apple's
-          # servers or add it to the provisioning profile — see the header
-          # comment above for the required one-time Apple Developer portal steps.
-          ENTITLEMENTS="$CM_BUILD_DIR/capacitor-spike/ios/App/App/App.entitlements"
-          PBXPROJ="$CM_BUILD_DIR/capacitor-spike/ios/App/App.xcodeproj/project.pbxproj"
-          if [ ! -f "$ENTITLEMENTS" ]; then
-            # Written with printf (not a heredoc) so it's immune to the
-            # YAML block-literal's leading indentation — a `<<'EOF'` heredoc
-            # here would need its body and terminator at column 0, which the
-            # YAML script block can't express, and a space-indented
-            # terminator never matches, silently swallowing the rest of this
-            # step as heredoc body.
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="UTF-8"?>' \
-              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-              '<plist version="1.0">' \
-              '<dict>' \
-              '</dict>' \
-              '</plist>' \
-              > "$ENTITLEMENTS"
+          # Gated behind IOS_PUSH_ENABLED (default false/unset): the
+          # aps-environment entitlement only signs cleanly if the App Store
+          # provisioning profile has been regenerated with the Push
+          # Notifications capability (see the header comment above, steps
+          # 3-4) — until that's done, wiring CODE_SIGN_ENTITLEMENTS in makes
+          # Apple signing FAIL. So today we ship a no-push TestFlight build:
+          # this whole step is a no-op unless IOS_PUSH_ENABLED=true is set as
+          # a Codemagic environment variable. Face ID/biometrics is unaffected
+          # (needs no capability) — see the previous step.
+          if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
+            # Capacitor's `cap add ios` template ships no entitlements file and no
+            # CODE_SIGN_ENTITLEMENTS build setting. This step creates
+            # App.entitlements with aps-environment=production (TestFlight/App
+            # Store use production APNs) and wires CODE_SIGN_ENTITLEMENTS into both
+            # build configs of the App target so Xcode actually signs with it.
+            #
+            # This does NOT grant the Push Notifications capability on Apple's
+            # servers or add it to the provisioning profile — see the header
+            # comment above for the required one-time Apple Developer portal steps.
+            ENTITLEMENTS="$CM_BUILD_DIR/capacitor-spike/ios/App/App/App.entitlements"
+            PBXPROJ="$CM_BUILD_DIR/capacitor-spike/ios/App/App.xcodeproj/project.pbxproj"
+            if [ ! -f "$ENTITLEMENTS" ]; then
+              # Written with printf (not a heredoc) so it's immune to the
+              # YAML block-literal's leading indentation — a `<<'EOF'` heredoc
+              # here would need its body and terminator at column 0, which the
+              # YAML script block can't express, and a space-indented
+              # terminator never matches, silently swallowing the rest of this
+              # step as heredoc body.
+              printf '%s\n' \
+                '<?xml version="1.0" encoding="UTF-8"?>' \
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+                '<plist version="1.0">' \
+                '<dict>' \
+                '</dict>' \
+                '</plist>' \
+                > "$ENTITLEMENTS"
+            fi
+            /usr/libexec/PlistBuddy -c "Print :aps-environment" "$ENTITLEMENTS" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :aps-environment string production" "$ENTITLEMENTS"
+            if ! grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ"; then
+              perl -0pi -e 's/(\t+PRODUCT_BUNDLE_IDENTIFIER = co\.uk\.auriqltd\.wealth;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g; s/(\t+PRODUCT_BUNDLE_IDENTIFIER = com\.getcapacitor\.App;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g' "$PBXPROJ"
+            fi
+            # Assert the wiring actually took — if Capacitor's pbxproj format
+            # ever changes and the perl substitution silently no-ops, fail loud
+            # here instead of shipping a build that's missing the entitlement.
+            grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ" || { echo "ERROR: failed to wire CODE_SIGN_ENTITLEMENTS into $PBXPROJ"; exit 1; }
+          else
+            echo "Push entitlement (aps-environment / CODE_SIGN_ENTITLEMENTS) SKIPPED (IOS_PUSH_ENABLED != true) — signing a no-push TestFlight build"
           fi
-          /usr/libexec/PlistBuddy -c "Print :aps-environment" "$ENTITLEMENTS" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :aps-environment string production" "$ENTITLEMENTS"
-          if ! grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ"; then
-            perl -0pi -e 's/(\t+PRODUCT_BUNDLE_IDENTIFIER = co\.uk\.auriqltd\.wealth;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g; s/(\t+PRODUCT_BUNDLE_IDENTIFIER = com\.getcapacitor\.App;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g' "$PBXPROJ"
-          fi
-          # Assert the wiring actually took — if Capacitor's pbxproj format
-          # ever changes and the perl substitution silently no-ops, fail loud
-          # here instead of shipping a build that's missing the entitlement.
-          grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ" || { echo "ERROR: failed to wire CODE_SIGN_ENTITLEMENTS into $PBXPROJ"; exit 1; }
       - name: Apply provisioning profiles
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
