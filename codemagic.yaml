@@ -41,10 +41,10 @@ workflows:
         script: |
           cd frontend
           npm ci
-          # MOBILE_API_URL points the built app at a backend. Set this as a
-          # Codemagic environment variable (or env group) to override.
-          # TODO: set to UAT backend URL — defaults to prod for now.
-          export MOBILE_API_URL="${MOBILE_API_URL:-https://wealth.auriqltd.co.uk/api}"
+          # MOBILE_API_URL points the built app at a backend. Defaults to UAT so
+          # TestFlight testers hit the UAT backend; override with a Codemagic
+          # environment variable (or env group) to build against prod.
+          export MOBILE_API_URL="${MOBILE_API_URL:-https://uat.wealth.auriqltd.co.uk/api}"
           npm run build:mobile
           rm -rf "$CM_BUILD_DIR/capacitor-spike/www"
           cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
