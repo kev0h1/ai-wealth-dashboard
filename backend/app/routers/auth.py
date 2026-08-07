@@ -2,7 +2,7 @@
 import time
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse
 import httpx
 
 from app.core.config import (
@@ -27,21 +27,6 @@ def _store_pending(state: str, value: str) -> None:
     _pending[state] = (value, now + _PENDING_TTL)
     for k in [k for k, (_, exp) in _pending.items() if exp < now]:
         _pending.pop(k, None)
-
-
-def _mobile_done_page() -> HTMLResponse:
-    return HTMLResponse(
-        "<!doctype html><html><body style=\"font-family:system-ui;text-align:center;"
-        "padding:48px 24px;color:#1e293b\"><h2>You're signed in</h2>"
-        "<p style=\"color:#64748b\">You can return to the app now.</p>"
-        "<p><a href=\"wealthdash://auth-done\" "
-        "style=\"display:inline-block;margin-top:16px;padding:12px 24px;"
-        "background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;"
-        "font-weight:600\">Return to app</a></p>"
-        "<script>setTimeout(function(){window.location.href="
-        "\"wealthdash://auth-done\";},300);</script>"
-        "</body></html>"
-    )
 
 
 @router.post("/auth/session/validate")
@@ -141,10 +126,10 @@ async def mobile_poll(state: str):
 
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
-    def finish(value: str) -> HTMLResponse:
+    def finish(value: str) -> RedirectResponse:
         if state:
             _store_pending(state, value)
-        return _mobile_done_page()
+        return RedirectResponse("wealthdash://auth-done", status_code=302)
 
     if error or not code:
         return finish("error:auth_failed")
