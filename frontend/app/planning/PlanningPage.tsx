@@ -36,11 +36,30 @@ function DebtEntryCard({
   hide,
   onTap,
 }: {
-  view: import("@/lib/api").DebtPlanView | null;
+  view: import("@/lib/api").DebtPlanSummary | null;
   hide: boolean;
   onTap: () => void;
 }) {
-  if (!view) return null;
+  if (!view) {
+    // Skeleton placeholder — matches the loaded card's shape so the slot
+    // doesn't pop in late while the summary is still loading.
+    return (
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
+          YOUR CARDS
+        </p>
+        <div
+          className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 animate-pulse"
+          aria-hidden="true"
+        >
+          <div className="flex-1 min-w-0 space-y-2">
+            <div className="h-[15px] w-24 rounded bg-slate-200 dark:bg-slate-700" />
+            <div className="h-[13px] w-40 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const buckets = view.totals.buckets;
   const carried = buckets?.carried_total ?? 0;
@@ -114,6 +133,48 @@ function DebtEntryCard({
   );
 }
 
+function GrowEntryCard({
+  view,
+  onTap,
+}: {
+  view: import("@/lib/api").GrowView | null;
+  onTap: () => void;
+}) {
+  if (!view) return null;
+  if (!view.verdict?.headline) return null;
+
+  const line1 = "Grow";
+  const activeStep = view.ladder.find((s) => s.state === "active");
+  const line2 = (
+    <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+      {view.verdict.headline}
+      {activeStep ? ` — ${activeStep.title}` : ""}
+    </p>
+  );
+
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
+        GROWING YOUR MONEY
+      </p>
+      <button
+        onClick={onTap}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
+        className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        aria-label="View your grow plan"
+      >
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+            {line1}
+          </p>
+          {line2}
+        </div>
+        <span className="text-slate-400 dark:text-slate-500 text-lg flex-shrink-0" aria-hidden="true">›</span>
+      </button>
+    </div>
+  );
+}
+
 export default function PlanningPage() {
   const { payPeriodConfig, setPayPeriodConfig, region, hideNetWorth } = usePreferences();
   const { colours } = useColours();
@@ -124,7 +185,8 @@ export default function PlanningPage() {
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [debtView, setDebtView] = useState<import("@/lib/api").DebtPlanView | null>(null);
+  const [debtSummary, setDebtSummary] = useState<import("@/lib/api").DebtPlanSummary | null>(null);
+  const [growView, setGrowView] = useState<import("@/lib/api").GrowView | null>(null);
 
   // Derive current period (always current — no prev/next navigation)
   const configKey = JSON.stringify(payPeriodConfig);
@@ -148,7 +210,8 @@ export default function PlanningPage() {
   useEffect(() => {
     api.accounts().catch(() => [] as Account[]).then(accs => setAccounts(accs));
     api.cashflow().then(setCashflow).catch(() => {});
-    api.getDebtPlanView().then(setDebtView).catch(() => {});
+    api.getDebtPlanSummary().then(setDebtSummary).catch(() => {});
+    api.getGrow().then(setGrowView).catch(() => {});
   }, []);
 
   // Pay period deep link
@@ -439,7 +502,8 @@ export default function PlanningPage() {
               >
                 + Plan a one-off
               </button>
-              <DebtEntryCard view={debtView} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
+              <DebtEntryCard view={debtSummary} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
+              <GrowEntryCard view={growView} onTap={() => router.push("/grow")} />
             </div>
           );
         }
@@ -717,7 +781,8 @@ export default function PlanningPage() {
               + Plan a one-off
             </button>
 
-            <DebtEntryCard view={debtView} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
+            <DebtEntryCard view={debtSummary} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
+            <GrowEntryCard view={growView} onTap={() => router.push("/grow")} />
 
             {groups.length > 0 && (
               <div className="space-y-3">

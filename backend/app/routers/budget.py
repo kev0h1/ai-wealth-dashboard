@@ -69,7 +69,7 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
     current_budgets = budget_doc.get("budgets", []) if budget_doc else []
 
     cutoff    = datetime.now() - timedelta(days=90)
-    non_budget = {"Transfer", "Savings", "Debt"}
+    non_budget = {"Transfer", "Savings", "Investment", "Debt"}
 
     if region == "Kenya":
         currency    = "KES "

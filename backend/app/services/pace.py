@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Categories whose debits are not real discretionary spend.
 # Mirrors _NON_DISC in app.services.cashflow (imported lazily to avoid cycles).
-_NON_SPEND = {"Transfer", "Savings", "Debt", "Income"}
+_NON_SPEND = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 # ── Typing alias ──────────────────────────────────────────────────────────────
 _Txn = dict   # normalised transaction record

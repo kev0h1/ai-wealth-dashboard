@@ -19,7 +19,7 @@ from app.services.pay_period import get_pay_period_for_date
 
 router = APIRouter(tags=["goals"])
 
-_NON_BUDGET = {"Transfer", "Savings", "Debt", "Income"}
+_NON_BUDGET = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 
 async def _current_total_debt(uid: str) -> float:

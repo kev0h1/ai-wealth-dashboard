@@ -655,7 +655,17 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const celebrationItems = items.filter(i => i.type === "celebration");
   const cliffItems = items.filter(i => i.type === "cliff");
   const trajectoryItems = items.filter(i => i.type === "trajectory");
-  const rhythmItems = items.filter(i => i.type === "rhythm");
+  // "rhythm" is overloaded: only items with a real anomaly payload (multiple
+  // >= 1.5, matching the CategorySheet/SpendPage ask-threshold convention)
+  // get the interactive card with intent buttons. Payload-less rhythm items
+  // (e.g. cliff/switch behaviour cards) render as plain info cards instead —
+  // they have no category/multiple/spent to show and no intent to record.
+  const rhythmItems = items.filter(
+    i => i.type === "rhythm" && i.payload?.multiple != null && i.payload.multiple >= 1.5
+  );
+  const rhythmInfoItems = items.filter(
+    i => i.type === "rhythm" && !(i.payload?.multiple != null && i.payload.multiple >= 1.5)
+  );
   const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm");
 
   // Mask £ figures in a string when hideNetWorth is on
@@ -680,6 +690,14 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
         {rhythmItems.map(item => (
           <RhythmCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} onRefresh={onRefresh} />
+        ))}
+
+        {/* Payload-less rhythm items (cliff/switch behaviour cards) — plain
+            info card, no "× your usual" line and no intent buttons since
+            there's no category/multiple/spent to anchor them to. Reuses the
+            existing informational fact-card family (CliffCard). */}
+        {rhythmInfoItems.map(item => (
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline; everything

@@ -29,7 +29,7 @@ NOTIF_DEFAULTS = {
 }
 
 # Outflows that aren't real consumption — never counted against a budget.
-_NON_BUDGET = {"Transfer", "Savings", "Debt", "Income"}
+_NON_BUDGET = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 
 async def notif_pref(user_id: str, key: str) -> bool:

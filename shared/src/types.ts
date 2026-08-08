@@ -354,3 +354,52 @@ export interface SubscriptionInfo {
   usage: SubscriptionUsage;
   prices: Record<string, TierPrice>;
 }
+
+export interface GrowVerdict {
+  /** Factual headline, e.g. "You've got ~£240/month spare" */
+  headline: string;
+  /** e.g. "Your buffer covers ~4 days" */
+  sub: string;
+}
+
+export interface GrowBuffer {
+  current: number;
+  target: number;
+  pct: number;
+  days_covered: number;
+  target_months: number;
+}
+
+export interface GrowDebt {
+  has_debt: boolean;
+  total: number;
+  all_promo: boolean;
+  expensive_total: number;
+  /** ISO date of earliest 0% end, or null */
+  promo_cliff: string | null;
+}
+
+export interface GrowInvest {
+  portfolio_value: number;
+  has_investments: boolean;
+}
+
+export interface GrowLadderStep {
+  key: string;
+  title: string;
+  state: "done" | "active" | "locked";
+  /** Facts only */
+  detail: string;
+  /** Generic trade-off phrasing */
+  options: string[];
+}
+
+export interface GrowView {
+  verdict: GrowVerdict;
+  surplus_monthly: number;
+  buffer: GrowBuffer;
+  debt: GrowDebt;
+  invest: GrowInvest;
+  ladder: GrowLadderStep[];
+  notes: string[];
+}

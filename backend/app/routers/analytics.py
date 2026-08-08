@@ -28,7 +28,7 @@ from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
-from app.services.categorisation import series_key, has_date_fragment
+from app.services.categorisation import series_key, has_date_fragment, is_own_transfer, user_identity
 from app.services.card_rates import is_credit_card_account
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
@@ -237,7 +237,7 @@ async def budget_pace_profile(user: dict = Depends(current_user)):
     region     = prefs.get("region", "UK")
 
     today         = _date.today()
-    SKIP          = {"Transfer", "Savings", "Debt", "Income"}
+    SKIP          = {"Transfer", "Savings", "Investment", "Debt", "Income"}
     SAMPLE_POINTS = 20
     MIN_PERIODS   = 2
 
@@ -419,7 +419,7 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
     return clusters
 
 
-DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"]
 
 
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None) -> list[dict]:
@@ -2019,6 +2019,44 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
         return cached
     from app.services.pace import compute_category_signals
     result = await compute_category_signals(uid, offset=off)
+    response_cache.put(cache_name, uid, result)
+    return result
+
+
+@router.get("/transactions/miscategorised-count")
+async def get_miscategorised_count(user: dict = Depends(current_user)):
+    """Read-only guardrail: how many debit rows look like own-account
+    transfers (matched via user_identity/is_own_transfer) but are sitting in
+    a spend category rather than one of the money-to-self categories.
+    Diagnostic only — does not write anything."""
+    uid = user["email"]
+    cache_name = "miscategorised_count"
+    cached = response_cache.get(cache_name, uid)
+    if cached is not None:
+        return cached
+
+    money_to_self = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+    identity = await user_identity(uid)
+    # is_own_transfer treats "no identity data at all" as own (legacy default),
+    # which would flag every spend row here. Guard: no identity → no guardrail.
+    if not identity.get("name_tokens") and not identity.get("own_ids"):
+        result = {"count": 0, "ids": []}
+        response_cache.put(cache_name, uid, result)
+        return result
+
+    txns = await transactions_col.find(
+        {"user_id": uid, "custom_category": None, "transaction_type": "debit",
+         "category": {"$nin": list(money_to_self)}},
+        {"merchant_name": 1, "description": 1},
+    ).to_list(None)
+
+    ids = []
+    for t in txns:
+        text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
+        if is_own_transfer(text, identity):
+            ids.append(str(t["_id"]))
+
+    result = {"count": len(ids), "ids": ids[:50]}
     response_cache.put(cache_name, uid, result)
     return result
 

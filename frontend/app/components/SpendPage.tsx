@@ -131,6 +131,7 @@ export default function SpendPage() {
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isPro, setIsPro] = useState<boolean>(false);
+  const [miscategorisedCount, setMiscategorisedCount] = useState(0);
 
   // Desktop shows every view at once (no tabs), so render mode must be
   // decided in JS — CSS-hiding a duplicate tree would double every fetch.
@@ -146,10 +147,12 @@ export default function SpendPage() {
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
-      const [accs] = await Promise.all([
+      const [accs, misc] = await Promise.all([
         api.accounts().catch(() => [] as Account[]),
+        api.getMiscategorisedCount().catch(() => ({ count: 0, ids: [] as string[] })),
       ]);
       setAccounts(accs);
+      setMiscategorisedCount(misc.count);
     } catch {}
     finally {
       setLoading(false);
@@ -461,6 +464,20 @@ export default function SpendPage() {
                 </span>
               </div>
             </div>
+            {/* Quiet guardrail — informational only, calm slate chip (never
+                red/alarm: Calm Cockpit, Red Is Risk is reserved for genuine
+                liability). Taps into the existing transactions view rather
+                than opening a new surface. */}
+            {miscategorisedCount > 0 && (
+              <button
+                onClick={() => setView("list")}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100/70 dark:bg-slate-700/40 text-slate-500 dark:text-slate-400 text-[11px] font-medium active:opacity-70 transition-opacity"
+              >
+                <span>
+                  {miscategorisedCount} transfer{miscategorisedCount !== 1 ? "s" : ""} may be miscategorised
+                </span>
+              </button>
+            )}
             {/* Income drill-down — shown below the pills when expanded */}
             {incomeExpanded && incomeTxns.length > 0 && (
               <div className="glass-card rounded-xl overflow-hidden">
@@ -650,7 +667,14 @@ export default function SpendPage() {
 
         const displayTxns = largeOnly ? listTxns.filter(tx => Math.abs(tx.amount) >= 250) : listTxns;
         const listBlock = (
-          <div ref={listSectionRef}>
+          <div ref={listSectionRef} className="relative">
+            {/* Ambient glow — this card sits low enough on the page that the
+                page-wide hero glow (app/layout.tsx) has faded to bare canvas
+                by the time it reaches here, so the glass reads flat. Echoes
+                the same indigo/violet field, scoped to this region. No new
+                blur layer (One Blur Rule) — glass-card below still owns the
+                only blur. */}
+            <div aria-hidden="true" className="glow-ambient-panel absolute -inset-x-3 -inset-y-6 -z-10 pointer-events-none" />
             {largeOnly && (
               <div className="flex items-center justify-between mb-2 px-1">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60">

@@ -42,7 +42,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "spend_widgets":      doc.get("spend_widgets"),
         "budget_widgets":     doc.get("budget_widgets"),
         "home_pinned_widget": doc.get("home_pinned_widget"),
-        "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"],
+        "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"],
         "dismissed_recurring":  doc.get("dismissed_recurring", []),
         "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
     }

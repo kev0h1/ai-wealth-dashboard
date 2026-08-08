@@ -14,7 +14,7 @@ from app.services.region import get_user_region, get_kenya_transactions
 router = APIRouter(tags=["challenges"])
 
 CHALLENGE_CATS = {"Eating Out", "Entertainment", "Shopping", "Groceries", "Transport", "Subscriptions"}
-CHALLENGE_EXCL = {"Transfer", "Savings", "Debt", "Income", "Bills", "Utilities"}
+CHALLENGE_EXCL = {"Transfer", "Savings", "Investment", "Debt", "Income", "Bills", "Utilities"}
 
 
 def _week_bounds():

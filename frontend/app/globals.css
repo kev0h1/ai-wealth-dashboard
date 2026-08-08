@@ -403,6 +403,25 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.018) 55%, transparent 92%);
 }
 
+/* Regional echo of the ambient glow — for a glass-card panel that sits low
+   enough on a page (e.g. the Spend transactions list) that the page-wide
+   .glow-ambient field above has already faded to bare canvas, leaving the
+   glass reading flat. Same indigo/violet family, same alpha family as
+   .glow-ambient, just re-centred on the panel's own box with relative (%)
+   geometry instead of px so it scales with the panel, not the viewport.
+   One light source, echoed — never a second colour. No filter blur (One
+   Blur Rule) — the glass-card above it owns the only blur in this region. */
+.glow-ambient-panel {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 25%, rgba(99, 102, 241, 0.13), rgba(99, 102, 241, 0.06) 45%, transparent 75%),
+    radial-gradient(ellipse 65% 60% at 50% 78%, rgba(139, 92, 246, 0.07), rgba(139, 92, 246, 0.035) 45%, transparent 75%);
+}
+.dark .glow-ambient-panel {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 25%, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.09) 45%, transparent 75%),
+    radial-gradient(ellipse 65% 60% at 50% 78%, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 75%);
+}
+
 /* Debt burndown — THE debt-plan background (/debt-plan page). Standard app glow
    restored; the burndown-line is the historical-solid portion, burndown-line-forecast
    is the projection (dashed). Alphas are computed ceilings: the verdict and in-card
@@ -421,6 +440,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    reduced transparency, or the browser can't do backdrop-filter. */
 @media (prefers-reduced-transparency: reduce) {
   .app-glow { display: none; }
+  .glow-ambient-panel { display: none; }
   .burndown-bg { display: none; }
   .glass-hero, .glass-card {
     -webkit-backdrop-filter: none;
@@ -464,6 +484,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .app-glow { display: none; }
+  .glow-ambient-panel { display: none; }
   .burndown-bg { display: none; }
   .glass-hero, .glass-card {
     background: #ffffff;

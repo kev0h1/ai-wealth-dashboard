@@ -11,6 +11,7 @@ export const CATEGORIES = [
   "Travel",
   "Software",
   "Savings",
+  "Investment",
   "Debt",
   "Transfer",
   "Income",
@@ -40,6 +41,7 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   Travel:        "#818cf8",  // indigo  — far/adventure
   Software:      "#a3e635",  // lime    — tech
   Savings:       "#fbbf24",  // amber   — wealth (semantic)
+  Investment:    "#38bdf8",  // sky — invested / at-risk growth
   Debt:          "#f87171",  // red     — liability (semantic)
   Transfer:      "#cbd5e1",  // slate   — neutral
   Income:        "#4ade80",  // green   — positive cash in (not shown in spend donut)

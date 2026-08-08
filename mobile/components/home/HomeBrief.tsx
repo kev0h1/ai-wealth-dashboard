@@ -494,9 +494,25 @@ export function HomeBrief({ greeting, firstName, companionItems, dark, onRefresh
       {visible.map((item) => {
         const onDismiss = () => dismiss(item);
 
+        // "rhythm" is overloaded: only items with a real anomaly payload
+        // (multiple >= 1.5, matching the CategorySheet/SpendPage ask-threshold
+        // convention) get the interactive card with intent buttons. Payload-less
+        // rhythm items (e.g. cliff/switch behaviour cards) render as a plain
+        // info card instead — they have no category/multiple/spent to show and
+        // no intent to record. Mirrors frontend/components/HomeBrief.tsx.
         if (item.type === "rhythm") {
+          if (item.payload?.multiple != null && item.payload.multiple >= 1.5) {
+            return (
+              <RhythmCard
+                key={item.id}
+                item={item}
+                dark={dark}
+                onDismiss={onDismiss}
+              />
+            );
+          }
           return (
-            <RhythmCard
+            <GenericItemCard
               key={item.id}
               item={item}
               dark={dark}

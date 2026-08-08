@@ -17,7 +17,7 @@ from app.db.collections import transactions_col, accounts_col, behaviour_portrai
 
 # Categories excluded from "real spend" computations
 _NON_SPEND_CATEGORIES = {
-    "Transfer", "Savings", "Debt", "Income", "Internal Transfer",
+    "Transfer", "Savings", "Investment", "Debt", "Income", "Internal Transfer",
     "Loan Payment", "Credit Card Payment",
 }
 

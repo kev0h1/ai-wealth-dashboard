@@ -196,8 +196,8 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
   useEffect(() => setMounted(true), []);
   // Upcoming-payments forecasting config (lives here with the other
   // category/rule controls; the forecaster reads it from preferences)
-  const RECURRING_CATEGORY_OPTIONS = ["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt", "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping", "Travel", "Beauty", "Charity", "Other"];
-  const [recurringCats, setRecurringCats] = useState<string[]>(["Bills", "Savings", "Subscriptions", "Health", "Software", "Debt"]);
+  const RECURRING_CATEGORY_OPTIONS = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping", "Travel", "Beauty", "Charity", "Other"];
+  const [recurringCats, setRecurringCats] = useState<string[]>(["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"]);
   const [dismissedRecurring, setDismissedRecurring] = useState<string[]>([]);
   useEffect(() => {
     api.getPreferences().then(p => {
@@ -293,6 +293,10 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
       setSavingRule(false);
     }
   }
+
+  // User-defined categories are selectable here too, appended after the
+  // built-ins so custom picks don't reshuffle the familiar ordering.
+  const recurringOptions = [...RECURRING_CATEGORY_OPTIONS, ...customCategories.filter((c) => !RECURRING_CATEGORY_OPTIONS.includes(c))];
 
   if (!mounted) return null;
 
@@ -550,7 +554,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Categories where regular payments come from — used to predict what&apos;s due</p>
             </div>
             <div className="px-4 py-3.5 flex flex-wrap gap-2">
-              {RECURRING_CATEGORY_OPTIONS.map(cat => (
+              {recurringOptions.map(cat => (
                 <button
                   key={cat}
                   onClick={() => toggleRecurringCat(cat)}

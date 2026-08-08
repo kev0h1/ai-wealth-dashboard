@@ -22,7 +22,7 @@ RAW_TRUELAYER_CATEGORIES = {
 VALID_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
     "Shopping", "Bills", "Subscriptions", "Health", "Beauty", "Travel",
-    "Software", "Savings", "Debt", "Transfer", "Income",
+    "Software", "Savings", "Investment", "Debt", "Transfer", "Income",
     "Cash", "Charity", "Other",
 ]
 
@@ -46,7 +46,8 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'boots pharmacy|lloyds pharmacy|superdrug|pharmacy|chemist|puregym|the gym\b|gym ltd|gym group|anytime fitness|jd gyms|david lloyd|virgin active|planet fitness|nuffield health|bannatyne|snap fitness|dentist|dental|doctor\b|gp\b|nhs\b|hospital|optician|specsavers|vision express|holland.?barrett|vitabiotics|protein|\bspire\s+\w+|bupa\b|axa health|vitality health|aviva health|private.?health|medical.?centre|walk.?in.?centre|urgent.?care|physiotherapy|physio\b|osteopath|chiropractor|acupuncture|counselling|therapy\b|mental health', re.I), 'Health'),
     (re.compile(r'airbnb|booking\.com|hotels\.com|expedia|trivago|ryanair|easyjet|british airways|jet2|tui\b|virgin atlantic|wizz air|blue air|hilton|marriott|premier inn|travelodge|holiday inn|ibis\b|accor|airfare|holiday|travel insurance', re.I), 'Travel'),
     (re.compile(r'github\b|digitalocean|aws\b|amazon web services|google cloud|azure\b|heroku|netlify|vercel|cloudflare|linode|hetzner|namecheap|godaddy|1password|lastpass|dashlane|bitwarden|notion\b|figma\b|slack\b|zoom\b|webflow|railway\b|supabase|mongodb atlas|datadog|sentry\b|linear\b', re.I), 'Software'),
-    (re.compile(r'moneybox|plum\b|chip\b|nutmeg|wealthify|wealthsimple|vanguard|hargreaves lansdown|fidelity|trading 212|freetrade|ii\b|interactive investor|isa\b|pension|\bsavings?\b', re.I), 'Savings'),
+    (re.compile(r'vanguard|nutmeg|wealthify|wealthsimple|hargreaves lansdown|hl invest|fidelity|trading ?212|freetrade|interactive investor|\bii\b', re.I), 'Investment'),
+    (re.compile(r'\bsavings?\b|\bsaver\b|isa|moneybox|plum\b|chip\b|pension', re.I), 'Savings'),
     (re.compile(r'interest on your|interest charge|late fee|overdraft fee|annual fee|card fee|bank charge', re.I), 'Bills'),
     (re.compile(r'balance transfer|internal transfer|faster payment|bacs payment|chaps payment|from .* pot\b', re.I), 'Transfer'),
 
@@ -77,18 +78,29 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
 
 async def user_identity(user_id: str) -> dict:
     """Name tokens (from profile) + the user's own account number/sort-code
-    digit strings (from their TrueLayer accounts). Used to classify FT transfers."""
+    digit strings (from their TrueLayer accounts). Used to classify FT transfers.
+
+    Also builds "own_map": digit-string -> {"account_id", "type", "subtype"}
+    so a hit can be resolved back to the specific destination account (needed
+    to refine own-transfers into Savings/Debt by destination account type)."""
     profile = await user_profiles_col.find_one({"_id": user_id}) or {}
     name_tokens = profile.get("name_tokens", [])
     own_ids: set[str] = set()
+    own_map: dict[str, dict] = {}
     async for a in accounts_col.find(
-        {"user_id": user_id}, {"account_number": 1, "sort_code": 1}
+        {"user_id": user_id},
+        {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1},
     ):
         for field in ("account_number", "sort_code"):
             digits = re.sub(r"\D", "", str(a.get(field) or ""))
             if len(digits) >= 6:
                 own_ids.add(digits)
-    return {"name_tokens": name_tokens, "own_ids": own_ids}
+                own_map[digits] = {
+                    "account_id": a["_id"],
+                    "type": a.get("type"),
+                    "subtype": a.get("subtype"),
+                }
+    return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map}
 
 
 def _name_token_hits(description: str, name_tokens: list[str]) -> set:
@@ -346,7 +358,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # Pass 2: match transfer pairs
         all_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None, "description": {"$ne": None}},
-            {"description": 1, "amount": 1, "transaction_type": 1, "date": 1, "category": 1},
+            {"description": 1, "amount": 1, "transaction_type": 1, "date": 1, "category": 1, "account_id": 1},
         ).to_list(None)
 
         desc_map: dict = defaultdict(list)
@@ -356,6 +368,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 desc_map[key].append(t)
 
         transfer_ids = []
+        transfer_pairs = []  # (credit_txn, debit_txn) — the matched pairs, for Pass 2.6
         for key, txns in desc_map.items():
             credits = [t for t in txns if t["transaction_type"] == "credit"]
             debits  = [t for t in txns if t["transaction_type"] == "debit"]
@@ -367,6 +380,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                     if abs(c["amount"] - d["amount"]) < 0.02:
                         date_diff = abs((c["date"] - d["date"]).days) if isinstance(c["date"], datetime) and isinstance(d["date"], datetime) else 999
                         if date_diff <= 5:
+                            transfer_pairs.append((c, d))
                             if c.get("category") != "Transfer":
                                 transfer_ids.append(c["_id"])
                             if d.get("category") != "Transfer":
@@ -408,6 +422,77 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                         {"$set": {"category": target_cat}},
                     )
                     updated += 1
+
+        # Pass 2.6: refine own-transfers into Savings/Debt by destination
+        # account type. A transfer arriving in the user's own savings/ISA
+        # account is money set aside ("Savings"); one arriving on their own
+        # credit-card account is a card payment ("Debt"). Only the CREDIT
+        # (arriving) leg is ever relabelled — a debit leaving a savings
+        # account must stay "Transfer". Savings/Debt are not in
+        # RAW_TRUELAYER_CATEGORIES, so Pass 3 below leaves these rows alone.
+        from app.services.companion import _is_savings  # deferred: companion -> analytics -> categorisation
+
+        acct_lookup = {
+            str(acc["_id"]): acc
+            async for acc in accounts_col.find(
+                {"user_id": user_id}, {"type": 1, "subtype": 1}
+            )
+        }
+
+        def _refine_target(account_id) -> Optional[str]:
+            acc = acct_lookup.get(str(account_id)) if account_id else None
+            if not acc:
+                return None
+            if _is_savings(acc):
+                return "Savings"
+            if (acc.get("type") or "") == "credit_card":
+                return "Debt"
+            return None
+
+        refine_targets: dict = {}  # _id -> target category
+
+        # 2.6a: transfer pairs matched in Pass 2 — the destination is the
+        # credit leg (money arriving); its account_id tells us where.
+        for c, d in transfer_pairs:
+            # These pairs were just set to "Transfer" by Pass 2 in the DB; the
+            # in-memory `c` dict still holds its pre-Pass-2 category, so we must
+            # NOT gate on c["category"] here (that stale read skips fresh pairs
+            # on their first sync). The update_many below filters on the DB's
+            # current category == "Transfer", which is the real guard.
+            target = _refine_target(c.get("account_id"))
+            if target:
+                refine_targets[c["_id"]] = target
+
+        # 2.6b: classify_ft own-account digit hits — resolve the matched
+        # digit string back to the specific destination account via own_map
+        # (rather than just knowing "it's one of my accounts").
+        own_map = identity.get("own_map") or {}
+        if own_map:
+            transfer_credits = await transactions_col.find(
+                {"user_id": user_id, "custom_category": None,
+                 "transaction_type": "credit", "category": "Transfer"},
+                {"description": 1, "account_id": 1},
+            ).to_list(None)
+            for t in transfer_credits:
+                digits_in_desc = set(re.findall(r"\d{6,}", t.get("description") or ""))
+                hit = digits_in_desc & own_map.keys()
+                if not hit:
+                    continue
+                matched_acc = own_map[next(iter(hit))]
+                target = _refine_target(matched_acc.get("account_id"))
+                if target:
+                    refine_targets.setdefault(t["_id"], target)
+
+        if refine_targets:
+            by_target: dict = defaultdict(list)
+            for _id, target in refine_targets.items():
+                by_target[target].append(_id)
+            for target, ids in by_target.items():
+                result = await transactions_col.update_many(
+                    {"_id": {"$in": ids}, "custom_category": None, "category": "Transfer"},
+                    {"$set": {"category": target}},
+                )
+                updated += result.modified_count
 
     # Pass 3: merchant rules on null/raw/Other
     raw_txns = await transactions_col.find(

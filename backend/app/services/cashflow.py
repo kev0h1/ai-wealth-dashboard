@@ -11,7 +11,7 @@ from datetime import datetime
 from app.db.collections import cashflow_cache_col, transactions_col, yapily_transactions_col
 from app.services.region import get_kenya_transactions
 
-_NON_DISC = {"Transfer", "Savings", "Debt", "Income"}
+_NON_DISC = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 # Only the fields the maths below actually touches — keeps the 90-day scan
 # from dragging full transaction documents over the wire.

@@ -5,7 +5,7 @@ import type {
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
-  SubscriptionInfo,
+  SubscriptionInfo, GrowView,
 } from "@wealth/shared";
 export type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
@@ -13,7 +13,7 @@ export type {
   ChallengesData, InvestmentAccount, InvestmentHolding, InvestmentNote, BudgetItem,
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
-  SubscriptionInfo,
+  SubscriptionInfo, GrowView,
 } from "@wealth/shared";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -877,6 +877,12 @@ export type DebtPlanView = {
   narration?: DebtPlanNarration | null;
 };
 
+// Lightweight summary variant of DebtPlanView (GET /debt-plan/summary) — totals buckets + per-card rate schedule only.
+export type DebtPlanSummary = {
+  totals: { buckets: { carried_total: number; float_total: number } };
+  cards: { name: string; rate_schedule: { source: string; until: string | null }[] }[];
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -996,6 +1002,8 @@ export const api = {
   taxChat: (messages: { role: string; content: string }[]) =>
     post<{ reply: string }>("/chat/tax", { messages }),
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
+  getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
+  getMiscategorisedCount: () => get<{ count: number; ids: string[] }>("/transactions/miscategorised-count"),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
   saveSavingsGoal: (goal: SavingsGoalInput) =>
     fetch(`${API_BASE}/savings/goal`, {
@@ -1408,6 +1416,7 @@ export const api = {
   getDailyMoneyBasic: () => get<MoneyBasic>("/money-basics/daily"),
   getMoneyBasics: (topic?: string) =>
     get<{ items: MoneyBasic[]; tax_year: string }>(`/money-basics${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
+  getGrow: () => get<GrowView>("/grow"),
   getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
   newInsightCount: () => get<{ count: number }>("/savings-insights/new-count"),
   markInsightsViewed: () => post<{ ok: boolean }>("/savings-insights/mark-viewed", {}),

@@ -17,7 +17,7 @@ router = APIRouter(tags=["categories"])
 BUILTIN_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment", "Shopping",
     "Bills", "Subscriptions", "Health", "Beauty", "Travel", "Software",
-    "Savings", "Debt", "Transfer", "Income", "Cash", "Charity", "Other",
+    "Savings", "Investment", "Debt", "Transfer", "Income", "Cash", "Charity", "Other",
 ]
 
 
