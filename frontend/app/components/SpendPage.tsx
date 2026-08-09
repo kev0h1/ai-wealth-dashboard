@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, SlidersHorizontal, ReceiptText, Fuel, CreditCard } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, SlidersHorizontal, ReceiptText, Fuel, CreditCard, Info } from "lucide-react";
 import { api, Account, Transaction, CategorySignal } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useColours } from "@/components/ColourProvider";
@@ -22,6 +22,8 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { CategoryData } from "@/components/CategoryRow";
 import CategorySheet from "@/components/CategorySheet";
 import TransactionSheet from "@/components/TransactionSheet";
+import MiscategorisedReviewSheet from "@/components/MiscategorisedReviewSheet";
+import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import TransactionRow from "@/components/TransactionRow";
@@ -107,6 +109,11 @@ export default function SpendPage() {
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
   const [pendingCategory, setPendingCategory] = useState<string | null>(null);
   const [periodOffset, setPeriodOffset] = useState(0);
+  // Transient highlight for the "miscategorised" chip's deep-link — glows the
+  // affected tile(s) for a couple of seconds so the chip's tap has a visible
+  // destination even on desktop, where every view renders at once.
+  const [highlightedCategories, setHighlightedCategories] = useState<Set<string>>(new Set());
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(0) ?? {});
   const signalsOffsetRef = useRef(0);
   // force = the Door or a category just changed, so the cached copy is dead.
@@ -132,6 +139,9 @@ export default function SpendPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isPro, setIsPro] = useState<boolean>(false);
   const [miscategorisedCount, setMiscategorisedCount] = useState(0);
+  const [miscategorisedIds, setMiscategorisedIds] = useState<string[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   // Desktop shows every view at once (no tabs), so render mode must be
   // decided in JS — CSS-hiding a duplicate tree would double every fetch.
@@ -153,6 +163,7 @@ export default function SpendPage() {
       ]);
       setAccounts(accs);
       setMiscategorisedCount(misc.count);
+      setMiscategorisedIds(misc.ids);
     } catch {}
     finally {
       setLoading(false);
@@ -255,16 +266,6 @@ export default function SpendPage() {
       .sort((a, b) => b.total - a.total);
   }, [homeTxns]);
 
-  // Open the matching category once categories have loaded (deep-link from RhythmCard)
-  useEffect(() => {
-    if (!pendingCategory) return;
-    const match = categories.find(c => c.name === pendingCategory);
-    if (match) {
-      setPendingCategory(null);
-      setOpenCategory(match);
-    }
-  }, [pendingCategory, categories]);
-
   // Untracked categories — only Transfer (both directions)
   const untrackedCategories = useMemo((): CategoryData[] => {
     const map: Record<string, { total: number; count: number; transactions: Transaction[] }> = {};
@@ -287,6 +288,20 @@ export default function SpendPage() {
       }))
       .sort((a, b) => b.total - a.total);
   }, [homeTxns]);
+
+  // Open the matching category once categories have loaded (deep-link from
+  // RhythmCard, or the miscategorised-transfers chip). Checks the untracked
+  // (Transfer) list too, since flagged transfers can land there.
+  useEffect(() => {
+    if (!pendingCategory) return;
+    const match =
+      categories.find(c => c.name === pendingCategory) ??
+      untrackedCategories.find(c => c.name === pendingCategory);
+    if (match) {
+      setPendingCategory(null);
+      setOpenCategory(match);
+    }
+  }, [pendingCategory, categories, untrackedCategories]);
 
   // Income transactions for drill-down — Income category only; other credits
   // are refunds and live in their own category
@@ -339,6 +354,13 @@ export default function SpendPage() {
     setLargeOnly(false);
   }
 
+  // Miscategorised-transfers chip: opens the review sheet where each flagged
+  // transaction can be recategorised or dismissed in place (replaces the old
+  // deep-link/glow-the-tile behaviour).
+  function handleMiscategorisedTap() {
+    setReviewOpen(true);
+  }
+
   const [currentStart, currentEnd] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
   const isCurrentPeriod =
     periodStart.getTime() === currentStart.getTime() &&
@@ -365,6 +387,11 @@ export default function SpendPage() {
         return t;
       })
     );
+    // A recategorise can clear (or add) a miscategorised flag — refresh the
+    // chip's count/ids so it drops off once the flagged transfer is fixed.
+    api.getMiscategorisedCount()
+      .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
+      .catch(() => {});
   }
 
   const sym = region === "Kenya" ? "KES " : "£";
@@ -464,18 +491,20 @@ export default function SpendPage() {
                 </span>
               </div>
             </div>
-            {/* Quiet guardrail — informational only, calm slate chip (never
-                red/alarm: Calm Cockpit, Red Is Risk is reserved for genuine
-                liability). Taps into the existing transactions view rather
-                than opening a new surface. */}
+            {/* Quiet guardrail — informational only, glass-tile affordance
+                (never red/alarm at rest: Calm Cockpit, Red Is Risk is
+                reserved for genuine liability). Deep-links to and glows the
+                flagged tile(s) rather than just opening the raw list. */}
             {miscategorisedCount > 0 && (
               <button
-                onClick={() => setView("list")}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100/70 dark:bg-slate-700/40 text-slate-500 dark:text-slate-400 text-[11px] font-medium active:opacity-70 transition-opacity"
+                onClick={handleMiscategorisedTap}
+                className="w-full glass-tile rounded-xl px-3 py-2 flex items-center gap-2 active:scale-95 transition-transform"
               >
-                <span>
+                <ReceiptText size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                <span className="flex-1 text-left text-[11px] font-medium text-slate-500 dark:text-slate-400">
                   {miscategorisedCount} transfer{miscategorisedCount !== 1 ? "s" : ""} may be miscategorised
                 </span>
+                <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
               </button>
             )}
             {/* Income drill-down — shown below the pills when expanded */}
@@ -511,6 +540,17 @@ export default function SpendPage() {
             ]}
           />
         )}
+
+        {/* How we categorise — quiet, discoverable affordance. Calm slate
+            text button (never loud), consistent with the "Pay period
+            settings" button above. Opens CategorisationRulesSheet. */}
+        <button
+          onClick={() => setRulesOpen(true)}
+          className="mt-3 flex items-center gap-1.5 mx-auto text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors text-[11px] font-medium"
+        >
+          <Info size={11} />
+          <span>How we categorise your money</span>
+        </button>
       </div>
 
 
@@ -544,8 +584,9 @@ export default function SpendPage() {
                   return (
                     <button
                       key={cat.name}
+                      data-category={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className="glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
+                      className={`glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
                     >
                       <div className="flex items-center gap-2.5">
                         {/* tinted icon chip — the card's single colour-identity cue */}
@@ -639,8 +680,9 @@ export default function SpendPage() {
                   return (
                     <button
                       key={cat.name}
+                      data-category={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className="glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
+                      className={`glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
                     >
                       <div className="flex items-center gap-2.5">
                         <span
@@ -820,6 +862,26 @@ export default function SpendPage() {
           onUpdated={handleTxUpdated}
           account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
         />
+      )}
+
+      {/* Miscategorised-transfers review sheet — "Recategorise" opens the
+          existing TransactionSheet on top (stacked), reusing the same
+          selectedTx state and onUpdated handler as everywhere else. */}
+      {reviewOpen && (
+        <MiscategorisedReviewSheet
+          onClose={() => setReviewOpen(false)}
+          onRecategorise={(tx) => setSelectedTx(tx)}
+          onChanged={() =>
+            api.getMiscategorisedCount()
+              .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
+              .catch(() => {})
+          }
+        />
+      )}
+
+      {/* Categorisation rules sheet — explains the money-to-self rules */}
+      {rulesOpen && (
+        <CategorisationRulesSheet onClose={() => setRulesOpen(false)} />
       )}
 
       {/* Pay period settings sheet */}

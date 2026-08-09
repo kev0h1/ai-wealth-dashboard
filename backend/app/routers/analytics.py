@@ -899,8 +899,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     else:
         _next_pay = _calc_next_payday(_today_d, _pay_cfg)
     _days_to_pay = (_next_pay - _today_d).days
-    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] < _days_to_pay]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] < _days_to_pay]
+    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] <= _days_to_pay]
+    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= _days_to_pay]
 
     # Skip bills where we have no balance data, or the bill is on a credit card
     # (credit cards have a credit limit, not an available balance, so a bill
@@ -960,7 +960,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
         if acct in running and income_credit_ok(i, acct, _confirmed_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True))
 
-    events.sort(key=lambda e: (e[0], 0 if e[3] else 1))  # income before bills on the same day
+    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income on the same day (conservative)
 
     at_risk = 0
     for days_away, acct, amount, is_income in events:
@@ -2023,42 +2023,161 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
     return result
 
 
+async def _flagged_miscategorised(uid: str) -> list:
+    """Shared guardrail query: debit rows that look like own-account transfers
+    (matched via user_identity/is_own_transfer) but sit in a spend category
+    rather than a money-to-self category. Excludes rows/series already
+    dismissed. Returns flat list of annotated txn docs (adds _series_key and
+    _effective_category)."""
+    money_to_self = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+    identity = await user_identity(uid)
+    # is_own_transfer treats "no identity data at all" as own (legacy default),
+    # which would flag every spend row here. Guard: no identity → no guardrail.
+    if not identity.get("name_tokens") and not identity.get("own_ids"):
+        return []
+
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    dismissed = set(prefs.get("dismissed_miscategorised") or [])
+    dismissed_series = set(prefs.get("dismissed_miscategorised_series") or [])
+
+    txns = await transactions_col.find(
+        {"user_id": uid, "transaction_type": "debit",
+         "$or": [
+             # auto-categorised into a spend category
+             {"custom_category": None, "category": {"$nin": list(money_to_self)}},
+             # manually overridden into a spend category — guide the user back
+             {"custom_category": {"$nin": [None, *money_to_self]}},
+         ]},
+        {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+         "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+         "account_id": 1},
+    ).to_list(None)
+
+    kept = []
+    for t in txns:
+        tid = str(t["_id"])
+        if tid in dismissed:
+            continue
+        sk = series_key(t)
+        if sk in dismissed_series:
+            continue
+        text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
+        if is_own_transfer(text, identity, own_account_id=t.get("account_id")):
+            t["_series_key"] = sk
+            t["_effective_category"] = t.get("custom_category") or t.get("category")
+            kept.append(t)
+
+    return kept
+
+
+def _group_miscategorised(txns: list) -> list:
+    """Group flagged transactions by recurrence series (_series_key). Each
+    group's representative is its most recent member."""
+    groups: dict = defaultdict(list)
+    for t in txns:
+        groups[t["_series_key"]].append(t)
+
+    result = []
+    for sk, members in groups.items():
+        members.sort(key=lambda x: (x.get("date") is not None, x.get("date")), reverse=True)
+        rep = members[0]
+        member_dates = [m["date"] for m in members if m.get("date")]
+        first_date = min(member_dates) if member_dates else None
+        amounts = [m.get("amount") for m in members if m.get("amount") is not None]
+
+        def _iso(d):
+            return d.isoformat() if hasattr(d, "isoformat") else d
+
+        result.append({
+            "id": str(rep["_id"]),
+            "ids": [str(m["_id"]) for m in members],
+            "count": len(members),
+            "series_key": sk,
+            "merchant_name": rep.get("merchant_name"),
+            "description": rep.get("description"),
+            "amount": rep.get("amount"),
+            "amount_min": min(amounts) if amounts else None,
+            "amount_max": max(amounts) if amounts else None,
+            "date": _iso(rep.get("date")),
+            "first_date": _iso(first_date) if first_date is not None else None,
+            "currency": rep.get("currency"),
+            "category": rep.get("_effective_category"),
+            "transaction_type": rep.get("transaction_type"),
+        })
+
+    result.sort(key=lambda g: g.get("date") or "", reverse=True)
+    return result
+
+
 @router.get("/transactions/miscategorised-count")
 async def get_miscategorised_count(user: dict = Depends(current_user)):
-    """Read-only guardrail: how many debit rows look like own-account
-    transfers (matched via user_identity/is_own_transfer) but are sitting in
-    a spend category rather than one of the money-to-self categories.
-    Diagnostic only — does not write anything."""
+    """Read-only guardrail: how many recurring-transfer SERIES look like
+    own-account transfers (matched via user_identity/is_own_transfer) but are
+    sitting in a spend category rather than one of the money-to-self
+    categories. Diagnostic only — does not write anything."""
     uid = user["email"]
     cache_name = "miscategorised_count"
     cached = response_cache.get(cache_name, uid)
     if cached is not None:
         return cached
 
-    money_to_self = {"Transfer", "Savings", "Investment", "Debt", "Income"}
-    identity = await user_identity(uid)
-    # is_own_transfer treats "no identity data at all" as own (legacy default),
-    # which would flag every spend row here. Guard: no identity → no guardrail.
-    if not identity.get("name_tokens") and not identity.get("own_ids"):
-        result = {"count": 0, "ids": []}
-        response_cache.put(cache_name, uid, result)
-        return result
-
-    txns = await transactions_col.find(
-        {"user_id": uid, "custom_category": None, "transaction_type": "debit",
-         "category": {"$nin": list(money_to_self)}},
-        {"merchant_name": 1, "description": 1},
-    ).to_list(None)
-
-    ids = []
-    for t in txns:
-        text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
-        if is_own_transfer(text, identity):
-            ids.append(str(t["_id"]))
-
-    result = {"count": len(ids), "ids": ids[:50]}
+    groups = _group_miscategorised(await _flagged_miscategorised(uid))
+    result = {"count": len(groups), "ids": [g["id"] for g in groups][:50]}
     response_cache.put(cache_name, uid, result)
     return result
+
+
+@router.get("/transactions/miscategorised")
+async def get_miscategorised_transactions(user: dict = Depends(current_user)):
+    """Grouped rows behind the miscategorised-transfers guardrail, for the
+    'review miscategorised transfers' sheet. Recurring transfers (same payee,
+    different dates) collapse to one series entry; dismissing a series hides
+    all its members, past and future."""
+    uid = user["email"]
+    cache_name = "miscategorised_list"
+    cached = response_cache.get(cache_name, uid)
+    if cached is not None:
+        return cached
+
+    items = _group_miscategorised(await _flagged_miscategorised(uid))[:50]
+    result = {"items": items}
+    response_cache.put(cache_name, uid, result)
+    return result
+
+
+@router.post("/transactions/{txn_id}/dismiss-miscategorised")
+async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)):
+    """Dismiss a single miscategorised-transfer row from the review sheet.
+    Does not change the transaction's category — only hides it from the
+    guardrail count/list going forward."""
+    uid = user["email"]
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$addToSet": {"dismissed_miscategorised": txn_id}, "$set": {"user_id": uid}},
+        upsert=True,
+    )
+    response_cache.invalidate(uid, "miscategorised_count")
+    response_cache.invalidate(uid, "miscategorised_list")
+    return {"ok": True}
+
+
+@router.post("/transactions/dismiss-miscategorised-series")
+async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current_user)):
+    """Dismiss an entire recurring-transfer series from the review sheet —
+    covers all past members and future months with the same series key.
+    Does not change any transaction's category."""
+    uid = user["email"]
+    series = body.get("series_key")
+    if not series:
+        raise HTTPException(400, "Provide 'series_key'")
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$addToSet": {"dismissed_miscategorised_series": series}, "$set": {"user_id": uid}},
+        upsert=True,
+    )
+    response_cache.invalidate(uid, "miscategorised_count")
+    response_cache.invalidate(uid, "miscategorised_list")
+    return {"ok": True}
 
 
 @router.get("/value-delivered")

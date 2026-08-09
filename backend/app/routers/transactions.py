@@ -18,6 +18,7 @@ from app.services.categorisation import (
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
     normalise_merchant, cache_merchant, strip_date_fragments, LEADING_DATE_RE,
 )
+from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
 
@@ -241,6 +242,12 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     from app.routers.analytics import compute_and_cache_cashflow
     import asyncio as _asyncio
     _asyncio.create_task(compute_and_cache_cashflow(user["email"], clear_ai_cache=False))
+
+    # Category changes can flip a row in/out of the miscategorised-transfers
+    # guardrail (auto vs. manual override into/out of a spend category) —
+    # invalidate so the flag/sheet reflects the change immediately.
+    response_cache.invalidate(user["email"], "miscategorised_count")
+    response_cache.invalidate(user["email"], "miscategorised_list")
 
     return {"updated": transaction_id, "custom_category": category, "bulk_count": bulk_count}
 

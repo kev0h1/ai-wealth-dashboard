@@ -1004,6 +1004,28 @@ export const api = {
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
   getMiscategorisedCount: () => get<{ count: number; ids: string[] }>("/transactions/miscategorised-count"),
+  getMiscategorised: () =>
+    get<{
+      items: {
+        id: string;
+        ids: string[];
+        count: number;
+        series_key: string;
+        merchant_name: string | null;
+        description: string | null;
+        amount: number;
+        amount_min: number | null;
+        amount_max: number | null;
+        date: string;
+        first_date: string | null;
+        currency: string;
+        category: string | null;
+        transaction_type: string;
+      }[];
+    }>("/transactions/miscategorised"),
+  dismissMiscategorised: (id: string) => post<{ ok: boolean }>(`/transactions/${id}/dismiss-miscategorised`, {}),
+  dismissMiscategorisedSeries: (seriesKey: string) =>
+    post<{ ok: boolean }>("/transactions/dismiss-miscategorised-series", { series_key: seriesKey }),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
   saveSavingsGoal: (goal: SavingsGoalInput) =>
     fetch(`${API_BASE}/savings/goal`, {
