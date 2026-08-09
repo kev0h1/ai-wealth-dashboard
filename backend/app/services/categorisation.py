@@ -146,26 +146,42 @@ def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
     return any(w for w in words if len(w) == 1 and w in unmatched_initials)
 
 
-def is_own_transfer(text: str, identity: dict) -> bool:
+def is_own_transfer(text: str, identity: dict, own_account_id=None) -> bool:
     """True when a payment is corroborated as moving between the user's own
     accounts: their own account/sort-code digits, or their own name.
-    With no identity data at all we can't judge — treat as own (legacy)."""
+    With no identity data at all we can't judge — treat as own (legacy).
+
+    own_account_id: the account this txn is booked on. Its own number/sort-code
+    is ignored as evidence because banks echo the host account's own number
+    into its narrative (e.g. "27MAR A/C 76526682" on account 76526682 itself),
+    which is not evidence of a move BETWEEN the user's accounts. Digits
+    belonging to any OTHER own account still count as transfer evidence."""
     if not identity["name_tokens"] and not identity["own_ids"]:
         return True
     digits = set(re.findall(r"\d{6,}", text))
-    if any(oid in digits for oid in identity["own_ids"]):
+    own_map = identity.get("own_map") or {}
+    for oid in identity["own_ids"]:
+        if oid not in digits:
+            continue
+        if own_account_id is not None and own_map.get(oid, {}).get("account_id") == own_account_id:
+            continue  # self-reference: host account echoing its own number
         return True
     return name_matches_owner(text, identity["name_tokens"])
 
 
-def classify_ft(description: str, amount: float, identity: dict) -> Optional[str]:
+def classify_ft(description: str, amount: float, identity: dict, own_account_id=None) -> Optional[str]:
     """Classify a TrueLayer 'FT' (funds transfer) transaction.
     Returns a category, or None if the description isn't an FT line."""
     desc = (description or "").strip()
     if not re.search(r"\bFT\s*$", desc, re.I):
         return None
     digits_in_desc = set(re.findall(r"\d{6,}", desc))
-    if any(oid in digits_in_desc for oid in identity["own_ids"]):
+    own_map = identity.get("own_map") or {}
+    for oid in identity["own_ids"]:
+        if oid not in digits_in_desc:
+            continue
+        if own_account_id is not None and own_map.get(oid, {}).get("account_id") == own_account_id:
+            continue  # self-reference: host account echoing its own number
         return "Transfer"
     # The Income/Other split hinges on the name not matching, which is only
     # meaningful once we know the user's name. Until then, leave it be.
@@ -317,11 +333,11 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         ft_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None,
              "description": {"$regex": r"FT\s*$", "$options": "i"}},
-            {"description": 1, "amount": 1, "transaction_type": 1, "category": 1},
+            {"description": 1, "amount": 1, "transaction_type": 1, "category": 1, "account_id": 1},
         ).to_list(None)
         for t in ft_txns:
             signed = t["amount"] if t.get("transaction_type") == "credit" else -t["amount"]
-            cat = classify_ft(t.get("description", ""), signed, identity)
+            cat = classify_ft(t.get("description", ""), signed, identity, own_account_id=t.get("account_id"))
             if cat and t.get("category") != cat:
                 await transactions_col.update_one(
                     {"_id": t["_id"], "custom_category": None},
@@ -423,13 +439,22 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                     )
                     updated += 1
 
-        # Pass 2.6: refine own-transfers into Savings/Debt by destination
-        # account type. A transfer arriving in the user's own savings/ISA
-        # account is money set aside ("Savings"); one arriving on their own
-        # credit-card account is a card payment ("Debt"). Only the CREDIT
-        # (arriving) leg is ever relabelled — a debit leaving a savings
-        # account must stay "Transfer". Savings/Debt are not in
-        # RAW_TRUELAYER_CATEGORIES, so Pass 3 below leaves these rows alone.
+        # Pass 2.6: refine own-transfers into Savings/Debt by placing the
+        # intent on the CURRENT-account leg, in BOTH directions. For a
+        # matched own-transfer pair, whichever leg sits on the SAVINGS/ISA
+        # or CREDIT-CARD account always stays "Transfer"; the OTHER leg (the
+        # current account) carries the intent:
+        #
+        #   direction            | current leg      | savings/card leg
+        #   ----------------------|-------------------|------------------
+        #   current -> savings   | debit  -> Savings | credit -> Transfer
+        #   savings -> current   | credit -> Savings | debit  -> Transfer
+        #   current -> card      | debit  -> Debt    | credit -> Transfer
+        #   card -> current      | credit -> Debt    | debit  -> Transfer
+        #
+        # This is never "Income" — both legs are internal movements of the
+        # user's own money. Savings/Debt are not in RAW_TRUELAYER_CATEGORIES,
+        # so Pass 3 below leaves these rows alone.
         from app.services.companion import _is_savings  # deferred: companion -> analytics -> categorisation
 
         acct_lookup = {
@@ -451,29 +476,44 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
 
         refine_targets: dict = {}  # _id -> target category
 
-        # 2.6a: transfer pairs matched in Pass 2 — the destination is the
-        # credit leg (money arriving); its account_id tells us where.
+        # 2.6a: transfer pairs matched in Pass 2 (c=credit leg, d=debit leg).
+        # Figure out which leg (if either) sits on a savings/card account;
+        # the OTHER leg is the current-account side and gets the intent.
+        # These pairs were just set to "Transfer" by Pass 2 in the DB; the
+        # in-memory `c`/`d` dicts still hold their pre-Pass-2 category, so we
+        # must NOT gate on category here (that stale read skips fresh pairs
+        # on their first sync). The update_many below filters on the DB's
+        # current category == "Transfer", which is the real guard.
         for c, d in transfer_pairs:
-            # These pairs were just set to "Transfer" by Pass 2 in the DB; the
-            # in-memory `c` dict still holds its pre-Pass-2 category, so we must
-            # NOT gate on c["category"] here (that stale read skips fresh pairs
-            # on their first sync). The update_many below filters on the DB's
-            # current category == "Transfer", which is the real guard.
-            target = _refine_target(c.get("account_id"))
-            if target:
-                refine_targets[c["_id"]] = target
+            c_target = _refine_target(c.get("account_id"))
+            d_target = _refine_target(d.get("account_id"))
+            if c_target and not d_target:
+                # credit leg is on savings/card (money arriving there from
+                # current) -> the debit (current) leg carries the intent.
+                refine_targets[d["_id"]] = c_target
+            elif d_target and not c_target:
+                # debit leg is on savings/card (money leaving there into
+                # current) -> the credit (current) leg carries the intent.
+                refine_targets[c["_id"]] = d_target
+            # if both legs are savings/card, or neither is, leave both as Transfer
 
         # 2.6b: classify_ft own-account digit hits — resolve the matched
-        # digit string back to the specific destination account via own_map
-        # (rather than just knowing "it's one of my accounts").
+        # digit string back to the specific counterparty account via
+        # own_map. Works in both directions: skip a txn if it is itself on
+        # the savings/card account (that's the side that stays "Transfer");
+        # otherwise it's the current-account leg, so stamp it with the
+        # counterparty account's target.
         own_map = identity.get("own_map") or {}
         if own_map:
-            transfer_credits = await transactions_col.find(
+            transfer_txns = await transactions_col.find(
                 {"user_id": user_id, "custom_category": None,
-                 "transaction_type": "credit", "category": "Transfer"},
+                 "category": "Transfer"},
                 {"description": 1, "account_id": 1},
             ).to_list(None)
-            for t in transfer_credits:
+            for t in transfer_txns:
+                if _refine_target(t.get("account_id")) is not None:
+                    # this txn is itself on the savings/card account leg
+                    continue
                 digits_in_desc = set(re.findall(r"\d{6,}", t.get("description") or ""))
                 hit = digits_in_desc & own_map.keys()
                 if not hit:
@@ -631,12 +671,13 @@ async def categorise_others_bg(uid: str) -> int:
     owner_name = " ".join(t.capitalize() for t in identity["name_tokens"]) if identity["name_tokens"] else None
 
     col_map = [transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col]
-    cat_list = ", ".join(VALID_CATEGORIES)
+    # Structural / money-to-self categories (Transfer, Savings, Debt, Investment) are
+    # assigned deterministically by earlier passes (Pass 2 / 2.6) and must never be
+    # something the LLM guesses at — exclude them from the list it's allowed to pick.
+    cat_list = ", ".join(c for c in VALID_CATEGORIES if c not in {"Transfer", "Savings", "Debt", "Investment"})
     _name_clause = (
         f"- The account owner's name is {owner_name}. "
-        "If a transaction's text references that name (full, partial, initials, or truncated), "
-        "it is a transfer between the owner's own accounts → Transfer.\n"
-        "- A credit into a bank account whose text does NOT reference the owner's name → Income.\n"
+        "A credit into a bank account whose text does NOT reference the owner's name → Income.\n"
     ) if owner_name else ""
     prompt_prefix = (
         "You are a UK personal finance assistant categorising bank transactions.\n"
@@ -649,7 +690,6 @@ async def categorise_others_bg(uid: str) -> int:
         "- Subscriptions: streaming, software, recurring digital memberships\n"
         "- Health: hospitals, pharmacies, gyms, dentists, medical services\n"
         "- Travel: flights, hotels, holidays\n"
-        "- Transfer: payments between accounts, credit card repayments, personal transfers\n"
         "- Income: salary, refunds, cashback, money received from people\n"
         f"{_name_clause}"
         "- Other: only if genuinely unclassifiable\n"
@@ -703,6 +743,11 @@ async def categorise_others_bg(uid: str) -> int:
 
         for i, label in enumerate(unique_labels):
             cat = classifications.get(str(i + 1))
+            if cat in {"Transfer", "Savings", "Debt", "Investment"}:
+                # Defensive: these are structural/money-to-self categories the LLM was
+                # never offered (see cat_list above) but may still hallucinate. Never
+                # let a hallucinated answer land here — fall back to Other.
+                cat = "Other"
             final = cat if (cat and cat in VALID_CATEGORIES) else None
             update: dict = {"ai_attempted": True}
             if final and final != "Other":

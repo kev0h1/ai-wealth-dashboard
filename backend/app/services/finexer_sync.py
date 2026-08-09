@@ -180,7 +180,7 @@ async def _upsert_finexer_transactions(
             # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
             # tags) is unaffected.
             category = rule_categorise(merchant, description) or (
-                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity)
+                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
             )
         else:

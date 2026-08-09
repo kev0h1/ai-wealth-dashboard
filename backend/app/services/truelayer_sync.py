@@ -74,7 +74,7 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             # peer payments (e.g. Monzo requests) get tagged TRANSFER by TrueLayer
             # but are Income.
             category = rule_categorise(merchant, description) or (
-                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity)
+                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
             )
         elif raw_cat == "TRANSFER":
@@ -83,7 +83,7 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             # when the description corroborates the user's own identity —
             # otherwise it's real spend and must stay visible ("Other").
             category = rule_categorise(merchant, description) or (
-                "Transfer" if identity is None or is_own_transfer(f"{merchant} {description}", identity)
+                "Transfer" if identity is None or is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Other"
             )
         else:
