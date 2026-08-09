@@ -186,11 +186,11 @@ def _card_movement_line(delta: float, delta_prev: float | None) -> str:
       - Cards grew (delta > 0): calm, factual, neutral tone — never advice.
     """
     if abs(delta) < 20:
-        return "Cards held steady — balance barely moved this month."
+        return "Credit cards held steady — balance barely moved this month."
 
     if delta < 0:
         # Cards shrank — positive direction
-        line = f"Cards down {_fmt(abs(delta))} — your balance fell this period."
+        line = f"Credit cards down {_fmt(abs(delta))} — your balance fell this period."
         if delta_prev is not None and abs(delta_prev) >= 20:
             if delta_prev > 0:
                 # Last month grew, this month shrank — improvement
@@ -209,7 +209,7 @@ def _card_movement_line(delta: float, delta_prev: float | None) -> str:
         return line
 
     # Cards grew — informational, calm, not alarming
-    return f"Cards carried {_fmt(delta)} more this month."
+    return f"Credit cards carried {_fmt(delta)} more this month."
 
 
 def _history_is_credible(history: list[float], has_txns: bool) -> bool:

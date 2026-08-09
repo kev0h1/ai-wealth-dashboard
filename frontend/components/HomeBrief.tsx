@@ -390,7 +390,9 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
                     />
                   </span>
                   <span className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug flex-1 min-w-0">
-                    {maskAmounts(`£${Math.round(dest.balance).toLocaleString("en-GB")} held · needs £${(dest.needs_total ?? 0).toLocaleString("en-GB")} by ${dest.needs_by} for ${billCount} ${billCount === 1 ? "payment" : "payments"}`)}
+                    {maskAmounts(billCount === 1
+                      ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment lands ${dest.needs_by}`
+                      : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before payday · first lands ${dest.needs_by}`)}
                   </span>
                 </div>
               </div>

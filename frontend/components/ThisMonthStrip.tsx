@@ -100,7 +100,7 @@ export default function ThisMonthStrip() {
             if (Math.abs(delta) < 20) {
               return (
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                  Cards have held steady {timeframe}.
+                  Credit cards have held steady {timeframe}.
                 </p>
               );
             }
@@ -108,7 +108,7 @@ export default function ThisMonthStrip() {
             const shrank = delta < 0;
             return (
               <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                Cards have {shrank ? "come down" : "gone up"}{" "}
+                Credit cards have {shrank ? "come down" : "gone up"}{" "}
                 <span
                   className={`num font-semibold ${
                     shrank

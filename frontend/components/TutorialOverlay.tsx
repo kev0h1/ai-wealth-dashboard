@@ -105,14 +105,13 @@ export default function TutorialOverlay() {
   }
 
   return (
-    <div className="fixed inset-0 z-[60]" style={{ pointerEvents: "auto" }}>
-      {/* Dark overlay with rounded spotlight cutout */}
+    <div className="fixed inset-0 z-[60]" style={{ pointerEvents: "none" }}>
+      {/* Dark overlay with rounded spotlight cutout (visual only — never captures clicks) */}
       {hasSpotlight ? (
         <>
           <svg
             className="absolute inset-0 w-full h-full"
-            style={{ pointerEvents: "auto" }}
-            onClick={end}
+            style={{ pointerEvents: "none" }}
           >
             <defs>
               <mask id="tutorial-spotlight-mask">
@@ -137,9 +136,28 @@ export default function TutorialOverlay() {
               style={{ pointerEvents: "none" }}
             />
           </svg>
+          {/* Invisible dismiss curtains — tile the viewport MINUS the spotlighted
+              rect, so the target element receives clicks directly (nothing with
+              pointer-events:auto sits over it). Clicking any dimmed area still ends the tour. */}
+          <div
+            onClick={end}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, height: Math.max(0, rect!.top), pointerEvents: "auto" }}
+          />
+          <div
+            onClick={end}
+            style={{ position: "absolute", top: rect!.top + rect!.height, left: 0, right: 0, bottom: 0, pointerEvents: "auto" }}
+          />
+          <div
+            onClick={end}
+            style={{ position: "absolute", top: rect!.top, left: 0, width: Math.max(0, rect!.left), height: rect!.height, pointerEvents: "auto" }}
+          />
+          <div
+            onClick={end}
+            style={{ position: "absolute", top: rect!.top, left: rect!.left + rect!.width, right: 0, height: rect!.height, pointerEvents: "auto" }}
+          />
         </>
       ) : (
-        <div className="absolute inset-0 bg-black/60" onClick={end} />
+        <div className="absolute inset-0 bg-black/60" onClick={end} style={{ pointerEvents: "auto" }} />
       )}
 
       {/* Tooltip card */}
@@ -147,8 +165,8 @@ export default function TutorialOverlay() {
         className="absolute bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden"
         style={
           isCenteredTooltip
-            ? { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: TW }
-            : { top: tooltipTop, left: tooltipLeft, width: TW }
+            ? { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: TW, pointerEvents: "auto" }
+            : { top: tooltipTop, left: tooltipLeft, width: TW, pointerEvents: "auto" }
         }
       >
         {/* Arrow — only shown when tooltip is anchored to the spotlight */}
