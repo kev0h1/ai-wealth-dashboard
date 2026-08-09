@@ -228,7 +228,7 @@ export default function PlanningPage() {
     if (!cashflow) return [];
     const nextPaydayMs = periodEnd.getTime() + 86400000;
     const scopedBills = cashflow.upcoming_bills.filter(
-      (b) => new Date(b.expected_date).getTime() < nextPaydayMs &&
+      (b) => new Date(b.expected_date).getTime() <= nextPaydayMs &&
              b.account_balance != null && b.account_balance >= 0 &&
              !b.is_credit_card
     );
@@ -244,12 +244,12 @@ export default function PlanningPage() {
     const events: Event[] = [
       ...scopedBills.map((b) => ({ kind: "bill" as const, days_away: b.days_away, amount: b.amount, account_id: b.account_id, bill: b })),
       ...cashflow.upcoming_income
-        .filter((inc) => new Date(inc.expected_date).getTime() < nextPaydayMs)
+        .filter((inc) => new Date(inc.expected_date).getTime() <= nextPaydayMs)
         .map((inc) => ({ kind: "income" as const, days_away: inc.days_away, amount: inc.amount, account_id: inc.account_id as string | null | undefined })),
     ];
     events.sort((a, b) => {
       if (a.days_away !== b.days_away) return a.days_away - b.days_away;
-      return a.kind === "income" ? -1 : 1;
+      return (a.kind === "income" ? 1 : 0) - (b.kind === "income" ? 1 : 0);
     });
     const atRisk: typeof scopedBills = [];
     for (const ev of events) {
@@ -273,6 +273,10 @@ export default function PlanningPage() {
     return atRisk;
   })();
 
+  const atRiskKey = (b: { account_id?: string | null; expected_date: string; amount: number; name?: string }) =>
+    `${b.account_id ?? "__null__"}|${b.expected_date}|${b.amount}|${b.name ?? ""}`;
+  const atRiskKeySet = new Set(atRiskBills.map(atRiskKey));
+
   const accountShortfalls = (() => {
     if (!cashflow || atRiskBills.length === 0) return [];
     const accountIds = [...new Set(atRiskBills.map(b => b.account_id ?? "__null__"))];
@@ -285,7 +289,7 @@ export default function PlanningPage() {
         const nextPaydayMs = periodEnd.getTime() + 86400000;
         const scopedBills = cashflow!.upcoming_bills.filter(
           b => (b.account_id ?? "__null__") === accountId &&
-               new Date(b.expected_date).getTime() < nextPaydayMs &&
+               new Date(b.expected_date).getTime() <= nextPaydayMs &&
                b.account_balance != null &&
                b.account_balance >= 0 &&
                !b.is_credit_card
@@ -527,7 +531,7 @@ export default function PlanningPage() {
             const is_credit_card = item.is_credit_card !== undefined
               ? item.is_credit_card
               : (acctBalance !== null && acctBalance < 0);
-            const account_short = !is_credit_card && acctBalance !== null && item.amount > acctBalance;
+            const account_short = !is_credit_card && atRiskKeySet.has(atRiskKey(item));
             return { ...item, balance_after: running, at_risk: running < 0, account_short, is_credit_card };
           }
         });

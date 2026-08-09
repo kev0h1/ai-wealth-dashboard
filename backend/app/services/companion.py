@@ -231,10 +231,10 @@ async def compute_today_items(uid: str) -> list[dict]:
     else:
         next_pay = _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
-    window_end = next_pay  # exclusive upper bound (bills with days_away < days_to_pay)
+    window_end = next_pay  # inclusive of payday: bills/income with days_away <= days_to_pay
 
-    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] < days_to_pay]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] < days_to_pay]
+    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] <= days_to_pay]
+    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= days_to_pay]
 
     # Skip bills where we have no balance data, or the bill is on a credit card
     # (credit cards have a credit limit, not an available balance, so a bill
@@ -312,7 +312,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
             credited_incomes.setdefault(acct, []).append(i)
 
-    events.sort(key=lambda e: (e[0], 0 if e[3] else 1))
+    events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # same-day: bills before income (conservative — an on-payday debit must be covered by balance, not that day's income)
 
     # Track minimum running balance per account
     min_running: dict[str, float] = {k: v for k, v in running.items()}
@@ -383,7 +383,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             for i in window_income
             if income_credit_ok(i, sid, confirmed_income_keys)
         ]
-        ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+        ev.sort(key=lambda e: (e[0], 1 if e[1] > 0 else 0))  # same-day: outflows before inflows (mirrors conservative ordering above)
         run = start_balance
         mn = run
         for _d, delta in ev:
@@ -433,8 +433,9 @@ async def compute_today_items(uid: str) -> list[dict]:
                 break
 
         # Fan-in destination summary: ALL of this account's in-window bills that land
-        # before its first income event (income sorts before bills on the same day,
-        # so a bill on the income day is excluded — income covers it).
+        # on or before its first income event (bills sort before income on the same
+        # day — conservative — so a bill on the income day is NOT covered by that
+        # income and must still be held in balance).
         first_income_day = min(
             (i["days_away"] for i in credited_incomes.get(dest_acct, [])), default=None
         )
@@ -442,7 +443,7 @@ async def compute_today_items(uid: str) -> list[dict]:
             (
                 b for b in assessable_bills
                 if (b["account_id"] or "__unknown__") == dest_acct
-                and (first_income_day is None or b["days_away"] < first_income_day)
+                and (first_income_day is None or b["days_away"] <= first_income_day)
             ),
             key=lambda b: b["days_away"],
         )
@@ -781,12 +782,28 @@ async def compute_today_items(uid: str) -> list[dict]:
         if n_rows == 1:
             _r = rows[0]
             _covers_phrase = "covers it." if dest_covered else "covers most of it."
-            body = (
-                f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} lands "
-                f"{_r['bill_weekday']} from {dest_name}. "
-                f"It's £{int(round(_r['shortfall']))} short. "
-                f"Moving £{total:,} from {_r['move_map']['from']['name']} {_covers_phrase}"
-            )
+            _ds = dest_summaries.get(dest_acct) or {}
+            _ds_bills = _ds.get("bills") or []
+            _shortfall_i = int(round(_r["shortfall"]))
+            if len(_ds_bills) > 1:
+                # Account-level story: several payments leave this account before
+                # payday; quote the total vs held so the shortfall is legible.
+                _spare = int(round(total - _r["shortfall"]))
+                _spare_phrase = f", with about £{_spare} spare." if (dest_covered and _spare >= 2) else "."
+                _all_phrase = "covers all of them" if dest_covered else "covers most of it"
+                body = (
+                    f"{len(_ds_bills)} payments (£{_ds.get('needs_total', 0):,}) leave {dest_name} "
+                    f"before payday and it holds £{int(round(_ds.get('balance', 0)))} — "
+                    f"£{_shortfall_i} short. "
+                    f"Moving £{total:,} from {_r['move_map']['from']['name']} {_all_phrase}{_spare_phrase}"
+                )
+            else:
+                body = (
+                    f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} lands "
+                    f"{_r['bill_weekday']} from {dest_name}. "
+                    f"It's £{_shortfall_i} short. "
+                    f"Moving £{total:,} from {_r['move_map']['from']['name']} {_covers_phrase}"
+                )
         elif dest_covered:
             body = f"£{total:,} across {n_rows} moves keeps everything clearing at {dest_name}."
         else:
@@ -1157,7 +1174,7 @@ async def compute_today_items(uid: str) -> list[dict]:
                     card_desc = ""
                 headline = "Card season"
                 body = (
-                    f"This is the week your cards usually take over {card_desc}. "
+                    f"This is the week your credit cards usually take over {card_desc}. "
                     f"Nothing to do — just so it doesn't sneak up."
                 )
                 rhythm_items.append({
