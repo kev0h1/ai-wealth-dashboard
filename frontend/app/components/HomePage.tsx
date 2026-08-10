@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem } from "@/lib/api";
+import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountMiniCard from "@/components/AccountMiniCard";
@@ -54,6 +54,7 @@ export default function HomePage() {
   const [pinnedWidget, setPinnedWidget] = useState<string | null>(null);
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
+  const [needle, setNeedle] = useState<NeedleSummary | null>(null);
 
   const loadData = useCallback(async () => {
     setLoadError(false);
@@ -66,6 +67,9 @@ export default function HomePage() {
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
+      // Lifted for the Safe-to-Spend hero's net-after-cards figure. ThisMonthStrip
+      // performs its own independent fetch of the same endpoint — left untouched.
+      const needleP = api.getNeedleSummary();
 
       invP.then((v) => setInvestmentAccounts(v)).catch(() => {});
       safeP
@@ -73,6 +77,7 @@ export default function HomePage() {
         .catch(() => {})
         .finally(() => setStsLoading(false));
       todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
+      needleP.then((v) => setNeedle(v)).catch(() => {});
 
       let loadedAccounts: Account[] = [];
       try {
@@ -85,7 +90,7 @@ export default function HomePage() {
 
       // Let the remaining fast calls settle, then clear the page-level
       // skeletons — before the transactions fetch starts blocking anything.
-      await Promise.allSettled([invP, safeP, todayP]);
+      await Promise.allSettled([invP, safeP, todayP, needleP]);
       setLoading(false);
 
       if (loadedAccounts.length > 0) {
@@ -265,7 +270,14 @@ export default function HomePage() {
                 const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
                 const hasMoveItem = companionItems.some(i => i.type === "move");
                 if (stsLoading || hasRealData) {
-                  return <SafeToSpendCard data={safeToSpend} loading={stsLoading} suppressCTA={hasMoveItem} />;
+                  return (
+                    <SafeToSpendCard
+                      data={safeToSpend}
+                      loading={stsLoading}
+                      suppressCTA={hasMoveItem}
+                      cardDeltaSoFar={needle?.current?.card_delta_so_far ?? null}
+                    />
+                  );
                 }
                 return null;
               })()}

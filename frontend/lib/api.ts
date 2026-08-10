@@ -370,9 +370,31 @@ export type ConfirmPaydayResponse = {
   period: { start: string; end: string };
 };
 
+export type PaydayPlanSalary = {
+  account_id: string;
+  name: string;
+  provider: string;
+  amount: number;
+  stays: number;
+};
+
+export type PaydayPlanDest = {
+  account_id: string;
+  name: string;
+  provider: string;
+  balance: number;
+  bills_total: number;
+  bill_count: number;
+  spend_typical: number;
+  buffer: number;
+  target: number;
+  move: number;
+  usual: number | null;
+};
+
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan";
   headline: string;
   body: string;
   action: CompanionAction | null;
@@ -390,6 +412,12 @@ export type CompanionItem = {
   amount?: number;
   secondary_action?: CompanionAction | null;
   proposal?: PaydayProposal;
+  // payday_plan fields — present when type === "payday_plan"
+  total?: number;
+  preview?: boolean;
+  dests?: PaydayPlanDest[];
+  salary?: PaydayPlanSalary;
+  trimmed?: boolean;
   // payload — present when type === "rhythm"; carries category, multiple, spent, period_end, dominant
   payload?: {
     category?: string;
@@ -1548,7 +1576,8 @@ export const api = {
     }).then((r) => r.json()) as Promise<{ ok: boolean }>,
   confirmPayday: () => post<ConfirmPaydayResponse>("/income/confirm-payday", {}),
 
-  getToday: () => get<TodayResponse>("/today"),
+  getToday: (paydayPreview?: boolean) =>
+    get<TodayResponse>(paydayPreview ? "/today?payday_preview=1" : "/today"),
   getNeedleSummary: () => get<NeedleSummary>("/needle/summary"),
   getCardsStory: (which: "current" | "last" = "current") => get<CardsStory>(`/cards/story?which=${which}`),
 

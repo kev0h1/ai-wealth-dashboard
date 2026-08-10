@@ -9,6 +9,8 @@ interface SafeToSpendCardProps {
   data: SafeToSpend | null;
   loading?: boolean;
   suppressCTA?: boolean;
+  /** Net card growth since payday (GET /needle/summary → current.card_delta_so_far). */
+  cardDeltaSoFar?: number | null;
 }
 
 function fmt(n: number): string {
@@ -41,7 +43,7 @@ function syncAgeLabel(isoString: string | null | undefined): string | null {
   return `Synced on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
 }
 
-export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaSoFar }: SafeToSpendCardProps) {
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
 
@@ -95,12 +97,33 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
       ? "text-amber-500 dark:text-amber-400"
       : "text-red-500 dark:text-red-400";
 
+  // ── Net-after-cards flow ────────────────────────────────────────────────
+  // Card growth so far this pay period, from GET /needle/summary. Framed as a
+  // flow ("in hand once that's counted"), never as a scary position — and
+  // never coloured red/rose per the Red Is Risk rule.
+  const cardDelta = cardDeltaSoFar ?? null;
+  const showCardStrip =
+    cardDelta !== null && (card_debt ?? 0) > 0 && safe_to_spend > 0;
+  const cardsGrew = showCardStrip && (cardDelta as number) >= 10;
+  const cardsDown = showCardStrip && (cardDelta as number) <= -10;
+  const netAfterCards = cardsGrew ? safe_to_spend - (cardDelta as number) : null;
+
   // ── 1. Verdict headline ───────────────────────────────────────────────────
   let verdictText: string;
   if (state === "comfortable") {
     verdictText = `You're okay — ${fmt(safe_to_spend)} to spare before payday.`;
+    if (cardsGrew && netAfterCards !== null) {
+      verdictText = netAfterCards > 0
+        ? `You're okay — ${fmt(safe_to_spend)} to spare, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `You're okay for bills — ${fmt(safe_to_spend)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+    }
   } else if (state === "tight") {
     verdictText = `Tight until ${weekday} — ${fmt(safe_to_spend)} in hand until payday.`;
+    if (cardsGrew && netAfterCards !== null) {
+      verdictText = netAfterCards > 0
+        ? `Tight until ${weekday} — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `Tight until ${weekday} — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+    }
   } else {
     verdictText = `Short before payday — ${fmt(gap)} to cover.`;
   }
@@ -150,6 +173,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
         )}
       </h2>
 
+      <div className="space-y-2">
       {/* ── 2. 3-column instrument readout ── */}
       {hasSpendableNow && (
         <div className="grid grid-cols-3 gap-2">
@@ -172,6 +196,59 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
           </div>
         </div>
       )}
+      {/* The chain — this month as one equation, tappable through to /cards.
+          Inline spans on a shared baseline: glyphs can never float, and the
+          words replace eyebrow labels so column widths can't wander. */}
+      {showCardStrip && (
+        <button
+          onClick={() => router.push("/cards")}
+          className="w-full rounded-xl glass-tile px-3 py-2.5 flex items-center justify-between gap-3 active:scale-[0.98] transition-transform text-left"
+          aria-label={
+            cardsGrew
+              ? "See what drove this month's credit card spending"
+              : cardsDown
+              ? "See this month's credit card paydown"
+              : "See your credit cards"
+          }
+        >
+          <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+            {cardsGrew && netAfterCards !== null ? (
+              <>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
+                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">−</span>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(cardDelta as number)}</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">on credit cards</span>
+                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">=</span>
+                <span className={`text-base font-semibold tabular-nums num ${netAfterCards > 0 ? "text-slate-900 dark:text-slate-100" : "text-amber-600 dark:text-amber-400"}`}>
+                  {hidden ? "£••••" : fmt(Math.abs(netAfterCards))}
+                </span>
+                <span className={`text-[13px] ${netAfterCards > 0 ? "text-slate-500 dark:text-slate-400" : "text-amber-600 dark:text-amber-400"}`}>
+                  {netAfterCards > 0 ? "net" : "behind"}
+                </span>
+              </>
+            ) : cardsDown ? (
+              <>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
+                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
+                <span className="text-base font-semibold tabular-nums num text-emerald-600 dark:text-emerald-400">{hidden ? "£••••" : fmt(Math.abs(cardDelta as number))}</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">paid off credit cards</span>
+              </>
+            ) : (
+              <>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
+                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
+                <span className="text-[13px] text-slate-500 dark:text-slate-400">credit cards steady this month</span>
+              </>
+            )}
+          </p>
+          <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0" aria-hidden="true">›</span>
+        </button>
+      )}
+      </div>
+      <div className="space-y-1">
       {/* Pace rate line — only for non-risk states with a valid sustainable rate */}
       {(() => {
         const pace = data.status === "ok" ? data.pace : undefined;
@@ -191,11 +268,11 @@ export default function SafeToSpendCard({ data, loading, suppressCTA }: SafeToSp
           Payday {weekday} · +{hidden ? "••" : fmt(payday_income!)} lands
         </p>
       )}
-
       {/* Freshness caveat — only when sync is older than 3 hours */}
       {freshnessLabel && (
         <p className="text-sm text-slate-400 dark:text-slate-500">{freshnessLabel}</p>
       )}
+      </div>
 
       {/* ── 3. Single CTA ── */}
       {showSpendCTA && !suppressCTA && (

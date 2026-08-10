@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, AlertTriangle, TrendingDown, X } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
+import PaydayPlanCard from "@/components/PaydayPlanCard";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -652,6 +653,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   }
 
   const moveItems = items.filter(i => i.type === "move");
+  const paydayPlanItems = items.filter(i => i.type === "payday_plan");
   const needleItem = items.find(i => i.type === "needle");
   const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
@@ -668,7 +670,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const rhythmInfoItems = items.filter(
     i => i.type === "rhythm" && !(i.payload?.multiple != null && i.payload.multiple >= 1.5)
   );
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -742,6 +744,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
           </p>
         ))}
 
+        {paydayPlanItems.map(item => (
+          <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} />
+        ))}
+
         {moveItems.map(item => (
           <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} />
         ))}
@@ -767,6 +773,48 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
     );
   }, [name]);
 
+  // TEMP — preview affordance for the payday_plan companion card, same spirit
+  // as the old variant pills: fetches /today?payday_preview=1 directly (this
+  // is where HomeBrief has fetch access, since items normally arrive as a
+  // prop from HomePage) and renders the returned preview item locally without
+  // touching server state. Remove once payday_plan is validated.
+  const [previewItem, setPreviewItem] = useState<CompanionItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewCardRef = useRef<HTMLDivElement>(null);
+
+  // TEMP — once the preview card loads, scroll it into view so the user
+  // isn't left where they were (the card renders above BriefBody, at the
+  // top of the section). Respects reduced-motion.
+  useEffect(() => {
+    if (!previewItem) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    previewCardRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [previewItem]);
+
+  function maskAmountsTop(text: string): string {
+    if (!hideNetWorth) return text;
+    return text.replace(/£[\d,]+/g, "£••••");
+  }
+
+  async function handleTogglePreview() {
+    if (previewItem) {
+      setPreviewItem(null);
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const res = await api.getToday(true);
+      setPreviewItem(res.items.find(i => i.type === "payday_plan") ?? null);
+    } catch {
+      // TEMP affordance — swallow; no error UI needed for a preview toggle
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   return (
     <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
       {/* Header row */}
@@ -788,11 +836,40 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
       {/* Brief body */}
       <div className="space-y-3">
         {syncError && <SyncErrorBanner />}
+        {/* TEMP preview render — sits at the top of the section, above whatever
+            BriefBody renders, with its own "· preview" suffix (PaydayPlanCard
+            reads item.preview). Not part of the real items list, so it isn't
+            threaded through BriefBody's filters/props. */}
+        {previewItem && (
+          <div ref={previewCardRef}>
+            <PaydayPlanCard
+              item={previewItem}
+              router={router}
+              hideNetWorth={!!hideNetWorth}
+              maskAmounts={maskAmountsTop}
+              onRefresh={onRefresh}
+            />
+          </div>
+        )}
         {loading ? (
           <BriefSkeleton />
         ) : (
           <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} />
         )}
+      </div>
+
+      {/* TEMP — preview affordance for the payday_plan companion card, marked
+          for removal once the feature is validated (mirrors the old variant-pill
+          pattern of a tiny, clearly-temporary control). */}
+      <div className="mt-2 text-right">
+        <button
+          type="button"
+          onClick={handleTogglePreview}
+          disabled={previewLoading}
+          className="text-[10px] text-slate-400 dark:text-slate-500 underline underline-offset-2 disabled:opacity-50"
+        >
+          {previewItem ? "Hide preview" : previewLoading ? "Loading preview…" : "Preview payday plan"}
+        </button>
       </div>
     </div>
   );
