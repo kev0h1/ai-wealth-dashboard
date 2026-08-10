@@ -203,61 +203,30 @@ echo
 echo "Done. Launcher icon set regenerated from brand assets."
 
 echo
-echo "== iOS app icons =="
+echo "== iOS app icons (copy-only — no ImageMagick required on CI builders) =="
 
 IOS_DIR="$SPIKE_DIR/ios"
-APPICON_DIR="$IOS_DIR/App/App/Assets.xcassets/AppIcon.appiconset"
+XCASSETS_DIR="$IOS_DIR/App/App/Assets.xcassets"
+APPICON_DIR="$XCASSETS_DIR/AppIcon.appiconset"
 IOS_CONTENTS_JSON="$APPICON_DIR/Contents.json"
+SRC_IOS_ICON="$ASSETS_DIR/ios-AppIcon-1024.png"
 
-if [[ ! -d "$IOS_DIR" ]]; then
-  echo "iOS project not present — skipping iOS icons (re-run after npx cap add ios)"
+if [[ ! -d "$XCASSETS_DIR" ]]; then
+  echo "iOS project not present (no Assets.xcassets) — skipping iOS icons (re-run after npx cap add ios)"
   exit 0
 fi
 
-mkdir -p "$APPICON_DIR"
-
-# Decide whether this is the older multi-size AppIcon template (many entries,
-# each with its own filename/size/scale) or the modern single-entry
-# "universal" 1024x1024 template used by newer Capacitor/Xcode project
-# templates (or no Contents.json at all yet).
-ENTRY_COUNT=0
-if [[ -f "$IOS_CONTENTS_JSON" ]]; then
-  ENTRY_COUNT="$(python3 -c "
-import json
-with open('$IOS_CONTENTS_JSON') as f:
-    data = json.load(f)
-print(len(data.get('images', [])))
-")"
+if [[ ! -f "$SRC_IOS_ICON" ]]; then
+  echo "ERROR: missing pre-rendered iOS icon: $SRC_IOS_ICON" >&2
+  exit 1
 fi
 
-if [[ "$ENTRY_COUNT" -gt 1 ]]; then
-  echo "Detected multi-size AppIcon template ($ENTRY_COUNT entries) — regenerating each listed size."
-  python3 -c "
-import json
-with open('$IOS_CONTENTS_JSON') as f:
-    data = json.load(f)
-for img in data.get('images', []):
-    filename = img.get('filename')
-    size = img.get('size')
-    scale = img.get('scale', '1x')
-    if not filename or not size:
-        continue
-    base = float(size.split('x')[0])
-    mult = float(scale.rstrip('x'))
-    px = round(base * mult)
-    print(f'{filename} {px}')
-" | while read -r filename px; do
-    out="$APPICON_DIR/$filename"
-    convert "$SRC_ICON" -resize "${px}x${px}" -alpha remove -alpha off -background "#0f172a" -strip "$out"
-    echo "wrote $out (${px}x${px})"
-  done
-else
-  echo "Detected modern single-entry universal AppIcon template (or missing Contents.json) — writing 1024x1024 universal icon."
-  UNIVERSAL_OUT="$APPICON_DIR/AppIcon-512@2x.png"
-  convert "$SRC_ICON" -resize 1024x1024 -alpha remove -alpha off -background "#0f172a" -strip "$UNIVERSAL_OUT"
-  echo "wrote $UNIVERSAL_OUT (1024x1024)"
+rm -rf "$APPICON_DIR"
+mkdir -p "$APPICON_DIR"
+cp "$SRC_IOS_ICON" "$APPICON_DIR/AppIcon-512@2x.png"
+echo "copied $SRC_IOS_ICON -> $APPICON_DIR/AppIcon-512@2x.png (copy-only, no convert)"
 
-  cat > "$IOS_CONTENTS_JSON" <<'JSONEOF'
+cat > "$IOS_CONTENTS_JSON" <<'JSONEOF'
 {
   "images" : [
     {
@@ -273,8 +242,7 @@ else
   }
 }
 JSONEOF
-  echo "wrote $IOS_CONTENTS_JSON (universal AppIcon-512@2x.png)"
-fi
+echo "wrote $IOS_CONTENTS_JSON (universal AppIcon-512@2x.png, copy-only)"
 
 echo
-echo "Done. iOS app icon set regenerated from brand assets."
+echo "Done. iOS app icon set copied from pre-rendered brand asset (no ImageMagick/cairosvg dependency)."

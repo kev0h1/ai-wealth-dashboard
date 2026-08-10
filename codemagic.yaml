@@ -41,10 +41,13 @@ workflows:
         script: |
           cd frontend
           npm ci
-          # Android (Capacitor APK) builds always bake the UAT API base by
-          # default (npm run build:mobile). TestFlight/iOS is the one pipeline
-          # that keeps prod, so it explicitly uses build:mobile:prod here.
-          npm run build:mobile:prod
+          # TESTING PHASE: pointed at UAT — for a prod release, restore
+          # `npm run build:mobile:prod` (see git blame). This mirrors the
+          # local-APK convention: npm run build:mobile with no
+          # MOBILE_API_BASE override falls back to UAT
+          # (https://uat.wealth.auriqltd.co.uk/api) inside
+          # frontend/scripts/build-mobile.sh, same as Android APK builds.
+          npm run build:mobile
           rm -rf "$CM_BUILD_DIR/capacitor-spike/www"
           cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
       - name: Add + sync Capacitor iOS
