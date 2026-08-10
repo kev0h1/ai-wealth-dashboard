@@ -52,6 +52,7 @@ workflows:
           cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
       - name: Add + sync Capacitor iOS
         script: |
+          set -e
           cd "$CM_BUILD_DIR/capacitor-spike"
           npm ci
           if [ ! -d ios ]; then npx cap add ios; fi
