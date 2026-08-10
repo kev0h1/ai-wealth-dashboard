@@ -52,6 +52,8 @@ workflows:
           cd "$CM_BUILD_DIR/capacitor-spike"
           npm ci
           if [ ! -d ios ]; then npx cap add ios; fi
+          # Brand app icons (cap add ios resets AppIcon.appiconset to Capacitor stock icons)
+          bash scripts/apply-icons.sh
           npx cap sync ios
       - name: Register wealthdash URL scheme + Face ID + push background mode
         script: |

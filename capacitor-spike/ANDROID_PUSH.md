@@ -9,6 +9,8 @@ as direct edits to that directory. Instead it's captured as a **script**,
 patches a freshly-generated Android project into working order. This doc is
 the full flow, start to finish.
 
+`scripts/apply-icons.sh` also brands iOS app icons under `capacitor-spike/ios/App/App/Assets.xcassets/AppIcon.appiconset/` when `ios/` exists (wired into the Codemagic iOS workflow via `codemagic.yaml`); it prints a skip message and exits cleanly when `ios/` is absent.
+
 There is currently **no Android CI** (Codemagic only builds iOS). Android
 APKs are built locally using the steps below.
 
