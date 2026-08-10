@@ -392,8 +392,8 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
                   </span>
                   <span className="text-[13px] text-slate-600 dark:text-slate-300 leading-snug flex-1 min-w-0">
                     {maskAmounts(billCount === 1
-                      ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment lands ${dest.needs_by}`
-                      : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before payday · first lands ${dest.needs_by}`)}
+                      ? `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} payment expected ${dest.needs_by}`
+                      : `£${Math.round(dest.balance).toLocaleString("en-GB")} held · £${(dest.needs_total ?? 0).toLocaleString("en-GB")} in ${billCount} payments before period end · first expected ${dest.needs_by}`)}
                   </span>
                 </div>
               </div>
@@ -641,9 +641,9 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
       fallbackText = "Nothing needs you today. I'm keeping an eye on the bills — just check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
-      fallbackText = "Nothing needs you today — payday's close. The first week's bills are already mapped, so just cruise.";
+      fallbackText = "Nothing needs you today — your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
     } else if (safeToSpend.state === "tight") {
-      fallbackText = "Nothing needs you today. Cash is tight until payday, but the bills are mapped — I'll flag anything that needs you.";
+      fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped — I'll flag anything that needs you.";
     } else if (safeToSpend.state === "short") {
       fallbackText = "One thing's worth a look below — otherwise I've got the rest mapped.";
     } else {
@@ -796,14 +796,14 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
     today0.setHours(0, 0, 0, 0);
     const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
     // Distance-aware date convention (mirrors SafeToSpendCard.tsx): today/tomorrow/weekday/short-date.
-    if (daysAway <= 0) return "Payday's today — see how I'd split it";
-    if (daysAway === 1) return "Payday's tomorrow — see how I'd split it";
+    if (daysAway <= 0) return "Pay period ends today — see how I'd split your next pay cheque";
+    if (daysAway === 1) return "Pay period ends tomorrow — see how I'd split your next pay cheque";
     if (daysAway < 7) {
       const wd = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "long" });
-      return `Payday's ${wd} — see how I'd split it`;
+      return `Pay period ends ${wd} — see how I'd split your next pay cheque`;
     }
     const short = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-    return `Payday's on ${short} — see how I'd split it`;
+    return `Pay period ends ${short} — see how I'd split your next pay cheque`;
   })();
 
   function maskAmountsTop(text: string): string {

@@ -676,7 +676,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             else:
                 safe_note = f"Nothing due from this account before {bill_weekday}"
             human_bill = _humanise_bill_name(bill_name)
-            incoming = f"£{bill_amount:,} {human_bill} lands {bill_weekday}"
+            incoming = f"£{bill_amount:,} {human_bill} expected {bill_weekday}"
             return {
                 "from": {
                     "account_id": src_id,
@@ -1222,7 +1222,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 continue
             headline = f"£{int(round(u['shortfall']))} gap before {u['dest_name']} payday"
             body = (
-                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} lands "
+                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} is expected "
                 f"{u['bill_weekday']}, but {u['dest_name']} is £{int(round(u['shortfall']))} "
                 f"short and there's no easy transfer source right now."
             )
@@ -1319,13 +1319,13 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 _all_phrase = "covers all of them" if dest_covered else "covers most of it"
                 body = (
                     f"{len(_ds_bills)} payments (£{_ds.get('needs_total', 0):,}) leave {dest_name} "
-                    f"before payday and it holds £{int(round(_ds.get('balance', 0)))} — "
+                    f"before period end and it holds £{int(round(_ds.get('balance', 0)))} — "
                     f"£{_shortfall_i} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_all_phrase}{_spare_phrase}"
                 )
             else:
                 body = (
-                    f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} lands "
+                    f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} is expected "
                     f"{_r['bill_weekday']} from {dest_name}. "
                     f"It's £{_shortfall_i} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_covers_phrase}"
@@ -1475,7 +1475,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         elif needs_total:
             body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
         else:
-            body = "Everything due there before payday is safe."
+            body = "Everything due there before period end is safe."
         return {
             "id": f"celebrate:{stored['_id']}",
             "type": "celebration",
@@ -1816,7 +1816,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "id": "ask:payday",
                     "type": "ask",
                     "headline": "Is this your payday?",
-                    "body": f"Looks like £{_amt:,.0f} from {_merchant} lands on {_phrase}.",
+                    "body": f"Looks like £{_amt:,.0f} from {_merchant} is expected on {_phrase}.",
                     "action": {"label": "Yes, that's it", "route": "/income/confirm-payday", "kind": "confirm_payday"},
                     "secondary_action": {"label": "No — set it myself", "route": "/spend", "kind": "set_payday"},
                     "estimated": False,

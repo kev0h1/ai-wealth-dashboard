@@ -782,9 +782,9 @@ export default function PlanningPage() {
             const isNextPeriodGroup = groupItems.every(i => i.next_period);
             if (isNextPeriodGroup && !dividerInserted) {
               nodes.push(
-                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`Payday ${paydayLabel} — next pay period begins`}>
+                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`New pay period ${paydayLabel} — next pay period begins`}>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Payday · {paydayLabel}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">New pay period · {paydayLabel}</span>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
                 </div>
               );
@@ -829,7 +829,7 @@ export default function PlanningPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">
-                      {isCalendarMonth ? "Before month end" : "To last until payday"}
+                      {isCalendarMonth ? "Before month end" : "To last this pay period"}
                     </p>
                     <p className={`text-2xl font-bold tracking-tight ${
                       runwayNegative
@@ -844,7 +844,7 @@ export default function PlanningPage() {
                       {sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} bills
                       {isCalendarMonth
                         ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
-                        : ` · ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
+                        : ` · ends ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
                     </p>
                     {savingsNow > 0 && (
                       <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">

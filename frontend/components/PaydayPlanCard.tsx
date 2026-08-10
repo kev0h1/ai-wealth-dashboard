@@ -156,9 +156,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
               </span>
             </span>
             <span className="num text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
-              {hideNetWorth ? "£••••" : `+£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
+              {hideNetWorth ? "£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
             </span>
           </div>
+          <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
+            expected
+          </p>
         </div>
       )}
 

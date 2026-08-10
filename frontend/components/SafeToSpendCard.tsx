@@ -122,21 +122,21 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   // ── 1. Verdict headline ───────────────────────────────────────────────────
   let verdictText: string;
   if (state === "comfortable") {
-    verdictText = `You're okay — ${fmt(safe_to_spend)} to spare before payday.`;
+    verdictText = `You're okay — ${fmt(safe_to_spend)} to spare this pay period.`;
     if (cardsGrew && netAfterCards !== null) {
       verdictText = netAfterCards > 0
         ? `You're okay — ${fmt(safe_to_spend)} to spare, ${fmt(netAfterCards)} ahead once credit cards are counted.`
         : `You're okay for bills — ${fmt(safe_to_spend)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else if (state === "tight") {
-    verdictText = `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} in hand until payday.`;
+    verdictText = `Tight until your pay period ends — ${fmt(safe_to_spend)} in hand.`;
     if (cardsGrew && netAfterCards !== null) {
       verdictText = netAfterCards > 0
-        ? `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+        ? `Tight until period end — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `Tight until period end — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else {
-    verdictText = `Short before payday — ${fmt(gap)} to cover.`;
+    verdictText = `Short this pay period — ${fmt(gap)} to cover.`;
   }
 
   // ── Bridge figure colour ─────────────────────────────────────────────────
@@ -270,14 +270,14 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
         if (!showPace) return null;
         return (
           <p className="text-[13px] text-slate-500 dark:text-slate-400 num">
-            {hidden ? "£••" : fmt2(pace!.sustainable!)}/day to payday
+            {hidden ? "£••" : fmt2(pace!.sustainable!)}/day until pay period end
           </p>
         );
       })()}
       {/* Payday muted line — replaces emerald pill */}
       {hasPaydayIncome && (
         <p className="text-sm text-slate-500 dark:text-slate-400 num">
-          Payday {paydayLabel} · +{hidden ? "••" : fmt(payday_income!)} lands
+          Pay period ends {paydayLabel} · ~{hidden ? "••" : fmt(payday_income!)} expected
         </p>
       )}
       {/* Freshness caveat — only when sync is older than 3 hours */}
