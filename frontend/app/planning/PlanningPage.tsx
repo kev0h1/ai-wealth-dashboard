@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, type ReactNode } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import { api, Account, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -16,6 +16,7 @@ import UpcomingEditSheet from "@/components/UpcomingEditSheet";
 import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
+import CanISection from "@/components/CanISection";
 
 function isCliffSoon(until: string): boolean {
   const y = parseInt(until.slice(0, 4), 10);
@@ -31,42 +32,15 @@ function fmtCliffMonth(ym: string): string {
   return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }); // e.g. "Sep 2026"
 }
 
-function DebtEntryCard({
-  view,
-  hide,
-  onTap,
-}: {
-  view: import("@/lib/api").DebtPlanSummary | null;
-  hide: boolean;
-  onTap: () => void;
-}) {
-  if (!view) {
-    // Skeleton placeholder — matches the loaded card's shape so the slot
-    // doesn't pop in late while the summary is still loading.
-    return (
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
-          YOUR CARDS
-        </p>
-        <div
-          className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 animate-pulse"
-          aria-hidden="true"
-        >
-          <div className="flex-1 min-w-0 space-y-2">
-            <div className="h-[15px] w-24 rounded bg-slate-200 dark:bg-slate-700" />
-            <div className="h-[13px] w-40 rounded bg-slate-200 dark:bg-slate-700" />
-          </div>
-        </div>
-      </div>
-    );
-  }
+// A row's content is a single line: verdict fragment (semibold) + slate "·"
+// separator + muted title. `null` = row intentionally hidden.
+type DockRowContent = ReactNode | null;
 
+function computeDebtRow(view: import("@/lib/api").DebtPlanSummary): DockRowContent {
   const buckets = view.totals.buckets;
   const carried = buckets?.carried_total ?? 0;
   const float = buckets?.float_total ?? 0;
 
-  // Decide line 1 copy — calm, no figures (founder direction)
-  const line1 = "Card plan";
   if (carried < 1 && float < 1) {
     // No cards worth showing
     return null;
@@ -94,83 +68,125 @@ function DebtEntryCard({
     }
   }
 
-  // Line 2
-  let line2: React.ReactNode = null;
-  if (nextCliff) {
-    const soon = isCliffSoon(nextCliff.until);
-    const dateStr = fmtCliffMonth(nextCliff.until);
-    line2 = (
-      <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-        Next 0% ends{" "}
-        <span className={soon ? "text-amber-600 dark:text-amber-400 font-semibold" : ""}>
-          {dateStr}
-        </span>
-        {" "}— {nextCliff.name}
-      </p>
-    );
+  if (!nextCliff) {
+    // No cliff to lead with — title only, still bold (Numbers-Lead has
+    // nothing to number here).
+    return <span className="font-semibold">Card plan</span>;
   }
 
+  const soon = isCliffSoon(nextCliff.until);
+  const dateStr = fmtCliffMonth(nextCliff.until);
   return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
-        YOUR CARDS
-      </p>
-      <button
-        onClick={onTap}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
-        className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-        aria-label="View your debt plan"
-      >
-        <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-            {line1}
-          </p>
-          {line2}
-        </div>
-        <span className="text-slate-400 dark:text-slate-500 text-lg flex-shrink-0" aria-hidden="true">›</span>
-      </button>
+    <>
+      <span className="font-semibold">
+        Next 0% ends{" "}
+        <span className={soon ? "text-amber-600 dark:text-amber-400" : ""}>{dateStr}</span>
+      </span>
+      <span className="text-slate-400 dark:text-slate-500"> · </span>
+      <span className="text-slate-500 dark:text-slate-400">Card plan</span>
+    </>
+  );
+}
+
+// Pulls the "£X,XXX/month <qualifier>" figure out of the grow verdict
+// headline (e.g. "After debt repayments, you're about £1,256/month short")
+// and renders it abbreviated as "£1,256/mo short". Falls back to the full
+// headline (truncated by the row's own truncate class) if no figure is
+// present — e.g. the "about even" verdict has none.
+function computeGrowRow(view: import("@/lib/api").GrowView): DockRowContent {
+  if (!view.verdict?.headline) return null;
+
+  const headline = view.verdict.headline;
+  const match = headline.match(/(£[\d,]+(?:\.\d+)?)\s*\/\s*month\s+(.+)$/i);
+  return (
+    <>
+      <span className="font-semibold">{match ? `${match[1]}/mo ${match[2]}` : headline}</span>
+      <span className="text-slate-400 dark:text-slate-500"> · </span>
+      <span className="text-slate-500 dark:text-slate-400">Grow</span>
+    </>
+  );
+}
+
+// Shape-matched skeleton row — keeps the dock's height stable while either
+// summary is still loading, instead of popping in late (was a bug for Grow).
+function DockSkeletonRow() {
+  return (
+    <div
+      className="w-full min-h-[44px] px-4 py-3 flex items-center gap-3 animate-pulse first:rounded-t-2xl last:rounded-b-2xl"
+      aria-hidden="true"
+    >
+      <div className="h-[15px] w-40 rounded bg-slate-200 dark:bg-slate-700" />
     </div>
   );
 }
 
-function GrowEntryCard({
-  view,
+function DockRow({
+  content,
   onTap,
+  ariaLabel,
 }: {
-  view: import("@/lib/api").GrowView | null;
+  content: ReactNode;
   onTap: () => void;
+  ariaLabel: string;
 }) {
-  if (!view) return null;
-  if (!view.verdict?.headline) return null;
-
-  const line1 = "Grow";
-  const activeStep = view.ladder.find((s) => s.state === "active");
-  const line2 = (
-    <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-      {view.verdict.headline}
-      {activeStep ? ` — ${activeStep.title}` : ""}
-    </p>
+  return (
+    <button
+      onClick={onTap}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
+      className="w-full min-h-[44px] px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform first:rounded-t-2xl last:rounded-b-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+      aria-label={ariaLabel}
+    >
+      <p className="flex-1 min-w-0 truncate text-[15px] leading-snug text-slate-900 dark:text-slate-100">
+        {content}
+      </p>
+      <ChevronRight size={18} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
+    </button>
   );
+}
+
+// Plans dock — Card plan + Grow merged into one glass surface with a hairline
+// divider between rows (Option B: "Plans dock"). Renders nothing if both
+// rows are hidden (no empty shell); shows shape-matched skeletons while
+// either summary is still loading so the dock never reflows.
+function PlansDock({
+  debtView,
+  growView,
+  hide,
+  onDebtTap,
+  onGrowTap,
+}: {
+  debtView: import("@/lib/api").DebtPlanSummary | null;
+  growView: import("@/lib/api").GrowView | null;
+  hide: boolean;
+  onDebtTap: () => void;
+  onGrowTap: () => void;
+}) {
+  // `hide` (hideNetWorth) is threaded through for parity with the prior
+  // DebtEntryCard prop — it had no visible effect there either; preserved
+  // as-is rather than inventing new masking behaviour.
+  void hide;
+
+  // undefined = still loading, null = row intentionally hidden, object = show
+  const debtContent: DockRowContent | undefined = debtView ? computeDebtRow(debtView) : undefined;
+  const growContent: DockRowContent | undefined = growView ? computeGrowRow(growView) : undefined;
+
+  const rows: ReactNode[] = [];
+  if (debtContent === undefined) {
+    rows.push(<DockSkeletonRow key="debt-skeleton" />);
+  } else if (debtContent !== null) {
+    rows.push(<DockRow key="debt" content={debtContent} onTap={onDebtTap} ariaLabel="View your debt plan" />);
+  }
+  if (growContent === undefined) {
+    rows.push(<DockSkeletonRow key="grow-skeleton" />);
+  } else if (growContent !== null) {
+    rows.push(<DockRow key="grow" content={growContent} onTap={onGrowTap} ariaLabel="View your grow plan" />);
+  }
+
+  if (rows.length === 0) return null;
 
   return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 px-1 mb-2">
-        GROWING YOUR MONEY
-      </p>
-      <button
-        onClick={onTap}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
-        className="w-full min-h-[44px] glass-card rounded-2xl px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-        aria-label="View your grow plan"
-      >
-        <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-            {line1}
-          </p>
-          {line2}
-        </div>
-        <span className="text-slate-400 dark:text-slate-500 text-lg flex-shrink-0" aria-hidden="true">›</span>
-      </button>
+    <div className="glass-card rounded-2xl divide-y divide-slate-200/60 dark:divide-white/10">
+      {rows}
     </div>
   );
 }
@@ -183,6 +199,7 @@ export default function PlanningPage() {
   const sym = "£";
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
+  const [cashflowError, setCashflowError] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [debtSummary, setDebtSummary] = useState<import("@/lib/api").DebtPlanSummary | null>(null);
@@ -209,10 +226,15 @@ export default function PlanningPage() {
   // Load data
   useEffect(() => {
     api.accounts().catch(() => [] as Account[]).then(accs => setAccounts(accs));
-    api.cashflow().then(setCashflow).catch(() => {});
+    api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
     api.getDebtPlanSummary().then(setDebtSummary).catch(() => {});
     api.getGrow().then(setGrowView).catch(() => {});
   }, []);
+
+  function retryCashflow() {
+    setCashflowError(false);
+    api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
+  }
 
   // Pay period deep link
   useEffect(() => {
@@ -483,7 +505,17 @@ export default function PlanningPage() {
   // ── upcomingBlock ──────────────────────────────────────────────────────────
   const upcomingBlock = (
     <>
-      {!cashflow ? (
+      {cashflowError ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Couldn&apos;t load what&apos;s coming.</p>
+          <button
+            onClick={retryCashflow}
+            className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 min-h-[44px] px-4 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            Retry
+          </button>
+        </div>
+      ) : !cashflow ? (
         <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
       ) : (() => {
         const today = new Date();
@@ -521,8 +553,14 @@ export default function PlanningPage() {
               >
                 + Plan a one-off
               </button>
-              <DebtEntryCard view={debtSummary} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
-              <GrowEntryCard view={growView} onTap={() => router.push("/grow")} />
+              <PlansDock
+                debtView={debtSummary}
+                growView={growView}
+                hide={hideNetWorth}
+                onDebtTap={() => router.push("/debt-plan")}
+                onGrowTap={() => router.push("/grow")}
+              />
+              <CanISection />
             </div>
           );
         }
@@ -637,7 +675,9 @@ export default function PlanningPage() {
                 }${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
               >
                 {flagged ? (
-                  <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500 text-sm" aria-hidden="true">⚠</span>
+                  <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500" aria-hidden="true">
+                    <AlertTriangle size={14} />
+                  </span>
                 ) : (
                   <span
                     className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -736,6 +776,7 @@ export default function PlanningPage() {
 
         function renderGroups(groups: ReturnType<typeof groupByDay>) {
           let dividerInserted = false;
+          let isFirstGroup = true;
           const nodes: ReactNode[] = [];
           for (const { label, items: groupItems } of groups) {
             const isNextPeriodGroup = groupItems.every(i => i.next_period);
@@ -749,13 +790,25 @@ export default function PlanningPage() {
               );
               dividerInserted = true;
             }
+            const showPlanButton = isFirstGroup;
+            isFirstGroup = false;
             nodes.push(
               <div key={label}>
-                <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                  label === "Today" || label === "Tomorrow" || isNextPeriodGroup
-                    ? "text-amber-700 dark:text-amber-400"
-                    : "text-slate-500 dark:text-slate-400"
-                }`}>{label}</p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className={`text-xs font-semibold uppercase tracking-wide ${
+                    label === "Today" || label === "Tomorrow" || isNextPeriodGroup
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}>{label}</p>
+                  {showPlanButton && (
+                    <button
+                      onClick={() => setPlanSheetOpen(true)}
+                      className="min-h-[44px] flex items-center px-2 -my-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 rounded-lg active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      + Plan a one-off
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {groupItems.map(renderRow)}
                 </div>
@@ -771,7 +824,7 @@ export default function PlanningPage() {
               <div className={`rounded-2xl px-4 py-4 ${
                 runwayNegative
                   ? "bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800"
-                  : "glass-card"
+                  : "glass-hero"
               }`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -798,29 +851,27 @@ export default function PlanningPage() {
                         + {sym}{savingsNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} in savings if needed
                       </p>
                     )}
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
+                      Based on your typical spending — last 90 days
+                    </p>
                   </div>
                   {accountShortfalls.length > 0 && (
                     <span className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
-                      <span>⚠</span> {accountShortfalls.length} {accountShortfalls.length === 1 ? "account" : "accounts"} short
+                      <AlertTriangle size={14} /> {accountShortfalls.length} {accountShortfalls.length === 1 ? "account" : "accounts"} short
                     </span>
                   )}
                 </div>
               </div>
             )}
 
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 px-1">
-              Based on your typical spending — last 90 days
-            </p>
-
-            <button
-              onClick={() => setPlanSheetOpen(true)}
-              className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            >
-              + Plan a one-off
-            </button>
-
-            <DebtEntryCard view={debtSummary} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
-            <GrowEntryCard view={growView} onTap={() => router.push("/grow")} />
+            <PlansDock
+              debtView={debtSummary}
+              growView={growView}
+              hide={hideNetWorth}
+              onDebtTap={() => router.push("/debt-plan")}
+              onGrowTap={() => router.push("/grow")}
+            />
+            <CanISection />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">

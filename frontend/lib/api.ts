@@ -1029,6 +1029,8 @@ export const api = {
   autoCategorise: () => post<{ message: string }>("/transactions/auto-categorise", {}),
   taxChat: (messages: { role: string; content: string }[]) =>
     post<{ reply: string }>("/chat/tax", { messages }),
+  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>) =>
+    post<{ reply: string }>("/can-i", { question, history }),
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
   getMiscategorisedCount: () => get<{ count: number; ids: string[] }>("/transactions/miscategorised-count"),
