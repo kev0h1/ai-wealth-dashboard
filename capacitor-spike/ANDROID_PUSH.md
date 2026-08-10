@@ -50,6 +50,9 @@ npx cap add android
 # 2. Patch it for FCM (idempotent — safe to re-run)
 bash scripts/setup-android-push.sh
 
+# 2b. Restore the brand launcher icons (cap add android regenerates stock icons — this restores the brand set)
+bash scripts/apply-icons.sh
+
 # 3. Build the frontend static export
 cd ../frontend
 npm run build:mobile

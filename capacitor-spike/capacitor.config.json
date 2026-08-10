@@ -1,6 +1,6 @@
 {
   "appId": "co.uk.auriqltd.wealth",
-  "appName": "Wealth Dashboard",
+  "appName": "Sorted",
   "webDir": "www",
   "server": {
     "androidScheme": "https"

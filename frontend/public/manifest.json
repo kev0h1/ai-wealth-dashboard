@@ -1,6 +1,6 @@
 {
-  "name": "Wealth Dashboard",
-  "short_name": "Wealth",
+  "name": "Sorted",
+  "short_name": "Sorted",
   "description": "Your personal AI wealth tracker",
   "start_url": "/",
   "display": "standalone",

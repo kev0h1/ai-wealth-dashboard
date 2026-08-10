@@ -10,13 +10,13 @@ import { TutorialProvider } from "@/components/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
 
 export const metadata: Metadata = {
-  title: "Wealth Dashboard",
+  title: "Sorted",
   description: "Your personal AI wealth tracker",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Wealth",
+    title: "Sorted",
   },
   icons: {
     icon: [
