@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, CheckCircle2, Circle, ExternalLink, TrendingDown, PiggyBank, Target, Trash2, Shield, Pencil, Plus, TrendingUp } from "lucide-react";
-import { api, SavingsInsight, WorkflowDef, WorkflowStep, SavingsInsights, SavingsPlan, SavingsGoalInput, SavingsAccountOption, MoneyBasic, FuelNearby } from "@/lib/api";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, CheckCircle2, ExternalLink, TrendingDown, TrendingUp } from "lucide-react";
+import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -12,9 +12,7 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import AdviceDisclaimer from "@/components/AdviceDisclaimer";
 import MoneyBasicCard from "@/components/MoneyBasicCard";
-import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
-import { fmt } from "@/lib/format";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
@@ -1032,572 +1030,21 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
   );
 }
 
-// ── Debt-free Plan Card ───────────────────────────────────────────────────────
-
-function NextHundredCard({ debtTotal, savings, incomeBracket, sym, hideValues }: {
-  debtTotal: number;
-  savings: SavingsInsights | null;
-  incomeBracket: string;
-  sym: string;
-  hideValues: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-
-  const monthlySpend = savings?.monthly_spending ?? 0;
-  const currentNet   = savings?.current_savings ?? 0;
-  // Starter buffer: 1 month of spending before attacking debt, so a surprise
-  // bill doesn't become new card debt.
-  const bufferTarget = monthlySpend;
-  const bufferGap    = Math.max(0, bufferTarget - currentNet);
-  const highEarner   = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
-
-  const steps: { title: string; why: string }[] = [];
-  if (monthlySpend > 0 && bufferGap > 0) {
-    steps.push({
-      title: "Starter buffer",
-      why: `Get your safety net to 1 month of spending${hideValues ? "" : ` — ${fmt(bufferGap, sym)} to go`}. Without it, a surprise bill lands on a credit card.`,
-    });
-  }
-  if (debtTotal > 0) {
-    steps.push({
-      title: "Credit card debt",
-      why: "Cards typically charge 20%+ APR, so £100 here reliably saves £20+/yr — a better guaranteed return than any savings account.",
-    });
-  }
-  if (highEarner) {
-    steps.push({
-      title: "Pension contributions",
-      why: "In the £100k–£125k band, £100 into your pension effectively costs ~£40 after tax relief and allowance restoration.",
-    });
-  }
-  if (savings && savings.target_amount > 0 && currentNet < savings.target_amount && bufferGap <= 0) {
-    steps.push({
-      title: "Full safety net",
-      why: `Top up to your ${savings.target_months ?? 3}-month goal, then surplus can go to investments.`,
-    });
-  }
-
-  if (steps.length < 2) return null; // nothing to arbitrate
-
-  const [first, ...rest] = steps.slice(0, 3);
-
-  return (
-    <div className="glass-card rounded-2xl overflow-hidden">
-      <button className="w-full text-left px-4 py-3" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Where should your next {sym}100 go?
-          </p>
-          <ChevronRight size={14} className={`text-slate-500 dark:text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
-        </div>
-        <div className="flex items-start gap-2 mt-1.5">
-          <span className="mt-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">1</span>
-          <div>
-            <p className="text-base font-bold text-slate-800 dark:text-slate-100">{first.title}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug mt-0.5">{first.why}</p>
-          </div>
-        </div>
-      </button>
-      {open && rest.length > 0 && (
-        <div className="px-4 pb-3 space-y-2 border-t border-slate-100 dark:border-slate-700 pt-2.5">
-          {rest.map((s, i) => (
-            <div key={s.title} className="flex items-start gap-2">
-              <span className="mt-0.5 w-4 h-4 rounded-full bg-slate-300 dark:bg-slate-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">{i + 2}</span>
-              <div>
-                <p className="text-base font-bold text-slate-700 dark:text-slate-200">{s.title}</p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug">{s.why}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function ProgressRing({ pct, accent }: { pct: number; accent: string }) {
-  const r = 20;
-  const c = 2 * Math.PI * r;
-  return (
-    <div className="relative flex-shrink-0" style={{ width: 52, height: 52 }}>
-      <svg width="52" height="52" className="-rotate-90">
-        <circle cx="26" cy="26" r={r} fill="none" strokeWidth="5" className="stroke-slate-100 dark:stroke-slate-700" />
-        <circle
-          cx="26" cy="26" r={r} fill="none" strokeWidth="5" stroke={accent} strokeLinecap="round"
-          strokeDasharray={c} strokeDashoffset={c - (pct / 100) * c}
-          style={{ transition: "stroke-dashoffset 0.5s ease" }}
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-slate-700 dark:text-slate-200">
-        {pct}%
-      </span>
-    </div>
-  );
-}
-
-// ── Safety-net (emergency fund) Card ──────────────────────────────────────────
-
-function fmtMonth(ym: string): string {
-  const [y, m] = ym.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-}
-
-function ReadyToGrowCard() {
-  const [topics, setTopics] = useState<MoneyBasic[]>([]);
-
-  useEffect(() => {
-    api.getMoneyBasics("grow").then((r) => setTopics(r.items.slice(0, 3))).catch(() => {});
-  }, []);
-
-  return (
-    <div className="rounded-2xl shadow-sm overflow-hidden bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-      <div className="p-5">
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={16} className="text-emerald-600 dark:text-emerald-400" />
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Next step</span>
-        </div>
-        <p className="text-base font-bold leading-snug text-slate-900 dark:text-slate-100">Your safety net is funded — ready to grow?</p>
-        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mt-1.5">
-          With your cushion in place and no expensive debt, the next stage is putting spare money to work — tax-free, using your UK allowances.
-        </p>
-
-        {topics.length > 0 && (
-          <div className="mt-3.5 space-y-1.5">
-            {topics.map((t) => (
-              <div key={t.id} className="flex items-center gap-2.5 bg-emerald-100/70 dark:bg-emerald-900/50 rounded-xl px-3 py-2">
-                <span className="text-base leading-none">{t.icon}</span>
-                <p className="text-sm font-medium leading-snug text-slate-800 dark:text-slate-200">{t.title}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2.5 text-center">General information, not financial advice.</p>
-      </div>
-    </div>
-  );
-}
-
-function SafetyNetCard({
-  data, sym, hideValues, onSaved,
-}: {
-  data: SavingsInsights | null;
-  sym: string;
-  hideValues: boolean;
-  onSaved: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [targetChoice, setTargetChoice] = useState<"3" | "6" | "custom">("3");
-  const [customAmount, setCustomAmount] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [showManualForm, setShowManualForm] = useState(false);
-  const [manualEditId, setManualEditId] = useState<string | null>(null);
-  const [manualName, setManualName] = useState("");
-  const [manualBalance, setManualBalance] = useState("");
-  const [savingManual, setSavingManual] = useState(false);
-  const [acctsOpen, setAcctsOpen] = useState(false);
-
-  const openAddManual = () => { setManualEditId(null); setManualName(""); setManualBalance(""); setShowManualForm(true); };
-  const openEditManual = (a: SavingsAccountOption) => { setManualEditId(a.account_id); setManualName(a.name); setManualBalance(String(a.balance)); setShowManualForm(true); };
-
-  async function saveManual() {
-    const name = manualName.trim();
-    const bal = Number(manualBalance);
-    if (!name || isNaN(bal) || bal < 0) return;
-    setSavingManual(true);
-    try {
-      if (manualEditId) {
-        await api.updateSavingsManualAccount(manualEditId, { name, balance: bal });
-      } else {
-        const before = new Set((data?.accounts ?? []).map(a => a.account_id));
-        const res = await api.addSavingsManualAccount({ name, balance: bal });
-        const created = res.accounts.find(a => !before.has(a.account_id));
-        if (created) setSelected(s => s.includes(created.account_id) ? s : [...s, created.account_id]);
-      }
-      setShowManualForm(false);
-      setManualEditId(null);
-      setManualName("");
-      setManualBalance("");
-      onSaved();
-    } catch {} finally { setSavingManual(false); }
-  }
-
-  async function removeManual(id: string) {
-    try {
-      await api.deleteSavingsManualAccount(id);
-      setSelected(s => s.filter(x => x !== id));
-      onSaved();
-    } catch {}
-  }
-
-  const beginSetup = () => {
-    setSelected(data?.accounts.filter(a => a.selected).map(a => a.account_id) ?? []);
-    if (data?.target_type === "amount") { setTargetChoice("custom"); setCustomAmount(String(data.target_amount || "")); }
-    else if (data?.target_months === 6) setTargetChoice("6");
-    else setTargetChoice("3");
-    setEditing(true);
-  };
-
-  if (!data) {
-    return <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4"><div className="h-20 animate-pulse bg-slate-50 dark:bg-slate-700/40 rounded-xl" /></div>;
-  }
-
-  const showSetup = !data.configured || editing;
-
-  async function save() {
-    if (selected.length === 0) return;
-    setSaving(true);
-    try {
-      const body: SavingsGoalInput = targetChoice === "custom"
-        ? { target_type: "amount", target_amount: Number(customAmount) || 0, account_ids: selected }
-        : { target_type: "months", target_months: targetChoice === "6" ? 6 : 3, account_ids: selected };
-      await api.saveSavingsGoal(body);
-      setEditing(false);
-      onSaved();
-    } catch {} finally { setSaving(false); }
-  }
-
-  if (showSetup) {
-    const toggle = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-    const customInvalid = targetChoice === "custom" && (!Number(customAmount) || Number(customAmount) <= 0);
-    return (
-      <div className="glass-card rounded-2xl p-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-emerald-100 dark:bg-emerald-900/30">
-            <Shield className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div className="flex-1">
-            <p className="text-base font-bold text-slate-900 dark:text-slate-100">Build your safety net</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-              An emergency fund of 3–6 months&rsquo; spending protects you from surprises. Pick a target and the accounts that hold it.
-            </p>
-          </div>
-        </div>
-
-        <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-4 mb-2">Target size</p>
-        <div className="flex gap-2">
-          {([["3", "3 months"], ["6", "6 months"], ["custom", "Custom"]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setTargetChoice(v)}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
-                targetChoice === v ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"}`}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {targetChoice !== "custom" && data.monthly_spending > 0 && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">
-            ≈ {hideValues ? "••••" : fmt((targetChoice === "6" ? 6 : 3) * data.monthly_spending, sym)} based on your spending
-          </p>
-        )}
-        {targetChoice === "custom" && (
-          <div className="mt-2 flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-600 px-3 py-2">
-            <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
-            <input type="number" inputMode="decimal" value={customAmount}
-              onChange={e => setCustomAmount(e.target.value)} placeholder="Amount"
-              className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
-          </div>
-        )}
-
-        <button type="button" onClick={() => setAcctsOpen(o => !o)} aria-expanded={acctsOpen} className="w-full flex items-center justify-between mt-4 mb-2">
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Accounts holding your savings{selected.length > 0 ? ` · ${selected.length} selected` : ""}
-          </span>
-          <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 transition-transform ${acctsOpen ? "rotate-180" : ""}`} />
-        </button>
-        {!acctsOpen && selected.length === 0 && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Tap to choose where you keep your savings.</p>
-        )}
-        {acctsOpen && (<>
-        <div className="space-y-1.5">
-          {data.accounts.map(a => {
-            const on = selected.includes(a.account_id);
-            return (
-              <div key={a.account_id} className="flex items-center gap-1">
-                <button onClick={() => toggle(a.account_id)}
-                  className="flex-1 min-w-0 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 text-left transition-colors"
-                  style={on ? { borderColor: "#059669", background: "#05966910" } : undefined}>
-                  {on ? <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" /> : <Circle className="w-5 h-5 text-slate-300 dark:text-slate-600 flex-shrink-0" />}
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{a.name}</span>
-                    <span className="block text-[11px] text-slate-500 dark:text-slate-400">{a.manual ? "Offline account" : a.provider}</span>
-                  </span>
-                  <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">{hideValues ? "••••" : fmt(a.balance, sym)}</span>
-                </button>
-                {a.manual && (
-                  <>
-                    <button onClick={() => openEditManual(a)} aria-label="Edit account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-emerald-600 transition-colors"><Pencil size={14} /></button>
-                    <button onClick={() => removeManual(a.account_id)} aria-label="Remove account" className="flex-shrink-0 p-2.5 text-slate-400 hover:text-red-500 transition-colors"><X size={14} /></button>
-                  </>
-                )}
-              </div>
-            );
-          })}
-          {data.accounts.length === 0 && !showManualForm && (
-            <p className="text-sm text-slate-500 dark:text-slate-400">No connected accounts. Add an offline account to track savings you hold elsewhere.</p>
-          )}
-        </div>
-
-        {showManualForm ? (
-          <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-2">
-            <input value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Account name (e.g. Cash ISA)" maxLength={60}
-              className="w-full bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100 border-b border-slate-200 dark:border-slate-600 pb-1.5" />
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2">
-              <span className="text-slate-400 text-sm">{sym.trim() || sym}</span>
-              <input type="number" inputMode="decimal" value={manualBalance} onChange={e => setManualBalance(e.target.value)} placeholder="Current balance"
-                className="flex-1 bg-transparent text-sm outline-none text-slate-900 dark:text-slate-100" />
-            </div>
-            <div className="flex gap-2 pt-0.5">
-              <button onClick={() => { setShowManualForm(false); setManualEditId(null); }} className="px-3 py-2 rounded-lg text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">Cancel</button>
-              <button onClick={saveManual} disabled={!manualName.trim() || !manualBalance || isNaN(Number(manualBalance)) || Number(manualBalance) < 0 || savingManual}
-                className="flex-1 py-2 rounded-lg text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
-                {savingManual ? "Saving…" : manualEditId ? "Save changes" : "Add account"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={openAddManual} className="mt-2 flex items-center gap-1 text-sm font-medium text-emerald-600">
-            <Plus size={14} /> Add an offline account
-          </button>
-        )}
-        </>)}
-
-        <div className="flex gap-2 mt-4">
-          {data.configured && (
-            <button onClick={() => setEditing(false)} className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600">
-              Cancel
-            </button>
-          )}
-          <button onClick={save} disabled={selected.length === 0 || customInvalid || saving}
-            className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold bg-emerald-600 disabled:opacity-40 active:scale-[0.98] transition-all">
-            {saving ? "Saving…" : data.configured ? "Update target" : "Start tracking"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const pct = Math.round(data.pct_funded);
-  const funded = data.target_amount > 0 && data.current_savings >= data.target_amount;
-  const unsizedGoal = data.target_type === "months" && data.target_amount <= 0;
-
-  // Compute verdict metrics
-  const dailySpend = data.monthly_spending > 0 ? data.monthly_spending / 30 : 0;
-  const daysCovered = dailySpend > 0 ? Math.round(data.current_savings / dailySpend) : 0;
-  const oneMonthTarget = data.monthly_spending > 0 ? data.monthly_spending : data.target_amount;
-  const atOrBeyondOneMonth = data.monthly_spending > 0 && data.current_savings >= data.monthly_spending;
-  const oneMonthPct = oneMonthTarget > 0
-    ? Math.min(100, Math.round((data.current_savings / oneMonthTarget) * 100))
-    : pct;
-
-  // Near-date computation: today + ceil((monthly_spending − current) / monthly_surplus) months
-  const nearDate: string | null = (() => {
-    if (atOrBeyondOneMonth || data.monthly_surplus <= 0 || data.monthly_spending <= 0) return null;
-    const monthsToOneMonth = Math.ceil((data.monthly_spending - data.current_savings) / data.monthly_surplus);
-    if (monthsToOneMonth <= 0 || monthsToOneMonth > 240) return null;
-    const d = new Date();
-    d.setMonth(d.getMonth() + monthsToOneMonth);
-    return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-  })();
-
-  return (
-    <div className="glass-card rounded-2xl overflow-hidden">
-      <div className="p-4">
-        {/* Header row: ring + verdict + Edit */}
-        <div className="flex items-start gap-4">
-          <ProgressRing pct={funded ? 100 : oneMonthPct} accent="#059669" />
-          <div className="flex-1 min-w-0">
-            {funded ? (
-              <>
-                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
-                  Safety net funded 🎉
-                </p>
-                <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  Your target is covered — consider investing surplus beyond this cushion.
-                </p>
-              </>
-            ) : unsizedGoal ? (
-              <>
-                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
-                  {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  A {data.target_months ?? 6}-month goal needs more spending history to size — tap <span className="font-semibold text-emerald-600">Edit</span> to set a {sym.trim() || sym} target.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
-                  {hideValues ? "•• days covered" : `~${daysCovered} day${daysCovered === 1 ? "" : "s"} covered`}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                  {hideValues
-                    ? `Towards 1-month goal`
-                    : `${fmt(data.current_savings, sym)} of ${fmt(oneMonthTarget, sym)} (1 month)`}
-                </p>
-              </>
-            )}
-          </div>
-          <button
-            onClick={beginSetup}
-            aria-label="Edit safety net target"
-            className="flex-shrink-0 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
-          >
-            Edit
-          </button>
-        </div>
-
-        {/* Timeline / motivation line — below the header */}
-        {!funded && !unsizedGoal && (
-          <div className="mt-3 space-y-2">
-            {data.monthly_surplus > 0 && nearDate ? (
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                At {hideValues ? "••••" : fmt(data.monthly_surplus, sym)}/mo spare →{" "}
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  1 month covered by {nearDate}
-                </span>
-              </p>
-            ) : atOrBeyondOneMonth && data.monthly_surplus > 0 && data.funded_date && data.months_to_target < 999 ? (
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                One month covered — keep going:{" "}
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  full {data.target_months ?? 3}-month goal by {fmtMonth(data.funded_date)}
-                </span>
-              </p>
-            ) : data.monthly_surplus <= 0 ? (
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                After debt, nothing spare to save yet — freeing up cash comes first.
-              </p>
-            ) : null}
-
-            {/* Full goal as secondary small text */}
-            {data.target_amount > 0 && !atOrBeyondOneMonth && (
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                {hideValues ? "" : `${data.target_months ?? 3}-month goal: ${fmt(data.target_amount, sym)}`}
-                {data.funded_date && data.months_to_target < 999 && data.monthly_surplus > 0 && !hideValues
-                  ? ` · fully funded ${fmtMonth(data.funded_date)}`
-                  : ""}
-              </p>
-            )}
-
-            {/* Spendable cash disambiguation — muted one-liner, no mid-paragraph wall */}
-            {data.months_funded > 0 && (
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                ⓘ Separate from your spendable cash on the home screen.
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Savings Plan Card ─────────────────────────────────────────────────────────
-
-function SavingsPlanCard({
-  plan, sym, accent, hideValues, onToggleStep, onDeleteStep, onDelete,
-}: {
-  plan: SavingsPlan | null;
-  sym: string;
-  accent: string;
-  hideValues: boolean;
-  onToggleStep: (id: string, done: boolean) => void;
-  onDeleteStep: (id: string) => void;
-  onDelete: () => void;
-}) {
-  if (!plan) return null;
-
-  const pct = plan.total_count > 0 ? Math.round((plan.done_count / plan.total_count) * 100) : 0;
-  const allDone = plan.total_count > 0 && plan.done_count === plan.total_count;
-  const nextIdx = plan.milestones.findIndex(m => !m.done);
-
-  return (
-    <div className="glass-card rounded-2xl overflow-hidden">
-      <div className="p-4 flex items-center gap-4">
-        <ProgressRing pct={pct} accent={accent} />
-        <div className="flex-1 min-w-0">
-          <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-            {allDone ? "Plan complete! 🎉" : "Your savings plan"}
-          </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {allDone ? "Every milestone done — incredible work." : `${plan.done_count} of ${plan.total_count} done${nextIdx >= 0 ? " — keep going!" : ""}`}
-          </p>
-        </div>
-      </div>
-
-      <div className="px-3 pb-2 space-y-1">
-        {plan.milestones.map((m, i) => {
-          const isNext = i === nextIdx;
-          const auto = m.type === "savings";
-          return (
-            <div key={m.id} className={`group flex items-start gap-1 px-1 rounded-xl transition-colors ${isNext ? "bg-slate-50 dark:bg-slate-700/50" : ""}`}>
-              <button disabled={auto} onClick={() => !auto && onToggleStep(m.id, !m.done)}
-                className={`flex flex-1 min-w-0 items-start gap-2.5 text-left px-1.5 py-2 ${auto ? "cursor-default" : "active:scale-[0.99]"}`}>
-                {m.done
-                  ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: accent }} />
-                  : <Circle className="w-5 h-5 flex-shrink-0 mt-0.5 text-slate-300 dark:text-slate-600" />}
-                <span className="flex-1 min-w-0">
-                  <span className={`block text-sm leading-snug ${m.done ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-700 dark:text-slate-200"}`}>
-                    {m.text}
-                  </span>
-                  {auto && m.target_balance != null && (
-                    <span className="block text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Auto-tracked · target {hideValues ? "••••" : fmt(m.target_balance, sym)}
-                    </span>
-                  )}
-                  {!auto && m.live_target != null && m.live_spend != null && (
-                    <span className={`block text-[11px] mt-0.5 font-medium ${
-                      m.live_spend > m.live_target
-                        ? "text-red-500 dark:text-red-400"
-                        : m.live_spend > m.live_target * 0.8
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-emerald-600 dark:text-emerald-400"
-                    }`}>
-                      {hideValues ? "••••" : fmt(m.live_spend, sym)} on {m.live_category} this month · target {hideValues ? "••••" : fmt(m.live_target, sym)}
-                    </span>
-                  )}
-                </span>
-              </button>
-              <button onClick={() => onDeleteStep(m.id)} aria-label="Remove goal"
-                className="flex-shrink-0 mt-1.5 p-2.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                <X size={14} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="px-4 pb-3 pt-1 flex items-center justify-end border-t border-slate-50 dark:border-slate-700/60">
-        <button onClick={onDelete} className="text-xs text-slate-400 hover:text-red-500 transition-colors flex items-center gap-1 pt-2">
-          <Trash2 size={12} /> Delete
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Page (merged advisory view) ───────────────────────────────────────────────
 
 export default function InsightsPage() {
   const router = useRouter();
-  const { hideNetWorth, region } = usePreferences();
-  const sym = region === "Kenya" ? "KES " : "£";
 
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
-  const [tab, setTab] = useState<"savings" | "save" | "tax">("savings");
+  const [tab, setTab] = useState<"save" | "tax">("save");
   const [newInsightCount, setNewInsightCount] = useState(0);
   const [incomeBracket, setIncomeBracket] = useState("");
   const [taxIncomeValue, setTaxIncomeValue] = useState(0);
   const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
   const [taxHasChildBenefit, setTaxHasChildBenefit] = useState(false);
   const [taxPrefsLoaded, setTaxPrefsLoaded] = useState(false);
-  const [savings, setSavings] = useState<SavingsInsights | null>(null);
-  const [savingsPlan, setSavingsPlan] = useState<SavingsPlan | null>(null);
   const [savingsMoreOpen, setSavingsMoreOpen] = useState(false);
-  const [debtTotal, setDebtTotal] = useState(0);
 
   const initialTabSet = useRef(false);
   const savingsSectionRef = useRef<HTMLDivElement>(null);
@@ -1625,40 +1072,8 @@ export default function InsightsPage() {
   }, []);
 
   const load = useCallback(async () => {
-    try {
-      setSavings(await api.savingsInsights());
-    } finally {
-      api.getSavingsPlan().then(({ plan }) => setSavingsPlan(plan)).catch(() => {});
-      api.getDebtPlanView().then(v => setDebtTotal(v?.totals?.debt ?? 0)).catch(() => {});
-      setLoading(false);
-    }
+    setLoading(false);
   }, []);
-
-  const refreshSavings = useCallback(() => {
-    api.savingsInsights().then(setSavings).catch(() => {});
-    api.getSavingsPlan().then(({ plan }) => setSavingsPlan(plan)).catch(() => {});
-  }, []);
-
-  async function toggleSavingsStep(id: string, done: boolean) {
-    try {
-      const { plan } = await api.toggleSavingsPlanStep(id, done);
-      setSavingsPlan(plan);
-    } catch {}
-  }
-
-  async function deleteSavingsStep(id: string) {
-    try {
-      const { plan } = await api.deleteSavingsPlanStep(id);
-      setSavingsPlan(plan);
-    } catch {}
-  }
-
-  async function deleteSavingsPlanFn() {
-    try {
-      await api.deleteSavingsPlan();
-      setSavingsPlan(null);
-    } catch {}
-  }
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -1703,7 +1118,7 @@ export default function InsightsPage() {
       .catch(() => {});
   }, []);
 
-  // Default to savings tab; redirect ?tab=plan deep-links to /debt-plan.
+  // Default to "Ways to save"; redirect ?tab=plan deep-links to /debt-plan.
   useEffect(() => {
     if (!loading && !initialTabSet.current) {
       initialTabSet.current = true;
@@ -1713,16 +1128,9 @@ export default function InsightsPage() {
         router.replace("/debt-plan");
         return;
       }
-      let chosen: "savings" | "save" | "tax";
-      if (requested === "savings" || requested === "save" || requested === "tax") {
-        chosen = requested;
-      } else if (params.get("insight")) {
-        chosen = "savings";
-      } else {
-        chosen = "savings";
-      }
+      const chosen: "save" | "tax" = requested === "tax" ? "tax" : "save";
       setTab(chosen);
-      if ((chosen === "savings" || chosen === "save") && (requested === "savings" || requested === "save")) {
+      if (chosen === "save" && requested === "save") {
         setTimeout(() => {
           savingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 150);
@@ -1730,8 +1138,7 @@ export default function InsightsPage() {
     }
   }, [loading, router]);
 
-  const hasDebt = debtTotal > 0;
-  const heroMode = isDesktop ? "savings" : tab;
+  const heroMode = isDesktop ? "save" : tab;
 
   const taxYear = (() => {
     const now = new Date();
@@ -1744,12 +1151,11 @@ export default function InsightsPage() {
     const label = `${start.getFullYear()}/${String(end.getFullYear()).slice(2)}`;
     return { pct, daysLeft, label };
   })();
-  const accent = tab === "tax" ? "#7c3aed" : tab === "save" ? "#0d9488" : "#059669";
+  const accent = tab === "tax" ? "#7c3aed" : "#0d9488";
 
   return (
     <div className="min-h-dvh pb-36 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header — compact, one primary stat max. Neutral while loading so the
-          Savings copy never flashes before flipping to Debt. */}
+      {/* Header — compact, one primary stat max. */}
       {loading ? (
         <div className="mx-4 mt-4 rounded-3xl h-[120px] bg-slate-200 dark:bg-slate-800 animate-pulse" />
       ) : (
@@ -1779,47 +1185,17 @@ export default function InsightsPage() {
               <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
             </div>
           </>
-        ) : heroMode === "save" ? (
-          <>
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Personalised ways to spend less — start with the top one.</p>
-              </div>
-              <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: "#0d948826" }}>
-                <TrendingDown className="w-5 h-5" style={{ color: "#0d9488" }} />
-              </div>
-            </div>
-          </>
         ) : (
-          /* Savings */
-          <>
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Grow your money</h1>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Spend less and grow your cushion</p>
-              </div>
-              <div className="w-11 h-11 rounded-2xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
-                <PiggyBank className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
+          /* Ways to save */
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Personalised ways to spend less — start with the top one.</p>
             </div>
-            {savings ? (
-              <div className="mt-3">
-                {(savings.monthly_surplus ?? 0) > 0 ? (
-                  <>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Spare after essentials &amp; debt</p>
-                    <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{hideNetWorth ? "••••" : fmt(savings.monthly_surplus, sym)}</p>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">A typical month&rsquo;s income minus everyday spending and debt payments</p>
-                  </>
-                ) : savings?.configured ? (
-                  <>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-0.5">Safety net funded</p>
-                    <p className="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{hideNetWorth ? "••••" : `${Math.round(savings.pct_funded ?? 0)}%`}</p>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-          </>
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: "#0d948826" }}>
+              <TrendingDown className="w-5 h-5" style={{ color: "#0d9488" }} />
+            </div>
+          </div>
         )}
       </div>
       )}
@@ -1827,23 +1203,12 @@ export default function InsightsPage() {
       <div className="px-4 pt-4 space-y-3">
         {loading ? (
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
-        ) : !savings ? (
-          <>
-            <div className="glass-card rounded-2xl p-8 text-center">
-              <p className="text-slate-500 dark:text-slate-400 text-sm">Could not load your money summary</p>
-            </div>
-            <SavingsInsightsSection />
-          </>
         ) : (
           <>
-            {/* Savings | Tax tabs — hidden when there's only one */}
+            {/* Ways to save | Tax tabs — hidden entirely when there's only one option */}
             {(() => {
-              const tabs: ("savings" | "save" | "tax")[] = [
-                "savings",
-                "save",
-                ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? ["tax" as const] : []),
-              ];
-              if (isDesktop) return null;
+              const showTaxTab = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
+              if (isDesktop || !showTaxTab) return null;
               return (
                 <SegmentedControl
                   ariaLabel="Insights sections"
@@ -1853,54 +1218,15 @@ export default function InsightsPage() {
                     if (t === "save") { setNewInsightCount(0); }
                   }}
                   options={[
-                    { value: "savings", label: "Savings", accent: "#059669" },
                     { value: "save", label: "Ways to save", accent: "#0d9488", badge: newInsightCount > 0 ? newInsightCount : undefined },
-                    ...((incomeBracket === "100k_125k" || incomeBracket === "125k_plus") ? [{ value: "tax", label: "Tax", accent: "#7c3aed" }] : []),
+                    { value: "tax", label: "Tax", accent: "#7c3aed" },
                   ]}
                 />
               );
             })()}
 
-            {/* Next £100 buffer card — savings tab only (not tax, not save) */}
-            {savings && tab === "savings" && (
-              <NextHundredCard
-                debtTotal={debtTotal}
-                savings={savings}
-                incomeBracket={incomeBracket}
-                sym={sym}
-                hideValues={hideNetWorth}
-              />
-            )}
-
             {(() => {
               const showTaxSection = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
-
-              const savingsBlock = (
-                <>
-                  <SafetyNetCard
-                    data={savings}
-                    sym={sym}
-                    hideValues={hideNetWorth}
-                    onSaved={refreshSavings}
-                  />
-
-                  {savings?.configured && (
-                    <SavingsPlanCard
-                      plan={savingsPlan}
-                      sym={sym}
-                      accent="#059669"
-                      hideValues={hideNetWorth}
-                      onToggleStep={toggleSavingsStep}
-                      onDeleteStep={deleteSavingsStep}
-                      onDelete={deleteSavingsPlanFn}
-                    />
-                  )}
-
-                  {!hasDebt && (savings?.pct_funded ?? 0) >= 100 && (
-                    <ReadyToGrowCard />
-                  )}
-                </>
-              );
 
               const waysBlock = (
                 <>
@@ -1921,7 +1247,7 @@ export default function InsightsPage() {
                 </>
               );
 
-              // Desktop: no tabs — savings and tax visible at once.
+              // Desktop: no tabs — Ways to save and Tax visible at once (when applicable).
               if (isDesktop) {
                 const columnTitle = (label: string, colour: string) => (
                   <div className="flex items-center gap-2 px-1">
@@ -1929,16 +1255,19 @@ export default function InsightsPage() {
                     <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</h2>
                   </div>
                 );
-                const savingsSec = (
-                  <div key="savings" className="space-y-3">{columnTitle("Savings", "#10b981")}{savingsBlock}</div>
-                );
                 const waysSec = (
                   <div key="save" className="space-y-3">{columnTitle("Ways to save", "#0d9488")}{waysBlock}</div>
                 );
                 const secondaryPlaceholder = (
                   <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
                 );
-                const taxSec = showTaxSection ? (
+
+                if (!showTaxSection) {
+                  // 1 column: Ways to save only
+                  return <div className="max-w-xl mx-auto">{waysSec}</div>;
+                }
+
+                const taxSec = (
                   <div key="tax" className="space-y-3">
                     {columnTitle("Tax efficiency", "#7c3aed")}
                     {secondaryReady ? (
@@ -1952,21 +1281,10 @@ export default function InsightsPage() {
                       />
                     ) : secondaryPlaceholder}
                   </div>
-                ) : null;
-
-                if (!showTaxSection) {
-                  // 2 columns: Savings | Ways to save
-                  return (
-                    <div className="grid grid-cols-2 gap-4 items-start">
-                      <div className="space-y-3">{savingsSec}</div>
-                      <div className="space-y-3">{waysSec}</div>
-                    </div>
-                  );
-                }
-                // 3 columns: Savings | Ways to save | Tax
+                );
+                // 2 columns: Ways to save | Tax
                 return (
-                  <div className="grid grid-cols-3 gap-4 items-start">
-                    <div className="space-y-3">{savingsSec}</div>
+                  <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-3">{waysSec}</div>
                     <div className="space-y-3">{taxSec}</div>
                   </div>
@@ -1982,10 +1300,8 @@ export default function InsightsPage() {
                   pensionAnnual={taxPensionAnnual}
                   hasChildBenefit={taxHasChildBenefit}
                 />
-              ) : tab === "save" ? (
-                waysBlock
               ) : (
-                savingsBlock
+                waysBlock
               );
             })()}
 

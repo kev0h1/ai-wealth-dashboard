@@ -86,7 +86,7 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
                 "pillar": "savings", "label": "Safety net",
                 "detail": f"{sym}{current:,.0f} of {sym}{target:,.0f}",
                 "pct": round(max(0.0, min(1.0, current / target)) * 100),
-                "done": current >= target, "url": "/insights?tab=savings",
+                "done": current >= target, "url": "/grow",
             })
 
     # Budget — inside the envelope this pay period (GBP regions only for now)

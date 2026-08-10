@@ -17,14 +17,18 @@ import {
   CircleCheck,
   Gauge,
   Lock,
+  Pencil,
   RefreshCw,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import type { GrowLadderStep, GrowView } from "@wealth/shared";
-import { api } from "@/lib/api";
+import { api, SavingsInsights, SavingsPlan } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
 import { goBack } from "@/lib/goBack";
+import { usePreferences } from "@/components/PreferencesContext";
+import SavingsGoalSheet from "@/components/SavingsGoalSheet";
+import SavingsPlanCard from "@/components/SavingsPlanCard";
 
 // ── formatting ───────────────────────────────────────────────────────────
 
@@ -258,9 +262,17 @@ function SplitGauge({ view }: { view: GrowView }) {
 
 export default function GrowVariant1() {
   const router = useRouter();
+  const { region, hideNetWorth } = usePreferences();
+  const sym = region === "Kenya" ? "KES " : "£";
   const [view, setView] = useState<GrowView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+
+  // Safety-net goal editor state — fetched alongside the grow view, in
+  // parallel, tolerating failure (the Edit affordance simply stays hidden).
+  const [savings, setSavings] = useState<SavingsInsights | null>(null);
+  const [savingsPlan, setSavingsPlan] = useState<SavingsPlan | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -275,13 +287,47 @@ export default function GrowVariant1() {
     }
   }, []);
 
+  const loadSavings = useCallback(async () => {
+    try {
+      const [s, p] = await Promise.all([api.savingsInsights(), api.getSavingsPlan()]);
+      setSavings(s);
+      setSavingsPlan(p.plan);
+    } catch {
+      setSavings(null);
+      setSavingsPlan(null);
+    }
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadSavings();
+  }, [load, loadSavings]);
+
+  async function toggleSavingsStep(id: string, done: boolean) {
+    try {
+      const { plan } = await api.toggleSavingsPlanStep(id, done);
+      setSavingsPlan(plan);
+    } catch {}
+  }
+
+  async function deleteSavingsStep(id: string) {
+    try {
+      const { plan } = await api.deleteSavingsPlanStep(id);
+      setSavingsPlan(plan);
+    } catch {}
+  }
+
+  async function deleteSavingsPlanFn() {
+    try {
+      await api.deleteSavingsPlan();
+      setSavingsPlan(null);
+    } catch {}
+  }
 
   const hasLadder = !!view && view.ladder.length > 0;
 
   return (
+    <>
     <div className="min-h-dvh pb-12 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-xl mx-auto">
         <button
@@ -373,13 +419,37 @@ export default function GrowVariant1() {
               </div>
             )}
 
+            {/* ── Savings plan milestones — sits below the ladder once a plan exists ── */}
+            {savings?.configured && savingsPlan && (
+              <SavingsPlanCard
+                plan={savingsPlan}
+                sym={sym}
+                accent="#059669"
+                hideValues={hideNetWorth}
+                onToggleStep={toggleSavingsStep}
+                onDeleteStep={deleteSavingsStep}
+                onDelete={deleteSavingsPlanFn}
+              />
+            )}
+
             {/* ── Save vs invest split ── */}
             <SplitGauge view={view} />
 
             {/* ── Buffer + debt mini readouts — supporting gauges ── */}
             <div className="grid grid-cols-2 gap-3">
               <div className="glass-card rounded-2xl p-3.5">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1">Buffer</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Buffer</p>
+                  {savings && (
+                    <button
+                      onClick={() => setSheetOpen(true)}
+                      aria-label="Edit safety net goal"
+                      className="flex-shrink-0 -m-1 p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                    >
+                      <Pencil size={12} strokeWidth={2.25} />
+                    </button>
+                  )}
+                </div>
                 <p className="text-sm font-bold text-slate-900 dark:text-slate-50">
                   {money(view.buffer.current)}{" "}
                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400">/ {money(view.buffer.target)}</span>
@@ -417,5 +487,16 @@ export default function GrowVariant1() {
         )}
       </div>
     </div>
+
+    {sheetOpen && (
+      <SavingsGoalSheet
+        data={savings}
+        sym={sym}
+        hideValues={hideNetWorth}
+        onClose={() => setSheetOpen(false)}
+        onSaved={() => { load(); loadSavings(); }}
+      />
+    )}
+    </>
   );
 }
