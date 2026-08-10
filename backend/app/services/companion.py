@@ -8,7 +8,7 @@ import hashlib
 import logging
 import math
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from app.db.collections import (
@@ -20,11 +20,13 @@ from app.db.collections import (
     behaviour_portrait_col,
     companion_items_col,
     needle_history_col,
+    transactions_col,
 )
 
 log = logging.getLogger(__name__)
 from app.routers.analytics import _build_cashflow_response, income_credit_ok
 from app.services.card_rates import is_credit_card_account
+from app.services.categorisation import series_key
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -181,6 +183,162 @@ async def _live_balance(account_id: str) -> float | None:
     return None
 
 
+# Non-discretionary categories — mirrors cashflow.py's _NON_DISC. Excluded from
+# "everyday spend" so the payday-plan target isn't inflated by money that's
+# already accounted for elsewhere (bills, savings moves, debt payments, etc).
+_PP_NON_DISC = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+
+
+def _median(vals: list[float]) -> float:
+    """Median of a list — mirrors cashflow.py's _median (sort, take middle;
+    average of the two middles when the count is even)."""
+    if not vals:
+        return 0.0
+    s = sorted(vals)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
+
+
+async def _per_account_everyday_spend(uid: str, recurring_keys: set) -> dict[str, float]:
+    """Median per-account everyday (non-recurring, non-transfer-like) discretionary
+    spend over the last 3 FULL pay periods (strictly before the current in-progress
+    one). Powers the payday-plan per-account target alongside bills + buffer.
+    Accounts with zero qualifying txns across all 3 periods are simply absent."""
+    try:
+        from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+
+        prefs = await preferences_col.find_one({"user_id": uid}) or {}
+        pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+
+        cutoff = datetime.utcnow() - timedelta(days=100)
+        txns: list[dict] = []
+        async for t in transactions_col.find(
+            {"user_id": uid, "transaction_type": "debit", "date": {"$gte": cutoff}},
+            {"amount": 1, "date": 1, "account_id": 1, "category": 1, "custom_category": 1,
+             "merchant_name": 1, "description": 1},
+        ):
+            txns.append(t)
+
+        cur_start, _ = get_pay_period_for_date(date.today(), pay_cfg)
+        periods: list[tuple[date, date]] = []
+        _walk_start = cur_start
+        for _ in range(3):
+            _p_start, _p_end = prev_pay_period(_walk_start, pay_cfg)
+            periods.append((_p_start, _p_end))
+            _walk_start = _p_start
+
+        per_acct_sums: dict[str, list[float]] = {}
+        for t in txns:
+            cat = t.get("custom_category") or t.get("category") or ""
+            if cat in _PP_NON_DISC:
+                continue
+            if series_key(t) in recurring_keys:
+                continue
+            t_date = t.get("date")
+            if t_date is None:
+                continue
+            if hasattr(t_date, "date"):
+                t_date = t_date.date()
+            acct_id = str(t.get("account_id") or "")
+            amount = abs(float(t.get("amount") or 0))
+            for idx, (p_start, p_end) in enumerate(periods):
+                if p_start <= t_date <= p_end:
+                    per_acct_sums.setdefault(acct_id, [0.0, 0.0, 0.0])[idx] += amount
+                    break
+
+        result: dict[str, float] = {}
+        for acct_id, sums in per_acct_sums.items():
+            if any(s > 0 for s in sums):
+                result[acct_id] = _median(sums)
+        return result
+    except Exception:
+        return {}
+
+
+async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> dict[str, int]:
+    """Historical median amount moved OUT of the salary account, per destination
+    account, on the 4 most recent paydays — matched by amount + timing against a
+    credit landing elsewhere. Surfaces "usual" alongside the freshly computed
+    `move` on each payday-plan destination card."""
+    try:
+        from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+
+        cur_start, _ = get_pay_period_for_date(date.today(), pay_cfg)
+        paydays: list[date] = []
+        _walk_start = cur_start
+        for _ in range(4):
+            _p_start, _p_end = prev_pay_period(_walk_start, pay_cfg)
+            paydays.append(_p_start)
+            _walk_start = _p_start
+
+        dest_amounts: dict[str, list[float]] = {}
+        for payday in paydays:
+            window_start = datetime.combine(payday, time.min)
+            window_end = datetime.combine(payday + timedelta(days=5), time.min)
+
+            debits: list[dict] = []
+            async for d in transactions_col.find(
+                {
+                    "user_id": uid,
+                    "transaction_type": "debit",
+                    "date": {"$gte": window_start, "$lt": window_end},
+                },
+                {"amount": 1, "date": 1, "account_id": 1, "category": 1, "custom_category": 1},
+            ):
+                if str(d.get("account_id") or "") != str(salary_acct_id):
+                    continue
+                d_cat = d.get("custom_category") or d.get("category") or ""
+                if d_cat not in {"Transfer", "Savings", "Debt", "Investment"}:
+                    continue
+                debits.append(d)
+
+            if not debits:
+                continue
+
+            credits: list[dict] = []
+            async for c in transactions_col.find(
+                {
+                    "user_id": uid,
+                    "transaction_type": "credit",
+                    "date": {"$gte": window_start, "$lt": window_end},
+                },
+                {"amount": 1, "date": 1, "account_id": 1, "category": 1, "custom_category": 1},
+            ):
+                if str(c.get("account_id") or "") == str(salary_acct_id):
+                    continue
+                credits.append(c)
+
+            used: set[int] = set()
+            for d in debits:
+                d_amt = abs(float(d.get("amount") or 0))
+                d_date = d.get("date")
+                d_date = d_date.date() if hasattr(d_date, "date") else d_date
+                if d_date is None:
+                    continue
+                for ci, c in enumerate(credits):
+                    if ci in used:
+                        continue
+                    c_amt = abs(float(c.get("amount") or 0))
+                    c_date = c.get("date")
+                    c_date = c_date.date() if hasattr(c_date, "date") else c_date
+                    if c_date is None:
+                        continue
+                    if abs(d_amt - c_amt) < 0.02 and abs((c_date - d_date).days) <= 3:
+                        used.add(ci)
+                        dest_id = str(c.get("account_id") or "")
+                        dest_amounts.setdefault(dest_id, []).append(c_amt)
+                        break
+
+        return {
+            dest_id: int(round(_median(amounts)))
+            for dest_id, amounts in dest_amounts.items()
+            if amounts
+        }
+    except Exception:
+        return {}
+
+
 # ── Module-level account classifiers ──────────────────────────────────────────
 # Lifted out of compute_today_items so the offline pass can share them without
 # re-defining inside the closure. Logic is byte-identical to the former nested defs.
@@ -203,8 +361,13 @@ def _is_offline(acc: dict) -> bool:
     return bool(acc.get("_offline"))
 
 
-async def compute_today_items(uid: str) -> list[dict]:
-    """Compute companion items for `uid`. Cap at 3, moves first (one card per at-risk destination)."""
+async def compute_today_items(uid: str, payday_preview: bool = False) -> list[dict]:
+    """Compute companion items for `uid`. Cap at 3, moves first (one card per at-risk destination).
+
+    `payday_preview`: force the Payday Plan section on regardless of window
+    position, for design/QA. Preview mode builds and returns the card without
+    persisting it and without suppressing the normal per-destination cards.
+    """
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
     cached = await cashflow_cache_col.find_one({"_id": uid})
@@ -217,6 +380,10 @@ async def compute_today_items(uid: str) -> list[dict]:
         s.get("key") for s in (prefs.get("income_streams") or [])
         if s.get("status") == "confirmed"
     }
+    try:
+        payday_buffer = max(0, min(500, int(prefs.get("payday_buffer", 50))))
+    except (TypeError, ValueError):
+        payday_buffer = 50
     resp = await _build_cashflow_response(cached, uid=uid, prefs=prefs)
 
     # ── 2. Determine pay window ─────────────────────────────────────────────
@@ -231,10 +398,24 @@ async def compute_today_items(uid: str) -> list[dict]:
     else:
         next_pay = _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
-    window_end = next_pay  # inclusive of payday: bills/income with days_away <= days_to_pay
 
-    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] <= days_to_pay]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= days_to_pay]
+    # Payday Plan window — the moment to distribute the month. Position within
+    # the CURRENT pay period (distinct from `next_pay`, which describes the
+    # upcoming payday, not where `today_d` sits in the period that's live now).
+    from app.services.pay_period import get_pay_period_for_date as _pp_get_period
+    _pstart, _pend = _pp_get_period(today_d, pay_cfg)
+    days_into_period = (today_d - _pstart).days + 1
+    payday_window = days_into_period <= 3  # payday + 2 days: the moment to distribute the month
+
+    window_end = next_pay  # inclusive of payday: bills/income with days_away <= days_to_pay
+    lookahead = 5 if days_to_pay <= 1 else 0  # last-day lookahead: assess the next period's first 5 days once the current one is ending
+
+    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] <= days_to_pay + lookahead]
+    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= days_to_pay + lookahead]
+    # Snapshot BEFORE preview consumption (below) mutates window_income by removing
+    # reliably-credited items — the payday-plan salary-account selection always
+    # reasons over the untouched window, preview or not.
+    _orig_window_income = list(window_income)
 
     # Skip bills where we have no balance data, or the bill is on a credit card
     # (credit cards have a credit limit, not an available balance, so a bill
@@ -289,6 +470,20 @@ async def compute_today_items(uid: str) -> list[dict]:
         })
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
+
+    # PREVIEW = payday morning: reliable payday income is credited to its
+    # landing account up front so the plan distributes the salary rather than
+    # scraping pots mid-month.
+    if payday_preview:
+        _preview_consumed: list[dict] = []
+        for i in window_income:
+            _acct = str(i.get("account_id") or "")
+            if income_credit_ok(i, _acct, confirmed_income_keys):
+                live_balances[_acct] = live_balances.get(_acct, 0.0) + float(i["amount"])
+                _preview_consumed.append(i)
+        if _preview_consumed:
+            _consumed_ids = {id(_i) for _i in _preview_consumed}
+            window_income = [i for i in window_income if id(i) not in _consumed_ids]
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
@@ -661,6 +856,329 @@ async def compute_today_items(uid: str) -> list[dict]:
     for _da, _sa, dest_acct_fp, _bill in shortfalls:
         dest_bucketed[dest_acct_fp] = round((_ceil5(abs(min_running[dest_acct_fp])) + 10) / 50) * 50
 
+    # Grouped once, up front — shared by the Payday Plan card below and the
+    # per-destination emission loop.
+    legs_by_dest: dict[str, list[dict]] = {}
+    for leg in covered:
+        legs_by_dest.setdefault(leg["dest_acct"], []).append(leg)
+    uncovered_by_dest: dict[str, dict] = {u["dest_acct"]: u for u in uncovered}
+
+    # ── 5b. PAYDAY PLAN — salary allocation engine, payday + 2 days ─────────
+    # On the moment that sets up the whole period, we allocate the landed
+    # salary across the user's own non-credit-card accounts: per account,
+    # target = period bills + typical everyday spend + buffer; move =
+    # max(0, target − balance). `payday_preview` forces this section on (for
+    # design/QA) without persisting the doc or suppressing the normal
+    # per-destination cards.
+    _effective_payday_window = payday_window or payday_preview
+    _suppress_moves = False
+    if _effective_payday_window:
+        # PREVIEW reads the PROJECTED payday-morning balance — today's live
+        # balance carried through the running-balance walk above (`running`),
+        # which already debits this period's remaining bills and credits
+        # window income on top of the preview salary credit (step 4). Using
+        # today's raw snapshot instead would ignore that the current period's
+        # bills drain the account before payday actually arrives. Falls back
+        # to live_balances for accounts the walk never touched (no bills in
+        # window). Real payday keeps live_balances as-is: the salary has
+        # genuinely landed and the window IS the fresh period, so there's no
+        # "before payday" drain left to project. Deliberately NOT floored at
+        # 0 — an account genuinely projected negative needs target + the
+        # deficit to actually recover, not just the target.
+        _bal = (
+            (lambda acct_id: running.get(acct_id, live_balances.get(acct_id, 0.0)))
+            if payday_preview
+            else (lambda acct_id: live_balances.get(acct_id, 0.0))
+        )
+
+        # Salary account + amount — the most reliable in-window income item,
+        # falling back to "the current account with the most cash" when no
+        # income is confidently landing this window (e.g. mid-month preview).
+        # Reasons over the UNMUTATED income snapshot, preview or not.
+        _income_candidates = [
+            i for i in _orig_window_income
+            if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
+        ]
+        if _income_candidates:
+            _salary_income = max(_income_candidates, key=lambda i: float(i["amount"]))
+            salary_acct = str(_salary_income.get("account_id") or "")
+            salary_amount = int(round(float(_salary_income["amount"])))
+        else:
+            _current_accts = [a for a in all_uk_accounts if not is_credit_card_account(a)]
+            if _current_accts:
+                salary_acct = max(_current_accts, key=lambda a: _bal(a["_str_id"]))["_str_id"]
+            else:
+                salary_acct = None
+            salary_amount = 0
+
+        # Degenerate case — no accounts at all. Skip the card rather than crash.
+        if salary_acct is not None:
+            # Mid-month preview must see bills that fall early in the NEXT
+            # period (e.g. a mortgage/loan due on the 1st) — window_bills only
+            # spans to the next payday, so it undercounts a preview taken
+            # mid-period. On a real payday the window already spans the whole
+            # period, so window_bills stays correct there.
+            #
+            # NEXT-PERIOD ONLY (days_away > days_to_pay): the incoming salary
+            # funds the period that's about to START, not the one ending
+            # today. Using the full unbounded horizon here stacked the rest
+            # of THIS period's bills AND all of next period's against one
+            # salary (~5 weeks of demand vs 1 month), crushing discretionary
+            # allocations to near-zero. The current period's remaining bills
+            # are already accounted for separately — they drain the balance
+            # `_bal` below projects forward to payday morning, so funding
+            # them again here would double-count them.
+            _plan_bills = (
+                [
+                    b for b in resp["upcoming_bills"]
+                    if not b.get("is_credit_card") and b.get("days_away", 0) > days_to_pay
+                ]
+                if payday_preview
+                else window_bills
+            )
+
+            def _acct_bills(acct_id: str) -> tuple[float, int]:
+                """Sum/count of THIS account's bills from `_plan_bills` (ALL
+                known bills, not just the balance-assessable subset
+                `assessable_bills` is scoped to) — the payday plan sizes
+                targets off everything due, regardless of whether we have
+                balance data to shortfall-simulate."""
+                _total = 0.0
+                _count = 0
+                for _b in _plan_bills:
+                    if str(_b.get("account_id") or "") == acct_id and not _b.get("is_credit_card"):
+                        _total += float(_b["amount"])
+                        _count += 1
+                return _total, _count
+
+            recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
+            everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
+            usual_moves = await _usual_payday_moves(uid, salary_acct, pay_cfg)
+
+            def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:
+                """Like `_acct_bills`, but excludes predicted bills that
+                duplicate this plan's own dest legs. Standing orders FROM the
+                salary account TO the user's own accounts (e.g. a £100/mo
+                "RAINY DAY SAVER STO") get predicted as recurring bills here
+                AND re-created as this plan's own dest moves below — own-
+                account standing orders are re-created as this plan's legs —
+                reserving them as bills too would double-count; external
+                outflows (investments, card DDs) stay reserved, since they
+                have no matching dest move. Each `usual_moves` value is
+                consumed at most once so two £100 bills against a single
+                £100 usual dest only drop one."""
+                _remaining = list(usual_moves.values())
+                _total = 0.0
+                _count = 0
+                for _b in _plan_bills:
+                    if str(_b.get("account_id") or "") != acct_id or _b.get("is_credit_card"):
+                        continue
+                    _amt = float(_b["amount"])
+                    _match_idx = next(
+                        (i for i, u in enumerate(_remaining) if abs(u - _amt) <= 2), None
+                    )
+                    if _match_idx is not None:
+                        _remaining.pop(_match_idx)
+                        continue
+                    _total += _amt
+                    _count += 1
+                return _total, _count
+
+            _salary_bills_total, _ = _salary_bills_excl_own_dests(salary_acct)
+            _salary_spend_typical = int(everyday_spend.get(salary_acct, 0))
+            _salary_target = _salary_bills_total + _salary_spend_typical + payday_buffer
+            distributable = _bal(salary_acct) - _salary_target
+
+            dests: list[dict] = []
+            for acc in all_uk_accounts:
+                acct_id = acc["_str_id"]
+                if is_credit_card_account(acc):
+                    continue
+                if acct_id == salary_acct:
+                    continue
+                if acct_id in excluded_sources:
+                    continue
+                bills_total, bill_count = _acct_bills(acct_id)
+                balance = _bal(acct_id)
+                usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
+                if _is_savings(acc):
+                    # Savings pots: the user's saving intent is theirs (Grow
+                    # owns recommendations) — mirror their ritual, never
+                    # auto-buffer. No spend/buffer padding; the move is
+                    # whatever they usually put in (accumulation, not
+                    # target-filling — e.g. £100/mo to Rainy Day continues
+                    # regardless of balance; pots with no habitual funding
+                    # get nothing). Bills billed to a savings account are
+                    # rare but still get covered on top.
+                    spend_typical = 0
+                    buffer = 0
+                    move = usual if usual else 0
+                    if bills_total > 0:
+                        move = max(move, _ceil5(max(0.0, bills_total - balance)))
+                    target = move + bills_total
+                else:
+                    spend_typical = int(everyday_spend.get(acct_id, 0))
+                    buffer = payday_buffer
+                    target = bills_total + spend_typical + buffer
+                    move_raw = max(0.0, target - balance)
+                    move = _ceil5(move_raw) if move_raw > 0 else 0
+                if not (move > 0 or usual is not None):
+                    continue
+                dests.append({
+                    "account_id": acct_id,
+                    "name": _clean_name(acc.get("name"), acct_id),
+                    "provider": _provider_of(acc),
+                    "balance": int(round(balance)),
+                    "bills_total": int(round(bills_total)),
+                    "bill_count": bill_count,
+                    "spend_typical": spend_typical,
+                    "buffer": int(buffer),
+                    "target": int(round(target)),
+                    "move": int(move),
+                    "usual": int(usual) if usual is not None else None,
+                })
+
+            dests.sort(key=lambda d: d["move"], reverse=True)
+            dests = dests[:10]
+
+            total_moves = sum(d["move"] for d in dests)
+            trimmed = False
+            # Only trim when there's something to trim — an already-empty
+            # destination list (nothing to move) is never "a tight month".
+            if total_moves > 0 and total_moves > distributable:
+                trimmed = True
+                overage = total_moves - distributable
+
+                # Phase 1 — reduce each dest's buffer portion, largest-move
+                # dest first, until the overage clears or every buffer hits 0.
+                for d in sorted(dests, key=lambda d: d["move"], reverse=True):
+                    if overage <= 0:
+                        break
+                    cut = min(d["buffer"], overage)
+                    if cut <= 0:
+                        continue
+                    d["buffer"] -= cut
+                    d["target"] -= cut
+                    d["move"] = max(0.0, d["move"] - cut)
+                    overage -= cut
+
+                # Phase 2 — if overage remains, scale down spend_typical
+                # proportionally to each dest's share of the total spend_typical
+                # pool, never cutting a dest's move below its bills-only floor.
+                if overage > 0:
+                    _pool = sum(d["spend_typical"] for d in dests if d["spend_typical"] > 0)
+                    if _pool > 0:
+                        for d in dests:
+                            if overage <= 0 or d["spend_typical"] <= 0:
+                                continue
+                            weight = d["spend_typical"] / _pool
+                            share = overage * weight
+                            floor = max(0.0, d["bills_total"] - d["balance"])
+                            max_cut = max(0.0, d["move"] - floor)
+                            cut = min(share, d["spend_typical"], max_cut)
+                            if cut <= 0:
+                                continue
+                            d["spend_typical"] -= cut
+                            d["target"] -= cut
+                            d["move"] = max(floor, d["move"] - cut)
+
+                # Re-derive final integer moves (respecting each dest's
+                # bills-only floor) and re-round the other fields.
+                for d in dests:
+                    floor = max(0.0, d["bills_total"] - d["balance"])
+                    floor_ceil = _ceil5(floor) if floor > 0 else 0
+                    move_ceil = _ceil5(d["move"]) if d["move"] > 0 else 0
+                    d["move"] = max(move_ceil, floor_ceil)
+                    d["buffer"] = int(round(d["buffer"]))
+                    d["spend_typical"] = int(round(d["spend_typical"]))
+                    d["target"] = int(round(d["bills_total"])) + d["spend_typical"] + d["buffer"]
+
+                total = sum(d["move"] for d in dests)
+            else:
+                total = total_moves
+
+            n_moves = len([d for d in dests if d["move"] > 0])
+            covered = bool(total <= distributable)
+            stays = int(distributable - total) if (distributable - total) >= 0 else 0
+
+            if total > 0:
+                headline = f"Payday plan — split £{salary_amount:,} across {n_moves} accounts"
+            else:
+                headline = "Payday plan — every account is already set"
+
+            _salary_acc_obj = next((a for a in all_uk_accounts if a["_str_id"] == salary_acct), None)
+            _salary_name = _clean_name(_salary_acc_obj.get("name") if _salary_acc_obj else None, salary_acct)
+            _salary_provider = _provider_of(_salary_acc_obj) if _salary_acc_obj else "Bank"
+
+            if covered:
+                body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
+            elif trimmed:
+                body = f"A tight month — buffers trimmed so every payment is covered. £{total:,} distributed."
+            else:
+                body = f"£{total:,} distributed across {n_moves} accounts."
+
+            _pp_fp = _shortfall_fingerprint([(d["account_id"], round(d["move"] / 50) * 50) for d in dests])
+            _pp_item_id = f"payday_plan:{_pstart.isoformat()}:{_pp_fp}"
+
+            if _pp_item_id not in dismissed:
+                payday_plan_item = {
+                    "id": _pp_item_id,
+                    "type": "payday_plan",
+                    "headline": headline,
+                    "body": body,
+                    "covered": covered,
+                    "total": int(total),
+                    "trimmed": bool(trimmed),
+                    "salary": {
+                        "account_id": salary_acct,
+                        "name": _salary_name,
+                        "provider": _salary_provider,
+                        "amount": int(salary_amount),
+                        "stays": stays,
+                    },
+                    "dests": dests,
+                    "estimated": False,
+                    "action": {"label": "See what's due ›", "route": "/planning"},
+                }
+                if payday_preview:
+                    # Preview never touches persistence or state — build and
+                    # return only, and never suppress the normal move cards.
+                    payday_plan_item["preview"] = True
+                    items.append(payday_plan_item)
+                elif payday_window:
+                    # Persist like the existing plan docs so the multi-dest
+                    # auto-verification pass (step 7 below) flips this to "done"
+                    # and celebrates once every listed destination clears.
+                    _pp_existing = await companion_items_col.find_one({"_id": _pp_item_id, "uid": uid})
+                    if not (_pp_existing and _pp_existing.get("status") == "done"):
+                        _pp_doc = {
+                            "_id": _pp_item_id,
+                            "uid": uid,
+                            "type": "payday_plan",
+                            "status": "active",
+                            "headline": headline,
+                            "body": body,
+                            "action": {"label": "See what's due ›", "route": "/planning"},
+                            "estimated": False,
+                            "created_at": datetime.utcnow(),
+                            "_window_end": window_end.isoformat(),
+                            "_dest_accts": [d["account_id"] for d in dests if d["move"] > 0],
+                            "_total": int(total),
+                            "covered": covered,
+                            "dests": dests,
+                            "salary": payday_plan_item["salary"],
+                            "trimmed": bool(trimmed),
+                        }
+                        await companion_items_col.update_one(
+                            {"_id": _pp_item_id, "uid": uid},
+                            {"$set": {k: v for k, v in _pp_doc.items() if k != "_id"}},
+                            upsert=True,
+                        )
+                        items.append(payday_plan_item)
+                        # The plan card replaces the per-destination cards during
+                        # the payday window.
+                        _suppress_moves = True
+
     # ── 6. Emission — ONE CARD PER AT-RISK DESTINATION ──────────────────────
     # Each card is a self-contained instruction about ONE account: its own headline,
     # its own destination block (needs / by when / that account's bills), its own
@@ -668,15 +1186,10 @@ async def compute_today_items(uid: str) -> list[dict]:
     # a per-destination fingerprinted id, so dismissal and auto-verification resolve
     # one account without touching the other. Ordered most urgent first — `shortfalls`
     # is already sorted by (first bounce day, then largest gap).
-    legs_by_dest: dict[str, list[dict]] = {}
-    for leg in covered:
-        legs_by_dest.setdefault(leg["dest_acct"], []).append(leg)
-    uncovered_by_dest: dict[str, dict] = {u["dest_acct"]: u for u in uncovered}
-
     emitted_dests = 0
     capped_out = 0
 
-    for _da, _sa, dest_acct, bill in shortfalls:
+    for _da, _sa, dest_acct, bill in ([] if _suppress_moves else shortfalls):
         dest_fp = _shortfall_fingerprint([(dest_acct, dest_bucketed.get(dest_acct, 0))])
         dest_legs = legs_by_dest.get(dest_acct) or []
 
@@ -971,7 +1484,7 @@ async def compute_today_items(uid: str) -> list[dict]:
 
     async for stored in companion_items_col.find({
         "uid": uid,
-        "type": "move",
+        "type": {"$in": ["move", "payday_plan"]},
         "$or": [
             {"status": "active", "_celebrated": {"$ne": True}},
             {"status": "done", "_celebrated": True},
@@ -1177,6 +1690,33 @@ async def compute_today_items(uid: str) -> list[dict]:
                     f"This is the week your credit cards usually take over {card_desc}. "
                     f"Nothing to do — just so it doesn't sneak up."
                 )
+                # Personalise with the real month-to-date card delta, when available.
+                # Falls back to the generic body above on any error or if the
+                # movement so far this period is too small to be worth naming.
+                try:
+                    from app.services.needle import (
+                        _credit_card_account_ids as _cs_cc_ids,
+                        _txns_for_period as _cs_txns_for_period,
+                        _card_delta as _cs_card_delta,
+                    )
+                    from app.services.pay_period import get_pay_period_for_date as _cs_get_period
+
+                    _cs_period_start, _ = _cs_get_period(today_d, pay_cfg)
+                    _cs_cc_id_set = await _cs_cc_ids(uid)
+                    _cs_cc_txns = (
+                        await _cs_txns_for_period(uid, _cs_period_start, today_d, _cs_cc_id_set)
+                        if _cs_cc_id_set
+                        else []
+                    )
+                    _cs_delta = _cs_card_delta(_cs_cc_txns)
+                    if _cs_delta >= 10:
+                        body = (
+                            f"This is the week your credit cards usually take over {card_desc}. "
+                            f"£{int(round(_cs_delta))} has gone on credit cards so far this month — "
+                            f"nothing to do now, it just joins your card plan."
+                        )
+                except Exception:
+                    pass
                 rhythm_items.append({
                     "id": rid,
                     "type": "rhythm",

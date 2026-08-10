@@ -18,15 +18,20 @@ router = APIRouter(tags=["companion"])
 
 
 @router.get("/today")
-async def get_today(user: dict = Depends(current_user)):
+async def get_today(payday_preview: int = 0, user: dict = Depends(current_user)):
     uid = user["email"]
-    # Short-TTL response cache (90 s; invalidated on dismiss and after sync)
-    cached = response_cache.get("today", uid)
-    if cached is not None:
-        return cached
-    items = await compute_today_items(uid)
+    preview = bool(payday_preview)
+    # Short-TTL response cache (90 s; invalidated on dismiss and after sync).
+    # Preview requests never read from or write to it — they're a one-off
+    # design/QA look at the Payday Plan card, not the live today-state.
+    if not preview:
+        cached = response_cache.get("today", uid)
+        if cached is not None:
+            return cached
+    items = await compute_today_items(uid, payday_preview=preview)
     payload = {"status": "ok", "items": items}
-    response_cache.put("today", uid, payload)
+    if not preview:
+        response_cache.put("today", uid, payload)
     return payload
 
 

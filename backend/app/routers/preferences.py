@@ -24,6 +24,7 @@ async def get_preferences(user: dict = Depends(current_user)):
             "region": "UK", "debt_target_months": 12,
             "notification_prefs": _notif_prefs({}),
             "cover_plan_excluded_accounts": [],
+            "payday_buffer": 50,
         }
     region = doc.get("region", "UK")
     result = {
@@ -45,6 +46,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"],
         "dismissed_recurring":  doc.get("dismissed_recurring", []),
         "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
+        "payday_buffer": doc.get("payday_buffer", 50),
     }
     if "debt_tracking_start" in doc:
         result["debt_tracking_start"] = doc["debt_tracking_start"]
