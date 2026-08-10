@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ReactNode } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { api, Account, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -227,8 +227,11 @@ export default function PlanningPage() {
   const atRiskBills = (() => {
     if (!cashflow) return [];
     const nextPaydayMs = periodEnd.getTime() + 86400000;
+    // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
+    const daysToPay = Math.round((nextPaydayMs - Date.now()) / 86400000);
+    const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
     const scopedBills = cashflow.upcoming_bills.filter(
-      (b) => new Date(b.expected_date).getTime() <= nextPaydayMs &&
+      (b) => new Date(b.expected_date).getTime() <= simEndMs &&
              b.account_balance != null && b.account_balance >= 0 &&
              !b.is_credit_card
     );
@@ -244,7 +247,7 @@ export default function PlanningPage() {
     const events: Event[] = [
       ...scopedBills.map((b) => ({ kind: "bill" as const, days_away: b.days_away, amount: b.amount, account_id: b.account_id, bill: b })),
       ...cashflow.upcoming_income
-        .filter((inc) => new Date(inc.expected_date).getTime() <= nextPaydayMs)
+        .filter((inc) => new Date(inc.expected_date).getTime() <= simEndMs)
         .map((inc) => ({ kind: "income" as const, days_away: inc.days_away, amount: inc.amount, account_id: inc.account_id as string | null | undefined })),
     ];
     events.sort((a, b) => {
@@ -263,9 +266,13 @@ export default function PlanningPage() {
       } else {
         const key = ev.account_id ?? "__null__";
         if (!(key in running)) continue;
-        if (running[key] >= ev.amount) {
-          running[key] -= ev.amount;
-        } else {
+        // Deficit cascades (same semantics as companion.py's shortfall walk):
+        // a bounced bill still debits the running balance, so every later bill
+        // on a short account flags until income recovers it — not just the
+        // single bill that first tipped it over.
+        const bal = running[key];
+        running[key] = bal - ev.amount;
+        if (bal < ev.amount) {
           atRisk.push(ev.bill);
         }
       }
@@ -287,9 +294,12 @@ export default function PlanningPage() {
         const balance = firstBill.account_balance ?? 0;
         const bank = firstBill.account_bank || firstBill.account_name || "Account";
         const nextPaydayMs = periodEnd.getTime() + 86400000;
+        // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
+        const daysToPay = Math.round((nextPaydayMs - Date.now()) / 86400000);
+        const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
         const scopedBills = cashflow!.upcoming_bills.filter(
           b => (b.account_id ?? "__null__") === accountId &&
-               new Date(b.expected_date).getTime() <= nextPaydayMs &&
+               new Date(b.expected_date).getTime() <= simEndMs &&
                b.account_balance != null &&
                b.account_balance >= 0 &&
                !b.is_credit_card
@@ -484,15 +494,20 @@ export default function PlanningPage() {
         const daysToPayday = Math.round((nextPaydayMidnight.getTime() - todayMidnight.getTime()) / 86400000);
         const paydayLabel = nextPayday.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
+        const NEXT_PERIOD_LOOKAHEAD_MS = 5 * 86400000;
+
         const rawItems = [
           ...cashflow.upcoming_income.map(b => ({ ...b, type: "income" as const })),
           ...cashflow.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
-        ].filter(b => new Date(b.expected_date).getTime() <= nextPaydayMidnight.getTime())
+        ].filter(b => new Date(b.expected_date).getTime() <= nextPaydayMidnight.getTime() + NEXT_PERIOD_LOOKAHEAD_MS)
+         .map(b => ({ ...b, next_period: new Date(b.expected_date).getTime() > nextPaydayMidnight.getTime() }))
          .sort((a, b) => {
           if (a.days_away !== b.days_away) return a.days_away - b.days_away;
           if (a.type !== b.type) return a.type === "income" ? -1 : 1;
           return b.amount - a.amount;
         });
+
+        const currentPeriodItems = rawItems.filter(i => !i.next_period);
 
         if (rawItems.length === 0) {
           return (
@@ -518,6 +533,9 @@ export default function PlanningPage() {
         // caches computed before spendable_balance existed.
         const spendableNow = cashflow.spendable_balance ?? cashflow.available_balance ?? 0;
         const savingsNow = cashflow.savings_balance ?? 0;
+        // Last day of the period (or payday itself): from here, next-period
+        // preview rows join the risk assessment instead of staying calm.
+        const assessNextPeriod = daysToPayday <= 1;
         let running = spendableNow;
         const items = rawItems.map(item => {
           if (item.type === "income") {
@@ -531,8 +549,8 @@ export default function PlanningPage() {
             const is_credit_card = item.is_credit_card !== undefined
               ? item.is_credit_card
               : (acctBalance !== null && acctBalance < 0);
-            const account_short = !is_credit_card && atRiskKeySet.has(atRiskKey(item));
-            return { ...item, balance_after: running, at_risk: running < 0, account_short, is_credit_card };
+            const account_short = !is_credit_card && atRiskKeySet.has(atRiskKey(item)) && (!item.next_period || assessNextPeriod);
+            return { ...item, balance_after: running, at_risk: running < 0 && (!item.next_period || assessNextPeriod), account_short, is_credit_card };
           }
         });
 
@@ -668,7 +686,7 @@ export default function PlanningPage() {
                     </p>
                   )}
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatItemDate(item.expected_date)}</p>
+                  <p className={`text-[11px] ${item.next_period ? "text-amber-600 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{formatItemDate(item.expected_date)}</p>
                   {item.type === "bill" && item.pending && (() => {
                     const dpd = item.days_past_due ?? 0;
                     if (dpd >= 5) {
@@ -717,18 +735,34 @@ export default function PlanningPage() {
         }
 
         function renderGroups(groups: ReturnType<typeof groupByDay>) {
-          return groups.map(({ label, items: groupItems }) => (
-            <div key={label}>
-              <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
-                label === "Today" || label === "Tomorrow"
-                  ? "text-amber-700 dark:text-amber-400"
-                  : "text-slate-500 dark:text-slate-400"
-              }`}>{label}</p>
-              <div className="space-y-2">
-                {groupItems.map(renderRow)}
+          let dividerInserted = false;
+          const nodes: ReactNode[] = [];
+          for (const { label, items: groupItems } of groups) {
+            const isNextPeriodGroup = groupItems.every(i => i.next_period);
+            if (isNextPeriodGroup && !dividerInserted) {
+              nodes.push(
+                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`Payday ${paydayLabel} — next pay period begins`}>
+                  <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Payday · {paydayLabel}</span>
+                  <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
+                </div>
+              );
+              dividerInserted = true;
+            }
+            nodes.push(
+              <div key={label}>
+                <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${
+                  label === "Today" || label === "Tomorrow" || isNextPeriodGroup
+                    ? "text-amber-700 dark:text-amber-400"
+                    : "text-slate-500 dark:text-slate-400"
+                }`}>{label}</p>
+                <div className="space-y-2">
+                  {groupItems.map(renderRow)}
+                </div>
               </div>
-            </div>
-          ));
+            );
+          }
+          return nodes;
         }
 
         return (
@@ -788,6 +822,11 @@ export default function PlanningPage() {
             <DebtEntryCard view={debtSummary} hide={hideNetWorth} onTap={() => router.push("/debt-plan")} />
             <GrowEntryCard view={growView} onTap={() => router.push("/grow")} />
 
+            {currentPeriodItems.length === 0 && groups.length > 0 && (
+              <div className="glass-card rounded-2xl p-8 text-center">
+                <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
+              </div>
+            )}
             {groups.length > 0 && (
               <div className="space-y-3">
                 {renderGroups(groups)}

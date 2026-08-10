@@ -52,7 +52,7 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # to a concrete False (indistinguishable from a real "not a credit card"
 # answer) instead of "unknown". Readers must treat missing/low version as
 # stale and force a recompute rather than trust that default.
-PATTERNS_VERSION = 2
+PATTERNS_VERSION = 3
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -422,7 +422,45 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
 DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"]
 
 
-def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None) -> list[dict]:
+def _net_reversals(items: list, credits: list) -> list:
+    """Drop a debit occurrence that was bounced and reversed by a matching
+    credit — e.g. a returned/unpaid direct debit ("...UNP") on the same day
+    as the original debit, followed by a successful retry ~a week later
+    (real case: AMEX DDR £1,138.99 bounced 2026-07-10, reversed same day,
+    retried 2026-07-17 — without netting this reads as a weekly series).
+    Matches are same account_id, |amount diff| < 0.02, |date diff| <= 5
+    days; each credit cancels at most one debit, consumed nearest-date-first.
+    """
+    if not credits:
+        return items
+    remaining = list(credits)
+    kept = []
+    for t in items:
+        acct = str(t.get("account_id", "") or "")
+        amt = abs(float(t.get("amount", 0)))
+        d = t["date"]
+        d = d.date() if hasattr(d, "date") else d
+        best_idx, best_diff = None, None
+        for i, c in enumerate(remaining):
+            if not acct or str(c.get("account_id", "") or "") != acct:
+                continue
+            if abs(abs(float(c.get("amount", 0))) - amt) >= 0.02:
+                continue
+            cd = c["date"]
+            cd = cd.date() if hasattr(cd, "date") else cd
+            diff = abs((cd - d).days)
+            if diff > 5:
+                continue
+            if best_diff is None or diff < best_diff:
+                best_idx, best_diff = i, diff
+        if best_idx is not None:
+            remaining.pop(best_idx)
+            continue  # bounced + reversed — not a real occurrence
+        kept.append(t)
+    return kept
+
+
+def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
     date_merged_keys: set[str] = set()
@@ -451,6 +489,12 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 continue
             seen_sigs.add(sig)
             deduped.append(t)
+        # A bounced direct debit + its reversal credit + a successful retry
+        # otherwise looks like two clean debit occurrences ~7 days apart
+        # (real case: AMEX "...DDR" £1,138.99 bounced 2026-07-10, reversed
+        # same day by an "...UNP" credit, retried 2026-07-17) — net those out
+        # before cadence/clustering ever sees them.
+        deduped = _net_reversals(deduped, reversal_credits or [])
         if key in date_merged_keys:
             series.extend((key, grp) for grp in _amount_clusters(deduped))
         else:
@@ -464,6 +508,16 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         intervals = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
         avg_interval = sum(intervals) / len(intervals)
         if avg_interval < 6 or avg_interval > 35:
+            continue
+
+        # A two-occurrence series with sub-monthly spacing is exactly the
+        # signature of a bounced direct debit + its retry (or an ingestion
+        # duplicate) — reject before either acceptance tier (trusted-category
+        # or generic) can wave it through as a weekly/biweekly pattern.
+        # Genuine weekly/biweekly cadences must prove themselves with >= 3
+        # occurrences; a genuine monthly 2-occurrence trusted series (interval
+        # >= 21) is unaffected.
+        if len(items) == 2 and avg_interval < 21:
             continue
 
         # Majority category for the bucket — carried through so the UI can
@@ -710,7 +764,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         if _s.get("status") == "confirmed" and _s.get("schedule"):
             _confirmed_income_map[_s["key"]] = _s
 
-    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config)
+    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
     recurring_income = _detect_recurring(income_credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
@@ -899,8 +953,9 @@ async def at_risk_count(user: dict = Depends(current_user)):
     else:
         _next_pay = _calc_next_payday(_today_d, _pay_cfg)
     _days_to_pay = (_next_pay - _today_d).days
-    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] <= _days_to_pay]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= _days_to_pay]
+    _lookahead = 5 if _days_to_pay <= 1 else 0  # last-day lookahead: assess the next period's first 5 days once the current one is ending
+    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] <= _days_to_pay + _lookahead]
+    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= _days_to_pay + _lookahead]
 
     # Skip bills where we have no balance data, or the bill is on a credit card
     # (credit cards have a credit limit, not an available balance, so a bill
@@ -968,10 +1023,12 @@ async def at_risk_count(user: dict = Depends(current_user)):
             running[acct] = running.get(acct, 0.0) + amount
         else:
             bal = running.get(acct, 0.0)
-            if bal >= amount:
-                running[acct] = bal - amount  # bill clears
-            else:
-                at_risk += 1                  # bill bounces; balance unchanged
+            # Deficit cascades (same semantics as companion.py's shortfall
+            # walk): a bounced bill still debits the running balance, so every
+            # later bill on a short account counts until income recovers it.
+            running[acct] = bal - amount
+            if bal < amount:
+                at_risk += 1
 
     return {"count": at_risk}
 
