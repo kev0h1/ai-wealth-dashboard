@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, TrendingDown, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
@@ -640,8 +640,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
       fallbackText = "Nothing needs you today. I'm keeping an eye on the bills — just check back later.";
-    } else if (safeToSpend.state === "tight") {
+    } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
       fallbackText = "Nothing needs you today — payday's close. The first week's bills are already mapped, so just cruise.";
+    } else if (safeToSpend.state === "tight") {
+      fallbackText = "Nothing needs you today. Cash is tight until payday, but the bills are mapped — I'll flag anything that needs you.";
     } else if (safeToSpend.state === "short") {
       fallbackText = "One thing's worth a look below — otherwise I've got the rest mapped.";
     } else {
@@ -773,26 +775,36 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
     );
   }, [name]);
 
-  // TEMP — preview affordance for the payday_plan companion card, same spirit
-  // as the old variant pills: fetches /today?payday_preview=1 directly (this
-  // is where HomeBrief has fetch access, since items normally arrive as a
-  // prop from HomePage) and renders the returned preview item locally without
-  // touching server state. Remove once payday_plan is validated.
+  // Payday plan preview — fetches /today?payday_preview=1 directly (this is
+  // where HomeBrief has fetch access, since items normally arrive as a prop
+  // from HomePage) and renders the returned preview item locally without
+  // touching server state. Toggled from the permanent entry row below; opens
+  // in place, no scroll-jump.
   const [previewItem, setPreviewItem] = useState<CompanionItem | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const previewCardRef = useRef<HTMLDivElement>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // TEMP — once the preview card loads, scroll it into view so the user
-  // isn't left where they were (the card renders above BriefBody, at the
-  // top of the section). Respects reduced-motion.
-  useEffect(() => {
-    if (!previewItem) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    previewCardRef.current?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "start",
-    });
-  }, [previewItem]);
+  // Hide the entry row entirely once a real payday_plan item is already
+  // surfaced in items (payday itself) — no duplication on payday.
+  const hasLivePlan = items.some(i => i.type === "payday_plan");
+
+  const paydaySubline = (() => {
+    if (!safeToSpend || safeToSpend.status !== "ok") return "See how I'd split your next salary";
+    const d = new Date(safeToSpend.next_payday);
+    d.setHours(0, 0, 0, 0);
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
+    // Distance-aware date convention (mirrors SafeToSpendCard.tsx): today/tomorrow/weekday/short-date.
+    if (daysAway <= 0) return "Payday's today — see how I'd split it";
+    if (daysAway === 1) return "Payday's tomorrow — see how I'd split it";
+    if (daysAway < 7) {
+      const wd = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "long" });
+      return `Payday's ${wd} — see how I'd split it`;
+    }
+    const short = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    return `Payday's on ${short} — see how I'd split it`;
+  })();
 
   function maskAmountsTop(text: string): string {
     if (!hideNetWorth) return text;
@@ -802,14 +814,21 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
   async function handleTogglePreview() {
     if (previewItem) {
       setPreviewItem(null);
+      setPreviewError(null);
       return;
     }
     setPreviewLoading(true);
+    setPreviewError(null);
     try {
       const res = await api.getToday(true);
-      setPreviewItem(res.items.find(i => i.type === "payday_plan") ?? null);
+      const found = res.items.find(i => i.type === "payday_plan") ?? null;
+      if (found) {
+        setPreviewItem(found);
+      } else {
+        setPreviewError("No payday plan to show yet.");
+      }
     } catch {
-      // TEMP affordance — swallow; no error UI needed for a preview toggle
+      setPreviewError("Couldn't build the plan just now — try again after a sync.");
     } finally {
       setPreviewLoading(false);
     }
@@ -836,21 +855,6 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
       {/* Brief body */}
       <div className="space-y-3">
         {syncError && <SyncErrorBanner />}
-        {/* TEMP preview render — sits at the top of the section, above whatever
-            BriefBody renders, with its own "· preview" suffix (PaydayPlanCard
-            reads item.preview). Not part of the real items list, so it isn't
-            threaded through BriefBody's filters/props. */}
-        {previewItem && (
-          <div ref={previewCardRef}>
-            <PaydayPlanCard
-              item={previewItem}
-              router={router}
-              hideNetWorth={!!hideNetWorth}
-              maskAmounts={maskAmountsTop}
-              onRefresh={onRefresh}
-            />
-          </div>
-        )}
         {loading ? (
           <BriefSkeleton />
         ) : (
@@ -858,19 +862,55 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         )}
       </div>
 
-      {/* TEMP — preview affordance for the payday_plan companion card, marked
-          for removal once the feature is validated (mirrors the old variant-pill
-          pattern of a tiny, clearly-temporary control). */}
-      <div className="mt-2 text-right">
-        <button
-          type="button"
-          onClick={handleTogglePreview}
-          disabled={previewLoading}
-          className="text-[10px] text-slate-400 dark:text-slate-500 underline underline-offset-2 disabled:opacity-50"
-        >
-          {previewItem ? "Hide preview" : previewLoading ? "Loading preview…" : "Preview payday plan"}
-        </button>
-      </div>
+      {/* Payday plan entry row — permanent quiet affordance, positioned below
+          the brief/action cards so it never outranks genuine risk items.
+          Hidden once a real payday_plan item is already in items (payday
+          itself), since that would be a duplicate. Tapping toggles the
+          preview open in place directly beneath. */}
+      {!hasLivePlan && (
+        <div className="mt-3 space-y-2">
+          <button
+            type="button"
+            onClick={handleTogglePreview}
+            disabled={previewLoading}
+            aria-expanded={!!previewItem}
+            className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <span className="min-w-0">
+              <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                Payday plan
+              </span>
+              <span className="block text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+                {paydaySubline}
+              </span>
+            </span>
+            <ChevronRight
+              size={16}
+              aria-hidden="true"
+              className={`flex-shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${previewItem ? "rotate-90" : ""}`}
+            />
+          </button>
+
+          {previewLoading && (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400 px-1">Working it out…</p>
+          )}
+
+          {previewError && (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400 px-1">{previewError}</p>
+          )}
+
+          {previewItem && (
+            <PaydayPlanCard
+              item={previewItem}
+              router={router}
+              hideNetWorth={!!hideNetWorth}
+              maskAmounts={maskAmountsTop}
+              onRefresh={onRefresh}
+              onClose={() => setPreviewItem(null)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

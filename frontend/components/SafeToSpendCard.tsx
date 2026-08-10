@@ -81,8 +81,19 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
 
   const gap = Math.abs(safe_to_spend); // used when short
 
-  // Weekday name of next payday
-  const weekday = new Date(next_payday).toLocaleDateString("en-GB", { weekday: "long" });
+  // Distance-aware label for next payday — today/tomorrow/weekday name (2–6
+  // days away)/short date (7+ days away). Prevents "Tight until Friday"
+  // misreading as "this Friday" when payday is actually weeks out.
+  const paydayDate = new Date(next_payday);
+  paydayDate.setHours(0, 0, 0, 0);
+  const _today0 = new Date();
+  _today0.setHours(0, 0, 0, 0);
+  const daysAway = Math.round((paydayDate.getTime() - _today0.getTime()) / 86400000);
+  const paydayLabel =
+    daysAway <= 0 ? "today"
+    : daysAway === 1 ? "tomorrow"
+    : daysAway < 7 ? new Date(next_payday).toLocaleDateString("en-GB", { weekday: "long" })
+    : new Date(next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
   // Non-colour state cue: distinct icon per state for colour-blind users
   const StateIcon =
@@ -118,11 +129,11 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
         : `You're okay for bills — ${fmt(safe_to_spend)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else if (state === "tight") {
-    verdictText = `Tight until ${weekday} — ${fmt(safe_to_spend)} in hand until payday.`;
+    verdictText = `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} in hand until payday.`;
     if (cardsGrew && netAfterCards !== null) {
       verdictText = netAfterCards > 0
-        ? `Tight until ${weekday} — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `Tight until ${weekday} — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+        ? `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `Tight until ${paydayLabel} — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else {
     verdictText = `Short before payday — ${fmt(gap)} to cover.`;
@@ -147,7 +158,8 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   // If comfortable: no CTA.
   const showDebtCTA = state === "tight" && hasCardDebt;
   const showSpendCTA = state === "short";
-  const debtCTAVisible = showDebtCTA && !suppressCTA;
+  // The chain strip already routes to /cards — this CTA is only a fallback when the strip can't render (no needle data)
+  const debtCTAVisible = showDebtCTA && !suppressCTA && !showCardStrip;
 
   return (
     <div className="hero-arrive rounded-3xl p-5 glass-hero">
@@ -265,7 +277,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
       {/* Payday muted line — replaces emerald pill */}
       {hasPaydayIncome && (
         <p className="text-sm text-slate-500 dark:text-slate-400 num">
-          Payday {weekday} · +{hidden ? "••" : fmt(payday_income!)} lands
+          Payday {paydayLabel} · +{hidden ? "••" : fmt(payday_income!)} lands
         </p>
       )}
       {/* Freshness caveat — only when sync is older than 3 hours */}

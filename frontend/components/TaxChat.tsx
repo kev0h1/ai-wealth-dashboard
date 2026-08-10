@@ -129,7 +129,7 @@ export default function TaxChat() {
 
           {/* Quick prompts — shown before any user message */}
           {messages.length === 0 && !loading && (
-            <div className="flex-shrink-0 flex gap-1.5 px-3 pb-2 overflow-x-auto scrollbar-none">
+            <div className="flex-shrink-0 flex gap-1.5 px-3 pb-2 overflow-x-auto scrollbar-hide">
               {QUICK.map((q) => (
                 <button
                   key={q}

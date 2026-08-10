@@ -58,73 +58,40 @@ export default function ThisMonthStrip() {
     last_closed !== null &&
     current.days_into_period <= 2;
 
+  // live in-period card movement now lives on the Safe-to-Spend hero's chain
+  // strip — this component only reports the closed month
+  if (!useClosedVariant || !last_closed) {
+    return null;
+  }
+
   return (
     <div className="px-4 lg:px-0">
       <button
-        onClick={() => router.push(useClosedVariant ? "/month?which=last" : "/cards")}
+        onClick={() => router.push("/month?which=last")}
         className="w-full text-left rounded-2xl glass-card px-4 py-3 fade-in hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         {/* Whisper label */}
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">
-          {useClosedVariant && last_closed ? "Last month" : "Since payday"}
+          Last month
         </p>
 
-        {useClosedVariant && last_closed ? (
-          // Variant A — closed month verdict
-          <>
-            <p
-              className={`text-sm font-medium ${
-                last_closed.card_delta < 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-slate-600 dark:text-slate-300"
-              }`}
-            >
-              {hideNetWorth
-                ? maskAmounts(last_closed.lines.movement)
-                : last_closed.lines.movement}
-            </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-              {hideNetWorth
-                ? maskAmounts(last_closed.lines.cash)
-                : last_closed.lines.cash}
-            </p>
-          </>
-        ) : (
-          // Variant B — live in-period summary
-          (() => {
-            const delta = current.card_delta_so_far;
-            const N = current.days_into_period;
-            const timeframe =
-              N === 0 ? "today" : N === 1 ? "over the past day" : `over the past ${N} days`;
-
-            if (Math.abs(delta) < 20) {
-              return (
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                  Credit cards have held steady {timeframe}.
-                </p>
-              );
-            }
-
-            const shrank = delta < 0;
-            return (
-              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                Credit cards have {shrank ? "come down" : "gone up"}{" "}
-                <span
-                  className={`num font-semibold ${
-                    shrank
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-slate-900 dark:text-slate-100"
-                  }`}
-                >
-                  {hideNetWorth
-                    ? "£••••"
-                    : `£${Math.round(Math.abs(delta)).toLocaleString("en-GB")}`}
-                </span>{" "}
-                {timeframe}.
-              </p>
-            );
-          })()
-        )}
+        {/* Variant A — closed month verdict */}
+        <p
+          className={`text-sm font-medium ${
+            last_closed.card_delta < 0
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-slate-600 dark:text-slate-300"
+          }`}
+        >
+          {hideNetWorth
+            ? maskAmounts(last_closed.lines.movement)
+            : last_closed.lines.movement}
+        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+          {hideNetWorth
+            ? maskAmounts(last_closed.lines.cash)
+            : last_closed.lines.cash}
+        </p>
       </button>
     </div>
   );

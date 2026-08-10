@@ -31,6 +31,7 @@ interface PaydayPlanCardProps {
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  onClose?: () => void;
 }
 
 // Multi-destination fork of MoveCard — one payday_plan item can fan money out
@@ -40,7 +41,7 @@ interface PaydayPlanCardProps {
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
 // HomeBrief does not thread an onDismiss prop through any companion card).
-export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts }: PaydayPlanCardProps) {
+export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose }: PaydayPlanCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -49,6 +50,12 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
   const destsWithMove = dests.filter((d) => d.move > 0).sort((a, b) => b.move - a.move);
   const destsSettled = dests.filter((d) => d.move === 0 && d.usual != null);
   const moveCount = destsWithMove.length;
+
+  // Headline prose duplicates the hero figure ("split £4,798 across N
+  // accounts") — strip the amount client-side now that the total has its own
+  // hero treatment below. Regex has no match on headlines without a £ figure,
+  // so it safely falls back to the raw headline in that case.
+  const headlineNoAmount = item.headline.replace(/£[\d,]+ ?/g, "");
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
@@ -61,9 +68,10 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
   return (
     <div className="glass-card rounded-2xl p-4">
       {/* Penny gradient chip — marks this as a proactive advice surface, same
-          treatment as MoveCard/AskPaydayCard/AskGenericCard. Dismiss (when not
-          a preview) sits on the same row, matching the CelebrationCard/CliffCard
-          top-right X sizing (44px hit target). */}
+          treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
+          sits on the same row, matching the CelebrationCard/CliffCard
+          top-right X sizing (44px hit target) — shown in both real and
+          preview mode now (preview closes locally via onClose). */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <span
           className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
@@ -71,24 +79,44 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         >
           ✦ Penny
         </span>
-        {!item.preview && (
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={handleDismiss}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
-        )}
+        <button
+          type="button"
+          aria-label={item.preview ? "Close preview" : "Dismiss"}
+          onClick={item.preview ? () => onClose?.() : handleDismiss}
+          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
       </div>
 
-      {/* Headline — quiet slate "· preview" suffix when this is the TEMP preview render */}
+      {/* Preview framing — Penny-voice sentence stating this is hypothetical,
+          so the card can't be mistaken for a live instruction. */}
+      {item.preview && (
+        <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
+          If your pay landed today, here&apos;s how I&apos;d split it.
+        </p>
+      )}
+
+      {/* Hero figure — ONE number the eye lands on: total moving out, with a
+          whispered "moving to N accounts" label. Replaces the old buried
+          mid-headline amount + 12px footer total. Guarded to the same
+          condition the old footer total used, so the isSet ("you're set for
+          the month") variant keeps its calm headline/body ramp with no hero. */}
+      {(item.total ?? 0) > 0 && (
+        <div className="mb-3">
+          <p className="num text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            {hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`}
+          </p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-0.5">
+            Moving to {moveCount} {moveCount === 1 ? "account" : "accounts"}
+          </p>
+        </div>
+      )}
+
+      {/* Headline — amount stripped (see headlineNoAmount above); the hero
+          figure now carries that number. */}
       <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
-        {item.preview && (
-          <span className="text-slate-400 dark:text-slate-500 font-normal"> · preview</span>
-        )}
+        <strong className="text-slate-900 dark:text-slate-100 font-semibold">{headlineNoAmount}</strong>
       </p>
 
       {/* Body sentence */}
@@ -126,11 +154,6 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">
                 {item.salary.name}
               </span>
-              {item.salary.stays > 0 && (
-                <span className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
-                  {maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays here`)}
-                </span>
-              )}
             </span>
             <span className="num text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
               {hideNetWorth ? "£••••" : `+£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
@@ -204,24 +227,26 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         </div>
       )}
 
-      {/* Footer — total line + action button, same styling as MoveCard's action button */}
-      {((item.total ?? 0) > 0 || item.action) && (
+      {/* Arc close — the remainder line that used to be an embedded "stays
+          here" whisper inside the salary tile now closes the in → out →
+          remainder story after the dest tiles, so no arithmetic is left to
+          the reader. */}
+      {item.salary && item.salary.stays > 0 && (
+        <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-300 leading-snug">
+          {maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays with you in ${item.salary.name}.`)}
+        </p>
+      )}
+
+      {/* Footer — action button only; the hero figure above replaced the old
+          12px total line, so the footer no longer needs to restate it. */}
+      {item.action && (
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          {(item.total ?? 0) > 0 && (
-            <span className="text-[12px] text-slate-500 dark:text-slate-400">
-              {hideNetWorth
-                ? `£•••• across ${moveCount} ${moveCount === 1 ? "move" : "moves"}`
-                : `£${Math.round(item.total!).toLocaleString("en-GB")} across ${moveCount} ${moveCount === 1 ? "move" : "moves"}`}
-            </span>
-          )}
-          {item.action && (
-            <button
-              onClick={() => router.push(item.action!.route)}
-              className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              {item.action.label}
-            </button>
-          )}
+          <button
+            onClick={() => router.push(item.action!.route)}
+            className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            {item.preview ? "See the full plan ›" : item.action.label}
+          </button>
         </div>
       )}
     </div>

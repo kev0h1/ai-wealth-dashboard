@@ -40,6 +40,19 @@ def _weekday_name(d: date) -> str:
     return _WEEKDAYS[d.weekday()]
 
 
+def _when_label(d: date, today: date) -> str:
+    """Distance-aware date label: today/tomorrow/weekday-name (2-6 days)/short-date (>=7 days).
+    Prevents "lands Friday" reading as "this Friday" when the date is actually weeks away."""
+    days_away = (d - today).days
+    if days_away <= 0:
+        return "today"
+    if days_away == 1:
+        return "tomorrow"
+    if days_away < 7:
+        return _weekday_name(d)
+    return d.strftime("%a %-d %b")
+
+
 # Industry display aliases (applied before general cleanup)
 _BILL_ALIASES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bB/CARD\b", re.IGNORECASE), "Barclaycard"),
@@ -614,7 +627,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         bill_name = bill.get("name", "bill")
         bill_amount = int(round(float(bill.get("amount", 0))))
         bill_date = date.fromisoformat(bill["expected_date"])
-        bill_weekday = _weekday_name(bill_date)
+        bill_weekday = _when_label(bill_date, today_d)
 
         # Destination account details
         dest_name = _clean_name(bill.get("account_name"), dest_acct)
@@ -650,7 +663,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             "provider": dest_provider,
             "balance": float(dest_balance),
             "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
-            "needs_by": _weekday_name(date.fromisoformat(dest_bills[0]["expected_date"])),
+            "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
             "bills": [
                 {"label": _humanise_bill_name(b.get("name", "bill")), "amount": int(round(float(b["amount"])))}
                 for b in dest_bills
