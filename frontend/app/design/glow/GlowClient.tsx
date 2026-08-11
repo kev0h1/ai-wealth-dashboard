@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, ScanFace, ChevronRight, CalendarClock } from "lucide-react";
 
 type Variant = "A" | "B" | "C";
@@ -32,8 +32,28 @@ export default function GlowClient() {
   const [variant, setVariant] = useState<Variant>("A");
   const glow = GLOW_STYLE[variant];
 
+  // This preview is light-mode-only — force it regardless of the visitor's
+  // saved theme (the real app applies `dark` on <html> from localStorage
+  // before first paint; without this, a visitor with dark mode saved would
+  // see the light replica rendered with `dark:` classes firing on top of
+  // the light canvas). Restore whatever was there on unmount.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains("dark");
+    root.classList.remove("dark");
+    return () => {
+      if (hadDark) root.classList.add("dark");
+    };
+  }, []);
+
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] pb-40">
+    // relative isolate: this wrapper's own opaque bg-[#f0f2f7] otherwise
+    // paints on top of the -z-10 fixed glow child, because without a new
+    // stacking context here the glow falls back to the body's stacking
+    // context (body has `isolate` in app/layout.tsx, but that's the real
+    // app shell, not this standalone page). Matches how layout.tsx keeps
+    // the glow visible beneath its own canvas.
+    <div className="relative isolate min-h-dvh bg-[#f0f2f7] pb-40">
       {/* Glow layer — same geometry slot as app/layout.tsx's .app-glow, but
           the gradient itself is swapped per-variant via inline style since
           these candidates don't exist in globals.css yet. */}
