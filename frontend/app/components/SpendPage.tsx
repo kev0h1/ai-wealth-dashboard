@@ -108,6 +108,10 @@ export default function SpendPage() {
   const [manageOpen, setManageOpen] = useState(searchParams.get("manage") === "1");
   const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
   const [pendingCategory, setPendingCategory] = useState<string | null>(null);
+  // Merchant names from an insight deep-link ("?merchants=Ee Ltd,…") — the
+  // category sheet highlights the matching rows so "see your mobile bills"
+  // lands on EE, not the whole Bills list. Cleared when the sheet closes.
+  const [deepLinkMerchants, setDeepLinkMerchants] = useState<string[] | null>(null);
   const [periodOffset, setPeriodOffset] = useState(0);
   // Transient highlight for the "miscategorised" chip's deep-link — glows the
   // affected tile(s) for a couple of seconds so the chip's tap has a visible
@@ -188,6 +192,11 @@ export default function SpendPage() {
     if (cat) {
       sessionStorage.removeItem("wealth_open_category");
       setPendingCategory(cat);
+      const merchants = searchParams.get("merchants");
+      if (merchants) {
+        const names = merchants.split(",").map(s => s.trim()).filter(Boolean);
+        if (names.length > 0) setDeepLinkMerchants(names);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -836,8 +845,9 @@ export default function SpendPage() {
           count={openCategory.count}
           transactions={openCategory.transactions}
           sym={sym}
-          onClose={() => setOpenCategory(null)}
-          onTransactionClick={(tx) => { setOpenCategory(null); setSelectedTx(tx); }}
+          highlightMerchants={deepLinkMerchants ?? undefined}
+          onClose={() => { setOpenCategory(null); setDeepLinkMerchants(null); }}
+          onTransactionClick={(tx) => { setOpenCategory(null); setDeepLinkMerchants(null); setSelectedTx(tx); }}
           isPro={isPro}
           door={signals[openCategory.name] ? (() => {
             const catSig = signals[openCategory.name];

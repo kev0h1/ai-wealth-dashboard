@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { X, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
-import { api, Account, Commitment } from "@/lib/api";
+import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { getPayPeriodWithConfig, nextPeriodWithConfig, PayPeriodConfig } from "@/lib/payPeriod";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
@@ -136,6 +136,23 @@ export default function CommitmentSheet({
       ? ceil5(remaining / periods)
       : null;
 
+  // Live feasibility verdict — debounced POST /commitments/preview as the
+  // amount/month change. Failure-tolerant: any error just hides the line.
+  const [preview, setPreview] = useState<CommitmentPreview | null>(null);
+  useEffect(() => {
+    if (!amountValid || !monthValid) {
+      setPreview(null);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api.previewCommitment(parsedAmount, `${month}-01`)
+        .then((p) => { if (!stale) setPreview(p); })
+        .catch(() => { if (!stale) setPreview(null); });
+    }, 400);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [amountValid, monthValid, parsedAmount, month]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !amountValid || !monthValid || saving) return;
@@ -232,7 +249,7 @@ export default function CommitmentSheet({
                 {commitment ? "Edit plan" : "Plan a big expense"}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                A slice gets reserved each pay period.
+                A goal you set money aside for — separate from single bills.
               </p>
             </div>
             <button
@@ -364,6 +381,27 @@ export default function CommitmentSheet({
               {slice != null && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 num" aria-live="polite">
                   ≈ £{slice.toLocaleString("en-GB")}/period · {periods} {periods === 1 ? "period" : "periods"}
+                </p>
+              )}
+
+              {/* Feasibility verdict — surplus: slate; savings: slate + amber
+                  dot; stretch: amber text (attention, never red). */}
+              {slice != null && preview?.feasibility && preview.feasibility_note && (
+                <p
+                  className={`text-[13px] leading-snug ${
+                    preview.feasibility === "stretch"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}
+                  aria-live="polite"
+                >
+                  {preview.feasibility === "savings" && (
+                    <span
+                      className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 align-middle"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {preview.feasibility_note}
                 </p>
               )}
 

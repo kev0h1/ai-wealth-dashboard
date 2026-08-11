@@ -7,6 +7,7 @@ from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -506,6 +507,26 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             })
 
 
+def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[str]:
+    """Deep-link the CTA at the insight's own merchants, not the whole
+    category — "/spend?category=Bills" becomes
+    "/spend?category=Bills&merchants=Ee%20Ltd" so the category sheet can
+    highlight the rows that actually triggered this insight. Up to 3 display
+    names, comma-separated, each URL-encoded. Routes that don't drill into a
+    spend category (e.g. /planning) pass through untouched."""
+    route = CATEGORY_APP_ROUTES.get(category)
+    if not route or "/spend?" not in route:
+        return route
+    names: list[str] = []
+    for t in triggered_by[:3]:
+        name = str(t.get("display_name") or t.get("merchant_key") or "").strip()
+        if name:
+            names.append(name)
+    if not names:
+        return route
+    return f"{route}&merchants={','.join(quote(n, safe='') for n in names)}"
+
+
 def _serialize_insight(d: dict) -> dict:
     cat = d["category"]
     # Always resolve icon/label from the live config so stale cached docs
@@ -530,9 +551,10 @@ def _serialize_insight(d: dict) -> dict:
         "triggered_by":    d.get("triggered_by", []),
         "user_context":    d.get("user_context"),
         "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
-        # In-app screen where the user can act on this with their own data;
-        # null when no natural home exists.
-        "app_route":       CATEGORY_APP_ROUTES.get(cat),
+        # In-app screen where the user can act on this with their own data,
+        # scoped to the triggering merchants when it drills into a spend
+        # category; null when no natural home exists.
+        "app_route":       _merchant_scoped_route(cat, d.get("triggered_by") or []),
     }
 
 

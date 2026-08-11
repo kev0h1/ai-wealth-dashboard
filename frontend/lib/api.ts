@@ -321,6 +321,22 @@ export type Commitment = {
   periods_left: number;
   per_period_slice: number;
   on_track: boolean;
+  /** Feasibility class — null when the underlying maths is unavailable. */
+  feasibility?: CommitmentFeasibility | null;
+  /** Hedged one-liner matching feasibility; absent when feasibility is null. */
+  feasibility_note?: string;
+};
+
+/** "surplus" fits the monthly spare rate; "savings" likely dips into savings;
+ * "stretch" is neither (attention — amber, never red). */
+export type CommitmentFeasibility = "surplus" | "savings" | "stretch";
+
+/** Live verdict for a draft commitment — POST /commitments/preview. */
+export type CommitmentPreview = {
+  per_period_slice: number;
+  periods_left: number;
+  feasibility: CommitmentFeasibility | null;
+  feasibility_note?: string;
 };
 
 /** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
@@ -1087,6 +1103,8 @@ export const api = {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
+  previewCommitment: (amount: number, target_date: string) =>
+    post<CommitmentPreview>("/commitments/preview", { amount, target_date }),
   cancelCommitment: (id: string) =>
     fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {
       method: "DELETE",

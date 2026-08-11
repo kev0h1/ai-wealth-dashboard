@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import { AlertTriangle, ChevronRight, X } from "lucide-react";
-import { api, Account, CashflowData, Commitment } from "@/lib/api";
+import { api, Account, CashflowData, Commitment, SavingsInsight } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { CATEGORY_COLOURS } from "@/lib/categories";
@@ -236,14 +236,40 @@ function CommitmentsBlock({
             <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 num">
               {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
             </p>
+            {/* Feasibility — surplus: slate dot; savings: amber dot, slate
+                text; stretch: amber dot + amber text (attention, never red). */}
+            {c.feasibility && c.feasibility_note && (
+              <p className="mt-1 flex items-center gap-1.5 min-w-0">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    c.feasibility === "surplus"
+                      ? "bg-slate-300 dark:bg-slate-600"
+                      : "bg-amber-500"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span
+                  className={`text-[11px] truncate ${
+                    c.feasibility === "stretch"
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-slate-500 dark:text-slate-400"
+                  }`}
+                >
+                  {c.feasibility_note}
+                </span>
+              </p>
+            )}
           </button>
         );
       })}
       <button
         onClick={onAdd}
-        className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+        className="w-full min-h-[44px] py-2 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
       >
         + Plan a big expense
+        <span className="block text-[11px] font-normal text-slate-400 dark:text-slate-500">
+          a goal to save toward
+        </span>
       </button>
     </div>
   );
@@ -264,6 +290,7 @@ export default function PlanningPage() {
   const [growView, setGrowView] = useState<import("@/lib/api").GrowView | null>(null);
   const [commitments, setCommitments] = useState<Commitment[] | null>(null);
   const [commitmentSheet, setCommitmentSheet] = useState<null | { editing: Commitment | null }>(null);
+  const [savingsInsights, setSavingsInsights] = useState<SavingsInsight[] | null>(null);
 
   // Derive current period (always current — no prev/next navigation)
   const configKey = JSON.stringify(payPeriodConfig);
@@ -290,7 +317,39 @@ export default function PlanningPage() {
     api.getDebtPlanSummary().then(setDebtSummary).catch(() => {});
     api.getGrow().then(setGrowView).catch(() => {});
     api.listCommitments().then((d) => setCommitments(d.items)).catch(() => setCommitments([]));
+    // Insight hints on bill rows — decorative: any error just means no hints.
+    api.getSavingsInsights().then(setSavingsInsights).catch(() => {});
   }, []);
+
+  // Merchant-name → insight lookup for the bill-row hints. Keys are the
+  // normalised lowercase merchant names each insight was triggered by; `est`
+  // is the first figure pulled out of the insight's savings estimate (null →
+  // the hint says "save" instead of a number).
+  const insightHintEntries = useMemo(() => {
+    const entries: { key: string; id: string; est: string | null }[] = [];
+    for (const ins of savingsInsights ?? []) {
+      const est = ins.savings_estimate?.match(/([\d][\d,]*)/)?.[1] ?? null;
+      for (const t of ins.triggered_by ?? []) {
+        for (const raw of [t.display_name, t.merchant_key]) {
+          const key = (raw || "").trim().toLowerCase();
+          // Short keys substring-match too much junk — exact-ish only.
+          if (key.length >= 4 && !entries.some((e) => e.key === key)) {
+            entries.push({ key, id: ins.id, est });
+          }
+        }
+      }
+    }
+    return entries;
+  }, [savingsInsights]);
+
+  function findInsightHint(billName: string): { id: string; est: string | null } | null {
+    const n = billName.trim().toLowerCase();
+    if (n.length < 4) return null;
+    const hit = insightHintEntries.find(
+      (e) => e.key === n || e.key.includes(n) || n.includes(e.key)
+    );
+    return hit ? { id: hit.id, est: hit.est } : null;
+  }
 
   function refreshCommitments() {
     api.listCommitments().then((d) => setCommitments(d.items)).catch(() => {});
@@ -614,9 +673,12 @@ export default function PlanningPage() {
               </div>
               <button
                 onClick={() => setPlanSheetOpen(true)}
-                className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                className="w-full min-h-[44px] py-2 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
               >
                 + Plan a one-off
+                <span className="block text-[11px] font-normal text-slate-400 dark:text-slate-500">
+                  a dated bill from one account
+                </span>
               </button>
               <PlansDock
                 debtView={debtSummary}
@@ -709,6 +771,12 @@ export default function PlanningPage() {
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
           const Icon = getCategoryIcon(catName, iconOverrides);
+          // Insight hint — calm bill rows only: never on next-period amber
+          // rows, and never competing with a risk verdict (red leads there).
+          const insightHint =
+            item.type === "bill" && !item.next_period && !flagged && !item.at_risk && !item.account_short
+              ? findInsightHint(item.name)
+              : null;
 
           return (
             <SwipeDismissRow
@@ -796,6 +864,20 @@ export default function PlanningPage() {
                     </p>
                   )}
 
+                  {insightHint && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/insights?tab=save&insight=${encodeURIComponent(insightHint.id)}`);
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="min-h-[44px] flex items-center -my-2.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
+                    >
+                      {insightHint.est ? `could save ~£${insightHint.est}` : "could save"} ›
+                    </button>
+                  )}
+
                   <p className={`text-[11px] ${item.next_period ? "text-amber-600 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{formatItemDate(item.expected_date)}</p>
                   {item.type === "bill" && item.pending && (() => {
                     const dpd = item.days_past_due ?? 0;
@@ -873,6 +955,7 @@ export default function PlanningPage() {
                   {showPlanButton && (
                     <button
                       onClick={() => setPlanSheetOpen(true)}
+                      title="A dated bill from one account"
                       className="min-h-[44px] flex items-center px-2 -my-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 rounded-lg active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       + Plan a one-off

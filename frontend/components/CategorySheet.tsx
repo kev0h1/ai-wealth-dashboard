@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
@@ -38,6 +38,9 @@ interface Props {
   sym?: string;
   isPro?: boolean;
   door?: DoorProps;
+  // From an insight deep-link: merchant display names whose rows should be
+  // highlighted (case-insensitive substring match on merchant/description).
+  highlightMerchants?: string[];
 }
 
 function fmtWhole(n: number, sym: string): string {
@@ -234,7 +237,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
   return null;
 }
 
-export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door }: Props) {
+export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, highlightMerchants }: Props) {
   useLockBodyScroll();
   useSheetOpen();
   const [mounted, setMounted] = useState(false);
@@ -244,6 +247,43 @@ export default function CategorySheet({ name, title, total, count, transactions,
   const colour = colours[name] ?? CATEGORY_COLOURS[name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [toolOpen, setToolOpen] = useState(false);
+
+  // ── Merchant-scoped deep-link (insight CTA) ──────────────────────────────
+  // Default view: every transaction, matching rows highlighted + scrolled to.
+  // The chip toggles a stricter view that hides non-matching rows; its ×
+  // dismisses the whole idea and returns the sheet to normal.
+  const merchantNeedles = useMemo(
+    () => (highlightMerchants ?? []).map(m => m.trim().toLowerCase()).filter(Boolean),
+    [highlightMerchants]
+  );
+  const matchesMerchant = useCallback(
+    (tx: Transaction) => {
+      if (merchantNeedles.length === 0) return false;
+      const hay = `${tx.merchant_name ?? ""} ${tx.description ?? ""}`.toLowerCase();
+      return merchantNeedles.some(n => hay.includes(n));
+    },
+    [merchantNeedles]
+  );
+  const [merchantChipDismissed, setMerchantChipDismissed] = useState(false);
+  const [merchantFilterOn, setMerchantFilterOn] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const hasMerchantMatch = useMemo(
+    () => transactions.some(matchesMerchant),
+    [transactions, matchesMerchant]
+  );
+  const merchantMode = merchantNeedles.length > 0 && !merchantChipDismissed && hasMerchantMatch;
+  const visibleTxns = merchantMode && merchantFilterOn ? transactions.filter(matchesMerchant) : transactions;
+  const merchantLabel = (highlightMerchants ?? []).map(m => m.trim()).filter(Boolean)[0] ?? "";
+  const merchantExtra = merchantNeedles.length - 1;
+
+  // Bring the first matching row into view once the sheet has rendered.
+  useEffect(() => {
+    if (!mounted || !merchantMode) return;
+    const el = listRef.current?.querySelector('[data-merchant-match="true"]');
+    if (!el) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    (el as HTMLElement).scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+  }, [mounted, merchantMode]);
 
   if (!mounted) return null;
 
@@ -290,8 +330,42 @@ export default function CategorySheet({ name, title, total, count, transactions,
           </button>
         </div>
 
+        {/* Merchant deep-link chip — quiet, dismissible. Tap toggles between
+            "highlight in all" and "only these rows"; × clears it. */}
+        {merchantMode && (
+          <div className="flex items-center px-4 pb-1 flex-shrink-0">
+            <button
+              onClick={() => setMerchantFilterOn(v => !v)}
+              aria-pressed={merchantFilterOn}
+              className="min-h-[44px] -my-1.5 flex items-center active:scale-95 transition-transform"
+            >
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                  merchantFilterOn
+                    ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-700/60"
+                    : "bg-slate-100/80 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 border-transparent"
+                }`}
+              >
+                <span>
+                  {merchantFilterOn ? "Showing " : "Highlighting "}
+                  {merchantLabel}
+                  {merchantExtra > 0 ? ` +${merchantExtra}` : ""}
+                </span>
+                <ChevronRight size={10} className="opacity-60" />
+              </span>
+            </button>
+            <button
+              onClick={() => { setMerchantChipDismissed(true); setMerchantFilterOn(false); }}
+              aria-label="Clear merchant highlight"
+              className="min-h-[44px] min-w-[44px] -my-1.5 flex items-center justify-center text-slate-400 dark:text-slate-500 active:scale-95 transition-transform"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         {/* Transaction list */}
-        <div className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+        <div ref={listRef} className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {door && <DoorBlock door={door} />}
           {/* Compact tool launchers — collapsed by default so transactions lead */}
           {name.toLowerCase() === "transport" && (
@@ -344,13 +418,21 @@ export default function CategorySheet({ name, title, total, count, transactions,
               )}
             </div>
           )}
-          {transactions.map(tx => (
-            <TransactionRow
-              key={tx.id}
-              transaction={tx}
-              onClick={() => { onClose(); setTimeout(() => onTransactionClick(tx), 50); }}
-            />
-          ))}
+          {visibleTxns.map(tx => {
+            const isMatch = merchantMode && matchesMerchant(tx);
+            return (
+              <div
+                key={tx.id}
+                data-merchant-match={isMatch || undefined}
+                className={isMatch ? "rounded-xl ring-2 ring-inset ring-indigo-300 dark:ring-indigo-500/50 bg-indigo-50/40 dark:bg-indigo-900/15" : undefined}
+              >
+                <TransactionRow
+                  transaction={tx}
+                  onClick={() => { onClose(); setTimeout(() => onTransactionClick(tx), 50); }}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     </>,

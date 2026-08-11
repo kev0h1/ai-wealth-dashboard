@@ -23,6 +23,13 @@ Derived (NEVER stored — always computed live):
     on_track          progress >= amount * elapsed_fraction, where
                       elapsed_fraction = periods elapsed since creation /
                       total periods, clamped 0..1
+    feasibility       ACTIVE commitments only — "surplus" (slice fits the
+                      monthly spare rate), "savings" (slice exceeds it but
+                      remaining is coverable from the savings pots), or
+                      "stretch" (neither). null when status isn't active or
+                      the underlying maths is unavailable.
+    feasibility_note  hedged one-liner matching feasibility; omitted when
+                      feasibility is null.
 """
 import math
 from datetime import date, datetime, timedelta, timezone
@@ -37,10 +44,13 @@ from app.db.collections import (
     commitments_col,
     manual_accounts_col,
     preferences_col,
+    savings_goals_col,
     yapily_accounts_col,
 )
+from app.routers.savings import _cashflow, _current_savings
 from app.services import response_cache
 from app.services.pay_period import get_pay_period_for_date
+from app.services.region import get_user_region
 
 router = APIRouter(tags=["commitments"])
 
@@ -121,9 +131,64 @@ async def _account_name(account_id: str) -> str | None:
     return None
 
 
+# ── Feasibility (owner's semantics: meet the expense without debt; dipping
+#    into savings might be necessary) ───────────────────────────────────────────
+
+async def _feasibility_ctx(uid: str) -> tuple[float, float] | None:
+    """(monthly_surplus, available_savings) for feasibility, or None on failure.
+
+    monthly_surplus reuses savings._cashflow (income − spending − debt, backed
+    by the 6h cashflow cache) with the grow.py region/cutoff idiom.
+    available_savings reuses savings._current_savings with the user's
+    safety-net goal accounts — the same pot split Safe-to-Spend shows. Chosen
+    over recomputing a bespoke split because it is a handful of indexed
+    balance reads (no transaction scan) and already matches what the user
+    sees as "savings" elsewhere.
+    """
+    try:
+        region = await get_user_region(uid)
+        cutoff = datetime.now() - timedelta(days=90)
+        _income, _spending, surplus = await _cashflow(uid, region, cutoff)
+        goal = await savings_goals_col.find_one({"_id": uid})
+        savings_total = await _current_savings(uid, goal)
+        return float(surplus), float(savings_total)
+    except Exception:
+        return None  # feasibility is decorative — never break the payload
+
+
+def _classify_feasibility(
+    per_period_slice: float, remaining: float, fctx: tuple[float, float] | None
+) -> tuple[str | None, str | None]:
+    """(feasibility, feasibility_note) — (None, None) when context missing."""
+    if fctx is None:
+        return None, None
+    surplus, savings_total = fctx
+    spare = max(0.0, surplus)
+    if per_period_slice <= spare:
+        return "surplus", "Likely coverable from your monthly spare rate."
+    if remaining <= savings_total:
+        gap = per_period_slice - spare
+        return (
+            "savings",
+            f"More than your spare rate — likely needs ~£{gap:,.0f}/period from savings.",
+        )
+    return (
+        "stretch",
+        "At current pace this risks credit — a later target month would ease it.",
+    )
+
+
 # ── Serialisation (all derived fields computed here, never stored) ───────────
 
-async def _serialise(doc: dict, cfg: dict, today: date | None = None) -> dict:
+async def _serialise(
+    doc: dict,
+    cfg: dict,
+    today: date | None = None,
+    fctx: tuple[float, float] | None = None,
+) -> dict:
+    """Serialise one commitment. `fctx` is the (surplus, savings) feasibility
+    context from _feasibility_ctx — pass None to skip feasibility (it comes
+    back null), e.g. on the safe-to-spend hot path."""
     today = today or date.today()
     amount = float(doc.get("amount") or 0)
     contributed = float(doc.get("contributed") or 0)
@@ -156,7 +221,16 @@ async def _serialise(doc: dict, cfg: dict, today: date | None = None) -> dict:
     elapsed_fraction = min(1.0, max(0.0, elapsed / total))
     on_track = progress >= amount * elapsed_fraction
 
-    return {
+    feasibility, feasibility_note = None, None
+    if doc.get("status", "active") == "active":
+        try:
+            feasibility, feasibility_note = _classify_feasibility(
+                per_period_slice, remaining, fctx
+            )
+        except Exception:
+            feasibility, feasibility_note = None, None
+
+    out = {
         "id":                  str(doc["_id"]),
         "name":                doc.get("name"),
         "amount":              amount,
@@ -170,7 +244,11 @@ async def _serialise(doc: dict, cfg: dict, today: date | None = None) -> dict:
         "periods_left":        periods_left,
         "per_period_slice":    per_period_slice,
         "on_track":            on_track,
+        "feasibility":         feasibility,
     }
+    if feasibility_note is not None:
+        out["feasibility_note"] = feasibility_note
+    return out
 
 
 async def total_reserved_slices(uid: str) -> tuple[int, int]:
@@ -250,8 +328,9 @@ async def list_commitments(user: dict = Depends(current_user)):
         {"user_id": uid, "status": {"$ne": "cancelled"}}
     ).to_list(None)
     cfg = await _pay_cfg(uid)
+    fctx = await _feasibility_ctx(uid)
     today = date.today()
-    items = [await _serialise(doc, cfg, today=today) for doc in docs]
+    items = [await _serialise(doc, cfg, today=today, fctx=fctx) for doc in docs]
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
     return {"items": items}
 
@@ -287,7 +366,34 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
 
     response_cache.invalidate(uid)  # safe-to-spend reserve changed
     cfg = await _pay_cfg(uid)
-    return await _serialise(doc, cfg)
+    return await _serialise(doc, cfg, fctx=await _feasibility_ctx(uid))
+
+
+@router.post("/commitments/preview")
+async def preview_commitment(body: dict, user: dict = Depends(current_user)):
+    """Live feasibility verdict for the sheet — same maths as _serialise for a
+    not-yet-saved commitment (nothing persisted, remaining == full amount)."""
+    uid = user["email"]
+    amount = _validate_amount(body.get("amount"))
+    target_date = _validate_target_date(body.get("target_date"))
+
+    cfg = await _pay_cfg(uid)
+    today = date.today()
+    target = date.fromisoformat(target_date)
+    periods_left = max(1, _period_starts_between(today, target, cfg))
+    per_period_slice = _ceil5(amount / periods_left)
+
+    feasibility, feasibility_note = _classify_feasibility(
+        per_period_slice, amount, await _feasibility_ctx(uid)
+    )
+    out = {
+        "per_period_slice": per_period_slice,
+        "periods_left":     periods_left,
+        "feasibility":      feasibility,
+    }
+    if feasibility_note is not None:
+        out["feasibility_note"] = feasibility_note
+    return out
 
 
 @router.patch("/commitments/{commitment_id}")
@@ -337,7 +443,7 @@ async def update_commitment(
 
     response_cache.invalidate(uid)
     cfg = await _pay_cfg(uid)
-    return await _serialise(doc, cfg)
+    return await _serialise(doc, cfg, fctx=await _feasibility_ctx(uid))
 
 
 @router.delete("/commitments/{commitment_id}")
