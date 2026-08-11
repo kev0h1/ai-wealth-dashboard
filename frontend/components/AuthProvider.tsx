@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { getToken, setToken, clearToken } from "@/lib/auth";
 import { api, API_BASE } from "@/lib/api";
 import LoginScreen from "@/components/LoginScreen";
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextValue>({ user: null, logout: () => 
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -84,6 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   function logout() {
     clearToken();
     setUser(null);
+  }
+
+  // /design/* pages are static mockups with zero user data — always public.
+  if (pathname?.startsWith("/design")) {
+    return <>{children}</>;
   }
 
   if (checking) {

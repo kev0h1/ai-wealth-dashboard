@@ -82,6 +82,22 @@ export default function GlowClient() {
   const [variant, setVariant] = useState<Variant>("A");
   const glow = GLOW[mode][variant];
 
+  // Deep-link support — ?mode=dark|light&variant=a|b|c sets the initial
+  // preview state so screenshots/links can jump straight to a candidate.
+  // Mount-only; defaults stay light/A when params are absent or invalid.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const modeParam = params.get("mode")?.toLowerCase();
+    const variantParam = params.get("variant")?.toLowerCase();
+
+    if (modeParam === "light" || modeParam === "dark") {
+      setMode(modeParam);
+    }
+    if (variantParam === "a" || variantParam === "b" || variantParam === "c") {
+      setVariant(variantParam.toUpperCase() as Variant);
+    }
+  }, []);
+
   function handleModeChange(next: Mode) {
     setMode(next);
     setVariant("A"); // variant choice doesn't carry meaning across modes
