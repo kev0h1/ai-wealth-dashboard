@@ -41,23 +41,105 @@ export default function TutorialOverlay() {
   const { isActive, currentStep, total, step, next, prev, goTo, end } = useTutorial();
   const [rect, setRect] = useState<Rect | null>(null);
   const attemptsRef = useRef(0);
+  const rectRef = useRef<Rect | null>(null);
 
   useEffect(() => {
-    if (!isActive) { setRect(null); return; }
-    if (!step.target) { setRect(null); return; }
+    if (!isActive) { setRect(null); rectRef.current = null; return; }
+    if (!step.target) { setRect(null); rectRef.current = null; return; }
 
     attemptsRef.current = 0;
     setRect(null);
+    rectRef.current = null;
+
+    let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let rafId: number | null = null;
+    let initialTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    function stopTracking() {
+      if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+      window.removeEventListener("scroll", scheduleRemeasure, true);
+      window.removeEventListener("resize", scheduleRemeasure);
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    }
+
+    // Element vanished or collapsed to zero-size between remeasures (e.g. a
+    // responsive breakpoint hid it) — drop the spotlight and re-run the
+    // original acquisition flow (scrollIntoView + retries) rather than
+    // limping along with a stale/absent rect.
+    function reacquire() {
+      stopTracking();
+      setRect(null);
+      rectRef.current = null;
+      attemptsRef.current = 0;
+      attempt();
+    }
+
+    // The actual remeasure — always re-queries fresh, never scrolls (must
+    // not fight a scroll the user is actively performing).
+    function remeasure() {
+      rafId = null;
+      if (cancelled) return;
+      const el = document.querySelector(`[data-tutorial-id="${step.target}"]`);
+      if (!el) { reacquire(); return; }
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) { reacquire(); return; }
+      const next: Rect = {
+        top: r.top - PADDING,
+        left: r.left - PADDING,
+        width: r.width + PADDING * 2,
+        height: r.height + PADDING * 2,
+      };
+      const prev = rectRef.current;
+      const changed = !prev
+        || Math.abs(prev.top - next.top) > 0.5
+        || Math.abs(prev.left - next.left) > 0.5
+        || Math.abs(prev.width - next.width) > 0.5
+        || Math.abs(prev.height - next.height) > 0.5;
+      if (changed) {
+        rectRef.current = next;
+        setRect(next);
+      }
+    }
+
+    // Single rAF-throttled funnel for ResizeObserver + scroll + resize.
+    function scheduleRemeasure() {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(remeasure);
+    }
+
+    function startTracking(el: Element) {
+      resizeObserver = new ResizeObserver(scheduleRemeasure);
+      resizeObserver.observe(document.body);
+      resizeObserver.observe(el);
+      // capture: true catches scrolls on any ancestor scroll container, not
+      // just window-level scrolling.
+      window.addEventListener("scroll", scheduleRemeasure, { capture: true, passive: true });
+      window.addEventListener("resize", scheduleRemeasure);
+    }
 
     function attempt() {
       findTarget(step.target!, (r) => {
-        if (r) { setRect(r); return; }
+        if (cancelled) return;
+        if (r) {
+          rectRef.current = r;
+          setRect(r);
+          const el = document.querySelector(`[data-tutorial-id="${step.target}"]`);
+          if (el) startTracking(el);
+          return;
+        }
         attemptsRef.current++;
         if (attemptsRef.current < 20) setTimeout(attempt, 200);
       });
     }
     // Give the page time to render after navigation
-    setTimeout(attempt, 500);
+    initialTimeout = setTimeout(attempt, 500);
+
+    return () => {
+      cancelled = true;
+      if (initialTimeout) clearTimeout(initialTimeout);
+      stopTracking();
+    };
   }, [isActive, currentStep, step.target]);
 
   if (!isActive) return null;
