@@ -18,6 +18,7 @@ import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxChat from "@/components/TaxChat";
+import { usePreferences } from "@/components/PreferencesContext";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -85,28 +86,32 @@ interface UnknownBill {
 function UnknownBillsPanel({
   labelOptions,
   onNewInsight,
+  initialBills,
+  onBillLabelled,
 }: {
   labelOptions: Record<string, { icon: string; label: string }>;
   onNewInsight: () => void;
+  initialBills?: UnknownBill[];
+  onBillLabelled?: (merchantKey: string) => void;
 }) {
-  const [bills, setBills] = useState<UnknownBill[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [bills, setBills] = useState<UnknownBill[]>(initialBills ?? []);
+  const [loading, setLoading] = useState(initialBills === undefined);
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getUnknownBills()
-      .then(d => { setBills(d.unknown_bills); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    if (initialBills === undefined) return;
+    setBills(initialBills);
+    setLoading(false);
+  }, [initialBills]);
 
   async function pick(merchantKey: string, category: string) {
     setSaving(merchantKey);
     try {
       await api.labelBill(merchantKey, category);
       setBills(prev => prev.filter(b => b.merchant_key !== merchantKey));
+      onBillLabelled?.(merchantKey);
       setExpanded(null);
       if (category !== "skip") {
         setTimeout(onNewInsight, 20000);
@@ -814,9 +819,13 @@ function InsightCard({
 function ImproveHousekeepingPanel({
   labelOptions,
   onNewInsight,
+  initialBills,
+  onBillLabelled,
 }: {
   labelOptions: Record<string, { icon: string; label: string }>;
   onNewInsight: () => void;
+  initialBills?: UnknownBill[];
+  onBillLabelled?: (merchantKey: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -836,7 +845,7 @@ function ImproveHousekeepingPanel({
       </button>
       {open && (
         <div className="space-y-3 pb-1">
-          <UnknownBillsPanel labelOptions={labelOptions} onNewInsight={onNewInsight} />
+          <UnknownBillsPanel labelOptions={labelOptions} onNewInsight={onNewInsight} initialBills={initialBills} onBillLabelled={onBillLabelled} />
           <LabelledBillsPanel labelOptions={labelOptions} onRelabelled={onNewInsight} />
         </div>
       )}
@@ -854,6 +863,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
   const [error, setError] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [labelOptions, setLabelOptions] = useState<Record<string, { icon: string; label: string }>>({});
+  const [unknownBills, setUnknownBills] = useState<UnknownBill[] | undefined>(undefined);
   const [workflows, setWorkflows] = useState<Record<string, import("@/lib/api").WorkflowDef>>({});
   const [showAll, setShowAll] = useState(false);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
@@ -886,7 +896,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
   useEffect(() => {
     loadInsights();
     api.getSpotlightInsight().then(s => setSpotlightId(s?.id ?? null)).catch(() => {});
-    api.getUnknownBills().then(d => setLabelOptions(d.label_options)).catch(() => {});
+    api.getUnknownBills().then(d => { setLabelOptions(d.label_options); setUnknownBills(d.unknown_bills); }).catch(() => {});
     api.getWorkflows().then(setWorkflows).catch(() => {});
   }, [loadInsights]);
 
@@ -1085,7 +1095,14 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
       )}
 
       {/* Improve your suggestions — collapsed housekeeping, default closed */}
-      <ImproveHousekeepingPanel labelOptions={labelOptions} onNewInsight={loadInsights} />
+      <ImproveHousekeepingPanel
+        labelOptions={labelOptions}
+        onNewInsight={loadInsights}
+        initialBills={unknownBills}
+        onBillLabelled={(merchantKey) =>
+          setUnknownBills(prev => prev?.filter(b => b.merchant_key !== merchantKey))
+        }
+      />
     </div>
   );
 }
@@ -1094,6 +1111,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
 export default function InsightsPage() {
   const router = useRouter();
+  const { rawPrefs } = usePreferences();
 
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
@@ -1153,25 +1171,23 @@ export default function InsightsPage() {
   }, []);
 
   useEffect(() => {
-    api.getPreferences()
-      .then(p => {
-        const bracket = p.income_bracket ?? "";
-        setIncomeBracket(bracket);
-        try { localStorage.setItem("wd_bracket", bracket); } catch {}
-        // Capture tax-related fields so embedded TaxPage can skip its own fetch.
-        const iv = (p as any).income_value ?? 0;
-        setTaxIncomeValue(
-          iv > 0 ? iv
-            : bracket === "100k_125k" ? 110_000
-            : bracket === "125k_plus"  ? 130_000
-            : 0
-        );
-        setTaxPensionAnnual((p as any).pension_annual ?? 0);
-        setTaxHasChildBenefit((p as any).has_child_benefit ?? false);
-        setTaxPrefsLoaded(true);
-      })
-      .catch(() => {});
-  }, []);
+    if (!rawPrefs) return;
+    const p = rawPrefs;
+    const bracket = p.income_bracket ?? "";
+    setIncomeBracket(bracket);
+    try { localStorage.setItem("wd_bracket", bracket); } catch {}
+    // Capture tax-related fields so embedded TaxPage can skip its own fetch.
+    const iv = (p as any).income_value ?? 0;
+    setTaxIncomeValue(
+      iv > 0 ? iv
+        : bracket === "100k_125k" ? 110_000
+        : bracket === "125k_plus"  ? 130_000
+        : 0
+    );
+    setTaxPensionAnnual((p as any).pension_annual ?? 0);
+    setTaxHasChildBenefit((p as any).has_child_benefit ?? false);
+    setTaxPrefsLoaded(true);
+  }, [rawPrefs]);
 
   // Default to "Ways to save"; redirect ?tab=plan deep-links to /debt-plan.
   useEffect(() => {

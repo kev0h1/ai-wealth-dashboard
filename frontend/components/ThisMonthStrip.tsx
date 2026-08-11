@@ -16,26 +16,38 @@ function maskAmounts(line: string): string {
   return line.replace(/£[\d,]+(\.\d+)?/g, "£••••");
 }
 
-export default function ThisMonthStrip() {
+interface ThisMonthStripProps {
+  // When provided, the parent already fetched /needle/summary — skip our
+  // own duplicate request and render from these instead.
+  summary?: NeedleSummary | null;
+  summaryStatus?: Status;
+}
+
+export default function ThisMonthStrip({ summary, summaryStatus }: ThisMonthStripProps = {}) {
   const router = useRouter();
   const { hideNetWorth } = usePreferences();
-  const [data, setData] = useState<NeedleSummary | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
+  const externallyControlled = summaryStatus !== undefined;
+  const [ownData, setOwnData] = useState<NeedleSummary | null>(null);
+  const [ownStatus, setOwnStatus] = useState<Status>("loading");
 
   const load = useCallback(() => {
-    setStatus("loading");
+    setOwnStatus("loading");
     api
       .getNeedleSummary()
       .then((r) => {
-        setData(r);
-        setStatus("ready");
+        setOwnData(r);
+        setOwnStatus("ready");
       })
-      .catch(() => setStatus("failed"));
+      .catch(() => setOwnStatus("failed"));
   }, []);
 
   useEffect(() => {
+    if (externallyControlled) return;
     load();
-  }, [load]);
+  }, [load, externallyControlled]);
+
+  const data = externallyControlled ? (summary ?? null) : ownData;
+  const status = externallyControlled ? summaryStatus! : ownStatus;
 
   // Loading skeleton
   if (status === "loading") {

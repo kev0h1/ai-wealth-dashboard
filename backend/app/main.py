@@ -2,6 +2,7 @@
 import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
@@ -50,7 +51,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=86400,
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.middleware("http")(auth_middleware)
 
 for router in [
@@ -102,6 +105,7 @@ async def _create_indexes():
     await statement_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
     await statement_transactions_col.create_index([("user_id", 1), ("date", -1)])
     await mpesa_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
+    await mpesa_transactions_col.create_index([("user_id", 1), ("date", -1)])
     await mono_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
     await accounts_col.create_index("connection_id")
     await accounts_col.create_index("user_id")

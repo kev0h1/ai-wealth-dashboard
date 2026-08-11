@@ -5,7 +5,7 @@ import { api, Transaction } from "@/lib/api";
 // Module-level cache: one fetch per TTL across all consumers, in-flight dedupe.
 let cache: { data: Transaction[]; at: number } | null = null;
 let inflight: Promise<Transaction[]> | null = null;
-const TTL_MS = 60_000;
+const TTL_MS = 300_000;
 
 async function fetchAll(force = false): Promise<Transaction[]> {
   if (!force && cache && Date.now() - cache.at < TTL_MS) return cache.data;

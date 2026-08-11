@@ -161,13 +161,11 @@ export default function SpendPage() {
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
-      const [accs, misc] = await Promise.all([
-        api.accounts().catch(() => [] as Account[]),
-        api.getMiscategorisedCount().catch(() => ({ count: 0, ids: [] as string[] })),
-      ]);
+      const accs = await api.accounts().catch(() => [] as Account[]);
       setAccounts(accs);
-      setMiscategorisedCount(misc.count);
-      setMiscategorisedIds(misc.ids);
+      api.getMiscategorisedCount()
+        .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
+        .catch(() => {});
     } catch {}
     finally {
       setLoading(false);

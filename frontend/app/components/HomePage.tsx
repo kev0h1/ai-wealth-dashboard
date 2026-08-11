@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
@@ -18,13 +19,23 @@ import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
 import ThisMonthStrip from "@/components/ThisMonthStrip";
-import { PinnedWidgetCard } from "@/components/SpendTrends";
 import { useColours } from "@/components/ColourProvider";
 import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import HomeBrief from "@/components/HomeBrief";
+import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+
+// Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
+// it out of the initial route chunk.
+const PinnedWidgetCard = dynamic(
+  () => import("@/components/SpendTrends").then((mod) => mod.PinnedWidgetCard),
+  {
+    ssr: false,
+    loading: () => <div className="h-[150px] rounded-2xl glass-card animate-pulse" />,
+  }
+);
 // kept-for-future: import CompanionStack from "@/components/CompanionStack";
 
 // Token is guaranteed by AuthProvider before this component mounts
@@ -34,7 +45,7 @@ export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
-  const { hideNetWorth, payPeriodConfig, region } = usePreferences();
+  const { hideNetWorth, payPeriodConfig, region, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
@@ -51,25 +62,25 @@ export default function HomePage() {
   const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
-  const [pinnedWidget, setPinnedWidget] = useState<string | null>(null);
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
   const [needle, setNeedle] = useState<NeedleSummary | null>(null);
+  const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">("loading");
 
   const loadData = useCallback(async () => {
     setLoadError(false);
     try {
       await ensureAuth();
-      // Fire the four fast calls in parallel and set each state as its own
-      // promise resolves — the Safe-to-Spend tile and brief no longer wait
-      // for siblings, and never for the heavy transactions fetch below.
+      // Fire the fast calls — and the heavy 90-day transactions fetch — all
+      // in parallel and set each state as its own promise resolves. The
+      // Safe-to-Spend tile and brief never wait for siblings, and the
+      // transactions request starts alongside accounts instead of after it.
       const accsP = api.accounts();
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
-      // Lifted for the Safe-to-Spend hero's net-after-cards figure. ThisMonthStrip
-      // performs its own independent fetch of the same endpoint — left untouched.
       const needleP = api.getNeedleSummary();
+      const txP = api.allTransactions(90).catch(() => [] as Transaction[]);
 
       invP.then((v) => setInvestmentAccounts(v)).catch(() => {});
       safeP
@@ -77,7 +88,9 @@ export default function HomePage() {
         .catch(() => {})
         .finally(() => setStsLoading(false));
       todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
-      needleP.then((v) => setNeedle(v)).catch(() => {});
+      needleP
+        .then((v) => { setNeedle(v); setNeedleStatus("ready"); })
+        .catch(() => setNeedleStatus("failed"));
 
       let loadedAccounts: Account[] = [];
       try {
@@ -93,12 +106,10 @@ export default function HomePage() {
       await Promise.allSettled([invP, safeP, todayP, needleP]);
       setLoading(false);
 
-      if (loadedAccounts.length > 0) {
-        // One bulk call (already server-sorted) instead of one per account.
-        // Only the recent-transactions skeleton (txLoading) waits on this.
-        const allTxns = await api.allTransactions(90).catch(() => [] as Transaction[]);
-        setTransactions(allTxns);
-      }
+      // One bulk call (already server-sorted) instead of one per account.
+      // Only the recent-transactions skeleton (txLoading) waits on this.
+      const allTxns = await txP;
+      if (loadedAccounts.length > 0) setTransactions(allTxns);
     } catch {}
     finally {
       setLoading(false);
@@ -109,11 +120,20 @@ export default function HomePage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Cross-page pin staleness (F3 review correction): PreferencesContext
+  // fetches /preferences exactly once per full page load and never
+  // refreshes on client-side navigation, so deriving pinnedIds from rawPrefs
+  // alone would miss pins toggled elsewhere — e.g. AccountsPage.togglePin
+  // writes preferences directly, bypassing this context — until a hard
+  // reload. PreferencesContext.tsx and AccountsPage.tsx are outside this
+  // fix's touched-files, so re-fetch preferences directly on every Home
+  // mount instead of trusting the (possibly stale) context snapshot.
   useEffect(() => {
-    api.getPreferences().then(p => {
-      setPinnedIds(p.home_pinned_accounts ?? []);
-      setPinnedWidget(p.home_pinned_widget ?? null);
-    }).catch(() => {});
+    let cancelled = false;
+    api.getPreferences()
+      .then((p) => { if (!cancelled) setPinnedIds(p.home_pinned_accounts ?? []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
@@ -126,6 +146,7 @@ export default function HomePage() {
     if (syncErrorTimerRef.current) clearTimeout(syncErrorTimerRef.current);
     try {
       await api.syncAll();
+      invalidateTransactionsCache();
       await loadData();
     } catch {
       setSyncError(true);
@@ -333,7 +354,7 @@ export default function HomePage() {
               </div>
               <div className="space-y-3">
                 <UpcomingBillsStrip />
-                <ThisMonthStrip />
+                <ThisMonthStrip summary={needle} summaryStatus={needleStatus} />
                 <HomeInsightSpotlight />
               </div>
             </div>
@@ -342,15 +363,15 @@ export default function HomePage() {
           {/* ── Below zones: demoted supporting content ── */}
 
           {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
-          {!loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (pinnedWidget && homeTxns.length > 0)) && (
+          {!loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
             <div className="mt-8 space-y-3 px-4 lg:px-0">
               {pinnedCards.includes("fuel") && <FuelSavingsCard />}
               {pinnedCards.includes("groceries") && <GroceryBasketCard />}
-              {pinnedWidget && homeTxns.length > 0 && (() => {
+              {homePinnedWidget && homeTxns.length > 0 && (() => {
                 const [ps, pe] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
                 return (
                   <PinnedWidgetCard
-                    id={pinnedWidget}
+                    id={homePinnedWidget}
                     transactions={homeTxns}
                     periodStart={ps}
                     periodEnd={pe}

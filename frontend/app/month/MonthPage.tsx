@@ -113,14 +113,27 @@ export default function MonthPage() {
       setWhich(paramWhich);
       fetchAndCache(paramWhich);
     } else {
-      // Smart default: try "last" first; fall back to "current"
+      // Smart default: fire both "last" and "current" in parallel, then land
+      // on whichever the outcome calls for. Avoids the worst case of a serial
+      // last -> current wait (last, then a cold-LLM current on top).
       (async () => {
+        const currentP = api.getCycleStory("current", !persona && searchParams.get("preview") === "1", persona ?? undefined)
+          .then(d => { setCache((prev) => ({ ...prev, current: d })); return d; })
+          .catch(() => null);
         const lastData = await fetchAndCache("last");
         if (lastData && lastData.status === "ok") {
           setWhich("last");
         } else {
           setWhich("current");
-          await fetchAndCache("current");
+          setLoading(true);
+          setError(null);
+          const d = await currentP;
+          if (d) {
+            setLoading(false);
+            setError(null);
+          } else {
+            await fetchAndCache("current");
+          }
         }
       })();
     }

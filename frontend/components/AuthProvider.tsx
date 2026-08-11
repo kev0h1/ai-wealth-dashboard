@@ -53,6 +53,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const profileP = api.getProfile().catch(() => null);
+
       try {
         const res = await fetch(`${API_BASE}/auth/session/validate`, {
           method: "POST",
@@ -62,12 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           if (data.email) {
             setUser({ email: data.email, name: data.name || "" });
-            try {
-              const profile = await api.getProfile();
-              if (!profile.onboarding_complete) setNeedsOnboarding(true);
-            } catch {
-              // Don't block the app if the profile check fails.
-            }
+            const profile = await profileP;
+            if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
           } else {
             // Old PIN-format token — no email, force re-auth via Google
             clearToken();

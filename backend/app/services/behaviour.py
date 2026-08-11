@@ -247,6 +247,7 @@ async def compute_portrait(uid: str) -> dict:
         })
 
     traits = []
+    pending: list[tuple[int, Any]] = []
 
     # ── TRAIT 1: Front-loading ────────────────────────────────────────────────
     spend_txns = [t for t in txns if t["is_debit"] and t["category"] not in _NON_SPEND_CATEGORIES]
@@ -275,15 +276,15 @@ async def compute_portrait(uid: str) -> dict:
                 f"£{early_spend / max(1, span_days / 30):.0f} average early-month spend",
             ]
             fallback = f"You tend to spend heavily in the first week of each month, with {early_pct:.0f}% of monthly outgoings landing there."
-            narrative = await _llm_narrate("front_loader", "The Front-Loader", evidence, fallback)
             traits.append({
                 "id": "front_loader",
                 "title": "The Front-Loader",
-                "narrative": narrative,
+                "narrative": fallback,
                 "evidence": evidence,
                 "kind": "structure",
                 "choice": None,
             })
+            pending.append((len(traits) - 1, _llm_narrate("front_loader", "The Front-Loader", evidence, fallback)))
 
     # ── TRAIT 2: Credit switch mid-month ──────────────────────────────────────
     if credit_account_ids:
@@ -305,15 +306,15 @@ async def compute_portrait(uid: str) -> dict:
                     "Plastic use increases as the month progresses",
                 ]
                 fallback = "Your credit card use ramps up through the month as cash flow tightens after payday."
-                narrative = await _llm_narrate("credit_switch", "Runs on Plastic Mid-Month", evidence, fallback)
                 traits.append({
                     "id": "credit_switch",
                     "title": "Runs on Plastic Mid-Month",
-                    "narrative": narrative,
+                    "narrative": fallback,
                     "evidence": evidence,
                     "kind": "structure",
                     "choice": None,
                 })
+                pending.append((len(traits) - 1, _llm_narrate("credit_switch", "Runs on Plastic Mid-Month", evidence, fallback)))
 
     # ── TRAIT 3: Saving habit ─────────────────────────────────────────────────
     #
@@ -404,15 +405,15 @@ async def compute_portrait(uid: str) -> dict:
             title = None
 
         if title:
-            narrative = await _llm_narrate("saving_habit", title, evidence, fallback)
             traits.append({
                 "id": "saving_habit",
                 "title": title,
-                "narrative": narrative,
+                "narrative": fallback,
                 "evidence": evidence,
                 "kind": "habit",
                 "choice": None,
             })
+            pending.append((len(traits) - 1, _llm_narrate("saving_habit", title, evidence, fallback)))
 
     # ── TRAIT 4: Orchestration ────────────────────────────────────────────────
     transfer_txns = [t for t in txns if t["category"] in ("Transfer", "Internal Transfer")]
@@ -429,15 +430,15 @@ async def compute_portrait(uid: str) -> dict:
             f"£{monthly_transfer:.0f} average monthly transfer volume",
         ]
         fallback = f"You actively orchestrate money across {len(active_transfer_accounts)} accounts, moving funds with clear intent."
-        narrative = await _llm_narrate("orchestrator", "The Orchestrator", evidence, fallback)
         traits.append({
             "id": "orchestrator",
             "title": "The Orchestrator",
-            "narrative": narrative,
+            "narrative": fallback,
             "evidence": evidence,
             "kind": "structure",
             "choice": None,
         })
+        pending.append((len(traits) - 1, _llm_narrate("orchestrator", "The Orchestrator", evidence, fallback)))
 
     # ── TRAIT 5: Signature pleasure ───────────────────────────────────────────
     disc_counts: dict[str, int] = defaultdict(int)
@@ -456,11 +457,10 @@ async def compute_portrait(uid: str) -> dict:
                 f"£{disc_totals[top_cat]:.0f} total · ~{monthly_count:.1f}× per month",
             ]
             fallback = f"{top_cat} is clearly something you love — it's your most frequent discretionary category."
-            narrative = await _llm_narrate("signature_pleasure", f"Your Signature: {top_cat}", evidence, fallback)
             traits.append({
                 "id": "signature_pleasure",
                 "title": f"Your Signature: {top_cat}",
-                "narrative": narrative,
+                "narrative": fallback,
                 "evidence": evidence,
                 "kind": "pleasure",
                 "choice": None,
@@ -468,6 +468,7 @@ async def compute_portrait(uid: str) -> dict:
                 # intent_pace, checkpoints) never have to parse the title string.
                 "ref_category": top_cat,
             })
+            pending.append((len(traits) - 1, _llm_narrate("signature_pleasure", f"Your Signature: {top_cat}", evidence, fallback)))
 
     # ── TRAIT 6: Money hygiene ────────────────────────────────────────────────
     # Cash withdrawals
@@ -509,29 +510,35 @@ async def compute_portrait(uid: str) -> dict:
         evidence = hygiene_positives + ["No BNPL, gambling, or returned payments detected"]
         fallback = "Your financial hygiene is clean — no missed payments, BNPL, or cash dependency."
         title = "Clean Record"
-        narrative = await _llm_narrate("hygiene", title, evidence, fallback)
         traits.append({
             "id": "hygiene",
             "title": title,
-            "narrative": narrative,
+            "narrative": fallback,
             "evidence": evidence,
             "kind": "hygiene",
             "choice": None,
         })
+        pending.append((len(traits) - 1, _llm_narrate("hygiene", title, evidence, fallback)))
     elif len(spend_txns) >= 10:
         # Only surface hygiene issues if there's enough data to be confident
         evidence = hygiene_issues
         fallback = "A few patterns worth keeping an eye on — described above, without judgement."
         title = "A Few Things to Note"
-        narrative = await _llm_narrate("hygiene", title, evidence, fallback)
         traits.append({
             "id": "hygiene",
             "title": title,
-            "narrative": narrative,
+            "narrative": fallback,
             "evidence": evidence,
             "kind": "hygiene",
             "choice": None,
         })
+        pending.append((len(traits) - 1, _llm_narrate("hygiene", title, evidence, fallback)))
+
+    if pending:
+        results = await asyncio.gather(*(c for _, c in pending), return_exceptions=True)
+        for (idx, _), res in zip(pending, results):
+            if isinstance(res, str):
+                traits[idx]["narrative"] = res
 
     return {
         "status": "ok",

@@ -1,4 +1,5 @@
 """Transaction read/write + auto-categorise endpoints."""
+import asyncio
 import re
 import json
 from datetime import datetime, timedelta
@@ -162,12 +163,14 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     23-account user) and filtered client-side."""
     uid    = user["email"]
     cutoff = datetime.now() - timedelta(days=min(days, 730))
+    cols = (transactions_col, yapily_transactions_col,
+            statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+    results = await asyncio.gather(
+        *(c.find({"user_id": uid, "date": {"$gte": cutoff}}).to_list(None) for c in cols)
+    )
     docs: list = []
-    for col in (transactions_col, yapily_transactions_col,
-                statement_transactions_col, mono_transactions_col, mpesa_transactions_col):
-        docs += await col.find(
-            {"user_id": uid, "date": {"$gte": cutoff}}
-        ).to_list(None)
+    for r in results:
+        docs += r
     docs.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
     return [_doc_to_tx(d) for d in docs]
 
