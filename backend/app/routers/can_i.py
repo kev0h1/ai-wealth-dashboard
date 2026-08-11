@@ -26,6 +26,21 @@ MONTH_NAMES = [
     "july", "august", "september", "october", "november", "december",
 ]
 
+# Deterministic category-mention detection for change_intents — replaces
+# leaving "does this question relate to category X" to LLM judgement, which
+# was inconsistent run-to-run. Conservative on purpose: no bare "food"/"eat"
+# (over-matches groceries, etc). Extend sensibly, don't loosen.
+CATEGORY_SYNONYMS: dict[str, list[str]] = {
+    "Eating Out": [
+        "dinner", "lunch", "brunch", "takeaway", "take-away", "restaurant",
+        "meal", "eating out", "eat out", "food out",
+    ],
+    "Groceries": ["groceries", "supermarket", "food shop"],
+    "Entertainment": ["cinema", "concert", "night out", "tickets"],
+    "Shopping": ["shoes", "clothes", "trainers", "shopping"],
+    "Transport": ["taxi", "uber", "train ticket"],
+}
+
 
 def _extract_amount(question: str) -> float | None:
     """Largest plausible £ figure mentioned in the question, or None."""
@@ -125,8 +140,8 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     # ── Change intents (Mirror traits marked "change" → category pace) ──
     try:
-        from app.db.collections import behaviour_portrait_col, preferences_col
-        from app.services.checkpoints import checkpoint_map_for_period
+        from app.db.collections import behaviour_portrait_col
+        from app.services.checkpoints import checkpoint_map_for_period, current_period
         from app.services.pace import (
             _BASELINE_DAYS,
             _read_cached_baseline,
@@ -134,7 +149,6 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             _write_cached_baseline,
             load_spend_txns,
         )
-        from app.services.pay_period import get_pay_period_for_date
 
         portrait = await behaviour_portrait_col.find_one({"_id": uid}) or {}
         change_cats: list[str] = []
@@ -151,10 +165,13 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 change_cats.append(cat)
 
         if change_cats:
-            prefs = await preferences_col.find_one({"_id": uid}) or {}
-            pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+            # Same helper companion.py/pace.py resolve their pay period through
+            # (preferences keyed by user_id) — a stray `_id`-keyed prefs doc
+            # here previously caused this surface's period window (and
+            # therefore spent_this_period) to silently diverge from the
+            # companion's intent_pace figure for the same category/period.
             ci_today = date.today()
-            period_start, period_end = get_pay_period_for_date(ci_today, pay_cfg)
+            period_start, period_end = await current_period(uid)
 
             # Baseline: same cache key + fallback path pace/companion use.
             baseline_key = period_start.isoformat()
@@ -183,10 +200,15 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 uid, period_start, period_end, cat_spent=cat_spent
             )
 
+            question_lower = question.lower()
             change_intents: list[dict] = []
             for cat in change_cats:
                 usual_30d = None if thin_history else baseline.get(cat)
                 aim_doc = aim_map.get(cat)
+                synonyms = CATEGORY_SYNONYMS.get(cat, [])
+                mentioned_in_question = cat.lower() in question_lower or any(
+                    syn in question_lower for syn in synonyms
+                )
                 change_intents.append({
                     "category": cat,
                     "usual_30d": round(float(usual_30d), 2) if usual_30d else None,
@@ -200,6 +222,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                         if aim_doc and aim_doc.get("aim_amount") is not None
                         else None
                     ),
+                    "mentioned_in_question": mentioned_in_question,
                 })
             if change_intents:
                 facts["change_intents"] = change_intents
@@ -249,12 +272,13 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "but no price and you'd need one, give the envelope from the facts (free "
         "until payday, or per-day rate) and ask for a number in the same sentence. "
         "For future-month questions use months_until_target and savable_by_target. "
-        "If the question maps to a category in change_intents, acknowledge the "
-        "stated change in the answer using ONLY the provided figures — when an "
-        "entry has would_take_to, that is the precomputed category total after "
+        "Entries in change_intents with mentioned_in_question=true MUST be "
+        "acknowledged in the answer, using ONLY the provided figures — when such "
+        "an entry has would_take_to, that is the precomputed category total after "
         "this spend; copy it as-is (e.g. this £30 would take Eating Out to your "
         "would_take_to figure of your usual_30d usual pace — still inside the "
-        "change you asked for). Never moralise. "
+        "change you asked for). Entries without mentioned_in_question=true may be "
+        "ignored unless clearly relevant. Never moralise. "
         "If the question is not about the user's own spending or affordability, reply "
         'exactly: I can answer spending questions — try "Can I spend £50 this '
         'weekend?". General cost knowledge may be used ONLY as a clearly rough range '
