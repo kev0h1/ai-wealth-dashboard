@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
-import { AlertTriangle, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, Plus, X } from "lucide-react";
 import { api, Account, CashflowData, Commitment, SavingsInsight } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -254,9 +254,9 @@ function CommitmentsBlock({
               {/* Feasibility — surplus: slate dot; savings: amber dot, slate
                   text; stretch: amber dot + amber text (attention, never red). */}
               {c.feasibility && c.feasibility_note && (
-                <p className="mt-1 flex items-center gap-1.5 min-w-0">
+                <p className="mt-1 flex items-start gap-1.5 min-w-0">
                   <span
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
                       c.feasibility === "surplus"
                         ? "bg-slate-300 dark:bg-slate-600"
                         : "bg-amber-500"
@@ -264,7 +264,7 @@ function CommitmentsBlock({
                     aria-hidden="true"
                   />
                   <span
-                    className={`text-[11px] truncate ${
+                    className={`text-[11px] line-clamp-2 leading-snug ${
                       c.feasibility === "stretch"
                         ? "text-amber-600 dark:text-amber-400"
                         : "text-slate-500 dark:text-slate-400"
@@ -280,12 +280,11 @@ function CommitmentsBlock({
         {/* Ghost add card — always the last card in the row */}
         <button
           onClick={onAdd}
-          className="min-w-[240px] max-w-[260px] flex-shrink-0 snap-start rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.14] px-4 py-3 min-h-[44px] flex flex-col items-center justify-center text-sm font-semibold text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          aria-label="Plan a big expense"
+          className="min-w-[150px] max-w-[170px] flex-shrink-0 snap-start rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.14] px-4 py-3 flex flex-col items-center justify-center gap-1.5 text-center active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          + Plan a big expense
-          <span className="block text-[11px] font-normal text-slate-400 dark:text-slate-500">
-            a goal to save toward
-          </span>
+          <Plus className="w-4 h-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+          <span className="text-xs font-semibold leading-snug text-indigo-600 dark:text-indigo-400">Plan a big expense</span>
         </button>
       </div>
       {/* Right-edge fade — a quiet hint the row continues */}
