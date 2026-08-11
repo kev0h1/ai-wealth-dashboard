@@ -688,6 +688,8 @@ export default function PlanningPage() {
         const currentPeriodItems = rawItems.filter(i => !i.next_period);
 
         if (rawItems.length === 0) {
+          // Nothing left to pay this period — the whole spendable pool is free.
+          const emptySpendable = cashflow.spendable_balance ?? cashflow.available_balance;
           return (
             <div className="space-y-3">
               <div className="glass-card rounded-2xl p-8 text-center">
@@ -714,7 +716,14 @@ export default function PlanningPage() {
                 onAdd={() => setCommitmentSheet({ editing: null })}
                 onEdit={(c) => setCommitmentSheet({ editing: c })}
               />
-              <CanISection onCommitmentSaved={refreshCommitments} />
+              <CanISection
+                onCommitmentSaved={refreshCommitments}
+                freeHint={
+                  emptySpendable != null && emptySpendable >= 0
+                    ? { free: emptySpendable, daysLeft: daysToPayday }
+                    : null
+                }
+              />
             </div>
           );
         }
@@ -1051,7 +1060,16 @@ export default function PlanningPage() {
               onAdd={() => setCommitmentSheet({ editing: null })}
               onEdit={(c) => setCommitmentSheet({ editing: c })}
             />
-            <CanISection onCommitmentSaved={refreshCommitments} />
+            {/* Free hint = the runway hero's figure above; withheld when the
+                runway is negative — the launcher never leads with a minus. */}
+            <CanISection
+              onCommitmentSaved={refreshCommitments}
+              freeHint={
+                (cashflow.spendable_balance ?? cashflow.available_balance) != null && !runwayNegative
+                  ? { free: runway, daysLeft: daysToPayday }
+                  : null
+              }
+            />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">
