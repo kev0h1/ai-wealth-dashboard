@@ -50,7 +50,7 @@ export default function SegmentedControl({
       ref={containerRef}
       role="tablist"
       aria-label={ariaLabel}
-      className={`flex bg-slate-200/80 dark:bg-slate-800 rounded-xl p-1 gap-1 ${className}`}
+      className={`flex glass-tile rounded-xl p-1 gap-1 ${className}`}
       onKeyDown={handleKeyDown}
     >
       {opts.map((o) => {

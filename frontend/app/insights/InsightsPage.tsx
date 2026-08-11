@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingDown, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -1212,46 +1212,38 @@ export default function InsightsPage() {
       {/* Header — compact, one primary stat max. */}
       {loading ? (
         <div className="mx-4 mt-4 rounded-3xl h-[120px] bg-slate-200 dark:bg-slate-800 animate-pulse" />
-      ) : (
-      /* Neutral hero prototype: calm surface, colour in the icon chip and stat —
-         Penny's gradient stays the only loud element */
-      <div
-        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero"
-        data-tutorial-id="tutorial-debt-header"
-      >
-        {heroMode === "tax" ? (
-          <>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400 mb-0.5">Tax year {taxYear.label}</p>
-                <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Tax efficiency</h1>
-              </div>
-              <div className="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
-                <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-              </div>
-            </div>
-            <div className="mt-3 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(taxYear.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Tax year progress">
-              <div className="h-full bg-violet-500 rounded-full bar-sweep" style={{ width: `${taxYear.pct}%` }} />
-            </div>
-            <div className="flex justify-between mt-1">
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">6 Apr</span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">{taxYear.daysLeft} days left</span>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
-            </div>
-          </>
-        ) : (
-          /* Ways to save */
+      ) : heroMode === "tax" ? (
+        /* Neutral hero prototype: calm surface, colour in the icon chip and stat —
+           Penny's gradient stays the only loud element */
+        <div
+          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero"
+          data-tutorial-id="tutorial-debt-header"
+        >
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Personalised ways to spend less — start with the top one.</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400 mb-0.5">Tax year {taxYear.label}</p>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Tax efficiency</h1>
             </div>
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: "#0d948826" }}>
-              <TrendingDown className="w-5 h-5" style={{ color: "#0d9488" }} />
+            <div className="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-5 h-5 text-violet-600 dark:text-violet-400" />
             </div>
           </div>
-        )}
-      </div>
+          <div className="mt-3 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden" role="progressbar" aria-valuenow={Math.round(taxYear.pct)} aria-valuemin={0} aria-valuemax={100} aria-label="Tax year progress">
+            <div className="h-full bg-violet-500 rounded-full bar-sweep" style={{ width: `${taxYear.pct}%` }} />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">6 Apr</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">{taxYear.daysLeft} days left</span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
+          </div>
+        </div>
+      ) : (
+        /* Ways to save — plain header, matches Planning/Spend idiom */
+        <div className="px-4 pt-6 pb-2" data-tutorial-id="tutorial-debt-header">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">INSIGHTS</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Personalised ways to spend less — start with the top one.</p>
+        </div>
       )}
 
       <div className="px-4 pt-4 space-y-3">

@@ -337,11 +337,11 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-hero">
+      <div className="px-4 pt-6 pb-2">
         <div className="flex items-center justify-between">
           <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">CUSTOMISE YOUR DASHBOARD</p>
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Customise your dashboard</p>
           </div>
           <TutorialTrigger />
         </div>
