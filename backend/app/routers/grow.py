@@ -16,7 +16,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
-from app.db.collections import card_terms_col, investment_accounts_col, savings_goals_col
+from app.db.collections import (
+    card_terms_col,
+    investment_accounts_col,
+    preferences_col,
+    savings_goals_col,
+)
 from app.services.region import get_user_region
 from app.routers.card_terms import _promos_from_legacy
 from app.routers.savings import _cashflow, _current_savings, _target_amount
@@ -28,11 +33,108 @@ router = APIRouter(tags=["grow"])
 DAYS_PER_MONTH = 30.44
 FULL_FUND_MONTHS = 3
 
+# UK income-tax facts used for the pension rungs (mirrors the client-side
+# maths in frontend/app/insights/tax/TaxPage.tsx — keep the two in sync).
+PERSONAL_ALLOWANCE = 12_570
+TAPER_START = 100_000
+TAPER_END = 125_140
+HIGHER_RATE_THRESHOLD = 50_270
+TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/insights?tab=tax"}
+
 
 # ── Small formatting helpers (facts only — no instructions) ──────────────────
 
 def _money(x: float) -> str:
     return f"£{x:,.0f}"
+
+
+def _taper_loss(adjusted_income: float) -> float:
+    """Personal allowance lost to the £100k taper.
+
+    Mirrors `taperLoss()` in frontend/app/insights/tax/TaxPage.tsx: £1 of
+    allowance goes for every £2 of adjusted income above £100,000.
+    """
+    if adjusted_income <= TAPER_START:
+        return 0.0
+    if adjusted_income >= TAPER_END:
+        return float(PERSONAL_ALLOWANCE)
+    return float(int((adjusted_income - TAPER_START) // 2))
+
+
+def _pension_rung_facts(prefs: dict) -> Optional[dict]:
+    """Personalised pension_match / pension_topup rung fields from the user's
+    stored income preferences (facts only — no instructions, per the FCA
+    doctrine above; options stay generic).
+
+    Returns None when no usable income is on file, or if anything in the
+    maths fails — callers then keep the existing locked state.
+    """
+    try:
+        income = float(prefs.get("income_value") or 0)
+        if income <= 0:
+            return None
+        pension_annual = float(prefs.get("pension_annual") or 0)
+        bracket = str(prefs.get("income_bracket") or "")
+        # Adjusted income mirrors TaxPage.tsx: income minus annual pension
+        # contributions (the figure the taper is assessed against).
+        adjusted = income - pension_annual
+
+        # Employer pension match — income is on file; contributions on file
+        # are the best available signal that a pension is being paid into.
+        if pension_annual > 0:
+            match_resolved = "done"
+            match_detail = (
+                f"Your income ({_money(income)}) and pension contributions "
+                f"(~{_money(pension_annual)}/year) are on file. An employer match is a "
+                "guaranteed 100% return on the matched amount — some people check "
+                "their scheme's match ceiling first."
+            )
+        else:
+            match_resolved = "not_done"
+            match_detail = (
+                f"Your income is on file ({_money(income)}). An employer match is a "
+                "guaranteed 100% return on the matched amount — some people check "
+                "their scheme's match ceiling first."
+            )
+
+        # Pension top-up — personalised by bracket / adjusted income.
+        topup_resolved = "not_done"
+        high_bracket = bracket in ("100k_125k", "125k_plus")
+        if high_bracket and TAPER_START < adjusted < TAPER_END:
+            # The 60% trap: contributions inside the taper band claw back
+            # personal allowance on top of higher-rate relief.
+            extra = min(adjusted - TAPER_START, TAPER_END - TAPER_START)
+            restored = _taper_loss(adjusted)
+            topup_detail = (
+                f"Contributing {_money(extra)} more this tax year would restore "
+                f"{_money(restored)} of personal allowance — effective relief ~60%."
+            )
+        elif high_bracket and adjusted >= TAPER_END:
+            topup_detail = (
+                f"Your personal allowance is fully lost to the taper at an adjusted "
+                f"income of {_money(adjusted)} — pension contributions attract "
+                "~45% relief."
+            )
+        elif adjusted > HIGHER_RATE_THRESHOLD:
+            topup_detail = (
+                f"£1,000 into your pension costs you ~£600 at 40% relief. "
+                f"Adjusted income on file: {_money(adjusted)}."
+            )
+        else:
+            topup_detail = (
+                f"Pension contributions attract tax relief at your marginal rate. "
+                f"Adjusted income on file: {_money(adjusted)}."
+            )
+
+        return {
+            "match_resolved": match_resolved,
+            "match_detail": match_detail,
+            "topup_resolved": topup_resolved,
+            "topup_detail": topup_detail,
+            "link": dict(TAX_LEVERS_LINK),
+        }
+    except Exception:
+        return None
 
 
 async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
@@ -63,6 +165,13 @@ async def grow_view(user: dict = Depends(current_user)):
     uid = user["email"]
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
+
+    # ── Income preferences (single read — powers the pension rungs) ──────────
+    try:
+        _prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    except Exception:
+        _prefs = {}
+    pension_facts = _pension_rung_facts(_prefs)
 
     # ── Surplus & buffer (reuses savings.py helpers) ─────────────────────────
     monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
@@ -163,9 +272,15 @@ async def grow_view(user: dict = Depends(current_user)):
             else f"Your everyday spending is about {_money(-essentials_gap)}/month more than your income — this excludes savings, investments and debt repayments"
         )
 
-    # pension_match: no employer/pension-band data source exists yet
+    # pension_match: personalised from stored income preferences when present,
+    # otherwise locked (no income on file).
     pension_match_resolved = "locked"
     pension_match_detail = "Add your income to see this"
+    pension_match_link = None
+    if pension_facts:
+        pension_match_resolved = pension_facts["match_resolved"]
+        pension_match_detail = pension_facts["match_detail"]
+        pension_match_link = pension_facts["link"]
 
     # starter_buffer: 1 month essential spend
     if monthly_spending <= 0:
@@ -200,9 +315,15 @@ async def grow_view(user: dict = Depends(current_user)):
         full_fund_resolved = "done" if current_savings >= full_fund_target else "not_done"
         full_fund_detail = f"Your buffer holds {_money(current_savings)} against a 3-month target of {_money(full_fund_target)}"
 
-    # pension_topup: needs income/pension-band data we don't have
+    # pension_topup: personalised by income bracket / adjusted income when
+    # income is on file, otherwise locked.
     pension_topup_resolved = "locked"
     pension_topup_detail = "Add your income to see this"
+    pension_topup_link = None
+    if pension_facts:
+        pension_topup_resolved = pension_facts["topup_resolved"]
+        pension_topup_detail = pension_facts["topup_detail"]
+        pension_topup_link = pension_facts["link"]
 
     # isa_invest: locked until buffer + debt are both satisfied
     buffer_and_debt_satisfied = (full_fund_resolved == "done") and (expensive_resolved == "done")
@@ -226,7 +347,7 @@ async def grow_view(user: dict = Depends(current_user)):
         {
             "key": "pension_match", "title": "Employer pension match",
             "resolved": pension_match_resolved, "detail": pension_match_detail,
-            "options": [],
+            "options": [], "link": pension_match_link,
         },
         {
             "key": "starter_buffer", "title": "Starter buffer",
@@ -255,6 +376,7 @@ async def grow_view(user: dict = Depends(current_user)):
         {
             "key": "pension_topup", "title": "Pension top-up",
             "resolved": pension_topup_resolved, "detail": pension_topup_detail,
+            "link": pension_topup_link,
             "options": [
                 "Some people top up pension contributions for the tax relief before investing elsewhere",
                 "Others prioritise ISA investing for easier access to the money",
@@ -286,10 +408,13 @@ async def grow_view(user: dict = Depends(current_user)):
             active_assigned = True
         else:  # "locked" (missing data) — doesn't block later rungs
             state = "locked"
-        ladder.append({
+        entry = {
             "key": r["key"], "title": r["title"], "state": state,
             "detail": r["detail"], "options": r["options"],
-        })
+        }
+        if r.get("link"):
+            entry["link"] = r["link"]
+        ladder.append(entry)
 
     notes = [
         "Investing can lose money as well as gain it, and past performance isn't a guide to future returns — your capital is at risk.",

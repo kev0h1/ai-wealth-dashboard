@@ -153,6 +153,7 @@ function StatePill({ state }: { state: GrowLadderStep["state"] }) {
 // ── ladder rung row ──────────────────────────────────────────────────────
 
 function LadderRung({ step, isLast }: { step: GrowLadderStep; isLast: boolean }) {
+  const router = useRouter();
   const quiet = step.state === "locked";
   return (
     <div className="relative flex gap-3">
@@ -194,6 +195,17 @@ function LadderRung({ step, isLast }: { step: GrowLadderStep; isLast: boolean })
               {step.detail}
             </p>
           </div>
+
+          {/* Quiet in-app link — "›" suffix comes from the backend label */}
+          {step.link && (
+            <button
+              type="button"
+              onClick={() => router.push(step.link!.route)}
+              className="min-h-[44px] flex items-center text-xs font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+            >
+              {step.link.label}
+            </button>
+          )}
 
           {/* Generic options — under the active rung only, per FCA guardrail:
               fixed neutral phrasing from the backend, never "you should". */}

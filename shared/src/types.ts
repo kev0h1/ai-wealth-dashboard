@@ -394,6 +394,8 @@ export interface GrowLadderStep {
   detail: string;
   /** Generic trade-off phrasing */
   options: string[];
+  /** Optional quiet in-app link rendered under the detail ("›" suffix already in label) */
+  link?: { label: string; route: string };
 }
 
 export interface GrowView {
