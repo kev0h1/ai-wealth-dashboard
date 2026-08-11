@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
-import { AlertTriangle, ChevronRight, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import { api, Account, CashflowData, Commitment, SavingsInsight } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
@@ -193,11 +193,13 @@ function PlansDock({
 }
 
 // Commitments — named future big expenses with a per-period slice reserved.
-// Goals ride a horizontal snap-scroll row of fixed-width glass cards (many
-// goals are realistic — no hard cap); the thin progress fill goes amber
-// (attention, never red) when a plan is behind its elapsed fraction. The
-// "+ Plan a big expense" entry is the row's last card (dashed ghost) when
-// goals exist, or the quiet button when none do.
+// A single goal renders full-width — no ghost add-card splitting the row
+// with it. Two or more goals ride a horizontal snap-scroll row of
+// fixed-width glass cards (many goals are realistic — no hard cap); the
+// thin progress fill goes amber (attention, never red) when a plan is
+// behind its elapsed fraction. "+ Plan a big expense" is a right-aligned
+// header link above the goal(s) once any exist, or the quiet centred
+// button when none do.
 function CommitmentsBlock({
   commitments,
   onAdd,
@@ -224,74 +226,99 @@ function CommitmentsBlock({
     );
   }
 
-  return (
-    <div className="relative -mx-4">
-      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 scroll-px-4 pb-1">
-        {active.map((c) => {
-          const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
-          const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-          return (
-            <button
-              key={c.id}
-              onClick={() => onEdit(c)}
-              aria-label={`Edit plan: ${c.name}`}
-              className="min-w-[240px] max-w-[260px] flex-shrink-0 snap-start glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+  const renderGoalCard = (c: Commitment, className: string) => {
+    const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
+    const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    return (
+      <button
+        key={c.id}
+        onClick={() => onEdit(c)}
+        aria-label={`Edit plan: ${c.name}`}
+        className={className}
+      >
+        <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{c.name}</p>
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">{month}</p>
+        <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
+          <div
+            className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
+          {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
+        </p>
+        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
+          {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
+        </p>
+        {/* Feasibility — surplus: slate dot; savings: amber dot, slate
+            text; stretch: amber dot + amber text (attention, never red). */}
+        {c.feasibility && c.feasibility_note && (
+          <p className="mt-1 flex items-start gap-1.5 min-w-0">
+            <span
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
+                c.feasibility === "surplus"
+                  ? "bg-slate-300 dark:bg-slate-600"
+                  : "bg-amber-500"
+              }`}
+              aria-hidden="true"
+            />
+            <span
+              className={`text-[11px] line-clamp-2 leading-snug ${
+                c.feasibility === "stretch"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
             >
-              <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{c.name}</p>
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">{month}</p>
-              <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
-                <div
-                  className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
-                {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
-              </p>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
-                {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
-              </p>
-              {/* Feasibility — surplus: slate dot; savings: amber dot, slate
-                  text; stretch: amber dot + amber text (attention, never red). */}
-              {c.feasibility && c.feasibility_note && (
-                <p className="mt-1 flex items-start gap-1.5 min-w-0">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
-                      c.feasibility === "surplus"
-                        ? "bg-slate-300 dark:bg-slate-600"
-                        : "bg-amber-500"
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className={`text-[11px] line-clamp-2 leading-snug ${
-                      c.feasibility === "stretch"
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-slate-500 dark:text-slate-400"
-                    }`}
-                  >
-                    {c.feasibility_note}
-                  </span>
-                </p>
-              )}
-            </button>
-          );
-        })}
-        {/* Ghost add card — always the last card in the row */}
-        <button
-          onClick={onAdd}
-          aria-label="Plan a big expense"
-          className="min-w-[150px] max-w-[170px] flex-shrink-0 snap-start rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.14] px-4 py-3 flex flex-col items-center justify-center gap-1.5 text-center active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <Plus className="w-4 h-4 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
-          <span className="text-xs font-semibold leading-snug text-indigo-600 dark:text-indigo-400">Plan a big expense</span>
-        </button>
+              {c.feasibility_note}
+            </span>
+          </p>
+        )}
+      </button>
+    );
+  };
+
+  const addLink = (
+    <div className="flex justify-end">
+      <button
+        onClick={onAdd}
+        title="A goal to save toward"
+        className="min-h-[44px] flex items-center px-2 -my-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 rounded-lg active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      >
+        + Plan a big expense
+      </button>
+    </div>
+  );
+
+  if (active.length === 1) {
+    return (
+      <div className="space-y-2">
+        {addLink}
+        {renderGoalCard(
+          active[0],
+          "w-full text-left glass-card rounded-2xl px-4 py-3 active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        )}
       </div>
-      {/* Right-edge fade — a quiet hint the row continues */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[var(--background)] to-transparent"
-      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {addLink}
+      <div className="relative -mx-4">
+        <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 scroll-px-4 pb-1">
+          {active.map((c) =>
+            renderGoalCard(
+              c,
+              "min-w-[240px] max-w-[260px] flex-shrink-0 snap-start glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            )
+          )}
+        </div>
+        {/* Right-edge fade — a quiet hint the row continues */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[var(--background)] to-transparent"
+        />
+      </div>
     </div>
   );
 }
