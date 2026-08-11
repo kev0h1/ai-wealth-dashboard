@@ -121,3 +121,6 @@ planned_expenses_col    = db["planned_expenses"]
 # The Door — consent-gated checkpoints (BEHAVIOURS.md Layer 4)
 checkpoints_col         = db["checkpoints"]
 category_intent_col     = db["category_intents"]
+
+# Commitments — named future big expenses funded a slice per pay period
+commitments_col         = db["commitments"]

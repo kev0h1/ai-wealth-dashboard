@@ -16,7 +16,7 @@ from app.db.collections import (
     subscriptions_col, subscription_usage_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
-    checkpoints_col, category_intent_col,
+    checkpoints_col, category_intent_col, commitments_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 
@@ -28,6 +28,7 @@ from app.routers import (
     fuel, baskets, subscription as subscription_router, transport, webhooks,
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
+    commitments,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -72,6 +73,7 @@ for router in [
     debt_plan_router.router,
     grow.router,
     can_i.router,
+    commitments.router,
 ]:
     app.include_router(router)
 
@@ -133,6 +135,7 @@ async def _create_indexes():
     await category_intent_col.create_index(
         [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
+    await commitments_col.create_index([("user_id", 1), ("status", 1)])
 
 
 async def _acquire_migration_lock() -> bool:

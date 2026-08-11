@@ -5,6 +5,7 @@ upcoming bills, precomputed what-if arithmetic) feeds a short LLM call that
 ONLY phrases the verdict — it never computes a figure itself. FCA doctrine
 per grow.py: facts only, never "you should".
 """
+import math
 import re
 from datetime import date, datetime, timedelta
 
@@ -62,6 +63,27 @@ def _months_until_target(month_name: str, today: date) -> int:
     if delta <= 0:
         delta += 12
     return delta
+
+
+# Words carrying no meaning for a commitment name — question scaffolding only.
+_OFFER_STOPWORDS = {
+    "can", "i", "afford", "spend", "on", "a", "an", "the", "in", "for", "to",
+    "go", "get", "buy", "some", "new",
+}
+
+
+def _offer_name(question: str) -> str:
+    """Heuristic commitment name from the question: strip £ amounts, month
+    names and stopwords, title-case what remains. Fallback: "Big expense"."""
+    text = re.sub(r"£?\s?\d[\d,]*(?:\.\d{1,2})?", " ", question)
+    words = re.findall(r"[A-Za-z']+", text)
+    kept = [
+        w for w in words
+        if w.lower() not in _OFFER_STOPWORDS and w.lower() not in MONTH_NAMES
+    ]
+    if not kept:
+        return "Big expense"
+    return " ".join(w.capitalize() for w in kept)[:40].strip()
 
 
 @router.post("/can-i")
@@ -259,6 +281,31 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     facts["what_ifs"] = what_ifs
 
+    # ── Commitment hand-off offer (deterministic, never LLM-authored) ────
+    # When the question carries both an amount and a target month, offer to
+    # set the expense up as a commitment; the reply text already carries the
+    # affordability verdict. The frontend renders this as a chip under
+    # Penny's bubble.
+    offer: dict | None = None
+    try:
+        if (
+            what_ifs.get("amount_asked")
+            and what_ifs.get("months_until_target")
+        ):
+            _months = int(what_ifs["months_until_target"])
+            _amt = float(what_ifs["amount_asked"])
+            _t_month0 = today.month - 1 + _months  # 0-indexed month arithmetic
+            _t_year = today.year + _t_month0 // 12
+            _t_month = _t_month0 % 12 + 1
+            offer = {
+                "name": _offer_name(question),
+                "amount": _amt,
+                "target_date": date(_t_year, _t_month, 1).isoformat(),
+                "per_period": int(math.ceil(_amt / max(1, _months) / 5) * 5),
+            }
+    except Exception:
+        offer = None
+
     # ── System prompt ─────────────────────────────────────────────────
     import json
     system_prompt = (
@@ -305,4 +352,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(500, "AI unavailable")
 
     await increment_ai_chat_usage(uid)
-    return {"reply": r.json()["choices"][0]["message"]["content"]}
+    resp_body: dict = {"reply": r.json()["choices"][0]["message"]["content"]}
+    if offer:
+        resp_body["offer"] = offer
+    return resp_body

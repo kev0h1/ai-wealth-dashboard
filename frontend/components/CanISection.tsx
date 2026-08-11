@@ -2,8 +2,9 @@
 
 import { useRef, useState } from "react";
 import { Send, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, CanIOffer } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
+import CommitmentSheet from "@/components/CommitmentSheet";
 
 // "Can I...?" chat-with-a-cap for the Planning page — a short-lived thread
 // (unlike TaxChat's full floating panel): borrows TaxChat's bubble /
@@ -20,19 +21,29 @@ const BG = BRAND_GRADIENT;
 const HISTORY_CAP = 6;
 const VISIBLE_CAP = 4;
 
-export default function CanISection() {
+export default function CanISection({
+  onCommitmentSaved,
+}: {
+  /** Fires after the offer chip's sheet saves — lets the page refresh its commitments list. */
+  onCommitmentSaved?: () => void;
+}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  // Commitment hand-off — kept outside `messages` so the chip is exempt from
+  // the bubble-cap truncation while visible.
+  const [offer, setOffer] = useState<CanIOffer | null>(null);
+  const [offerSheetOpen, setOfferSheetOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function ask(question: string, history: Msg[]) {
     setError(false);
     setLoading(true);
     try {
-      const { reply } = await api.canI(question, history);
+      const { reply, offer: newOffer } = await api.canI(question, history);
       setMessages((prev) => [...prev, { role: "assistant" as const, content: reply }].slice(-HISTORY_CAP));
+      setOffer(newOffer ?? null);
     } catch {
       setError(true);
     } finally {
@@ -47,6 +58,7 @@ export default function CanISection() {
     const history = messages.slice(-HISTORY_CAP);
     setMessages((prev) => [...prev, { role: "user" as const, content: trimmed }].slice(-HISTORY_CAP));
     setInput("");
+    setOffer(null);
     ask(trimmed, history);
   }
 
@@ -111,6 +123,18 @@ export default function CanISection() {
             </div>
           </div>
         )}
+
+        {/* Commitment hand-off chip — under the last Penny bubble */}
+        {offer && !loading && !error && (
+          <div className="flex justify-start">
+            <button
+              onClick={() => setOfferSheetOpen(true)}
+              className="min-h-[44px] text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/20 rounded-full px-4 py-2 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              Set this up — £{Math.round(offer.per_period).toLocaleString("en-GB")}/period ›
+            </button>
+          </div>
+        )}
       </div>
 
       {messages.length === 0 && !loading && (
@@ -153,6 +177,27 @@ export default function CanISection() {
       <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500 mt-3">
         General information, not regulated financial advice.
       </p>
+
+      {/* Commitment sheet — prefilled from the offer; sheet fetches its own accounts */}
+      {offerSheetOpen && offer && (
+        <CommitmentSheet
+          prefill={{ name: offer.name, amount: offer.amount, target_date: offer.target_date }}
+          source="can_i"
+          onClose={() => setOfferSheetOpen(false)}
+          onSaved={(item) => {
+            setOfferSheetOpen(false);
+            setOffer(null);
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant" as const,
+                content: `Set up — £${Math.round(item.per_period_slice).toLocaleString("en-GB")}/period reserved.`,
+              },
+            ].slice(-HISTORY_CAP));
+            onCommitmentSaved?.();
+          }}
+        />
+      )}
     </div>
   );
 }

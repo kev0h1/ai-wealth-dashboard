@@ -352,6 +352,81 @@ async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> d
         return {}
 
 
+async def _active_commitment_slices(
+    uid: str, pay_cfg: dict, live_balances: dict[str, float]
+) -> dict[str, dict]:
+    """Per-funding-pot payday slices for the user's ACTIVE commitments (named
+    future big expenses funded from a savings pot).
+
+    Returns {funding_account_id: {"slice_total": int, "names": [str]}} — the
+    sum of each commitment's per-period slice routed to that pot plus the
+    commitment names, so the payday plan can lift a pot's move to cover them.
+    Failure-tolerant by design: any error (including commitments_col not
+    existing yet) returns {} and the plan builds exactly as before.
+    """
+    try:
+        # Defensive import at use-site — the collection ships separately, and
+        # this module must keep importing cleanly if it lands later.
+        from app.db.collections import commitments_col
+        from app.services.pay_period import get_pay_period_for_date
+
+        today_d = date.today()
+        out: dict[str, dict] = {}
+        async for c in commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "amount": 1, "target_date": 1, "funding_account_id": 1,
+             "baseline_balance": 1, "contributed": 1},
+        ):
+            fid = str(c.get("funding_account_id") or "")
+            if not fid:
+                continue
+            try:
+                amount = float(c.get("amount") or 0)
+                target_d = date.fromisoformat(str(c.get("target_date"))[:10])
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+
+            # Progress: pot growth since the commitment was created (clamped),
+            # falling back to manual contributions when the pot balance is
+            # unavailable — mirrors the commitments API's derived fields.
+            pot_bal = live_balances.get(fid)
+            if pot_bal is not None:
+                baseline = float(c.get("baseline_balance") or 0.0)
+                progress = max(0.0, min(pot_bal - baseline, amount))
+            else:
+                progress = min(float(c.get("contributed") or 0.0), amount)
+            remaining = amount - progress
+            if remaining <= 0:
+                slice_amt = 0
+            else:
+                # periods_left: pay-period starts from today through
+                # target_date inclusive (>=1).
+                count = 0
+                _p_start, _p_end = get_pay_period_for_date(today_d, pay_cfg)
+                if today_d <= _p_start <= target_d:
+                    count += 1
+                _next = _p_end + timedelta(days=1)
+                _guard = 0
+                while _next <= target_d and _guard < 130:
+                    count += 1
+                    _, _p_end = get_pay_period_for_date(_next, pay_cfg)
+                    _next = _p_end + timedelta(days=1)
+                    _guard += 1
+                periods_left = max(1, count)
+                slice_amt = _ceil5(remaining / periods_left)
+
+            entry = out.setdefault(fid, {"slice_total": 0, "names": []})
+            entry["slice_total"] += int(slice_amt)
+            name = str(c.get("name") or "").strip()
+            if name:
+                entry["names"].append(name)
+        return out
+    except Exception:
+        return {}
+
+
 # ── Module-level account classifiers ──────────────────────────────────────────
 # Lifted out of compute_today_items so the offline pass can share them without
 # re-defining inside the closure. Logic is byte-identical to the former nested defs.
@@ -967,6 +1042,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
             everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
             usual_moves = await _usual_payday_moves(uid, salary_acct, pay_cfg)
+            # Active commitments funded from a pot lift that pot's move to at
+            # least the sum of their per-period slices ({} on any failure).
+            commitment_slices = await _active_commitment_slices(uid, pay_cfg, live_balances)
 
             def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:
                 """Like `_acct_bills`, but excludes predicted bills that
@@ -1035,9 +1113,18 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     target = bills_total + spend_typical + buffer
                     move_raw = max(0.0, target - balance)
                     move = _ceil5(move_raw) if move_raw > 0 else 0
+                # Commitments routed to this pot: the move becomes at least
+                # the sum of their per-period slices (never lowered).
+                _commit = commitment_slices.get(acct_id)
+                if _commit:
+                    _c_slice = int(_commit.get("slice_total") or 0)
+                    if _c_slice > 0 and move < _c_slice:
+                        move = _c_slice
+                        if _is_savings(acc):
+                            target = move + bills_total
                 if not (move > 0 or usual is not None):
                     continue
-                dests.append({
+                _dest_entry = {
                     "account_id": acct_id,
                     "name": _clean_name(acc.get("name"), acct_id),
                     "provider": _provider_of(acc),
@@ -1049,7 +1136,10 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "target": int(round(target)),
                     "move": int(move),
                     "usual": int(usual) if usual is not None else None,
-                })
+                }
+                if _commit and _commit.get("names"):
+                    _dest_entry["commitment_names"] = list(_commit["names"])
+                dests.append(_dest_entry)
 
             dests.sort(key=lambda d: d["move"], reverse=True)
             dests = dests[:10]

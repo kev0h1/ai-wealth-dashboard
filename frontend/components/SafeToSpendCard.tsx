@@ -274,6 +274,19 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           </p>
         );
       })()}
+      {/* Commitments reserved — one muted line, tappable through to Planning */}
+      {(data.commitments_reserved ?? 0) > 0 && (
+        <button
+          onClick={() => router.push("/planning")}
+          className="min-h-[44px] flex items-center gap-1 text-left text-[13px] text-slate-500 dark:text-slate-400 num hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+          aria-label="See the plans this is reserved for"
+        >
+          <span>
+            {hidden ? "£••" : fmt(data.commitments_reserved!)}/period reserved for {data.commitments_count ?? 1} plan{(data.commitments_count ?? 1) === 1 ? "" : "s"}
+          </span>
+          <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0" aria-hidden="true">›</span>
+        </button>
+      )}
       {/* Payday muted line — replaces emerald pill */}
       {hasPaydayIncome && (
         <p className="text-sm text-slate-500 dark:text-slate-400 num">

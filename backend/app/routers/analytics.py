@@ -1977,6 +1977,21 @@ async def compute_safe_to_spend(uid: str) -> dict:
     buffer = float(_prefs.get("safe_to_spend_buffer", 0.0))
     safe_to_spend = round(min_running - buffer, 2)
 
+    # ── 6b. Commitments reserve ───────────────────────────────────────────────
+    # Per-period slices promised to named future expenses come out BEFORE the
+    # state/verdict is derived, so Safe-to-Spend never shows money that is
+    # already spoken for. Failure-tolerant: any error → zero reserve.
+    commitments_reserved = 0
+    commitments_count = 0
+    try:
+        from app.routers.commitments import total_reserved_slices
+        commitments_reserved, commitments_count = await total_reserved_slices(uid)
+        if commitments_reserved:
+            safe_to_spend = round(safe_to_spend - commitments_reserved, 2)
+    except Exception:
+        logger.exception("commitments reserve failed for %s — using zero", uid)
+        commitments_reserved, commitments_count = 0, 0
+
     # ── 7. State: comfortable / tight / short ─────────────────────────────────
     # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
     # whichever is higher — calibrated to be meaningful but not alarmist.
@@ -2012,6 +2027,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "spendable_now":       round(spendable_cash, 2),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
+        "commitments_reserved": int(commitments_reserved),
+        "commitments_count":   commitments_count,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, type ReactNode } from "react";
 import { AlertTriangle, ChevronRight, X } from "lucide-react";
-import { api, Account, CashflowData } from "@/lib/api";
+import { api, Account, CashflowData, Commitment } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { CATEGORY_COLOURS } from "@/lib/categories";
@@ -17,6 +17,7 @@ import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CanISection from "@/components/CanISection";
+import CommitmentSheet from "@/components/CommitmentSheet";
 
 function isCliffSoon(until: string): boolean {
   const y = parseInt(until.slice(0, 4), 10);
@@ -191,6 +192,63 @@ function PlansDock({
   );
 }
 
+// Commitments — named future big expenses with a per-period slice reserved.
+// One glass-card row per active commitment; the thin progress fill goes amber
+// (attention, never red) when the plan is behind its elapsed fraction.
+function CommitmentsBlock({
+  commitments,
+  onAdd,
+  onEdit,
+}: {
+  commitments: Commitment[] | null;
+  onAdd: () => void;
+  onEdit: (c: Commitment) => void;
+}) {
+  const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
+  const active = (commitments ?? []).filter((c) => c.status === "active");
+
+  return (
+    <div className="space-y-2">
+      {active.map((c) => {
+        const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
+        const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        return (
+          <button
+            key={c.id}
+            onClick={() => onEdit(c)}
+            aria-label={`Edit plan: ${c.name}`}
+            className="w-full glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                {c.name} <span className="font-normal text-slate-400 dark:text-slate-500">· {month}</span>
+              </p>
+              <p className="flex-shrink-0 text-sm font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
+                {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
+              </p>
+            </div>
+            <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
+              <div
+                className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 num">
+              {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
+            </p>
+          </button>
+        );
+      })}
+      <button
+        onClick={onAdd}
+        className="w-full min-h-[44px] rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+      >
+        + Plan a big expense
+      </button>
+    </div>
+  );
+}
+
 export default function PlanningPage() {
   const { payPeriodConfig, setPayPeriodConfig, region, hideNetWorth } = usePreferences();
   const { colours } = useColours();
@@ -204,6 +262,8 @@ export default function PlanningPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [debtSummary, setDebtSummary] = useState<import("@/lib/api").DebtPlanSummary | null>(null);
   const [growView, setGrowView] = useState<import("@/lib/api").GrowView | null>(null);
+  const [commitments, setCommitments] = useState<Commitment[] | null>(null);
+  const [commitmentSheet, setCommitmentSheet] = useState<null | { editing: Commitment | null }>(null);
 
   // Derive current period (always current — no prev/next navigation)
   const configKey = JSON.stringify(payPeriodConfig);
@@ -229,7 +289,12 @@ export default function PlanningPage() {
     api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
     api.getDebtPlanSummary().then(setDebtSummary).catch(() => {});
     api.getGrow().then(setGrowView).catch(() => {});
+    api.listCommitments().then((d) => setCommitments(d.items)).catch(() => setCommitments([]));
   }, []);
+
+  function refreshCommitments() {
+    api.listCommitments().then((d) => setCommitments(d.items)).catch(() => {});
+  }
 
   function retryCashflow() {
     setCashflowError(false);
@@ -560,7 +625,12 @@ export default function PlanningPage() {
                 onDebtTap={() => router.push("/debt-plan")}
                 onGrowTap={() => router.push("/grow")}
               />
-              <CanISection />
+              <CommitmentsBlock
+                commitments={commitments}
+                onAdd={() => setCommitmentSheet({ editing: null })}
+                onEdit={(c) => setCommitmentSheet({ editing: c })}
+              />
+              <CanISection onCommitmentSaved={refreshCommitments} />
             </div>
           );
         }
@@ -871,7 +941,12 @@ export default function PlanningPage() {
               onDebtTap={() => router.push("/debt-plan")}
               onGrowTap={() => router.push("/grow")}
             />
-            <CanISection />
+            <CommitmentsBlock
+              commitments={commitments}
+              onAdd={() => setCommitmentSheet({ editing: null })}
+              onEdit={(c) => setCommitmentSheet({ editing: c })}
+            />
+            <CanISection onCommitmentSaved={refreshCommitments} />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">
@@ -1018,6 +1093,17 @@ export default function PlanningPage() {
           accounts={accounts}
           onClose={() => setPlanSheetOpen(false)}
           onSaved={() => { api.cashflow().then(setCashflow).catch(() => {}); }}
+        />
+      )}
+
+      {/* CommitmentSheet */}
+      {commitmentSheet && (
+        <CommitmentSheet
+          accounts={accounts}
+          commitment={commitmentSheet.editing}
+          onClose={() => setCommitmentSheet(null)}
+          onSaved={() => refreshCommitments()}
+          onCancelled={() => refreshCommitments()}
         />
       )}
 

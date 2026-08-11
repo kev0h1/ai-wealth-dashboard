@@ -301,7 +301,35 @@ export type SafeToSpend =
       card_debt?: number;
       pace?: Pace;
       last_synced?: string | null;
+      /** £/period reserved for active commitments — absent or 0 when none. */
+      commitments_reserved?: number;
+      commitments_count?: number;
     };
+
+// ── Commitments — named future big expenses (holiday, car, fees) ─────────────
+export type Commitment = {
+  id: string;
+  name: string;
+  amount: number;
+  target_date: string; // ISO date, first of the target month
+  funding_account_id: string | null;
+  funding_account_name: string | null;
+  source: "manual" | "can_i";
+  status: "active" | "done" | "cancelled";
+  progress: number;
+  remaining: number;
+  periods_left: number;
+  per_period_slice: number;
+  on_track: boolean;
+};
+
+/** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
+export type CanIOffer = {
+  name: string;
+  amount: number;
+  target_date: string;
+  per_period: number;
+};
 
 export type MoneyBasic = {
   id: string;
@@ -1034,7 +1062,38 @@ export const api = {
   taxChat: (messages: { role: string; content: string }[]) =>
     post<{ reply: string }>("/chat/tax", { messages }),
   canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>) =>
-    post<{ reply: string }>("/can-i", { question, history }),
+    post<{ reply: string; offer?: CanIOffer | null }>("/can-i", { question, history }),
+  listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
+  createCommitment: (body: {
+    name: string;
+    amount: number;
+    target_date: string;
+    funding_account_id?: string | null;
+    source?: "manual" | "can_i";
+  }) => post<Commitment>("/commitments", body),
+  updateCommitment: (id: string, body: {
+    name?: string;
+    amount?: number;
+    target_date?: string;
+    funding_account_id?: string | null;
+    status?: "active" | "done" | "cancelled";
+    contribute_delta?: number;
+  }) =>
+    fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }) as Promise<Commitment>,
+  cancelCommitment: (id: string) =>
+    fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    }),
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
   getMiscategorisedCount: () => get<{ count: number; ids: string[] }>("/transactions/miscategorised-count"),
