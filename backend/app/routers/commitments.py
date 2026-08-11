@@ -4,18 +4,28 @@ A commitment is a user-declared future big expense (holiday, car, fees) with a
 target month. Each active commitment reserves a per-period slice out of
 Safe-to-Spend (see analytics.compute_safe_to_spend) until the target date.
 
-Storage shape (commitments_col):
+Storage shape (commitments_col) — v2:
     {_id: ObjectId, user_id, name (str<=40), amount (float total),
      target_date (ISO date str — first of the target month is fine),
-     funding_account_id (str|null — own savings-pot account id whose balance
-     funds it), baseline_balance (float|null — funding pot balance captured at
-     creation / re-link), contributed (float, default 0 — manual contributions),
+     funding_pots (list — the pots whose balances fund this goal):
+         [{account_id (str), kind ("connected"|"manual" — manual means an
+           offline account in manual_accounts_col, updated by the user),
+           baseline (float — pot balance captured at link time; 0.0 when
+           count_existing so the whole balance counts),
+           count_existing (bool — chosen per pot at link time)}],
+     funding_account_id / baseline_balance (LEGACY v1 single-pot fields —
+         still written as mirrors of the first pot for one release; v1 docs
+         without funding_pots are migrated on read into one connected pot
+         {account_id, kind "connected", baseline: baseline_balance,
+         count_existing: false}),
+     contributed (float, default 0 — manual contributions),
      source ("manual"|"can_i"), status ("active"|"done"|"cancelled"),
      created_at (UTC datetime)}
 
 Derived (NEVER stored — always computed live):
-    progress          pot-funded: clamp(pot_live_balance − baseline, 0, amount)
-                      otherwise:  min(contributed, amount)
+    progress          clamp(Σ over pots of max(0, live_balance − baseline),
+                      0, amount) + contributed, clamped at amount. Pots with
+                      unreadable balances contribute 0 (never negative).
     remaining         amount − progress
     periods_left      pay-period starts from today through target_date
                       inclusive (>=1) — user pay config via preferences
@@ -58,6 +68,7 @@ _STATUSES = {"active", "done", "cancelled"}
 _SOURCES = {"manual", "can_i"}
 _MAX_NAME = 40
 _MAX_AMOUNT = 1_000_000
+_MAX_POTS = 8
 
 
 def _ceil5(amount: float) -> int:
@@ -131,6 +142,52 @@ async def _account_name(account_id: str) -> str | None:
     return None
 
 
+async def _pot_kind(account_id: str) -> str | None:
+    """"connected" | "manual" (offline, manual_accounts_col) | None if unknown."""
+    oid = _try_oid(account_id)
+    ids = {oid, account_id} if oid != account_id else {account_id}
+    for col, kind in (
+        (accounts_col, "connected"),
+        (yapily_accounts_col, "connected"),
+        (manual_accounts_col, "manual"),
+    ):
+        for _id in ids:
+            if await col.find_one({"_id": _id}, {"_id": 1}):
+                return kind
+    return None
+
+
+def _doc_pots(doc: dict) -> list[dict]:
+    """Normalised funding pots for a commitment doc — v2 shape, or the legacy
+    single-pot fields migrated on read (one connected pot, count_existing
+    false). An explicit empty funding_pots list means unlinked (no fallback)."""
+    pots = doc.get("funding_pots")
+    if isinstance(pots, list):
+        return [p for p in pots if isinstance(p, dict) and p.get("account_id")]
+    fid = doc.get("funding_account_id")
+    if fid:
+        return [{
+            "account_id":     str(fid),
+            "kind":           "connected",
+            "baseline":       float(doc.get("baseline_balance") or 0.0),
+            "count_existing": False,
+        }]
+    return []
+
+
+async def _migrate_legacy(doc: dict) -> None:
+    """Persist the read-migrated pot shape onto a legacy doc (write-once; new
+    writes always carry funding_pots). Kept off the safe-to-spend hot path —
+    only the list/detail read paths call this."""
+    if isinstance(doc.get("funding_pots"), list):
+        return
+    pots = _doc_pots(doc)
+    await commitments_col.update_one(
+        {"_id": doc["_id"]}, {"$set": {"funding_pots": pots}}
+    )
+    doc["funding_pots"] = pots
+
+
 # ── Feasibility (owner's semantics: meet the expense without debt; dipping
 #    into savings might be necessary) ───────────────────────────────────────────
 
@@ -192,21 +249,31 @@ async def _serialise(
     today = today or date.today()
     amount = float(doc.get("amount") or 0)
     contributed = float(doc.get("contributed") or 0)
-    fid = doc.get("funding_account_id")
 
-    funding_name = None
-    progress = None
-    if fid:
-        funding_name = await _account_name(fid)
-        live = await _live_balance(fid)
-        baseline = doc.get("baseline_balance")
-        if live is not None and baseline is not None:
-            progress = max(0.0, min(live - float(baseline), amount))
-    if progress is None:
-        # No pot linked (or pot unreadable) → manual contributions fund it.
-        progress = min(contributed, amount)
-    progress = round(progress, 2)
+    # v2: progress = clamp(Σ pot growth, 0, amount) + contributed, capped at
+    # amount. count_existing pots have baseline 0, so their whole balance
+    # counts; unreadable pots contribute 0 rather than failing the payload.
+    pot_items: list[dict] = []
+    pot_sum = 0.0
+    for pot in _doc_pots(doc):
+        aid = str(pot["account_id"])
+        live = await _live_balance(aid)
+        baseline = float(pot.get("baseline") or 0.0)
+        contributing = max(0.0, live - baseline) if live is not None else 0.0
+        pot_sum += contributing
+        pot_items.append({
+            "account_id":           aid,
+            "name":                 await _account_name(aid),
+            "kind":                 pot.get("kind") or "connected",
+            "count_existing":       bool(pot.get("count_existing")),
+            "contributing_balance": round(contributing, 2),
+        })
+    progress = round(min(amount, min(pot_sum, amount) + max(0.0, contributed)), 2)
     remaining = round(max(0.0, amount - progress), 2)
+
+    # Legacy single-pot mirrors (kept one release for mid-deploy clients).
+    fid = pot_items[0]["account_id"] if pot_items else None
+    funding_name = pot_items[0]["name"] if pot_items else None
 
     target = date.fromisoformat(str(doc["target_date"])[:10])
     left_raw = _period_starts_between(today, target, cfg)
@@ -235,6 +302,7 @@ async def _serialise(
         "name":                doc.get("name"),
         "amount":              amount,
         "target_date":         doc.get("target_date"),
+        "funding_pots":        pot_items,
         "funding_account_id":  fid,
         "funding_account_name": funding_name,
         "source":              doc.get("source", "manual"),
@@ -308,6 +376,51 @@ async def _capture_baseline(fid: str) -> float:
     return round(float(live), 2)
 
 
+async def _build_pots(raw) -> list[dict]:
+    """Validate a funding_pots request payload ([{account_id, count_existing}])
+    into the stored v2 shape, capturing baselines now. Duplicate account ids
+    collapse to the first occurrence; unknown accounts are a 400."""
+    if raw in (None, "", []):
+        return []
+    if not isinstance(raw, list):
+        raise HTTPException(400, "funding_pots must be a list")
+    if len(raw) > _MAX_POTS:
+        raise HTTPException(400, f"funding_pots supports up to {_MAX_POTS} pots")
+    pots: list[dict] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict) or not str(entry.get("account_id") or "").strip():
+            raise HTTPException(400, "each funding pot needs an account_id")
+        aid = str(entry["account_id"]).strip()
+        if aid in seen:
+            continue
+        seen.add(aid)
+        kind = await _pot_kind(aid)
+        if kind is None:
+            raise HTTPException(400, "funding account not found")
+        count_existing = bool(entry.get("count_existing"))
+        # count_existing → baseline 0 (whole balance counts); otherwise the
+        # balance right now is the zero-point.
+        baseline = 0.0 if count_existing else await _capture_baseline(aid)
+        pots.append({
+            "account_id":     aid,
+            "kind":           kind,
+            "baseline":       baseline,
+            "count_existing": count_existing,
+        })
+    return pots
+
+
+def _pot_mirrors(pots: list[dict]) -> dict:
+    """Legacy v1 single-pot fields mirrored from the first pot (one release —
+    keeps mid-deploy readers of funding_account_id/baseline_balance working)."""
+    first = pots[0] if pots else None
+    return {
+        "funding_account_id": first["account_id"] if first else None,
+        "baseline_balance":   first["baseline"] if first else None,
+    }
+
+
 async def _get_owned(uid: str, commitment_id: str) -> dict:
     try:
         oid = ObjectId(commitment_id)
@@ -330,6 +443,8 @@ async def list_commitments(user: dict = Depends(current_user)):
     cfg = await _pay_cfg(uid)
     fctx = await _feasibility_ctx(uid)
     today = date.today()
+    for doc in docs:
+        await _migrate_legacy(doc)  # write-once v1 → funding_pots
     items = [await _serialise(doc, cfg, today=today, fctx=fctx) for doc in docs]
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
     return {"items": items}
@@ -346,20 +461,25 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
     if source not in _SOURCES:
         raise HTTPException(400, "source must be 'manual' or 'can_i'")
 
-    fid = body.get("funding_account_id") or None
-    baseline = await _capture_baseline(fid) if fid else None
+    # v2 payload preferred; legacy single funding_account_id accepted for one
+    # release and treated as a single connected/manual pot, count_existing off.
+    if "funding_pots" in body:
+        pots = await _build_pots(body.get("funding_pots"))
+    else:
+        fid = body.get("funding_account_id") or None
+        pots = await _build_pots([{"account_id": fid}] if fid else [])
 
     doc = {
-        "user_id":            uid,
-        "name":               name,
-        "amount":             amount,
-        "target_date":        target_date,
-        "funding_account_id": fid,
-        "baseline_balance":   baseline,
-        "contributed":        0.0,
-        "source":             source,
-        "status":             "active",
-        "created_at":         datetime.now(timezone.utc),
+        "user_id":      uid,
+        "name":         name,
+        "amount":       amount,
+        "target_date":  target_date,
+        "funding_pots": pots,
+        **_pot_mirrors(pots),
+        "contributed":  0.0,
+        "source":       source,
+        "status":       "active",
+        "created_at":   datetime.now(timezone.utc),
     }
     result = await commitments_col.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -372,24 +492,45 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
 @router.post("/commitments/preview")
 async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     """Live feasibility verdict for the sheet — same maths as _serialise for a
-    not-yet-saved commitment (nothing persisted, remaining == full amount)."""
+    not-yet-saved commitment (nothing persisted). Optional funding_pots
+    ([{account_id, count_existing}]) let count_existing pots contribute their
+    whole current balance up front, shrinking remaining and the slice —
+    lenient by design (unreadable pots just contribute 0)."""
     uid = user["email"]
     amount = _validate_amount(body.get("amount"))
     target_date = _validate_target_date(body.get("target_date"))
+
+    starting = 0.0
+    raw_pots = body.get("funding_pots")
+    if isinstance(raw_pots, list):
+        seen: set[str] = set()
+        for entry in raw_pots[:_MAX_POTS]:
+            if not isinstance(entry, dict) or not entry.get("count_existing"):
+                continue
+            aid = str(entry.get("account_id") or "").strip()
+            if not aid or aid in seen:
+                continue
+            seen.add(aid)
+            live = await _live_balance(aid)
+            if live is not None:
+                starting += max(0.0, float(live))
+    starting = round(min(starting, amount), 2)
+    remaining = max(0.0, amount - starting)
 
     cfg = await _pay_cfg(uid)
     today = date.today()
     target = date.fromisoformat(target_date)
     periods_left = max(1, _period_starts_between(today, target, cfg))
-    per_period_slice = _ceil5(amount / periods_left)
+    per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
 
     feasibility, feasibility_note = _classify_feasibility(
-        per_period_slice, amount, await _feasibility_ctx(uid)
+        per_period_slice, remaining, await _feasibility_ctx(uid)
     )
     out = {
-        "per_period_slice": per_period_slice,
-        "periods_left":     periods_left,
-        "feasibility":      feasibility,
+        "per_period_slice":  per_period_slice,
+        "periods_left":      periods_left,
+        "starting_progress": starting,
+        "feasibility":       feasibility,
     }
     if feasibility_note is not None:
         out["feasibility_note"] = feasibility_note
@@ -410,16 +551,28 @@ async def update_commitment(
         updates["amount"] = _validate_amount(body.get("amount"))
     if "target_date" in body:
         updates["target_date"] = _validate_target_date(body.get("target_date"))
-    if "funding_account_id" in body:
+    if "funding_pots" in body:
+        # Baselines are balance-at-link-time: a pot already linked with the
+        # same count_existing flag keeps its stored baseline (its link time
+        # hasn't changed — re-capturing would wipe accrued growth). Fresh
+        # baselines are captured only for new pots or a flipped flag.
+        pots = await _build_pots(body.get("funding_pots"))
+        prior = {
+            (p["account_id"], bool(p.get("count_existing"))): p
+            for p in _doc_pots(doc)
+        }
+        for pot in pots:
+            kept = prior.get((pot["account_id"], pot["count_existing"]))
+            if kept is not None:
+                pot["baseline"] = float(kept.get("baseline") or 0.0)
+        updates["funding_pots"] = pots
+        updates.update(_pot_mirrors(pots))
+    elif "funding_account_id" in body:
+        # Legacy single-pot re-link (one release) — same capture semantics.
         fid = body.get("funding_account_id") or None
-        if fid:
-            # Re-link: re-capture the baseline so progress restarts from the
-            # pot's balance right now.
-            updates["funding_account_id"] = fid
-            updates["baseline_balance"] = await _capture_baseline(fid)
-        else:
-            updates["funding_account_id"] = None
-            updates["baseline_balance"] = None
+        pots = await _build_pots([{"account_id": fid}] if fid else [])
+        updates["funding_pots"] = pots
+        updates.update(_pot_mirrors(pots))
     if "status" in body:
         status = body.get("status")
         if status not in _STATUSES:

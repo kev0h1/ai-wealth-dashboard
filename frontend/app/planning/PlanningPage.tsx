@@ -193,8 +193,11 @@ function PlansDock({
 }
 
 // Commitments — named future big expenses with a per-period slice reserved.
-// One glass-card row per active commitment; the thin progress fill goes amber
-// (attention, never red) when the plan is behind its elapsed fraction.
+// Goals ride a horizontal snap-scroll row of fixed-width glass cards (many
+// goals are realistic — no hard cap); the thin progress fill goes amber
+// (attention, never red) when a plan is behind its elapsed fraction. The
+// "+ Plan a big expense" entry is the row's last card (dashed ghost) when
+// goals exist, or the quiet button when none do.
 function CommitmentsBlock({
   commitments,
   onAdd,
@@ -207,61 +210,8 @@ function CommitmentsBlock({
   const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
   const active = (commitments ?? []).filter((c) => c.status === "active");
 
-  return (
-    <div className="space-y-2">
-      {active.map((c) => {
-        const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
-        const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-        return (
-          <button
-            key={c.id}
-            onClick={() => onEdit(c)}
-            aria-label={`Edit plan: ${c.name}`}
-            className="w-full glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-                {c.name} <span className="font-normal text-slate-400 dark:text-slate-500">· {month}</span>
-              </p>
-              <p className="flex-shrink-0 text-sm font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
-                {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
-              </p>
-            </div>
-            <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
-              <div
-                className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 num">
-              {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
-            </p>
-            {/* Feasibility — surplus: slate dot; savings: amber dot, slate
-                text; stretch: amber dot + amber text (attention, never red). */}
-            {c.feasibility && c.feasibility_note && (
-              <p className="mt-1 flex items-center gap-1.5 min-w-0">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    c.feasibility === "surplus"
-                      ? "bg-slate-300 dark:bg-slate-600"
-                      : "bg-amber-500"
-                  }`}
-                  aria-hidden="true"
-                />
-                <span
-                  className={`text-[11px] truncate ${
-                    c.feasibility === "stretch"
-                      ? "text-amber-600 dark:text-amber-400"
-                      : "text-slate-500 dark:text-slate-400"
-                  }`}
-                >
-                  {c.feasibility_note}
-                </span>
-              </p>
-            )}
-          </button>
-        );
-      })}
+  if (active.length === 0) {
+    return (
       <button
         onClick={onAdd}
         className="w-full min-h-[44px] py-2 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -271,6 +221,78 @@ function CommitmentsBlock({
           a goal to save toward
         </span>
       </button>
+    );
+  }
+
+  return (
+    <div className="relative -mx-4">
+      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 scroll-px-4 pb-1">
+        {active.map((c) => {
+          const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
+          const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+          return (
+            <button
+              key={c.id}
+              onClick={() => onEdit(c)}
+              aria-label={`Edit plan: ${c.name}`}
+              className="min-w-[240px] max-w-[260px] flex-shrink-0 snap-start glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{c.name}</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">{month}</p>
+              <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
+                <div
+                  className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
+                {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
+                {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
+              </p>
+              {/* Feasibility — surplus: slate dot; savings: amber dot, slate
+                  text; stretch: amber dot + amber text (attention, never red). */}
+              {c.feasibility && c.feasibility_note && (
+                <p className="mt-1 flex items-center gap-1.5 min-w-0">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      c.feasibility === "surplus"
+                        ? "bg-slate-300 dark:bg-slate-600"
+                        : "bg-amber-500"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={`text-[11px] truncate ${
+                      c.feasibility === "stretch"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-slate-500 dark:text-slate-400"
+                    }`}
+                  >
+                    {c.feasibility_note}
+                  </span>
+                </p>
+              )}
+            </button>
+          );
+        })}
+        {/* Ghost add card — always the last card in the row */}
+        <button
+          onClick={onAdd}
+          className="min-w-[240px] max-w-[260px] flex-shrink-0 snap-start rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.14] px-4 py-3 min-h-[44px] flex flex-col items-center justify-center text-sm font-semibold text-indigo-600 dark:text-indigo-400 active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          + Plan a big expense
+          <span className="block text-[11px] font-normal text-slate-400 dark:text-slate-500">
+            a goal to save toward
+          </span>
+        </button>
+      </div>
+      {/* Right-edge fade — a quiet hint the row continues */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[var(--background)] to-transparent"
+      />
     </div>
   );
 }

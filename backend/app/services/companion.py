@@ -355,12 +355,18 @@ async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> d
 async def _active_commitment_slices(
     uid: str, pay_cfg: dict, live_balances: dict[str, float]
 ) -> dict[str, dict]:
-    """Per-funding-pot payday slices for the user's ACTIVE commitments (named
-    future big expenses funded from a savings pot).
+    """Per-destination payday slices for the user's ACTIVE commitments (named
+    future big expenses funded from one or more pots — goals v2).
 
-    Returns {funding_account_id: {"slice_total": int, "names": [str]}} — the
-    sum of each commitment's per-period slice routed to that pot plus the
-    commitment names, so the payday plan can lift a pot's move to cover them.
+    Returns {dest_account_id: {"slice_total": int, "names": [str]}} — the
+    sum of each commitment's per-period slice routed to that destination plus
+    the commitment names, so the payday plan can lift a pot's move to cover
+    them. Routing rule (documented contract): a goal's WHOLE slice goes to its
+    FIRST CONNECTED pot; manual (offline) pots NEVER receive automated legs —
+    the user moves that money by hand — so a goal funded only by manual pots
+    contributes no leg at all (its progress still counts everywhere).
+    Legacy v1 docs (funding_account_id/baseline_balance, no funding_pots) are
+    read as one connected pot with count_existing off.
     Failure-tolerant by design: any error (including commitments_col not
     existing yet) returns {} and the plan builds exactly as before.
     """
@@ -374,11 +380,29 @@ async def _active_commitment_slices(
         out: dict[str, dict] = {}
         async for c in commitments_col.find(
             {"user_id": uid, "status": "active"},
-            {"name": 1, "amount": 1, "target_date": 1, "funding_account_id": 1,
-             "baseline_balance": 1, "contributed": 1},
+            {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
+             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1},
         ):
-            fid = str(c.get("funding_account_id") or "")
-            if not fid:
+            pots = c.get("funding_pots")
+            if not isinstance(pots, list):
+                # Legacy v1 fallback — single connected pot, migrate on read.
+                _fid = str(c.get("funding_account_id") or "")
+                pots = ([{
+                    "account_id":     _fid,
+                    "kind":           "connected",
+                    "baseline":       float(c.get("baseline_balance") or 0.0),
+                    "count_existing": False,
+                }] if _fid else [])
+            pots = [p for p in pots if isinstance(p, dict) and p.get("account_id")]
+            if not pots:
+                continue
+            # Whole slice → FIRST CONNECTED pot; manual-only goals get no leg.
+            dest = next(
+                (str(p["account_id"]) for p in pots
+                 if (p.get("kind") or "connected") == "connected"),
+                None,
+            )
+            if dest is None:
                 continue
             try:
                 amount = float(c.get("amount") or 0)
@@ -388,15 +412,19 @@ async def _active_commitment_slices(
             if amount <= 0:
                 continue
 
-            # Progress: pot growth since the commitment was created (clamped),
-            # falling back to manual contributions when the pot balance is
-            # unavailable — mirrors the commitments API's derived fields.
-            pot_bal = live_balances.get(fid)
-            if pot_bal is not None:
-                baseline = float(c.get("baseline_balance") or 0.0)
-                progress = max(0.0, min(pot_bal - baseline, amount))
-            else:
-                progress = min(float(c.get("contributed") or 0.0), amount)
+            # Progress mirrors the commitments API's v2 derived fields:
+            # clamp(Σ pot growth, 0, amount) + contributed, capped at amount.
+            # Pots without a readable balance (e.g. a manual pot missing from
+            # live_balances) contribute 0 rather than skewing the slice.
+            pot_sum = 0.0
+            for p in pots:
+                bal = live_balances.get(str(p["account_id"]))
+                if bal is not None:
+                    pot_sum += max(0.0, float(bal) - float(p.get("baseline") or 0.0))
+            progress = min(
+                amount,
+                min(pot_sum, amount) + max(0.0, float(c.get("contributed") or 0.0)),
+            )
             remaining = amount - progress
             if remaining <= 0:
                 slice_amt = 0
@@ -417,7 +445,7 @@ async def _active_commitment_slices(
                 periods_left = max(1, count)
                 slice_amt = _ceil5(remaining / periods_left)
 
-            entry = out.setdefault(fid, {"slice_total": 0, "names": []})
+            entry = out.setdefault(dest, {"slice_total": 0, "names": []})
             entry["slice_total"] += int(slice_amt)
             name = str(c.get("name") or "").strip()
             if name:
@@ -1042,8 +1070,10 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
             everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
             usual_moves = await _usual_payday_moves(uid, salary_acct, pay_cfg)
-            # Active commitments funded from a pot lift that pot's move to at
-            # least the sum of their per-period slices ({} on any failure).
+            # Active commitments lift their destination pot's move to at least
+            # the sum of their per-period slices ({} on any failure). Each
+            # goal's whole slice routes to its FIRST CONNECTED pot; manual
+            # (offline) pots never appear as keys — they aren't plan dests.
             commitment_slices = await _active_commitment_slices(uid, pay_cfg, live_balances)
 
             def _salary_bills_excl_own_dests(acct_id: str) -> tuple[float, int]:

@@ -1,9 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, CircleDashed } from "lucide-react";
+import { X, Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
-import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { getPayPeriodWithConfig, nextPeriodWithConfig, PayPeriodConfig } from "@/lib/payPeriod";
@@ -13,9 +12,44 @@ import { useSheetOpen } from "@/lib/useSheetOpen";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
-// PlanOneOffSheet portal glass-sheet idiom; the pot selector reuses its
-// account radiogroup. The "≈ £X/period" line is a live client-side estimate
-// (hedged) — the backend derives the authoritative slice on save.
+// PlanOneOffSheet portal glass-sheet idiom; the pot selector is a MULTI-select
+// over connected savings pots and offline (manually-updated) accounts, with a
+// per-pot "count what's already here" choice made at link time. The
+// "≈ £X/period" line is a live client-side estimate (hedged) — the backend
+// derives the authoritative slice on save.
+
+/** Multi-select check — the checkbox sibling of PlanOneOffSheet's RadioDot. */
+function CheckDot({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex-shrink-0 w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center transition-colors ${
+        selected ? "border-indigo-600 bg-indigo-600" : "border-slate-300 dark:border-slate-600"
+      }`}
+    >
+      {selected && <Check size={12} strokeWidth={3} className="text-white" />}
+    </span>
+  );
+}
+
+/** The pot choice the sheet edits and PATCH/POST send. */
+type PotSelection = { account_id: string; count_existing: boolean };
+
+/** Selection currently stored on a commitment — funding_pots, or the legacy
+ * single funding_account_id read as one growth-only pot. */
+function potsFromCommitment(c: Commitment | null | undefined): PotSelection[] {
+  if (!c) return [];
+  if (c.funding_pots && c.funding_pots.length > 0) {
+    return c.funding_pots.map((p) => ({
+      account_id: p.account_id,
+      count_existing: p.count_existing,
+    }));
+  }
+  if (c.funding_account_id) {
+    return [{ account_id: c.funding_account_id, count_existing: false }];
+  }
+  return [];
+}
 
 interface CommitmentSheetProps {
   /** Pass when the parent already has accounts; otherwise the sheet fetches its own. */
@@ -100,7 +134,7 @@ export default function CommitmentSheet({
     const t = commitment?.target_date ?? prefill?.target_date;
     return t ? t.slice(0, 7) : minMonth;
   });
-  const [fundingId, setFundingId] = useState(commitment?.funding_account_id ?? "");
+  const [pots, setPots] = useState<PotSelection[]>(() => potsFromCommitment(commitment));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
@@ -117,19 +151,68 @@ export default function CommitmentSheet({
   }, [accounts]);
   const accountList = accounts && accounts.length > 0 ? accounts : (fetchedAccounts ?? []);
 
-  // Savings pots only — live-balance accounts whose growth can fund the plan
-  const savingsPots = accountList.filter(
+  // Pot options — connected savings pots (live balances, payday-plan legs)
+  // plus offline manually-updated accounts (badged; never automated).
+  // Credit cards are not pots.
+  const connectedPots = accountList.filter(
     (acc) => !acc.manual && (acc.subtype || "").toLowerCase().includes("saving")
   );
+  const offlinePots = accountList.filter(
+    (acc) => acc.manual && (acc.subtype || "").toUpperCase() !== "CREDIT_CARD"
+  );
+  const potOptions = [...connectedPots, ...offlinePots];
+
+  function togglePot(accountId: string) {
+    setPots((prev) =>
+      prev.some((p) => p.account_id === accountId)
+        ? prev.filter((p) => p.account_id !== accountId)
+        : [...prev, { account_id: accountId, count_existing: false }]
+    );
+  }
+  function toggleCountExisting(accountId: string) {
+    setPots((prev) =>
+      prev.map((p) =>
+        p.account_id === accountId ? { ...p, count_existing: !p.count_existing } : p
+      )
+    );
+  }
+
+  // Order-sensitive on purpose: the first connected pot receives the whole
+  // payday-plan slice, so reordering is a real change.
+  const potsChanged =
+    JSON.stringify(pots) !== JSON.stringify(potsFromCommitment(commitment));
 
   const parsedAmount = parseFloat(amount.replace(/[^0-9.]/g, ""));
   const amountValid = !isNaN(parsedAmount) && parsedAmount > 0;
   const monthValid = /^\d{4}-\d{2}$/.test(month) && month >= minMonth;
 
+  // Estimated progress for the live slice line. With the stored pot set,
+  // trust the server's figure; otherwise sum what the draft selection would
+  // contribute — a pot's whole balance when "count existing" is on, its
+  // server-known contribution when the link is unchanged, else zero (growth
+  // starts from link time). Hedged — the backend derives the truth on save.
+  const estimatedProgress = (() => {
+    if (commitment && !potsChanged) return commitment.progress;
+    const sum = pots.reduce((acc, p) => {
+      const existing = commitment?.funding_pots?.find(
+        (fp) => fp.account_id === p.account_id
+      );
+      if (existing && existing.count_existing === p.count_existing) {
+        return acc + existing.contributing_balance;
+      }
+      if (p.count_existing) {
+        const bal = accountList.find((a) => a.id === p.account_id)?.balance ?? 0;
+        return acc + Math.max(0, bal);
+      }
+      return acc;
+    }, 0);
+    return amountValid ? Math.min(parsedAmount, sum) : sum;
+  })();
+
   // Live "≈ £X/period" estimate — remaining over pay periods left, ceiled to £5
   const periods = monthValid ? periodsLeftFor(month, payPeriodConfig) : null;
   const remaining = amountValid
-    ? Math.max(0, parsedAmount - (commitment?.progress ?? 0))
+    ? Math.max(0, parsedAmount - estimatedProgress)
     : null;
   const slice =
     periods != null && remaining != null && remaining > 0
@@ -146,12 +229,22 @@ export default function CommitmentSheet({
     }
     let stale = false;
     const timer = setTimeout(() => {
-      api.previewCommitment(parsedAmount, `${month}-01`)
+      api.previewCommitment(parsedAmount, `${month}-01`, pots)
         .then((p) => { if (!stale) setPreview(p); })
         .catch(() => { if (!stale) setPreview(null); });
     }, 400);
     return () => { stale = true; clearTimeout(timer); };
-  }, [amountValid, monthValid, parsedAmount, month]);
+  }, [amountValid, monthValid, parsedAmount, month, pots]);
+
+  // Feasibility shown — with the stored pot set, trust the server's verdict
+  // (it knows accrued growth the preview can't see), mirroring how
+  // estimatedProgress trusts commitment.progress in the same branch.
+  const feasibility =
+    commitment && !potsChanged ? commitment.feasibility : preview?.feasibility;
+  const feasibilityNote =
+    commitment && !potsChanged
+      ? commitment.feasibility_note
+      : preview?.feasibility_note;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -172,10 +265,10 @@ export default function CommitmentSheet({
         if (target_date !== commitment.target_date.slice(0, 10)) {
           body.target_date = target_date;
         }
-        // Only send the pot when it changed — a PATCH re-captures the
-        // baseline, which would wipe progress on a no-op save.
-        if ((fundingId || null) !== (commitment.funding_account_id || null)) {
-          body.funding_account_id = fundingId || null;
+        // Only send the pots when they changed — a PATCH re-captures the
+        // baselines, which would wipe progress on a no-op save.
+        if (potsChanged) {
+          body.funding_pots = pots;
         }
         item = await api.updateCommitment(commitment.id, body);
       } else {
@@ -183,7 +276,7 @@ export default function CommitmentSheet({
           name: name.trim(),
           amount: parsedAmount,
           target_date,
-          funding_account_id: fundingId || null,
+          funding_pots: pots,
           source,
         });
       }
@@ -317,62 +410,100 @@ export default function CommitmentSheet({
                 />
               </div>
 
-              {/* Funding pot (optional) — only when savings pots exist */}
-              {savingsPots.length > 0 && (
+              {/* Funding pots (optional, multi) — connected savings pots plus
+                  offline manually-updated accounts. Offline pots are badged
+                  and never receive automated payday-plan legs. */}
+              {potOptions.length > 0 && (
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                    Fund it from a savings pot?
+                    Fund it from savings pots?
                   </label>
                   <div
-                    role="radiogroup"
-                    aria-label="Fund it from a savings pot?"
+                    role="group"
+                    aria-label="Fund it from savings pots?"
                     className="rounded-xl border border-slate-200/70 dark:border-white/[0.08] divide-y divide-slate-100 dark:divide-white/[0.06] overflow-hidden"
                   >
-                    {/* "No pot" — first row */}
+                    {/* "No pot" — first row, clears the selection */}
                     <button
                       type="button"
-                      role="radio"
-                      aria-checked={fundingId === ""}
-                      onClick={() => setFundingId("")}
+                      role="checkbox"
+                      aria-checked={pots.length === 0}
+                      onClick={() => setPots([])}
                       className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
                     >
                       <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
                         <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
                       </span>
                       <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">No pot — track it by hand</span>
-                      <RadioDot selected={fundingId === ""} />
+                      <CheckDot selected={pots.length === 0} />
                     </button>
 
-                    {savingsPots.map((acc) => {
+                    {potOptions.map((acc) => {
                       const brand = accountBrand(acc);
+                      const sel = pots.find((p) => p.account_id === acc.id);
+                      const balance = Math.max(0, acc.balance ?? 0);
                       return (
-                        <button
-                          key={acc.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={fundingId === acc.id}
-                          onClick={() => setFundingId(acc.id)}
-                          className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
-                        >
-                          <BankBadge
-                            logoSrc={brand.logoSrc}
-                            initials={brand.initials}
-                            altText={brand.label}
-                            brandBg={brand.background}
-                          />
-                          <span className="flex-1 min-w-0">
-                            <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
-                            {acc.provider && (
-                              <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
-                            )}
-                          </span>
-                          <RadioDot selected={fundingId === acc.id} />
-                        </button>
+                        <div key={acc.id}>
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={!!sel}
+                            onClick={() => togglePot(acc.id)}
+                            className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
+                          >
+                            <BankBadge
+                              logoSrc={brand.logoSrc}
+                              initials={brand.initials}
+                              altText={brand.label}
+                              brandBg={brand.background}
+                            />
+                            <span className="flex-1 min-w-0">
+                              <span className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
+                                {acc.manual && (
+                                  <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.08] text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                    offline — updated by you
+                                  </span>
+                                )}
+                              </span>
+                              {acc.provider && !acc.manual && (
+                                <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
+                              )}
+                            </span>
+                            <CheckDot selected={!!sel} />
+                          </button>
+                          {/* Per-pot choice, made at link time: count the
+                              balance already in the pot, or only its growth
+                              from today (default). */}
+                          {sel && (
+                            <div className="pl-[60px] pr-3 pb-2">
+                              <button
+                                type="button"
+                                aria-pressed={sel.count_existing}
+                                onClick={() => toggleCountExisting(acc.id)}
+                                className="min-h-[44px] -my-2 flex items-center active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-full"
+                              >
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                                    sel.count_existing
+                                      ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-700/60"
+                                      : "bg-slate-100/80 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 border-transparent"
+                                  }`}
+                                >
+                                  {sel.count_existing && (
+                                    <Check size={11} strokeWidth={3} aria-hidden="true" />
+                                  )}
+                                  count the £{Math.round(balance).toLocaleString("en-GB")} already here
+                                </span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                    Pick a pot and progress tracks its growth from today.
+                    Pick pots and progress tracks their growth from today — offline pots you update yourself.
                   </p>
                 </div>
               )}
@@ -386,22 +517,22 @@ export default function CommitmentSheet({
 
               {/* Feasibility verdict — surplus: slate; savings: slate + amber
                   dot; stretch: amber text (attention, never red). */}
-              {slice != null && preview?.feasibility && preview.feasibility_note && (
+              {slice != null && feasibility && feasibilityNote && (
                 <p
                   className={`text-[13px] leading-snug ${
-                    preview.feasibility === "stretch"
+                    feasibility === "stretch"
                       ? "text-amber-600 dark:text-amber-400"
                       : "text-slate-500 dark:text-slate-400"
                   }`}
                   aria-live="polite"
                 >
-                  {preview.feasibility === "savings" && (
+                  {feasibility === "savings" && (
                     <span
                       className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 align-middle"
                       aria-hidden="true"
                     />
                   )}
-                  {preview.feasibility_note}
+                  {feasibilityNote}
                 </p>
               )}
 

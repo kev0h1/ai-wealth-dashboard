@@ -307,12 +307,32 @@ export type SafeToSpend =
     };
 
 // ── Commitments — named future big expenses (holiday, car, fees) ─────────────
+
+/** One funding pot linked to a commitment (goals v2 — multiple pots). */
+export type CommitmentPot = {
+  account_id: string;
+  name: string | null;
+  /** "connected" = live bank pot; "manual" = offline, updated by the user.
+   * Offline pots never receive automated payday-plan legs. */
+  kind: "connected" | "manual";
+  /** When true the pot's whole balance counts (baseline 0) — chosen at link
+   * time; otherwise only growth since linking counts. */
+  count_existing: boolean;
+  /** £ this pot currently contributes toward progress. */
+  contributing_balance: number;
+};
+
 export type Commitment = {
   id: string;
   name: string;
   amount: number;
   target_date: string; // ISO date, first of the target month
+  /** Funding pots (goals v2). Absent only on stale payloads — fall back to
+   * funding_account_id. */
+  funding_pots?: CommitmentPot[];
+  /** @deprecated Mirrors the first pot for one release — prefer funding_pots. */
   funding_account_id: string | null;
+  /** @deprecated Mirrors the first pot for one release — prefer funding_pots. */
   funding_account_name: string | null;
   source: "manual" | "can_i";
   status: "active" | "done" | "cancelled";
@@ -335,6 +355,8 @@ export type CommitmentFeasibility = "surplus" | "savings" | "stretch";
 export type CommitmentPreview = {
   per_period_slice: number;
   periods_left: number;
+  /** Balance counted up front from count-existing funding pots. */
+  starting_progress?: number;
   feasibility: CommitmentFeasibility | null;
   feasibility_note?: string;
 };
@@ -1084,6 +1106,9 @@ export const api = {
     name: string;
     amount: number;
     target_date: string;
+    /** Goals v2 — multiple pots, each with a count-existing choice. */
+    funding_pots?: { account_id: string; count_existing: boolean }[];
+    /** @deprecated Single-pot shape — prefer funding_pots. */
     funding_account_id?: string | null;
     source?: "manual" | "can_i";
   }) => post<Commitment>("/commitments", body),
@@ -1091,6 +1116,9 @@ export const api = {
     name?: string;
     amount?: number;
     target_date?: string;
+    /** Goals v2 — replaces the pot set; baselines re-capture server-side. */
+    funding_pots?: { account_id: string; count_existing: boolean }[];
+    /** @deprecated Single-pot shape — prefer funding_pots. */
     funding_account_id?: string | null;
     status?: "active" | "done" | "cancelled";
     contribute_delta?: number;
@@ -1103,8 +1131,16 @@ export const api = {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
       return r.json();
     }) as Promise<Commitment>,
-  previewCommitment: (amount: number, target_date: string) =>
-    post<CommitmentPreview>("/commitments/preview", { amount, target_date }),
+  previewCommitment: (
+    amount: number,
+    target_date: string,
+    funding_pots?: { account_id: string; count_existing: boolean }[],
+  ) =>
+    post<CommitmentPreview>("/commitments/preview", {
+      amount,
+      target_date,
+      ...(funding_pots && funding_pots.length > 0 ? { funding_pots } : {}),
+    }),
   cancelCommitment: (id: string) =>
     fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {
       method: "DELETE",
