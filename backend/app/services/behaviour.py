@@ -464,6 +464,9 @@ async def compute_portrait(uid: str) -> dict:
                 "evidence": evidence,
                 "kind": "pleasure",
                 "choice": None,
+                # Machine-readable category so downstream consumers (companion
+                # intent_pace, checkpoints) never have to parse the title string.
+                "ref_category": top_cat,
             })
 
     # ── TRAIT 6: Money hygiene ────────────────────────────────────────────────

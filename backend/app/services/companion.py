@@ -1638,11 +1638,19 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         today_obj = date.today()
         year_month = today_obj.strftime("%Y-%m")
 
+        # BEHAVIOURS.md consent rule: a trait the user marked "keep" is an
+        # accepted part of who they are — coaching/anticipation cards tied to
+        # it must NOT fire. Only celebration-style items (e.g. the saving_habit
+        # streak) remain allowed for a kept trait.
+        def _trait_kept(trait_id: str) -> bool:
+            return (traits_by_id.get(trait_id) or {}).get("choice") == "keep"
+
         # front_loader: within 3 days BEFORE the 1st of next month
         next_month_1st = (today_obj.replace(day=1) + timedelta(days=32)).replace(day=1)
         days_to_month_end = (next_month_1st - today_obj).days
 
-        if "front_loader" in traits_by_id and 0 < days_to_month_end <= 3:
+        # Anticipation card — suppressed when the trait is marked "keep" (consent rule).
+        if "front_loader" in traits_by_id and not _trait_kept("front_loader") and 0 < days_to_month_end <= 3:
             trait = traits_by_id["front_loader"]
             evidence = trait.get("evidence", [])
             # Extract avg early-month from evidence e.g. "£300 average early-month spend"
@@ -1678,7 +1686,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 })
 
         # credit_switch: day 8, 9 or 10 of the month
-        if "credit_switch" in traits_by_id and today_obj.day in (8, 9, 10):
+        # Anticipation card — suppressed when the trait is marked "keep" (consent rule).
+        if "credit_switch" in traits_by_id and not _trait_kept("credit_switch") and today_obj.day in (8, 9, 10):
             trait = traits_by_id["credit_switch"]
             evidence = trait.get("evidence", [])
             early_pct = late_pct = None
@@ -2108,6 +2117,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # At most ONE item per brief; highest multiple wins; Consent Rule: skip categories
     # already answered or aimed at this period.
     rhythm_checkpoint_items: list[dict] = []
+    intent_pace_items: list[dict] = []
     try:
         from app.services.pace import (
             _NON_SPEND as _PACE_NON_SPEND,
@@ -2246,6 +2256,62 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         "dominant": _rc_dominant,
                     },
                 })
+
+        # ── 8h. INTENT PACE items (tracking a chosen change) ──────────────────
+        # Closes the Mirror's intent loop: a quiet, factual mid-period pace line
+        # for each category the user explicitly asked to work on. BEHAVIOURS.md
+        # consent rule: this fires ONLY on an explicit "change" choice or an
+        # active checkpoint the user created — never uninvited. Descriptive
+        # figures, zero judgement, no risk colour. Reuses the SAME cached
+        # per-category pace baseline machinery as the rhythm checkpoint above.
+        try:
+            if 8 <= _rc_days_elapsed <= 20 and not _rc_thin:
+                _ip_change_cats: set[str] = set()
+                if portrait and portrait.get("status") == "ok":
+                    for _tr in portrait.get("traits", []):
+                        if _tr.get("choice") != "change":
+                            continue
+                        _tr_cat = _tr.get("ref_category")
+                        if not _tr_cat and _tr.get("id") == "signature_pleasure":
+                            # Legacy cached portrait (pre-ref_category): the
+                            # category only lives inside the title string.
+                            _tr_title = _tr.get("title") or ""
+                            if _tr_title.startswith("Your Signature: "):
+                                _tr_cat = _tr_title[len("Your Signature: "):].strip()
+                        if _tr_cat:
+                            _ip_change_cats.add(_tr_cat)
+
+                # An active checkpoint is the same consent signal, made in the Door.
+                from app.services.checkpoints import checkpoint_map_for_period as _ip_cp_map
+                _ip_cp = await _ip_cp_map(
+                    uid, _rc_period_start, _rc_period_end, cat_spent=_rc_cat_spent
+                )
+                _ip_change_cats |= set(_ip_cp.keys())
+
+                for _ip_cat in sorted(_ip_change_cats):
+                    if _ip_cat in _PACE_NON_SPEND:
+                        continue
+                    _ip_usual_30d = _rc_baseline.get(_ip_cat)
+                    if not _ip_usual_30d:
+                        continue  # no history — no "usual by now" to state
+                    _ip_id = f"intent_pace:{_rc_period_start.isoformat()}:{_ip_cat}"
+                    if _ip_id in dismissed:
+                        continue
+                    _ip_spent = _rc_cat_spent.get(_ip_cat, 0.0)
+                    _ip_pro_rata = _ip_usual_30d / 30 * _rc_days_elapsed
+                    intent_pace_items.append({
+                        "id": _ip_id,
+                        "type": "intent_pace",
+                        "headline": (
+                            f"{_ip_cat}: £{int(round(_ip_spent))} so far "
+                            f"vs £{int(round(_ip_pro_rata))} usual by now"
+                        ),
+                        "body": "Tracking the change you asked for — no action needed.",
+                        "action": None,
+                        "estimated": False,
+                    })
+        except Exception as _ip_exc:
+            log.warning("intent pace item failed for %s: %s", uid, _ip_exc)
     except Exception as _rc_exc:
         log.warning("rhythm checkpoint item failed for %s: %s", uid, _rc_exc)
 
@@ -2264,6 +2330,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         + rhythm_checkpoint_items[:1]
         + needle_items[:1]
         + rhythm_items
+        + intent_pace_items
     )
     return result[:3]
 

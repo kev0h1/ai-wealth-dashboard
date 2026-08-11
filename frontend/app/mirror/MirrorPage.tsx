@@ -6,6 +6,7 @@ import { ChevronLeft, RefreshCw, Sparkles } from "lucide-react";
 import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import BottomNav from "@/components/BottomNav";
+import AimSheet from "@/components/AimSheet";
 
 // Kind → colour chip accent (Category Voice Rule: ~15% tint bg + full-strength icon)
 // chip text uses a dark hue-matched shade (not neutral gray) for contrast on the tinted bg
@@ -17,9 +18,24 @@ const KIND_ACCENT: Record<string, { bg: string; darkBg: string; dot: string; tex
 };
 
 
-function TraitCard({ trait, onChoice }: { trait: MirrorTrait; onChoice: (id: string, choice: "keep" | "change") => void }) {
+// Category a trait is anchored to: prefer the machine-readable ref_category the
+// backend now sends; fall back to parsing "Your Signature: {X}" titles for
+// portraits computed before the field existed.
+function traitCategory(trait: MirrorTrait): string | null {
+  if (trait.ref_category) return trait.ref_category;
+  const m = trait.title.match(/^Your Signature:\s*(.+)$/i);
+  return m ? m[1].trim() : null;
+}
+
+function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
+  trait: MirrorTrait;
+  activeAim: ActiveAim | null;
+  onChoice: (id: string, choice: "keep" | "change") => void;
+  onSetAim: (category: string) => void;
+}) {
   const accent = KIND_ACCENT[trait.kind] ?? KIND_ACCENT.structure;
   const [saving, setSaving] = useState(false);
+  const category = traitCategory(trait);
 
   async function handleChoice(choice: "keep" | "change") {
     if (saving || trait.choice === choice) return;
@@ -27,6 +43,11 @@ function TraitCard({ trait, onChoice }: { trait: MirrorTrait; onChoice: (id: str
     try {
       await api.setMirrorChoice(trait.id, choice);
       onChoice(trait.id, choice);
+      // Change on a category-backed trait → open the aim sheet so the choice
+      // becomes something Penny can actually track (skip if an aim exists).
+      if (choice === "change" && category && !activeAim) {
+        onSetAim(category);
+      }
     } catch {
       // silently ignore — UI already reflects optimistic state via parent
     } finally {
@@ -80,11 +101,29 @@ function TraitCard({ trait, onChoice }: { trait: MirrorTrait; onChoice: (id: str
       {/* Confirmation line */}
       {trait.choice && (
         <div className="px-4 pb-4 -mt-1">
-          <p className="text-[13px] text-slate-500 dark:text-slate-400">
-            {trait.choice === "keep"
-              ? "Noted — we'll never nag you about this."
-              : "Noted — Penny will start working on this with you."}
-          </p>
+          {trait.choice === "keep" ? (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              Noted — we&apos;ll never nag you about this.
+            </p>
+          ) : category && activeAim ? (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              Aim set — Penny is tracking it with you.
+            </p>
+          ) : category ? (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              Noted — an aim gives Penny something to track.{" "}
+              <button
+                onClick={() => onSetAim(category)}
+                className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+              >
+                Set an aim
+              </button>
+            </p>
+          ) : (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              Noted — Penny will factor this in.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -117,6 +156,13 @@ export default function MirrorPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [aims, setAims] = useState<ActiveAim[]>([]);
+  const [aimCategory, setAimCategory] = useState<string | null>(null);
+
+  const refreshAims = useCallback(() => {
+    api.listCheckpoints()
+      .then(d => setAims(d.checkpoints))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async (refresh = false) => {
     try {
@@ -132,11 +178,7 @@ export default function MirrorPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    api.listCheckpoints()
-      .then(d => setAims(d.checkpoints))
-      .catch(() => {});
-  }, []);
+  useEffect(() => { refreshAims(); }, [refreshAims]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -267,14 +309,31 @@ export default function MirrorPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {portrait.traits.map((trait, i) => (
-              <div key={trait.id} className="rise-in" style={{ "--rise-index": i + 1 } as React.CSSProperties}>
-                <TraitCard trait={trait} onChoice={handleChoice} />
-              </div>
-            ))}
+            {portrait.traits.map((trait, i) => {
+              const cat = traitCategory(trait);
+              const activeAim = cat ? aims.find(a => a.ref === cat) ?? null : null;
+              return (
+                <div key={trait.id} className="rise-in" style={{ "--rise-index": i + 1 } as React.CSSProperties}>
+                  <TraitCard
+                    trait={trait}
+                    activeAim={activeAim}
+                    onChoice={handleChoice}
+                    onSetAim={setAimCategory}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+
+      {aimCategory && (
+        <AimSheet
+          category={aimCategory}
+          onClose={() => setAimCategory(null)}
+          onSaved={refreshAims}
+        />
+      )}
 
       <BottomNav />
     </div>

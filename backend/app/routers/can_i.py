@@ -123,6 +123,89 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     except Exception:
         pass
 
+    # ── Change intents (Mirror traits marked "change" → category pace) ──
+    try:
+        from app.db.collections import behaviour_portrait_col, preferences_col
+        from app.services.checkpoints import checkpoint_map_for_period
+        from app.services.pace import (
+            _BASELINE_DAYS,
+            _read_cached_baseline,
+            _total_baseline,
+            _write_cached_baseline,
+            load_spend_txns,
+        )
+        from app.services.pay_period import get_pay_period_for_date
+
+        portrait = await behaviour_portrait_col.find_one({"_id": uid}) or {}
+        change_cats: list[str] = []
+        for trait in portrait.get("traits") or []:
+            if not isinstance(trait, dict) or trait.get("choice") != "change":
+                continue
+            cat = trait.get("ref_category")
+            if not cat:
+                # Defensive fallback until ref_category ships: parse the title.
+                title = trait.get("title") or ""
+                if title.startswith("Your Signature: "):
+                    cat = title[len("Your Signature: "):].strip()
+            if cat and cat not in change_cats:
+                change_cats.append(cat)
+
+        if change_cats:
+            prefs = await preferences_col.find_one({"_id": uid}) or {}
+            pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+            ci_today = date.today()
+            period_start, period_end = get_pay_period_for_date(ci_today, pay_cfg)
+
+            # Baseline: same cache key + fallback path pace/companion use.
+            baseline_key = period_start.isoformat()
+            cached_baseline = await _read_cached_baseline(uid, baseline_key)
+            if cached_baseline is not None:
+                baseline, baseline_months = cached_baseline
+                spend_txns = await load_spend_txns(uid, period_start, period_end)
+            else:
+                spend_txns = await load_spend_txns(
+                    uid, period_start - timedelta(days=_BASELINE_DAYS), period_end
+                )
+                baseline, baseline_months = _total_baseline(spend_txns, period_start)
+                await _write_cached_baseline(uid, baseline_key, baseline, baseline_months)
+
+            # Per-category spend this period (effective category = custom or raw,
+            # debits only — load_spend_txns already normalises both).
+            cat_spent: dict[str, float] = {}
+            for t in spend_txns:
+                if period_start <= t["date"] <= period_end:
+                    cat_spent[t["category"]] = cat_spent.get(t["category"], 0.0) + t["amount"]
+
+            days_elapsed = max(1, (ci_today - period_start).days)
+            thin_history = baseline_months < 2
+
+            aim_map = await checkpoint_map_for_period(
+                uid, period_start, period_end, cat_spent=cat_spent
+            )
+
+            change_intents: list[dict] = []
+            for cat in change_cats:
+                usual_30d = None if thin_history else baseline.get(cat)
+                aim_doc = aim_map.get(cat)
+                change_intents.append({
+                    "category": cat,
+                    "usual_30d": round(float(usual_30d), 2) if usual_30d else None,
+                    "spent_this_period": round(cat_spent.get(cat, 0.0), 2),
+                    "pro_rata_usual": (
+                        round(float(usual_30d) / 30 * days_elapsed, 2)
+                        if usual_30d else None
+                    ),
+                    "active_aim": (
+                        round(float(aim_doc["aim_amount"]), 2)
+                        if aim_doc and aim_doc.get("aim_amount") is not None
+                        else None
+                    ),
+                })
+            if change_intents:
+                facts["change_intents"] = change_intents
+    except Exception:
+        pass
+
     # ── Deterministic what-ifs (LLM never does arithmetic) ──────────────
     what_ifs: dict = {}
     amount_asked = _extract_amount(question)
@@ -135,6 +218,10 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         what_ifs["months_of_saving_needed"] = (
             round(amount_asked / monthly_surplus, 1) if monthly_surplus > 0 else None
         )
+        # Precompute per-category "where would this take me" so the LLM never
+        # has to add two figures itself.
+        for ci in facts.get("change_intents", []):
+            ci["would_take_to"] = round(ci["spent_this_period"] + amount_asked, 2)
 
     today = date.today()
     q_lower = question.lower()
@@ -162,6 +249,12 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "but no price and you'd need one, give the envelope from the facts (free "
         "until payday, or per-day rate) and ask for a number in the same sentence. "
         "For future-month questions use months_until_target and savable_by_target. "
+        "If the question maps to a category in change_intents, acknowledge the "
+        "stated change in the answer using ONLY the provided figures — when an "
+        "entry has would_take_to, that is the precomputed category total after "
+        "this spend; copy it as-is (e.g. this £30 would take Eating Out to your "
+        "would_take_to figure of your usual_30d usual pace — still inside the "
+        "change you asked for). Never moralise. "
         "If the question is not about the user's own spending or affordability, reply "
         'exactly: I can answer spending questions — try "Can I spend £50 this '
         'weekend?". General cost knowledge may be used ONLY as a clearly rough range '

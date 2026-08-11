@@ -334,6 +334,53 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
   );
 }
 
+interface IntentPaceCardProps {
+  item: CompanionItem;
+  maskAmounts: (text: string) => string;
+}
+
+// Quiet pace note for a category the user chose to change in the Mirror.
+// Pure information — headline + body in ink/muted, no accent colour, no CTA
+// (the aim already lives in the Mirror). Dismissible like the other info cards.
+// NO red: pace against a self-chosen aim is never materialised risk.
+function IntentPaceCard({ item, maskAmounts }: IntentPaceCardProps) {
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    api.dismissTodayItem(item.id).catch(() => {
+      /* card already removed locally; the backend will re-surface next run */
+    });
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+            {maskAmounts(item.headline)}
+          </p>
+          {item.body && (
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+              {maskAmounts(item.body)}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={handleDismiss}
+          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface MoveCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
@@ -672,7 +719,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   const rhythmInfoItems = items.filter(
     i => i.type === "rhythm" && !(i.payload?.multiple != null && i.payload.multiple >= 1.5)
   );
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm");
+  // "intent_pace" — quiet pace note against a Mirror-chosen aim; own bucket so
+  // it never falls into otherItems' bare-paragraph rendering.
+  const intentPaceItems = items.filter(i => i.type === "intent_pace");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -704,6 +754,11 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
             existing informational fact-card family (CliffCard). */}
         {rhythmInfoItems.map(item => (
           <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+        ))}
+
+        {/* Intent-pace notes — quiet info cards, no accent, no CTA */}
+        {intentPaceItems.map(item => (
+          <IntentPaceCard key={item.id} item={item} maskAmounts={maskAmounts} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline; everything

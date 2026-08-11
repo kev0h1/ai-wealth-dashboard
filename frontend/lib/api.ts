@@ -172,6 +172,10 @@ export type MirrorTrait = {
   evidence: string[];
   kind: "structure" | "habit" | "pleasure" | "hygiene";
   choice: "keep" | "change" | null;
+  // Category the trait is anchored to (e.g. "Eating Out" for signature_pleasure).
+  // Optional — older portraits won't have it; the Mirror falls back to parsing
+  // "Your Signature: {X}" from the title.
+  ref_category?: string | null;
 };
 
 export type MirrorPortrait =
@@ -394,7 +398,7 @@ export type PaydayPlanDest = {
 
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace";
   headline: string;
   body: string;
   action: CompanionAction | null;
