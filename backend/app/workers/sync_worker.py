@@ -18,6 +18,27 @@ from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.db.collections import investment_accounts_col
 from app.services.investment_prices import refresh_account_prices
+from app.workers.ai_worker import task_refresh_savings_insights
+
+
+async def _enqueue_weekly_insight_refresh(ctx, user_id: str) -> None:
+    """Post-sync hook: queue a savings-insights refresh, at most once per user
+    per ISO week (job-id dedupe). The refresh itself carries a 7-day per-category
+    guard plus event-driven regen reasons, so even duplicate runs cannot spam
+    search/LLM calls. Never lets a queueing hiccup fail the sync."""
+    try:
+        arq: ArqRedis = ctx.get("redis") if isinstance(ctx, dict) else None
+        if arq is None or not user_id:
+            return
+        week = datetime.utcnow().strftime("%G-W%V")
+        await arq.enqueue_job(
+            "task_refresh_savings_insights",
+            user_id=user_id,
+            _job_id=f"insights:{user_id}:{week}",
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("could not enqueue insights refresh for %s", user_id)
 
 
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
@@ -28,6 +49,7 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     if new_count > 0:
         from app.routers.analytics import compute_and_cache_cashflow
         await compute_and_cache_cashflow(user_id)
+    await _enqueue_weekly_insight_refresh(ctx, user_id)
     return {"synced": len(ids), "new_transactions": new_count}
 
 
@@ -47,6 +69,7 @@ async def task_sync_mono(ctx, connection_id: str, user_id: str):
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
     result = await finexer_sync_pipeline(consent_id, user_id)
+    await _enqueue_weekly_insight_refresh(ctx, user_id)
     return result
 
 
@@ -196,9 +219,12 @@ async def task_refresh_investment_prices(ctx):
 
 
 class WorkerSettings:
+    # task_refresh_savings_insights is defined in ai_worker but registered here
+    # too: this is the worker systemd actually runs, so post-sync enqueues of
+    # the weekly insights refresh land somewhere that executes them.
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
-                 task_refresh_investment_prices]
+                 task_refresh_investment_prices, task_refresh_savings_insights]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),

@@ -1720,6 +1720,63 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     _cel_winners.sort(key=lambda c: c["created_at"], reverse=True)
     celebration_items.extend(_w["item"] for _w in _cel_winners)
 
+    # ── 7b. Insight win narration ───────────────────────────────────────────
+    # A savings insight whose triggering merchant has gone silent for 45+ days
+    # is a verified saving (savings_insights stamps verified_savings /
+    # verified_merchant / verified_at). Narrate it here as a celebration —
+    # the user's own figure leads. First surfacing stamps celebrated_at on the
+    # insight doc; the card then lives until dismissed or 7 days pass (same
+    # stamp-then-lapse convention as move celebrations, on the insight's own
+    # weekly cadence rather than the 24-hour "sorted" window).
+    try:
+        from app.db.collections import savings_insights_col
+
+        _win_now = datetime.utcnow()
+        _win_cursor = savings_insights_col.find({
+            "user_id": uid,
+            "verified_savings": {"$gt": 0},
+            "celebration_lapsed": {"$ne": True},
+        }).sort("verified_at", -1).limit(_MOVE_CARD_CAP)
+        async for _ins in _win_cursor:
+            _win_id = f"insight_win:{_ins.get('insight_id', str(_ins['_id']))}"
+            if _win_id in dismissed:
+                continue
+            _win_ca = _ins.get("celebrated_at")
+            if _win_ca is None:
+                _win_ca = _win_now
+                await savings_insights_col.update_one(
+                    {"_id": _ins["_id"]},
+                    {"$set": {"celebrated_at": _win_ca}},
+                )
+            if (_win_now - _win_ca).total_seconds() >= 7 * 86400:
+                await savings_insights_col.update_one(
+                    {"_id": _ins["_id"]},
+                    {"$set": {"celebration_lapsed": True}},
+                )
+                continue
+            _win_amt = float(_ins.get("verified_savings") or 0)
+            if _win_amt <= 0:
+                continue
+            # Whole pounds where exact, pence where they matter — the figure
+            # is verified from the user's own transactions, never hedged.
+            _win_amt_str = f"{_win_amt:,.2f}".removesuffix(".00")
+            _win_merchant = str(_ins.get("verified_merchant") or "").strip()
+            _win_body = (
+                f"{_win_merchant} hasn't taken a payment in over 6 weeks — that change stuck."
+                if _win_merchant
+                else "That payment hasn't gone out in over 6 weeks — that change stuck."
+            )
+            celebration_items.append({
+                "id": _win_id,
+                "type": "celebration",
+                "headline": f"£{_win_amt_str}/mo is staying in your pocket",
+                "body": _win_body,
+                "action": None,
+                "estimated": False,
+            })
+    except Exception as _win_exc:
+        log.warning("insight win narration failed for %s: %s", uid, _win_exc)
+
     # ── 8. RHYTHM items ─────────────────────────────────────────────────────
     rhythm_items: list[dict] = []
     portrait = await behaviour_portrait_col.find_one({"_id": uid})

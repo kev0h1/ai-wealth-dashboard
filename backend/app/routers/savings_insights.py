@@ -26,55 +26,85 @@ router = APIRouter(tags=["savings_insights"])
 INSIGHT_CATEGORIES: dict[str, dict] = {
     "energy": {
         "icon": "⚡", "label": "Energy",
-        "query": "best energy tariff switch UK 2025 cheapest deals save money",
+        "query": "best energy tariff switch UK {year} cheapest deals save money",
         "triggers": ["british gas", "eon ", "edf", "scottish power", "octopus energy", "npower", "sse ", "bulb energy", "shell energy", "utilita", "utility warehouse", "bg energy"],
     },
     "mortgage": {
         "icon": "🏠", "label": "Mortgage",
-        "query": "best mortgage remortgage deals UK 2025 lowest fixed rate switch lender",
+        "query": "best mortgage remortgage deals UK {year} lowest fixed rate switch lender",
         "triggers": ["mortgage", "nationwide", "halifax", "santander mortgage", "barclays mortgage", "lloyds mortgage", "natwest mortgage", "hsbc mortgage", "virgin money mortgage", "mortg"],
     },
     "car_finance": {
         "icon": "🚘", "label": "Car Finance",
-        "query": "refinance car loan UK 2025 best rate save money PCP HP alternatives",
+        "query": "refinance car loan UK {year} best rate save money PCP HP alternatives",
         "triggers": ["black horse", "close brothers", "moneybarn", "evolution funding", "motonovo", "car loan", "car finance", "hire purchase", "santander consumer", "toyota finance", "volkswagen finance"],
     },
     "car_insurance": {
         "icon": "🚗", "label": "Car Insurance",
-        "query": "cheapest car insurance deals UK 2025 comparison save",
+        "query": "cheapest car insurance deals UK {year} comparison save",
         "triggers": ["direct line", "admiral", "aviva", "hastings direct", "churchill", "more than", "lv= ", "esure", "elephant auto"],
     },
     "broadband": {
         "icon": "📡", "label": "Broadband",
-        "query": "best broadband deals UK 2025 switch provider save money",
+        "query": "best broadband deals UK {year} switch provider save money",
         "triggers": ["bt ", "bt group", "virgin media", "sky broadband", "talktalk", "vodafone broadband", "now broadband", "plusnet", "community fibre", "hyperoptic"],
     },
     "mobile": {
         "icon": "📱", "label": "Mobile",
-        "query": "best SIM only mobile plan UK 2025 cheapest deal",
+        "query": "best SIM only mobile plan UK {year} cheapest deal",
         "triggers": ["ee ltd", "ee limited", "ee ", "o2 ", "vodafone", "three ", "giffgaff", "sky mobile", "tesco mobile", "id mobile", "lycamobile"],
     },
     "groceries": {
         "icon": "🛒", "label": "Groceries",
-        "query": "cheapest UK supermarket comparison 2025 where to shop save groceries",
+        "query": "cheapest UK supermarket comparison {year} where to shop save groceries",
         "triggers": ["tesco", "sainsbury", "asda", "morrisons", "waitrose", "lidl", "aldi", "co-op", "marks and spencer food", "ocado", "m&s food"],
     },
     "eating_out": {
         "icon": "🍽️", "label": "Eating Out",
-        "query": "restaurant dining offers discounts UK 2025 deals save money eating out",
+        "query": "restaurant dining offers discounts UK {year} deals save money eating out",
         "triggers": ["restaurant", "mcdonald", "kfc", "nando", "wagamama", "pizza express", "prezzo", "costa coffee", "starbucks", "pret a manger", "itsu", "leon ", "subway"],
     },
     "gym": {
         "icon": "💪", "label": "Gym",
-        "query": "best value gym membership UK 2025 cheapest monthly no contract",
+        "query": "best value gym membership UK {year} cheapest monthly no contract",
         "triggers": ["pure gym", "the gym group", "david lloyd", "virgin active", "anytime fitness", "nuffield health", "fitness first", "bannatyne", "everyone active"],
     },
     "subscriptions": {
         "icon": "📺", "label": "Subscriptions",
-        "query": "how to save on streaming subscriptions UK 2025 cheaper alternatives deals",
+        "query": "how to save on streaming subscriptions UK {year} cheaper alternatives deals",
         "triggers": ["netflix", "spotify", "amazon prime", "disney+", "disney plus", "apple tv", "youtube premium", "now tv", "sky entertainment", "paramount+", "apple music"],
     },
 }
+
+# Content format version: bump when the generation prompt changes materially so
+# existing stored insights regenerate on the next pass instead of serving the
+# old copy until their 30-day TTL.
+PROMPT_VERSION = 2
+
+# In-app destination per category — the screen where the user can act on the
+# insight with their own data (frontend renders this as the primary action).
+CATEGORY_APP_ROUTES: dict[str, str] = {
+    "subscriptions": "/planning",           # recurring list lives there
+    "mobile":        "/spend?category=Bills",
+    "broadband":     "/spend?category=Bills",
+    "energy":        "/spend?category=Bills",
+    "groceries":     "/spend?category=Groceries",
+    "eating_out":    "/spend?category=Eating%20Out",
+    "gym":           "/spend?category=Health",
+    "car_finance":   "/planning",
+    "mortgage":      "/planning",
+    "car_insurance": "/spend?category=Bills",
+    "insurance":     "/spend?category=Bills",
+    "water":         "/spend?category=Bills",
+}
+
+# Non-UK guardrail: US-only services/terms that must never reach a UK user's
+# card. Checked post-generation; one regeneration attempt, then the insight is
+# dropped rather than stored.
+_NON_UK_RE = re.compile(
+    r"\bhulu\b|\bmax bundle\b|\bvenmo\b|\bzelle\b|\b401\s?\(?k\)?\b|\broth\b|\bmedicare\b|\bsales tax\b",
+    re.IGNORECASE,
+)
 
 LABEL_OPTIONS: dict[str, dict] = {
     **{k: {"icon": v["icon"], "label": v["label"]} for k, v in INSIGHT_CATEGORIES.items()},
@@ -230,9 +260,15 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
     return result
 
 
-async def _generate_savings_insight_content(category_key: str, user_context: Optional[dict] = None) -> Optional[dict]:
+async def _generate_savings_insight_content(
+    category_key: str,
+    user_context: Optional[dict] = None,
+    triggered_by: Optional[list[dict]] = None,
+) -> Optional[dict]:
     cfg          = INSIGHT_CATEGORIES[category_key]
-    today_label  = datetime.utcnow().strftime("%B %Y")
+    now          = datetime.utcnow()
+    today_label  = now.strftime("%B %Y")
+    query        = cfg["query"].format(year=now.year)
     web_snippets: list[str] = []
 
     if TAVILY_API_KEY:
@@ -240,7 +276,7 @@ async def _generate_savings_insight_content(category_key: str, user_context: Opt
             try:
                 r = await client.post(
                     "https://api.tavily.com/search",
-                    json={"api_key": TAVILY_API_KEY, "query": f"{cfg['query']} {today_label}",
+                    json={"api_key": TAVILY_API_KEY, "query": f"{query} {today_label}",
                           "search_depth": "basic", "max_results": 3, "include_answer": True},
                 )
                 if r.status_code == 200:
@@ -258,52 +294,98 @@ async def _generate_savings_insight_content(category_key: str, user_context: Opt
         return None
 
     web_text = "\n\n".join(web_snippets)
+
+    uk_rules = (
+        f"Today is {today_label}. UK only — never recommend services, providers or products "
+        "unavailable in the UK; all figures in GBP (£). "
+        "Never present a past month or year as the current one; if the search results are dated, "
+        "omit the date rather than repeating it.\n"
+    )
+
+    facts_block  = ""
+    verdict_rule = ""
+    if triggered_by:
+        facts_lines = "\n".join(
+            f"- {t.get('display_name') or t.get('merchant_key', '')}: "
+            f"~£{float(t.get('monthly_amount') or 0):.0f}/month "
+            f"({t.get('occurrences', 0)} transactions in the last 90 days)"
+            for t in triggered_by[:4]
+        )
+        facts_block = (
+            f"The user's own {cfg['label'].lower()} spending, from their bank transactions:\n"
+            f"{facts_lines}\n\n"
+        )
+        verdict_rule = (
+            "RULE — verdict first: the title or the opening sentence of the body MUST lead with the "
+            "user's own figure from their spending above, e.g. "
+            '"You pay EE £46/mo — SIM-only could cut that to ~£12". '
+            "Their spending figures are facts; any saving is an estimate — hedge it with '~' or 'could'.\n"
+        )
+
     if user_context:
         ctx_lines = "\n".join(f"- {k.replace('_', ' ').title()}: {v}" for k, v in user_context.items() if v)
         prompt    = (
-            f"Today is {today_label}. Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{uk_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{facts_block}"
             f"The user's current {cfg['label'].lower()} situation:\n{ctx_lines}\n\n"
-            "Write a HIGHLY PERSONALISED savings insight. Reference their specific rate, provider, amount or end date where relevant. "
-            "Give concrete next steps they should take right now. "
-            "Never present a past month or year as the current one; if the search results are dated, omit the date rather than repeating it.\n"
-            "JSON: title (max 8 words, specific to their situation), "
+            "Write a HIGHLY PERSONALISED savings insight. Reference their specific spend, rate, provider, "
+            "amount or end date where relevant. Give concrete next steps they should take right now.\n"
+            f"{verdict_rule}"
+            "JSON: title (max 10 words, specific to their situation), "
             "body (2–3 sentences, direct advice referencing their details), "
             "savings_estimate (calculate from their numbers if possible, else null)\n\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
     else:
         prompt = (
-            f"Today is {today_label}. Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{uk_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{facts_block}"
             "Write a concise savings insight card in JSON with three fields:\n"
-            "- title: max 8 words, punchy, present tense\n"
-            "- body: 1–2 sentences, specific deal or tip, no filler. "
-            "Never present a past month or year as the current one; if the search results are dated, omit the date.\n"
-            "- savings_estimate: e.g. 'Up to £200/yr' or 'Save 30%' if clearly stated, else null\n\n"
+            "- title: max 10 words, punchy, present tense\n"
+            "- body: 1–2 sentences, specific deal or tip, no filler\n"
+            "- savings_estimate: e.g. '~£200/yr' or 'Save ~30%' if clearly supported, else null\n"
+            f"{verdict_rule}\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 200,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "response_format": {"type": "json_object"}},
-            )
-            if r.status_code == 200:
-                raw = r.json()["choices"][0]["message"]["content"].strip()
-                if raw.startswith("```"):
-                    raw = re.sub(r'^```(?:json)?\s*', '', raw)
-                    raw = re.sub(r'\s*```$', '', raw).strip()
-                parsed = json.loads(raw)
-                return {
-                    "title": str(parsed.get("title", cfg["label"])),
-                    "body":  str(parsed.get("body", "")),
-                    "savings_estimate": parsed.get("savings_estimate") or None,
-                }
-        except Exception:
-            pass
+    # Two attempts: if the model names a non-UK product (Hulu, Venmo, 401(k)…)
+    # we regenerate once with a sharper instruction, then drop the insight —
+    # never store garbage.
+    for attempt in range(2):
+        attempt_prompt = prompt if attempt == 0 else (
+            prompt
+            + "\n\nIMPORTANT: your previous answer mentioned a non-UK product or US-only term. "
+              "Mention ONLY services, providers and terms available in the UK."
+        )
+        parsed = None
+        async with httpx.AsyncClient(timeout=30) as client:
+            try:
+                r = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
+                    json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 220,
+                          "messages": [{"role": "user", "content": attempt_prompt}],
+                          "response_format": {"type": "json_object"}},
+                )
+                if r.status_code == 200:
+                    raw = r.json()["choices"][0]["message"]["content"].strip()
+                    if raw.startswith("```"):
+                        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+                        raw = re.sub(r'\s*```$', '', raw).strip()
+                    parsed = json.loads(raw)
+            except Exception:
+                parsed = None
+        if not isinstance(parsed, dict):
+            continue
+        title = str(parsed.get("title", cfg["label"]))
+        body  = str(parsed.get("body", ""))
+        if _NON_UK_RE.search(f"{title} {body}"):
+            continue
+        return {
+            "title": title,
+            "body":  body,
+            "savings_estimate": parsed.get("savings_estimate") or None,
+        }
     return None
 
 
@@ -314,10 +396,10 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
     if user_context is None:
         existing_doc = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
         user_context = existing_doc.get("user_context") if existing_doc else None
-    content = await _generate_savings_insight_content(category_key, user_context)
+    triggered_by = await _find_triggered_transactions(user_id, category_key)
+    content = await _generate_savings_insight_content(category_key, user_context, triggered_by)
     if not content or not content.get("body"):
         return
-    triggered_by   = await _find_triggered_transactions(user_id, category_key)
     title          = content["title"]
     body_text      = content["body"]
     savings_estimate = content.get("savings_estimate")
@@ -329,6 +411,7 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         "title": title, "body": body_text, "savings_estimate": savings_estimate,
         "triggered_by": triggered_by, "refreshed_at": now,
         "content_hash": content_hash, "is_new": is_new,
+        "prompt_version": PROMPT_VERSION,
         "deadline_at": _parse_deadline(user_context),
         "deadline_flagged": False,  # fresh context resets the one-shot deadline alert
     }
@@ -388,7 +471,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             continue
 
         stored_context = existing.get("user_context") if existing else None
-        content        = await _generate_savings_insight_content(cat_key, stored_context)
+        content        = await _generate_savings_insight_content(cat_key, stored_context, triggered_by)
         if not content or not content.get("body"):
             continue
         title          = content["title"]
@@ -403,6 +486,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 "title": title, "body": body, "savings_estimate": savings_estimate,
                 "triggered_by": triggered_by, "refreshed_at": now,
                 "content_hash": content_hash, "is_new": is_new,
+                "prompt_version": PROMPT_VERSION,
                 "deadline_at": _parse_deadline(stored_context),
                 "deadline_flagged": reason == "deadline_window" or bool(existing.get("deadline_flagged")),
             }
@@ -418,6 +502,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
                 "triggered_by": triggered_by, "pinned": False, "created_at": now,
                 "refreshed_at": now, "expires_at": now + timedelta(days=30),
                 "content_hash": content_hash, "is_new": True,
+                "prompt_version": PROMPT_VERSION,
             })
 
 
@@ -445,6 +530,9 @@ def _serialize_insight(d: dict) -> dict:
         "triggered_by":    d.get("triggered_by", []),
         "user_context":    d.get("user_context"),
         "has_workflow":    d["category"] in CATEGORY_WORKFLOWS,
+        # In-app screen where the user can act on this with their own data;
+        # null when no natural home exists.
+        "app_route":       CATEGORY_APP_ROUTES.get(cat),
     }
 
 
@@ -543,6 +631,8 @@ def _regen_reason(existing: dict | None, triggered_by: list[dict], now: datetime
     or a user-entered deadline entered the 60-day window (once)."""
     if not existing or not existing.get("refreshed_at"):
         return "first_generation"
+    if existing.get("prompt_version") != PROMPT_VERSION:
+        return "prompt_upgraded"  # content predates the verdict-first format
     if (now - existing["refreshed_at"]).days >= 30:
         return "ttl"
     old_total = sum(t.get("monthly_amount", 0) for t in existing.get("triggered_by") or [])
@@ -591,17 +681,26 @@ def _spotlight_candidates(docs: list[dict]) -> list[dict]:
 @router.get("/savings-insights")
 async def get_savings_insights(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
     uid  = user["email"]
-    docs = await savings_insights_col.find({"user_id": uid}).sort([("pinned", -1), ("refreshed_at", -1)]).to_list(None)
+    docs = await savings_insights_col.find({"user_id": uid}).to_list(None)
 
-    results = []
     for d in docs:
         if not d.get("triggered_by"):
             triggered_by = await _find_triggered_transactions(uid, d["category"])
             if triggered_by:
                 await savings_insights_col.update_one({"_id": d["_id"]}, {"$set": {"triggered_by": triggered_by}})
                 d["triggered_by"] = triggered_by
-        results.append(_serialize_insight(d))
-    return results
+
+    # Biggest-impact card first: pinned, then verified wins, then the largest
+    # parsed £ estimate, then the largest triggering monthly spend.
+    from app.routers.analytics import _parse_saving_amount
+
+    def _rank_key(d: dict):
+        estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
+        spend    = sum(float(t.get("monthly_amount") or 0) for t in d.get("triggered_by") or [])
+        return (bool(d.get("pinned")), bool(d.get("verified_savings")), estimate, spend)
+
+    docs.sort(key=_rank_key, reverse=True)
+    return [_serialize_insight(d) for d in docs]
 
 
 @router.get("/savings-insights/spotlight")

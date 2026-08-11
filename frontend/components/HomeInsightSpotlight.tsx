@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { X, ChevronRight, TrendingDown } from "lucide-react";
+import { X, ChevronRight, TrendingDown, RotateCcw } from "lucide-react";
 import { api, SavingsInsight } from "@/lib/api";
+import { insightCategoryIcon } from "@/lib/insightIcons";
 
 export default function HomeInsightSpotlight() {
   const router = useRouter();
@@ -115,10 +116,13 @@ export default function HomeInsightSpotlight() {
           {/* Topic chip + new badge — chip uses Penny gradient as it IS an AI surface */}
           <div className="flex items-center gap-2 mb-3 pr-8">
             <span
-              className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white rounded-full pl-1.5 pr-2.5 py-1"
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-white rounded-full pl-2 pr-2.5 py-1"
               style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
             >
-              <span className="text-sm leading-none">{insight.icon}</span>
+              {(() => {
+                const ChipIcon = insightCategoryIcon(insight.category);
+                return <ChipIcon size={12} strokeWidth={2.5} className="flex-shrink-0" />;
+              })()}
               {insight.label}
             </span>
             {insight.is_new && (
@@ -130,8 +134,8 @@ export default function HomeInsightSpotlight() {
 
           {/* A resurrected insight explains itself — return without a reason reads as nagging */}
           {insight.return_reason && (
-            <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1.5">
-              ↺ Back because: {insight.return_reason}
+            <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
+              <RotateCcw size={11} className="flex-shrink-0" /> Back because: {insight.return_reason}
             </p>
           )}
 

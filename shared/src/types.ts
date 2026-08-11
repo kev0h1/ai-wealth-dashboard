@@ -124,6 +124,8 @@ export interface SavingsInsight {
   }[];
   user_context: Record<string, string> | null;
   has_workflow: boolean;
+  /** In-app route showing the user's own spend for this category (primary action) */
+  app_route?: string | null;
   /** Why a dismissed insight came back to the spotlight (null = normal show) */
   return_reason?: string | null;
   /** Parsed contract/deal end date from user context */

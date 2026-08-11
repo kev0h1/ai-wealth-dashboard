@@ -3,8 +3,9 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, CheckCircle2, ExternalLink, TrendingDown, TrendingUp } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingDown, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
+import { insightCategoryIcon } from "@/lib/insightIcons";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -33,20 +34,34 @@ const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   subscriptions: [{ label: "MSE Deals", url: "https://www.moneysavingexpert.com/deals/" }, { label: "Which?", url: "https://www.which.co.uk" }],
 };
 
-const NEUTRAL_PILL = { bg: "bg-slate-100 dark:bg-slate-700/60", text: "text-slate-600 dark:text-slate-300" };
-
-const CATEGORY_COLOURS: Record<string, { bg: string; text: string }> = {
-  energy:        NEUTRAL_PILL,
-  mortgage:      NEUTRAL_PILL,
-  car_finance:   NEUTRAL_PILL,
-  car_insurance: NEUTRAL_PILL,
-  broadband:     NEUTRAL_PILL,
-  mobile:        NEUTRAL_PILL,
-  groceries:     NEUTRAL_PILL,
-  eating_out:    NEUTRAL_PILL,
-  gym:           NEUTRAL_PILL,
-  subscriptions: NEUTRAL_PILL,
+// In-app primary action label per category ("See your X ›" → insight.app_route)
+const APP_ROUTE_LABELS: Record<string, string> = {
+  subscriptions: "See your subscriptions",
+  energy:        "See your energy bills",
+  groceries:     "See your grocery spend",
+  eating_out:    "See your eating-out spend",
+  mobile:        "See your mobile bills",
+  broadband:     "See your broadband bills",
+  gym:           "See your gym payments",
+  car_finance:   "See your car payments",
+  car_insurance: "See your insurance payments",
+  insurance:     "See your insurance payments",
+  mortgage:      "See your mortgage payments",
+  water:         "See your water bills",
 };
+
+// Standard category chip: small rounded tile, subtle tint, lucide icon
+function CategoryChip({ category, label }: { category: string; label: string }) {
+  const Icon = insightCategoryIcon(category);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+        <Icon size={15} className="text-indigo-500 dark:text-indigo-400" />
+      </span>
+      <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">{label}</span>
+    </span>
+  );
+}
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "";
@@ -113,7 +128,9 @@ function UnknownBillsPanel({
         aria-expanded={open}
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-base">🔍</span>
+          <span className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+            <Search size={15} className="text-amber-600 dark:text-amber-400" />
+          </span>
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               Help us personalise your insights
@@ -154,25 +171,28 @@ function UnknownBillsPanel({
                 <div className="px-4 pb-4 space-y-2.5">
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">What type of bill is this?</p>
                   <div className="grid grid-cols-3 gap-1.5">
-                    {Object.entries(labelOptions).map(([key, opt]) => (
+                    {Object.entries(labelOptions).map(([key, opt]) => {
+                      const OptIcon = insightCategoryIcon(key);
+                      return (
                       <button
                         key={key}
                         disabled={isSaving}
                         onClick={() => pick(bill.merchant_key, key)}
                         className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 active:scale-95 transition-all disabled:opacity-40"
                       >
-                        <span className="text-xl leading-none">{opt.icon}</span>
+                        <OptIcon size={18} className="text-slate-500 dark:text-slate-300" />
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
                           {opt.label}
                         </span>
                       </button>
-                    ))}
+                      );
+                    })}
                     <button
                       disabled={isSaving}
                       onClick={() => pick(bill.merchant_key, "skip")}
                       className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-95 transition-all disabled:opacity-40"
                     >
-                      <span className="text-xl leading-none">✕</span>
+                      <X size={18} className="text-slate-400 dark:text-slate-400" />
                       <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
                         Skip
                       </span>
@@ -231,7 +251,7 @@ function LabelledBillsPanel({
       await api.labelBill(merchantKey, category);
       setLabels(prev => prev.map(l =>
         l.merchant_key === merchantKey
-          ? { ...l, category, icon: labelOptions[category]?.icon ?? "💡", label: labelOptions[category]?.label ?? category, is_skip: category === "skip" }
+          ? { ...l, category, icon: labelOptions[category]?.icon ?? "", label: labelOptions[category]?.label ?? category, is_skip: category === "skip" }
           : l
       ));
       setEditing(null);
@@ -264,7 +284,9 @@ function LabelledBillsPanel({
         aria-expanded={open}
       >
         <div className="flex items-center gap-2.5">
-          <span className="text-base">🏷️</span>
+          <span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+            <Tag size={15} className="text-slate-500 dark:text-slate-300" />
+          </span>
           <div>
             <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Your labelled bills</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{labels.length} bill{labels.length !== 1 ? "s" : ""} categorised</p>
@@ -286,7 +308,10 @@ function LabelledBillsPanel({
                       {lbl.display_name}
                     </p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-sm">{lbl.icon}</span>
+                      {!lbl.is_skip && (() => {
+                        const LblIcon = insightCategoryIcon(lbl.category);
+                        return <LblIcon size={13} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />;
+                      })()}
                       <span className={`text-[11px] text-slate-500 dark:text-slate-400 ${lbl.is_skip ? "italic" : ""}`}>
                         {lbl.is_skip ? "Skipped" : lbl.label}
                       </span>
@@ -304,7 +329,9 @@ function LabelledBillsPanel({
                   <div className="mt-3 space-y-2">
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">Change category:</p>
                     <div className="grid grid-cols-3 gap-1.5">
-                      {Object.entries(labelOptions).map(([key, opt]) => (
+                      {Object.entries(labelOptions).map(([key, opt]) => {
+                        const OptIcon = insightCategoryIcon(key);
+                        return (
                         <button
                           key={key}
                           disabled={isSaving}
@@ -315,12 +342,13 @@ function LabelledBillsPanel({
                               : "bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
                             }`}
                         >
-                          <span className="text-xl leading-none">{opt.icon}</span>
+                          <OptIcon size={18} className="text-slate-500 dark:text-slate-300" />
                           <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
                             {opt.label}
                           </span>
                         </button>
-                      ))}
+                        );
+                      })}
                       <button
                         disabled={isSaving}
                         onClick={() => handleRelabel(lbl.merchant_key, "skip")}
@@ -330,7 +358,7 @@ function LabelledBillsPanel({
                             : "bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600"
                           }`}
                       >
-                        <span className="text-xl leading-none">✕</span>
+                        <X size={18} className="text-slate-400 dark:text-slate-400" />
                         <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
                           Skip
                         </span>
@@ -465,8 +493,12 @@ function WorkflowDrawer({
           {/* Header */}
           <div className="flex items-center justify-between mb-5">
             <div>
-              <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide">
-                {insight.icon} {insight.label}
+              <p className="text-[11px] font-semibold text-indigo-500 flex items-center gap-1.5">
+                {(() => {
+                  const HeaderIcon = insightCategoryIcon(insight.category);
+                  return <HeaderIcon size={13} className="flex-shrink-0" />;
+                })()}
+                {insight.label}
               </p>
               <h2 id={titleId} className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-0.5">
                 {done ? "Personalising your insight…" : workflow.cta}
@@ -624,9 +656,12 @@ function InsightCard({
   onPin: (id: string) => void;
   onContextSaved: () => void;
 }) {
-  const colours = CATEGORY_COLOURS[insight.category] ?? { bg: "bg-slate-100 dark:bg-slate-700", text: "text-slate-600 dark:text-slate-400" };
+  const router = useRouter();
   const [showTriggers, setShowTriggers] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  // The user's own figure — leads the card (verdict first, then the web copy)
+  const topTrigger = insight.triggered_by[0] ?? null;
+  const extraTriggers = insight.triggered_by.length - 1;
 
   return (
     <>
@@ -638,9 +673,8 @@ function InsightCard({
           {/* Category + badges + pin */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${colours.bg} ${colours.text}`}>
-                {insight.icon} {insight.label}
-              </span>
+              <CategoryChip category={insight.category} label={insight.label} />
+
               {insight.is_new && (
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center gap-1">
                   <Sparkles size={10} /> New
@@ -666,8 +700,24 @@ function InsightCard({
             </div>
           ) : null}
 
-          {/* Title — visual lead now that estimate is removed */}
-          <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]">
+          {/* The user's own figure opens the card — verdict first */}
+          {topTrigger && (
+            <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
+              ~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo{" "}
+              <span className="font-medium">at {topTrigger.display_name}</span>
+              {extraTriggers > 0 && <span className="font-medium"> · +{extraTriggers} more</span>}{" "}
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">— from your transactions</span>
+            </p>
+          )}
+
+          {/* Generic title — demoted beneath the personal figure (leads only when no trigger) */}
+          <p
+            className={
+              topTrigger
+                ? "text-sm text-slate-600 dark:text-slate-300 leading-snug [text-wrap:balance] -mt-1.5"
+                : "text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]"
+            }
+          >
             {insight.title}
           </p>
 
@@ -679,26 +729,33 @@ function InsightCard({
             <span className="text-[11px] text-slate-400 dark:text-slate-500 self-end">{timeAgo(insight.refreshed_at)}</span>
           )}
 
-          {/* Deal sites — primary action payoff */}
+          {/* Primary action — the user's own data, in-app */}
+          {insight.app_route && (
+            <button
+              onClick={() => router.push(insight.app_route!)}
+              className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all"
+            >
+              {APP_ROUTE_LABELS[insight.category] ?? "See it in your spending"}
+              <ChevronRight size={15} />
+            </button>
+          )}
+
+          {/* Comparison sites — secondary, quiet */}
           {CATEGORY_LINKS[insight.category] && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-                Where to save
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {CATEGORY_LINKS[insight.category].map(link => (
-                  <a
-                    key={link.url}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all"
-                  >
-                    <ExternalLink size={12} />
-                    {link.label}
-                  </a>
-                ))}
-              </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 dark:text-slate-500">Compare:</span>
+              {CATEGORY_LINKS[insight.category].map(link => (
+                <a
+                  key={link.url}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative before:absolute before:-inset-y-2.5 before:-inset-x-0.5 before:content-[''] inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-700/60 px-2 py-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all"
+                >
+                  <ExternalLink size={10} />
+                  {link.label}
+                </a>
+              ))}
             </div>
           )}
 
@@ -770,7 +827,7 @@ function ImproveHousekeepingPanel({
         aria-expanded={open}
         className="w-full flex items-center justify-between gap-2 py-2 px-1 text-left"
       >
-        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+        <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Improve your suggestions
         </span>
         <ChevronDown
@@ -949,7 +1006,9 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           <div className="bg-white dark:bg-slate-800 px-5 py-4 space-y-2.5">
             {["Bill optimisation (energy, broadband, insurance)", "Subscription spend analysis", "Grocery price intelligence", "Fuel savings near you"].map(f => (
               <div key={f} className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300">
-                <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0 text-[10px] text-indigo-600 dark:text-indigo-300 font-bold">✓</span>
+                <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0 text-indigo-600 dark:text-indigo-300">
+                  <Check size={11} strokeWidth={3} />
+                </span>
                 {f}
               </div>
             ))}
@@ -968,7 +1027,9 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
       {!loading && !locked && !error && insights.length === 0 && !refreshQueued && (
         <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-          <span className="text-5xl">💡</span>
+          <span className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center">
+            <Lightbulb size={26} className="text-indigo-500 dark:text-indigo-400" />
+          </span>
           <div>
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">No insights yet</p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Tap Refresh to search for savings based on your transactions</p>

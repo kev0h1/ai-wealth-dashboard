@@ -181,13 +181,15 @@ export default function SpendPage() {
   }, []);
 
   // Category deep-link — e.g. from RhythmCard "I'd like to change this"
+  // (sessionStorage) or an insight card's "/spend?category=X" primary action.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const cat = sessionStorage.getItem("wealth_open_category");
+    const cat = sessionStorage.getItem("wealth_open_category") ?? searchParams.get("category");
     if (cat) {
       sessionStorage.removeItem("wealth_open_category");
       setPendingCategory(cat);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Page is ready once both accounts and transactions are loaded.
