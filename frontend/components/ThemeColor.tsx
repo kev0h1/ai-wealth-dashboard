@@ -21,6 +21,18 @@ export default function ThemeColor() {
     }
     meta.content = darkMode ? DARK : LIGHT;
 
+    // Keep the Chrome Auto Dark opt-out meta (see layout.tsx head) in sync
+    // with runtime theme toggles — "only light" is what makes Chrome skip
+    // force-inversion; it must flip to "dark" when the user goes dark so we
+    // don't fight Chrome's own dark rendering.
+    let colorScheme = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
+    if (!colorScheme) {
+      colorScheme = document.createElement("meta");
+      colorScheme.name = "color-scheme";
+      document.head.appendChild(colorScheme);
+    }
+    colorScheme.content = darkMode ? "dark" : "only light";
+
     // Native status-bar icon color (Capacitor): dark icons on light bg, light icons on dark bg.
     // iOS overlays the status bar by default already. We deliberately do NOT
     // force Android into edge-to-edge here: doing so would make Android rely

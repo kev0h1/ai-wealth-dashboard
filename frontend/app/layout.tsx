@@ -45,11 +45,22 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full" suppressHydrationWarning>
       <head>
+        {/* Chrome Auto Dark opt-out (server-rendered default). The globals.css
+            `color-scheme: only light` on :root is belt-and-braces — Chrome's
+            force-dark detection also reads this meta, and unlike the CSS
+            property it survives production minification verbatim (the CSS
+            minifier reorders "only light" to "light only", which silently
+            defeats Chrome's opt-out sniffing). Flipped to "dark" by the
+            inline script below when cached dark mode applies, and kept in
+            sync at runtime by ThemeColor. */}
+        <meta name="color-scheme" content="only light" />
         {/* Apply cached dark mode before first paint — the server-fetched
-            preference confirms/corrects it later, but we never flash white */}
+            preference confirms/corrects it later, but we never flash white.
+            Also flips the color-scheme meta above so Chrome's Auto Dark
+            opt-out is correct from first paint, not just after hydration. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{if(localStorage.getItem('wd_dark')==='1')document.documentElement.classList.add('dark')}catch(e){}`,
+            __html: `try{if(localStorage.getItem('wd_dark')==='1'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name="color-scheme"]');if(m)m.setAttribute('content','dark')}}catch(e){}`,
           }}
         />
       </head>
