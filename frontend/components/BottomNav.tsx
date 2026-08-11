@@ -78,6 +78,7 @@ export default function BottomNav() {
             <Link
               key={href}
               href={href}
+              data-tutorial-id={href === "/settings" ? "tutorial-nav-settings" : undefined}
               aria-current={active ? "page" : undefined}
               className="relative flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors"
               style={{ textDecoration: "none" }}

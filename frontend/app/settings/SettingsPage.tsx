@@ -552,7 +552,7 @@ export default function SettingsPage() {
                 <label htmlFor="settings-income" className="text-sm font-medium text-slate-800 dark:text-slate-100 block mb-1">
                   Approximate income (£/yr)
                 </label>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Used to personalise your tax calculations — over £100k unlocks the Tax tab</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">Used to personalise your tax levers and calculations for your income band</p>
                 <div className="relative w-40">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">£</span>
                   <input
@@ -606,14 +606,17 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <button
-                onClick={() => router.push("/insights?tab=tax")}
-                className="w-full flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 active:bg-indigo-50 dark:active:bg-indigo-900/10 transition-colors"
-              >
-                <span className="text-sm font-semibold">View tax breakdown</span>
-                <ChevronRight size={16} />
-              </button>
             </>
+          )}
+
+          {incomeBracket && (
+            <button
+              onClick={() => router.push("/insights?tab=tax")}
+              className="w-full flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 active:bg-indigo-50 dark:active:bg-indigo-900/10 transition-colors"
+            >
+              <span className="text-sm font-semibold">View tax breakdown</span>
+              <ChevronRight size={16} />
+            </button>
           )}
         </div>
 

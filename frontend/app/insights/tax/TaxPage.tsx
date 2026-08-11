@@ -160,7 +160,6 @@ export default function TaxPage({
   embedded = false,
   prefsLoaded = false,
   incomeValue: incomeValueProp,
-  incomeBracket: incomeBracketProp,
   pensionAnnual: pensionAnnualProp,
   hasChildBenefit: hasChildBenefitProp,
 }: TaxPageProps) {
@@ -184,10 +183,6 @@ export default function TaxPage({
     if (skipFetch) return hasChildBenefitProp ?? false;
     return false;
   });
-  const [bracket, setBracket] = useState(() => {
-    if (skipFetch) return incomeBracketProp ?? "";
-    return "";
-  });
 
   const [alsoKnowingOpen, setAlsoKnowingOpen] = useState(false);
 
@@ -195,7 +190,6 @@ export default function TaxPage({
     // When the parent already fetched prefs, keep state in sync if props change
     // (e.g. user updates settings while on the page) but don't fire a fetch.
     if (skipFetch) {
-      setBracket(incomeBracketProp ?? "");
       setPensionAnnual(pensionAnnualProp ?? 0);
       setHasChildBenefit(hasChildBenefitProp ?? false);
       setIncome(incomeValueProp ?? 0);
@@ -203,7 +197,6 @@ export default function TaxPage({
     }
     // Standalone route: fetch prefs ourselves.
     api.getPreferences().then(p => {
-      setBracket(p.income_bracket ?? "");
       setPensionAnnual(p.pension_annual ?? 0);
       setHasChildBenefit(p.has_child_benefit ?? false);
       if (p.income_value && p.income_value > 0) {
@@ -214,8 +207,7 @@ export default function TaxPage({
         setIncome(130_000);
       }
     }).catch(() => {}).finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skipFetch, incomeValueProp, incomeBracketProp, pensionAnnualProp, hasChildBenefitProp]);
+  }, [skipFetch, incomeValueProp, pensionAnnualProp, hasChildBenefitProp]);
 
   const ty = getTaxYear();
 
@@ -223,31 +215,26 @@ export default function TaxPage({
     return <div className="flex items-center justify-center py-16"><Spinner size={28} /></div>;
   }
 
-  if (!bracket || bracket === "under_100k" || income === 0) {
-    if (embedded) {
-      return (
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Set your income first</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
-          <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl">
-            Go to Settings
-          </button>
-        </div>
-      );
-    }
+  // No income on file — a quiet prompt instead of levers. Every income band
+  // gets levers once an income is set; this is the only gated state.
+  if (income === 0) {
+    const prompt = (
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
+        <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Add your income in Settings</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Your tax levers and estimates personalise from the income and pension you set there.</p>
+        <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl">
+          Go to Settings
+        </button>
+      </div>
+    );
+    if (embedded) return prompt;
     return (
       <div className="min-h-dvh" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="px-4 pt-4 pb-6">
           <button onClick={() => router.back()} className="flex items-center gap-1.5 text-sm text-slate-500 mb-4">
             <ChevronLeft size={18} /> Back
           </button>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-6 text-center">
-            <p className="text-slate-500 dark:text-slate-400 text-sm mb-1 font-medium">Set your income first</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Enter your salary in Settings to unlock personalised tax insights.</p>
-            <button onClick={() => router.push("/settings")} className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl">
-              Go to Settings
-            </button>
-          </div>
+          {prompt}
         </div>
       </div>
     );
@@ -304,12 +291,13 @@ export default function TaxPage({
         </>
       );
     } else {
-      // Basic rate: £12,570 < adjustedIncome ≤ £50,270
-      heroHeadline = "Shelter your savings before 5 Apr.";
+      // Basic rate: adjustedIncome ≤ £50,270
+      heroHeadline = "Your allowances reset on 5 Apr.";
       heroBody = (
         <>
-          Your <strong>£20,000 ISA</strong> allowance resets 5 Apr and doesn&rsquo;t roll
-          over; pension gets <strong>20% added automatically</strong>.
+          This year&rsquo;s <strong>£20,000 ISA</strong> allowance doesn&rsquo;t roll over,
+          and pension contributions get <strong>20% added automatically</strong> — every
+          £80 in becomes £100 invested.
         </>
       );
     }
@@ -379,16 +367,29 @@ export default function TaxPage({
             </div>
           </div>
         </div>
-      ) : (
-        /* Sub-£100k: reassuring one-liner, not a struck-through lead */
+      ) : adjustedIncome > 50_270 ? (
+        /* Higher rate, sub-£100k: reassuring one-liner, not a struck-through lead */
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex items-center gap-3">
           <CheckCircle2 size={18} className="text-emerald-500 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-              ✓ Your £100k allowance is safe
+              Your personal allowance is safe
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Adjusted income £{fmt(adjustedIncome)} — below the taper threshold. Keep pension contributions going to maximise relief.
+              Adjusted income £{fmt(adjustedIncome)} — below the £100,000 taper threshold. Pension contributions attract 40% relief at your rate.
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Basic rate: relief is automatic — nothing to fix, just a fact */
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 flex items-center gap-3">
+          <CheckCircle2 size={18} className="text-emerald-500 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-base font-bold text-slate-800 dark:text-slate-100">
+              Pension relief happens automatically
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              At basic rate, HMRC adds 20% to pension contributions with no forms to fill in — every £80 in becomes £100 invested.
             </p>
           </div>
         </div>
@@ -465,7 +466,7 @@ export default function TaxPage({
             <ActionRow
               status={done.has("eis_seis") ? "done" : "info"}
               title="EIS / SEIS investments"
-              detail="Investing in qualifying early-stage startups gives 30–50% upfront income tax relief. As a startup founder, you can't claim on your own company, but your investors can claim EIS/SEIS — worth making sure your company is eligible so you can attract investment more easily."
+              detail="Investing in qualifying early-stage companies gives 30% (EIS) or 50% (SEIS) upfront income tax relief, plus exemption from capital gains tax on qualifying profits. Some people use it to diversify outside pensions and ISAs — but it's high-risk and illiquid, so only worth considering with money you can afford to lose."
               onToggle={() => toggle("eis_seis")}
             />
 

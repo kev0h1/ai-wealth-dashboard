@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingDown, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingDown, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -18,7 +18,6 @@ import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxChat from "@/components/TaxChat";
-import SegmentedControl from "@/components/SegmentedControl";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -1098,8 +1097,9 @@ export default function InsightsPage() {
 
   const [loading, setLoading] = useState(true);
   const [isPro, setIsPro] = useState<boolean | null>(null);
+  // "tax" is a hidden tab: never offered in the UI, reachable only via the
+  // ?tab=tax deep link (Grow pension rungs + Settings keep pointing here).
   const [tab, setTab] = useState<"save" | "tax">("save");
-  const [newInsightCount, setNewInsightCount] = useState(0);
   const [incomeBracket, setIncomeBracket] = useState("");
   const [taxIncomeValue, setTaxIncomeValue] = useState(0);
   const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
@@ -1141,12 +1141,6 @@ export default function InsightsPage() {
     api.getSubscription()
       .then(s => setIsPro(s.tier !== "free"))
       .catch(() => setIsPro(true));
-    // New-insight count for the Ways to save tab badge
-    try {
-      const cached = localStorage.getItem("wd_insight_badge");
-      if (cached) { const { n } = JSON.parse(cached); setNewInsightCount(n); }
-    } catch {}
-    api.newInsightCount().then(({ count: n }) => setNewInsightCount(n)).catch(() => {});
   }, []);
 
   // Hydrate tab-shaping flags from the last visit before paint, so the tab row
@@ -1212,7 +1206,6 @@ export default function InsightsPage() {
     const label = `${start.getFullYear()}/${String(end.getFullYear()).slice(2)}`;
     return { pct, daysLeft, label };
   })();
-  const accent = tab === "tax" ? "#7c3aed" : "#0d9488";
 
   return (
     <div className="min-h-dvh pb-36 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -1266,29 +1259,9 @@ export default function InsightsPage() {
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : (
           <>
-            {/* Ways to save | Tax tabs — hidden entirely when there's only one option */}
+            {/* Tax is retired from the tab bar — with one visible section there
+                is no SegmentedControl. ?tab=tax still deep-links to TaxPage. */}
             {(() => {
-              const showTaxTab = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
-              if (isDesktop || !showTaxTab) return null;
-              return (
-                <SegmentedControl
-                  ariaLabel="Insights sections"
-                  value={tab}
-                  onChange={(t) => {
-                    setTab(t as typeof tab);
-                    if (t === "save") { setNewInsightCount(0); }
-                  }}
-                  options={[
-                    { value: "save", label: "Ways to save", accent: "#0d9488", badge: newInsightCount > 0 ? newInsightCount : undefined },
-                    { value: "tax", label: "Tax", accent: "#7c3aed" },
-                  ]}
-                />
-              );
-            })()}
-
-            {(() => {
-              const showTaxSection = incomeBracket === "100k_125k" || incomeBracket === "125k_plus";
-
               const waysBlock = (
                 <>
                   <SavingsInsightsSection embedded />
@@ -1308,7 +1281,19 @@ export default function InsightsPage() {
                 </>
               );
 
-              // Desktop: no tabs — Ways to save and Tax visible at once (when applicable).
+              const taxBlock = (
+                <TaxPage
+                  embedded
+                  prefsLoaded={taxPrefsLoaded}
+                  incomeValue={taxIncomeValue}
+                  incomeBracket={incomeBracket}
+                  pensionAnnual={taxPensionAnnual}
+                  hasChildBenefit={taxHasChildBenefit}
+                />
+              );
+
+              // Desktop: no tabs — Ways to save leads. The retired Tax section
+              // only joins the layout when deep-linked (?tab=tax).
               if (isDesktop) {
                 const columnTitle = (label: string, colour: string) => (
                   <div className="flex items-center gap-2 px-1">
@@ -1319,31 +1304,22 @@ export default function InsightsPage() {
                 const waysSec = (
                   <div key="save" className="space-y-3">{columnTitle("Ways to save", "#0d9488")}{waysBlock}</div>
                 );
-                const secondaryPlaceholder = (
-                  <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
-                );
 
-                if (!showTaxSection) {
+                if (tab !== "tax") {
                   // 1 column: Ways to save only
                   return <div className="max-w-xl mx-auto">{waysSec}</div>;
                 }
 
+                const secondaryPlaceholder = (
+                  <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
+                );
                 const taxSec = (
                   <div key="tax" className="space-y-3">
                     {columnTitle("Tax efficiency", "#7c3aed")}
-                    {secondaryReady ? (
-                      <TaxPage
-                        embedded
-                        prefsLoaded={taxPrefsLoaded}
-                        incomeValue={taxIncomeValue}
-                        incomeBracket={incomeBracket}
-                        pensionAnnual={taxPensionAnnual}
-                        hasChildBenefit={taxHasChildBenefit}
-                      />
-                    ) : secondaryPlaceholder}
+                    {secondaryReady ? taxBlock : secondaryPlaceholder}
                   </div>
                 );
-                // 2 columns: Ways to save | Tax
+                // 2 columns: Ways to save | Tax (deep-linked)
                 return (
                   <div className="grid grid-cols-2 gap-4 items-start">
                     <div className="space-y-3">{waysSec}</div>
@@ -1352,15 +1328,18 @@ export default function InsightsPage() {
                 );
               }
 
+              // Mobile: Tax renders only via deep link — a quiet escape row
+              // leads back to the sole visible section.
               return tab === "tax" ? (
-                <TaxPage
-                  embedded
-                  prefsLoaded={taxPrefsLoaded}
-                  incomeValue={taxIncomeValue}
-                  incomeBracket={incomeBracket}
-                  pensionAnnual={taxPensionAnnual}
-                  hasChildBenefit={taxHasChildBenefit}
-                />
+                <div className="space-y-3">
+                  <button
+                    onClick={() => { setTab("save"); router.replace("/insights"); }}
+                    className="flex items-center gap-1 px-1 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                  >
+                    <ChevronLeft size={16} /> Ways to save
+                  </button>
+                  {taxBlock}
+                </div>
               ) : (
                 waysBlock
               );

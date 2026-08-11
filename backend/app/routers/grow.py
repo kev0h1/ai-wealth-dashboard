@@ -39,6 +39,7 @@ PERSONAL_ALLOWANCE = 12_570
 TAPER_START = 100_000
 TAPER_END = 125_140
 HIGHER_RATE_THRESHOLD = 50_270
+PENSION_ANNUAL_ALLOWANCE = 60_000
 TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/insights?tab=tax"}
 
 
@@ -125,6 +126,21 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
                 f"Pension contributions attract tax relief at your marginal rate. "
                 f"Adjusted income on file: {_money(adjusted)}."
             )
+
+        # Headroom fact — acknowledge existing contributions against the
+        # £60,000 annual allowance (facts only; ~ hedges the estimate).
+        if pension_annual > 0:
+            if pension_annual >= PENSION_ANNUAL_ALLOWANCE:
+                topup_detail += (
+                    f" You're at the {_money(PENSION_ANNUAL_ALLOWANCE)} annual allowance."
+                )
+            else:
+                headroom = max(0.0, PENSION_ANNUAL_ALLOWANCE - pension_annual)
+                topup_detail += (
+                    f" You contribute ~{_money(pension_annual)}/yr — around "
+                    f"{_money(headroom)} of this year's "
+                    f"{_money(PENSION_ANNUAL_ALLOWANCE)} annual allowance remains."
+                )
 
         return {
             "match_resolved": match_resolved,

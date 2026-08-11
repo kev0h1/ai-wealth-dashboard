@@ -87,6 +87,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     description: "The Planning tab shows the bills and income still due before your next payday, so you always know what's left to land.",
     tip: "Tap + Plan a one-off to add a payment we can't predict yet.",
   },
+  {
+    id: "settings-income",
+    route: null,
+    target: "tutorial-nav-settings",
+    tooltipSide: "above",
+    iconName: "Settings",
+    color: "#4f46e5",
+    bg: "#ede9fe",
+    title: "Tell Penny your income",
+    description: "Add your income and pension in Settings — Grow and your tax levers personalise from them.",
+  },
 ];
 
 interface TutorialContextType {

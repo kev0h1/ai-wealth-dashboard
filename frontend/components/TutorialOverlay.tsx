@@ -3,12 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import {
   ChevronLeft, ChevronRight, X,
-  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock,
+  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock, Settings,
 } from "lucide-react";
 import { useTutorial } from "./TutorialContext";
 
 const ICONS: Record<string, React.ComponentType<{ size?: number; color?: string; className?: string }>> = {
-  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock,
+  Sparkles, Building2, Upload, PieChart, List, Tag, Target, TrendingDown, Lightbulb, CalendarClock, Settings,
 };
 
 interface Rect { top: number; left: number; width: number; height: number }
@@ -23,6 +23,10 @@ function findTarget(id: string, cb: (rect: Rect | null) => void) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       const r = el.getBoundingClientRect();
+      // Hidden elements (e.g. display:none via responsive classes) report a
+      // zero-size rect — treat as "not found" so the retry/centred-card
+      // fallback engages instead of drawing a broken spotlight.
+      if (r.width === 0 || r.height === 0) { cb(null); return; }
       cb({
         top: r.top - PADDING,
         left: r.left - PADDING,
