@@ -22,10 +22,18 @@ Storage shape (commitments_col) — v2:
      source ("manual"|"can_i"), status ("active"|"done"|"cancelled"),
      created_at (UTC datetime)}
 
+Pot ledger — a pound can be claimed by only one ACTIVE goal. When two goals
+share a funding pot (same account_id) the OLDEST goal (created_at asc, _id
+fallback) claims first; a younger goal only sees what's left. compute_pot_ledger()
+is the ONE place this allocation happens — every surface (list/create/update,
+the preview sheet, total_reserved_slices, and companion.py's payday plan)
+shares its output so the numbers can never drift apart.
+
 Derived (NEVER stored — always computed live):
-    progress          clamp(Σ over pots of max(0, live_balance − baseline),
-                      0, amount) + contributed, clamped at amount. Pots with
-                      unreadable balances contribute 0 (never negative).
+    progress          clamp(ledger total_claimed + contributed, 0, amount) —
+                      see compute_pot_ledger(). Pots with unreadable balances,
+                      or already fully claimed by an older goal, contribute 0
+                      (never negative).
     remaining         amount − progress
     periods_left      pay-period starts from today through target_date
                       inclusive (>=1) — user pay config via preferences
@@ -188,6 +196,186 @@ async def _migrate_legacy(doc: dict) -> None:
     doc["funding_pots"] = pots
 
 
+# ── Pot ledger (one pound, one claim) ─────────────────────────────────────────
+
+def _ledger_sort_key(doc: dict) -> tuple:
+    """created_at asc, _id fallback — oldest goal keeps its claim."""
+    created = doc.get("created_at")
+    if not isinstance(created, datetime):
+        created = datetime.min.replace(tzinfo=timezone.utc)
+    elif created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return (created, str(doc.get("_id", "")))
+
+
+async def compute_pot_ledger(
+    uid: str,
+    docs: list[dict] | None = None,
+    balances: dict[str, float] | None = None,
+) -> dict:
+    """Allocate every ACTIVE commitment's claim on its funding pots so a
+    pound is never counted toward two goals at once.
+
+    Sorts active docs oldest-first (`_ledger_sort_key`), fetches each
+    referenced pot account's live balance ONCE, then walks goals in that
+    order: for each goal, `need = max(0, amount - contributed)`; for each of
+    its pots (in stored order), `potential` is the whole live balance when
+    count_existing else `max(0, live - baseline)`; `claim = min(potential,
+    pot_free, need_left)`; both `pot_free` (per account) and `need_left`
+    (per goal) decrement by the claim. A later goal only ever sees what an
+    older goal left behind.
+
+    `docs` — pre-fetched commitment docs (any status) to save a query; only
+    status == "active" docs are allocated. The user's active docs are
+    fetched when omitted.
+    `balances` — optional {account_id: balance} override (e.g. companion.py's
+    already-computed live_balances during a payday walk) so this never
+    re-fetches balances a caller already has; missing keys still fall back
+    to a live fetch.
+
+    Returns {
+        "commitments": {commitment_id: {"claims": {account_id: amount},
+                                          "total_claimed": float}},
+        "accounts": {account_id: {"live": float, "claimed_total": float,
+                                    "free": float,
+                                    "claimed_by": [{"commitment_id", "name",
+                                                     "amount"}]}},
+    }
+    Manual/offline pots use their stored balances exactly as `_live_balance`
+    already does for any account — no special-casing needed here.
+    """
+    if docs is None:
+        docs = await commitments_col.find(
+            {"user_id": uid, "status": "active"}
+        ).to_list(None)
+    active = sorted(
+        (d for d in docs if d.get("status", "active") == "active"),
+        key=_ledger_sort_key,
+    )
+
+    account_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for d in active:
+        for pot in _doc_pots(d):
+            aid = str(pot["account_id"])
+            if aid not in seen_ids:
+                seen_ids.add(aid)
+                account_ids.append(aid)
+
+    live_map: dict[str, float] = {}
+    for aid in account_ids:
+        if balances is not None and aid in balances and balances[aid] is not None:
+            live_map[aid] = float(balances[aid])
+        else:
+            live = await _live_balance(aid)
+            live_map[aid] = float(live) if live is not None else 0.0
+    pot_free = dict(live_map)  # decrements as goals claim
+
+    commitments_out: dict[str, dict] = {}
+    accounts_out: dict[str, dict] = {
+        aid: {
+            "live":          live_map[aid],
+            "claimed_total": 0.0,
+            "free":          live_map[aid],
+            "claimed_by":    [],
+        }
+        for aid in account_ids
+    }
+
+    for d in active:
+        cid = str(d["_id"])
+        name = str(d.get("name") or "").strip()
+        amount = float(d.get("amount") or 0)
+        contributed = float(d.get("contributed") or 0)
+        need_left = max(0.0, amount - contributed)
+        raw_claims: dict[str, float] = {}
+        for pot in _doc_pots(d):
+            if need_left <= 0:
+                break
+            aid = str(pot["account_id"])
+            live = live_map.get(aid)
+            if live is None:
+                continue
+            baseline = float(pot.get("baseline") or 0.0)
+            potential = live if pot.get("count_existing") else max(0.0, live - baseline)
+            claim = min(potential, pot_free.get(aid, 0.0), need_left)
+            if claim <= 0:
+                continue
+            raw_claims[aid] = raw_claims.get(aid, 0.0) + claim
+            pot_free[aid] = pot_free.get(aid, 0.0) - claim
+            need_left -= claim
+        claims = {aid: round(v, 2) for aid, v in raw_claims.items()}
+        total_claimed = round(sum(raw_claims.values()), 2)
+        commitments_out[cid] = {"claims": claims, "total_claimed": total_claimed}
+        for aid, amt in claims.items():
+            acc = accounts_out[aid]
+            acc["claimed_total"] = round(acc["claimed_total"] + amt, 2)
+            acc["free"] = round(live_map[aid] - acc["claimed_total"], 2)
+            acc["claimed_by"].append({"commitment_id": cid, "name": name, "amount": amt})
+
+    return {"commitments": commitments_out, "accounts": accounts_out}
+
+
+def _pot_account_overlap(docs: list[dict]) -> dict[str, set[str]]:
+    """{commitment_id: {other ACTIVE commitment ids sharing >=1 pot
+    account_id}} — structural overlap, independent of ledger claims (a goal
+    can share a pot it isn't currently drawing from)."""
+    active = [d for d in docs if d.get("status", "active") == "active"]
+    by_account: dict[str, list[str]] = {}
+    for d in active:
+        cid = str(d["_id"])
+        for pot in _doc_pots(d):
+            by_account.setdefault(str(pot["account_id"]), []).append(cid)
+    overlap: dict[str, set[str]] = {str(d["_id"]): set() for d in active}
+    for cids in by_account.values():
+        if len(cids) < 2:
+            continue
+        for cid in cids:
+            overlap[cid].update(c for c in cids if c != cid)
+    return overlap
+
+
+async def _pot_progress_and_slice(
+    doc: dict, cfg: dict, ledger: dict, today: date,
+) -> dict:
+    """{progress, remaining, periods_left, per_period_slice} for one
+    commitment doc — the ONE slice computation shared by `_serialise`,
+    `total_reserved_slices`, `/commitments/preview` and companion.py's
+    payday plan, so none of them can drift apart.
+
+    Uses the doc's claim from `ledger` (compute_pot_ledger output) when
+    present — every active doc always is. A doc the ledger didn't allocate
+    (done/cancelled, or deliberately excluded — e.g. the preview endpoint
+    scoring "other" goals without a draft) falls back to a direct pot-growth
+    sum, uncapped by other goals (nothing left to compete with).
+    """
+    amount = float(doc.get("amount") or 0)
+    contributed = float(doc.get("contributed") or 0)
+    cid = str(doc["_id"])
+    entry = ledger.get("commitments", {}).get(cid)
+    if entry is not None:
+        progress = round(min(amount, max(0.0, entry["total_claimed"] + contributed)), 2)
+    else:
+        pot_sum = 0.0
+        for pot in _doc_pots(doc):
+            live = await _live_balance(str(pot["account_id"]))
+            if live is None:
+                continue
+            baseline = float(pot.get("baseline") or 0.0)
+            pot_sum += live if pot.get("count_existing") else max(0.0, live - baseline)
+        progress = round(min(amount, min(pot_sum, amount) + max(0.0, contributed)), 2)
+    remaining = round(max(0.0, amount - progress), 2)
+    target = date.fromisoformat(str(doc["target_date"])[:10])
+    periods_left = max(1, _period_starts_between(today, target, cfg))
+    per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
+    return {
+        "progress":         progress,
+        "remaining":        remaining,
+        "periods_left":     periods_left,
+        "per_period_slice": per_period_slice,
+    }
+
+
 # ── Feasibility (owner's semantics: meet the expense without debt; dipping
 #    into savings might be necessary) ───────────────────────────────────────────
 
@@ -214,16 +402,35 @@ async def _feasibility_ctx(uid: str) -> tuple[float, float] | None:
 
 
 def _classify_feasibility(
-    per_period_slice: float, remaining: float, fctx: tuple[float, float] | None
+    per_period_slice: float,
+    remaining: float,
+    fctx: tuple[float, float] | None,
+    others_slice: float = 0.0,
+    others_remaining: float = 0.0,
 ) -> tuple[str | None, str | None]:
-    """(feasibility, feasibility_note) — (None, None) when context missing."""
+    """(feasibility, feasibility_note) — (None, None) when context missing
+    and the goal isn't already funded.
+
+    A finished goal (remaining <= 0) is always "funded", checked BEFORE
+    anything else needs fctx — a goal with nothing left to save shouldn't
+    read as merely "likely coverable".
+
+    `others_slice`/`others_remaining` are the SUM of every OTHER active
+    goal's own per_period_slice/remaining — joint feasibility judges this
+    goal against what's left of the spare rate/savings after every other
+    goal's own claim, never the household's full capacity as if this were
+    the only goal in play.
+    """
+    if remaining <= 0:
+        return "funded", "Fully funded."
     if fctx is None:
         return None, None
     surplus, savings_total = fctx
-    spare = max(0.0, surplus)
+    spare = max(0.0, surplus - others_slice)
+    available = max(0.0, savings_total - others_remaining)
     if per_period_slice <= spare:
         return "surplus", "Likely coverable from your monthly spare rate."
-    if remaining <= savings_total:
+    if remaining <= available:
         gap = per_period_slice - spare
         return (
             "savings",
@@ -235,32 +442,61 @@ def _classify_feasibility(
     )
 
 
+def _apply_joint_feasibility(items: list[dict], docs: list[dict], fctx) -> None:
+    """Mutate `items` (index-aligned with `docs`) with feasibility fields,
+    judging each active goal against the spare rate/savings left over after
+    every OTHER active goal's own reserve (see `_classify_feasibility`)."""
+    active_idx = [i for i, d in enumerate(docs) if d.get("status", "active") == "active"]
+    for i in active_idx:
+        others_slice = sum(items[j]["per_period_slice"] for j in active_idx if j != i)
+        others_remaining = sum(items[j]["remaining"] for j in active_idx if j != i)
+        feasibility, note = _classify_feasibility(
+            items[i]["per_period_slice"], items[i]["remaining"], fctx,
+            others_slice, others_remaining,
+        )
+        items[i]["feasibility"] = feasibility
+        if note is not None:
+            items[i]["feasibility_note"] = note
+        else:
+            items[i].pop("feasibility_note", None)
+
+
 # ── Serialisation (all derived fields computed here, never stored) ───────────
 
 async def _serialise(
     doc: dict,
     cfg: dict,
+    ledger: dict,
     today: date | None = None,
-    fctx: tuple[float, float] | None = None,
 ) -> dict:
-    """Serialise one commitment. `fctx` is the (surplus, savings) feasibility
-    context from _feasibility_ctx — pass None to skip feasibility (it comes
-    back null), e.g. on the safe-to-spend hot path."""
+    """Serialise one commitment. Progress/remaining/periods_left/slice come
+    from the shared pot ledger (`ledger` — compute_pot_ledger output) via
+    `_pot_progress_and_slice`, so a pound already claimed by an older goal
+    never counts twice here either. `feasibility` defaults null and
+    `shared_pot_goals` defaults [] — both are layered on afterwards by
+    `_serialise_all`, which needs every sibling goal's numbers, not just
+    this one; callers that only need one commitment's core numbers (nothing
+    joint) can use this directly and leave those defaults as-is."""
     today = today or date.today()
     amount = float(doc.get("amount") or 0)
-    contributed = float(doc.get("contributed") or 0)
+    cid = str(doc["_id"])
+    ledger_entry = ledger.get("commitments", {}).get(cid)
 
-    # v2: progress = clamp(Σ pot growth, 0, amount) + contributed, capped at
-    # amount. count_existing pots have baseline 0, so their whole balance
-    # counts; unreadable pots contribute 0 rather than failing the payload.
+    # Pot breakdown for display: the CLAIMED amount per pot when the ledger
+    # allocated this doc (active — claims already capped by other goals and
+    # by this goal's own remaining need); a direct pot-growth read otherwise
+    # (done/cancelled docs aren't allocated — nothing left to compete for).
     pot_items: list[dict] = []
-    pot_sum = 0.0
     for pot in _doc_pots(doc):
         aid = str(pot["account_id"])
-        live = await _live_balance(aid)
-        baseline = float(pot.get("baseline") or 0.0)
-        contributing = max(0.0, live - baseline) if live is not None else 0.0
-        pot_sum += contributing
+        if ledger_entry is not None:
+            contributing = ledger_entry["claims"].get(aid, 0.0)
+        else:
+            live = await _live_balance(aid)
+            baseline = float(pot.get("baseline") or 0.0)
+            contributing = 0.0
+            if live is not None:
+                contributing = live if pot.get("count_existing") else max(0.0, live - baseline)
         pot_items.append({
             "account_id":           aid,
             "name":                 await _account_name(aid),
@@ -268,37 +504,29 @@ async def _serialise(
             "count_existing":       bool(pot.get("count_existing")),
             "contributing_balance": round(contributing, 2),
         })
-    progress = round(min(amount, min(pot_sum, amount) + max(0.0, contributed)), 2)
-    remaining = round(max(0.0, amount - progress), 2)
 
     # Legacy single-pot mirrors (kept one release for mid-deploy clients).
     fid = pot_items[0]["account_id"] if pot_items else None
     funding_name = pot_items[0]["name"] if pot_items else None
 
-    target = date.fromisoformat(str(doc["target_date"])[:10])
-    left_raw = _period_starts_between(today, target, cfg)
-    periods_left = max(1, left_raw)
-    per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
+    slice_info = await _pot_progress_and_slice(doc, cfg, ledger, today)
+    progress = slice_info["progress"]
+    remaining = slice_info["remaining"]
+    periods_left = slice_info["periods_left"]
+    per_period_slice = slice_info["per_period_slice"]
 
+    target = date.fromisoformat(str(doc["target_date"])[:10])
     created = doc.get("created_at")
     created_d = created.date() if isinstance(created, datetime) else today
     total_raw = _period_starts_between(created_d, target, cfg)
+    left_raw = _period_starts_between(today, target, cfg)
     total = max(1, total_raw)
     elapsed = min(total, max(0, total_raw - left_raw))
     elapsed_fraction = min(1.0, max(0.0, elapsed / total))
     on_track = progress >= amount * elapsed_fraction
 
-    feasibility, feasibility_note = None, None
-    if doc.get("status", "active") == "active":
-        try:
-            feasibility, feasibility_note = _classify_feasibility(
-                per_period_slice, remaining, fctx
-            )
-        except Exception:
-            feasibility, feasibility_note = None, None
-
-    out = {
-        "id":                  str(doc["_id"]),
+    return {
+        "id":                  cid,
         "name":                doc.get("name"),
         "amount":              amount,
         "target_date":         doc.get("target_date"),
@@ -312,18 +540,40 @@ async def _serialise(
         "periods_left":        periods_left,
         "per_period_slice":    per_period_slice,
         "on_track":            on_track,
-        "feasibility":         feasibility,
+        "feasibility":         None,
+        "shared_pot_goals":    [],
     }
-    if feasibility_note is not None:
-        out["feasibility_note"] = feasibility_note
-    return out
+
+
+async def _serialise_all(
+    uid: str, docs: list[dict], cfg: dict, fctx: tuple[float, float] | None,
+    today: date | None = None,
+) -> list[dict]:
+    """Serialise many commitment docs sharing ONE pot ledger, joint
+    feasibility and shared_pot_goals — every list/create/update response
+    calls this so Planning, the sheet and the payday plan can never drift.
+    Index-aligned with `docs`."""
+    today = today or date.today()
+    ledger = await compute_pot_ledger(uid, docs=docs)
+    items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
+    _apply_joint_feasibility(items, docs, fctx)
+    overlap = _pot_account_overlap(docs)
+    id_to_name = {str(d["_id"]): str(d.get("name") or "").strip() for d in docs}
+    for i, doc in enumerate(docs):
+        cid = str(doc["_id"])
+        others = overlap.get(cid, set())
+        items[i]["shared_pot_goals"] = sorted(
+            {id_to_name[o] for o in others if id_to_name.get(o)}
+        )
+    return items
 
 
 async def total_reserved_slices(uid: str) -> tuple[int, int]:
     """(sum of per_period_slice across ACTIVE commitments, count).
 
     Called by analytics.compute_safe_to_spend to reserve committed slices
-    before the verdict is derived.
+    before the verdict is derived. Uses the shared pot ledger so the total
+    can never exceed what the ledger actually lets each goal claim.
     """
     docs = await commitments_col.find(
         {"user_id": uid, "status": "active"}
@@ -332,10 +582,11 @@ async def total_reserved_slices(uid: str) -> tuple[int, int]:
         return 0, 0
     cfg = await _pay_cfg(uid)
     today = date.today()
+    ledger = await compute_pot_ledger(uid, docs=docs)
     total = 0
     for doc in docs:
-        item = await _serialise(doc, cfg, today=today)
-        total += item["per_period_slice"]
+        slice_info = await _pot_progress_and_slice(doc, cfg, ledger, today)
+        total += slice_info["per_period_slice"]
     return int(total), len(docs)
 
 
@@ -421,6 +672,26 @@ def _pot_mirrors(pots: list[dict]) -> dict:
     }
 
 
+async def _serialise_one_with_siblings(uid: str, doc: dict) -> dict:
+    """Serialise a single just-written commitment `doc` (already carrying its
+    post-write fields in memory — never re-read from the db, avoiding any
+    replication-lag staleness) alongside its real siblings, so create/update
+    responses share the exact same ledger, joint feasibility and
+    shared_pot_goals the list endpoint returns."""
+    cfg = await _pay_cfg(uid)
+    fctx = await _feasibility_ctx(uid)
+    siblings = await commitments_col.find(
+        {"user_id": uid, "status": {"$ne": "cancelled"}, "_id": {"$ne": doc["_id"]}}
+    ).to_list(None)
+    docs = siblings + [doc]
+    items = await _serialise_all(uid, docs, cfg, fctx)
+    match = next((it for it in items if it["id"] == str(doc["_id"])), None)
+    if match is not None:
+        return match
+    ledger = await compute_pot_ledger(uid, docs=[doc])  # unreachable in practice
+    return await _serialise(doc, cfg, ledger)
+
+
 async def _get_owned(uid: str, commitment_id: str) -> dict:
     try:
         oid = ObjectId(commitment_id)
@@ -442,10 +713,9 @@ async def list_commitments(user: dict = Depends(current_user)):
     ).to_list(None)
     cfg = await _pay_cfg(uid)
     fctx = await _feasibility_ctx(uid)
-    today = date.today()
     for doc in docs:
         await _migrate_legacy(doc)  # write-once v1 → funding_pots
-    items = [await _serialise(doc, cfg, today=today, fctx=fctx) for doc in docs]
+    items = await _serialise_all(uid, docs, cfg, fctx)
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
     return {"items": items}
 
@@ -485,52 +755,133 @@ async def create_commitment(body: dict, user: dict = Depends(current_user)):
     doc["_id"] = result.inserted_id
 
     response_cache.invalidate(uid)  # safe-to-spend reserve changed
-    cfg = await _pay_cfg(uid)
-    return await _serialise(doc, cfg, fctx=await _feasibility_ctx(uid))
+    return await _serialise_one_with_siblings(uid, doc)
 
 
 @router.post("/commitments/preview")
 async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     """Live feasibility verdict for the sheet — same maths as _serialise for a
-    not-yet-saved commitment (nothing persisted). Optional funding_pots
-    ([{account_id, count_existing}]) let count_existing pots contribute their
-    whole current balance up front, shrinking remaining and the slice —
-    lenient by design (unreadable pots just contribute 0)."""
+    not-yet-saved (or being-edited) commitment, nothing persisted. Optional
+    funding_pots ([{account_id, count_existing}]) let count_existing pots
+    contribute their whole current balance up front — through the SAME pot
+    ledger every other surface shares, so a pot another goal already claims
+    only offers its free remainder here too. Optional commitment_id excludes
+    that goal from "others" (editing a goal shouldn't have it compete with
+    its own prior self). Lenient by design — unreadable pots/accounts just
+    contribute 0."""
     uid = user["email"]
     amount = _validate_amount(body.get("amount"))
     target_date = _validate_target_date(body.get("target_date"))
 
-    starting = 0.0
+    self_oid = None
+    raw_cid = body.get("commitment_id")
+    if raw_cid:
+        try:
+            self_oid = ObjectId(str(raw_cid))
+        except (InvalidId, TypeError):
+            self_oid = None
+
+    draft_pots: list[dict] = []
     raw_pots = body.get("funding_pots")
     if isinstance(raw_pots, list):
         seen: set[str] = set()
         for entry in raw_pots[:_MAX_POTS]:
-            if not isinstance(entry, dict) or not entry.get("count_existing"):
+            if not isinstance(entry, dict):
                 continue
             aid = str(entry.get("account_id") or "").strip()
             if not aid or aid in seen:
                 continue
             seen.add(aid)
-            live = await _live_balance(aid)
-            if live is not None:
-                starting += max(0.0, float(live))
-    starting = round(min(starting, amount), 2)
-    remaining = max(0.0, amount - starting)
+            count_existing = bool(entry.get("count_existing"))
+            kind = await _pot_kind(aid) or "connected"
+            baseline = 0.0
+            if not count_existing:
+                live = await _live_balance(aid)
+                baseline = float(live) if live is not None else 0.0
+            draft_pots.append({
+                "account_id":     aid,
+                "kind":           kind,
+                "baseline":       baseline,
+                "count_existing": count_existing,
+            })
+
+    # Real OTHER active goals — excludes self when editing, so a goal never
+    # competes against its own prior claim. Kept at their own created_at for
+    # the ledger without the draft ("also_funding"/"free" the sheet shows).
+    other_docs = await commitments_col.find({
+        "user_id": uid, "status": "active",
+        **({"_id": {"$ne": self_oid}} if self_oid else {}),
+    }).to_list(None)
+
+    draft_created = datetime.max.replace(tzinfo=timezone.utc)  # newest by default
+    draft_id = "draft"
+    if self_oid is not None:
+        orig = await commitments_col.find_one({"_id": self_oid, "user_id": uid})
+        if orig is not None:
+            draft_created = orig.get("created_at") or draft_created
+            draft_id = str(self_oid)
+    draft_doc = {
+        "_id":          draft_id,
+        "created_at":   draft_created,
+        "amount":       amount,
+        "target_date":  target_date,
+        "contributed":  0.0,
+        "funding_pots": draft_pots,
+    }
 
     cfg = await _pay_cfg(uid)
     today = date.today()
-    target = date.fromisoformat(target_date)
-    periods_left = max(1, _period_starts_between(today, target, cfg))
-    per_period_slice = _ceil5(remaining / periods_left) if remaining > 0 else 0
+    fctx = await _feasibility_ctx(uid)
+
+    # One ledger WITH the draft in its rightful chronological slot — every
+    # OTHER active goal's claims are correctly reduced by the draft's own
+    # claim when the draft is older (the case base_ledger got wrong), so
+    # this single ledger now feeds the draft's own progress/slice, every
+    # other goal's slice/remaining, AND the pots_detail chip figures.
+    full_ledger = await compute_pot_ledger(uid, docs=[*other_docs, draft_doc])
+
+    others_slice = 0.0
+    others_remaining = 0.0
+    for d in other_docs:
+        info = await _pot_progress_and_slice(d, cfg, full_ledger, today)
+        others_slice += info["per_period_slice"]
+        others_remaining += info["remaining"]
+
+    draft_info = await _pot_progress_and_slice(draft_doc, cfg, full_ledger, today)
+    starting = draft_info["progress"]
+    remaining = draft_info["remaining"]
+    periods_left = draft_info["periods_left"]
+    per_period_slice = draft_info["per_period_slice"]
 
     feasibility, feasibility_note = _classify_feasibility(
-        per_period_slice, remaining, await _feasibility_ctx(uid)
+        per_period_slice, remaining, fctx, others_slice, others_remaining,
     )
+
+    draft_claims = full_ledger["commitments"].get(draft_id, {}).get("claims", {})
+    pots_detail = []
+    for pot in draft_pots:
+        aid = pot["account_id"]
+        acc = full_ledger["accounts"].get(aid)
+        if acc is not None:
+            own_claim = draft_claims.get(aid, 0.0)
+            free = round(acc["free"] + own_claim, 2)
+            also_funding = [
+                {"name": c["name"], "amount": c["amount"]}
+                for c in acc["claimed_by"]
+                if c["amount"] > 0 and c["commitment_id"] != draft_id
+            ]
+        else:
+            live = await _live_balance(aid)
+            free = round(max(0.0, float(live)), 2) if live is not None else 0.0
+            also_funding = []
+        pots_detail.append({"account_id": aid, "also_funding": also_funding, "free": free})
+
     out = {
         "per_period_slice":  per_period_slice,
         "periods_left":      periods_left,
         "starting_progress": starting,
         "feasibility":       feasibility,
+        "pots_detail":       pots_detail,
     }
     if feasibility_note is not None:
         out["feasibility_note"] = feasibility_note
@@ -595,8 +946,7 @@ async def update_commitment(
     doc.update(updates)
 
     response_cache.invalidate(uid)
-    cfg = await _pay_cfg(uid)
-    return await _serialise(doc, cfg, fctx=await _feasibility_ctx(uid))
+    return await _serialise_one_with_siblings(uid, doc)
 
 
 @router.delete("/commitments/{commitment_id}")

@@ -250,13 +250,20 @@ function CommitmentsBlock({
         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
           {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
         </p>
-        {/* Feasibility — surplus: slate dot; savings: amber dot, slate
-            text; stretch: amber dot + amber text (attention, never red). */}
+        {/* Shared pot — quiet, structural information, never a colour
+            signal (a pound is claimed by only the oldest goal). */}
+        {c.shared_pot_goals && c.shared_pot_goals.length > 0 && (
+          <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500 truncate">
+            Shares a pot with {c.shared_pot_goals.join(", ")}
+          </p>
+        )}
+        {/* Feasibility — surplus/funded: slate dot; savings: amber dot,
+            slate text; stretch: amber dot + amber text (attention, never red). */}
         {c.feasibility && c.feasibility_note && (
           <p className="mt-1 flex items-start gap-1.5 min-w-0">
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
-                c.feasibility === "surplus"
+                c.feasibility === "surplus" || c.feasibility === "funded"
                   ? "bg-slate-300 dark:bg-slate-600"
                   : "bg-amber-500"
               }`}

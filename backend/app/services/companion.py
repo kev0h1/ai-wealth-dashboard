@@ -367,6 +367,13 @@ async def _active_commitment_slices(
     contributes no leg at all (its progress still counts everywhere).
     Legacy v1 docs (funding_account_id/baseline_balance, no funding_pots) are
     read as one connected pot with count_existing off.
+
+    Progress/remaining/slice come from commitments.compute_pot_ledger +
+    _pot_progress_and_slice — the SAME pot-ledger allocation and slice maths
+    Planning and the sheet preview use (a pound already claimed by an older
+    goal never counts twice here either), fed with this walk's OWN
+    `live_balances` so the payday plan's numbers can never drift from what
+    the balance sweep already found.
     Failure-tolerant by design: any error (including commitments_col not
     existing yet) returns {} and the plan builds exactly as before.
     """
@@ -374,26 +381,27 @@ async def _active_commitment_slices(
         # Defensive import at use-site — the collection ships separately, and
         # this module must keep importing cleanly if it lands later.
         from app.db.collections import commitments_col
-        from app.services.pay_period import get_pay_period_for_date
+        from app.routers.commitments import (
+            _doc_pots,
+            _pot_progress_and_slice,
+            compute_pot_ledger,
+        )
 
         today_d = date.today()
-        out: dict[str, dict] = {}
-        async for c in commitments_col.find(
+        docs = await commitments_col.find(
             {"user_id": uid, "status": "active"},
             {"name": 1, "amount": 1, "target_date": 1, "funding_pots": 1,
-             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1},
-        ):
-            pots = c.get("funding_pots")
-            if not isinstance(pots, list):
-                # Legacy v1 fallback — single connected pot, migrate on read.
-                _fid = str(c.get("funding_account_id") or "")
-                pots = ([{
-                    "account_id":     _fid,
-                    "kind":           "connected",
-                    "baseline":       float(c.get("baseline_balance") or 0.0),
-                    "count_existing": False,
-                }] if _fid else [])
-            pots = [p for p in pots if isinstance(p, dict) and p.get("account_id")]
+             "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
+             "created_at": 1},
+        ).to_list(None)
+        if not docs:
+            return {}
+
+        ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
+
+        out: dict[str, dict] = {}
+        for c in docs:
+            pots = _doc_pots(c)
             if not pots:
                 continue
             # Whole slice → FIRST CONNECTED pot; manual-only goals get no leg.
@@ -405,48 +413,11 @@ async def _active_commitment_slices(
             if dest is None:
                 continue
             try:
-                amount = float(c.get("amount") or 0)
-                target_d = date.fromisoformat(str(c.get("target_date"))[:10])
-            except (TypeError, ValueError):
+                slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
+            except Exception:
                 continue
-            if amount <= 0:
-                continue
-
-            # Progress mirrors the commitments API's v2 derived fields:
-            # clamp(Σ pot growth, 0, amount) + contributed, capped at amount.
-            # Pots without a readable balance (e.g. a manual pot missing from
-            # live_balances) contribute 0 rather than skewing the slice.
-            pot_sum = 0.0
-            for p in pots:
-                bal = live_balances.get(str(p["account_id"]))
-                if bal is not None:
-                    pot_sum += max(0.0, float(bal) - float(p.get("baseline") or 0.0))
-            progress = min(
-                amount,
-                min(pot_sum, amount) + max(0.0, float(c.get("contributed") or 0.0)),
-            )
-            remaining = amount - progress
-            if remaining <= 0:
-                slice_amt = 0
-            else:
-                # periods_left: pay-period starts from today through
-                # target_date inclusive (>=1).
-                count = 0
-                _p_start, _p_end = get_pay_period_for_date(today_d, pay_cfg)
-                if today_d <= _p_start <= target_d:
-                    count += 1
-                _next = _p_end + timedelta(days=1)
-                _guard = 0
-                while _next <= target_d and _guard < 130:
-                    count += 1
-                    _, _p_end = get_pay_period_for_date(_next, pay_cfg)
-                    _next = _p_end + timedelta(days=1)
-                    _guard += 1
-                periods_left = max(1, count)
-                slice_amt = _ceil5(remaining / periods_left)
-
             entry = out.setdefault(dest, {"slice_total": 0, "names": []})
-            entry["slice_total"] += int(slice_amt)
+            entry["slice_total"] += int(slice_info["per_period_slice"])
             name = str(c.get("name") or "").strip()
             if name:
                 entry["names"].append(name)

@@ -345,11 +345,24 @@ export type Commitment = {
   feasibility?: CommitmentFeasibility | null;
   /** Hedged one-liner matching feasibility; absent when feasibility is null. */
   feasibility_note?: string;
+  /** Sorted unique names of other ACTIVE goals sharing >=1 funding pot with
+   * this one (the pot ledger — a pound is claimed by only the oldest goal).
+   * Empty when this goal shares no pot with anything else. */
+  shared_pot_goals: string[];
 };
 
 /** "surplus" fits the monthly spare rate; "savings" likely dips into savings;
- * "stretch" is neither (attention — amber, never red). */
-export type CommitmentFeasibility = "surplus" | "savings" | "stretch";
+ * "stretch" is neither (attention — amber, never red); "funded" has nothing
+ * left to save (remaining <= 0) — render exactly like "surplus". */
+export type CommitmentFeasibility = "surplus" | "savings" | "stretch" | "funded";
+
+/** Per-pot conflict detail on a commitment preview — who ELSE is drawing
+ * from this pot (through the shared pot ledger) and what's left free. */
+export type CommitmentPreviewPot = {
+  account_id: string;
+  also_funding: { name: string; amount: number }[];
+  free: number;
+};
 
 /** Live verdict for a draft commitment — POST /commitments/preview. */
 export type CommitmentPreview = {
@@ -359,6 +372,8 @@ export type CommitmentPreview = {
   starting_progress?: number;
   feasibility: CommitmentFeasibility | null;
   feasibility_note?: string;
+  /** One entry per submitted funding pot — live pot-ledger conflicts. */
+  pots_detail: CommitmentPreviewPot[];
 };
 
 /** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
@@ -1135,11 +1150,13 @@ export const api = {
     amount: number,
     target_date: string,
     funding_pots?: { account_id: string; count_existing: boolean }[],
+    commitment_id?: string,
   ) =>
     post<CommitmentPreview>("/commitments/preview", {
       amount,
       target_date,
       ...(funding_pots && funding_pots.length > 0 ? { funding_pots } : {}),
+      ...(commitment_id ? { commitment_id } : {}),
     }),
   cancelCommitment: (id: string) =>
     fetch(`${API_BASE}/commitments/${encodeURIComponent(id)}`, {

@@ -186,11 +186,36 @@ export default function CommitmentSheet({
   const amountValid = !isNaN(parsedAmount) && parsedAmount > 0;
   const monthValid = /^\d{4}-\d{2}$/.test(month) && month >= minMonth;
 
+  // Live feasibility verdict — debounced POST /commitments/preview as the
+  // amount/month change. Failure-tolerant: any error just hides the line.
+  const [preview, setPreview] = useState<CommitmentPreview | null>(null);
+  useEffect(() => {
+    if (!amountValid || !monthValid) {
+      setPreview(null);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      api.previewCommitment(parsedAmount, `${month}-01`, pots, commitment?.id)
+        .then((p) => { if (!stale) setPreview(p); })
+        .catch(() => { if (!stale) setPreview(null); });
+    }, 400);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [amountValid, monthValid, parsedAmount, month, pots, commitment?.id]);
+
+  // Live pot-ledger conflicts, keyed by account — an older goal may already
+  // be drawing from a pot this draft also selects (see pots_detail).
+  const potsDetailByAccount = new Map(
+    (preview?.pots_detail ?? []).map((pd) => [pd.account_id, pd])
+  );
+
   // Estimated progress for the live slice line. With the stored pot set,
   // trust the server's figure; otherwise sum what the draft selection would
-  // contribute — a pot's whole balance when "count existing" is on, its
-  // server-known contribution when the link is unchanged, else zero (growth
-  // starts from link time). Hedged — the backend derives the truth on save.
+  // contribute — a pot's whole balance when "count existing" is on (capped
+  // at the ledger's free remainder when an older goal already claims part
+  // of it — see potsDetailByAccount), its server-known contribution when
+  // the link is unchanged, else zero (growth starts from link time).
+  // Hedged — the backend derives the truth on save.
   const estimatedProgress = (() => {
     if (commitment && !potsChanged) return commitment.progress;
     const sum = pots.reduce((acc, p) => {
@@ -202,7 +227,9 @@ export default function CommitmentSheet({
       }
       if (p.count_existing) {
         const bal = accountList.find((a) => a.id === p.account_id)?.balance ?? 0;
-        return acc + Math.max(0, bal);
+        const detail = potsDetailByAccount.get(p.account_id);
+        const cap = detail && detail.also_funding.length > 0 ? detail.free : bal;
+        return acc + Math.max(0, Math.min(bal, cap));
       }
       return acc;
     }, 0);
@@ -218,23 +245,6 @@ export default function CommitmentSheet({
     periods != null && remaining != null && remaining > 0
       ? ceil5(remaining / periods)
       : null;
-
-  // Live feasibility verdict — debounced POST /commitments/preview as the
-  // amount/month change. Failure-tolerant: any error just hides the line.
-  const [preview, setPreview] = useState<CommitmentPreview | null>(null);
-  useEffect(() => {
-    if (!amountValid || !monthValid) {
-      setPreview(null);
-      return;
-    }
-    let stale = false;
-    const timer = setTimeout(() => {
-      api.previewCommitment(parsedAmount, `${month}-01`, pots)
-        .then((p) => { if (!stale) setPreview(p); })
-        .catch(() => { if (!stale) setPreview(null); });
-    }, 400);
-    return () => { stale = true; clearTimeout(timer); };
-  }, [amountValid, monthValid, parsedAmount, month, pots]);
 
   // Feasibility shown — with the stored pot set, trust the server's verdict
   // (it knows accrued growth the preview can't see), mirroring how
@@ -442,6 +452,12 @@ export default function CommitmentSheet({
                       const brand = accountBrand(acc);
                       const sel = pots.find((p) => p.account_id === acc.id);
                       const balance = Math.max(0, acc.balance ?? 0);
+                      // Live pot-ledger conflict — an older goal is already
+                      // drawing from this pot, so what's actually free is
+                      // less than the raw balance.
+                      const detail = potsDetailByAccount.get(acc.id);
+                      const hasConflict = !!(sel && detail && detail.also_funding.length > 0);
+                      const chipBalance = hasConflict ? detail!.free : balance;
                       return (
                         <div key={acc.id}>
                           <button
@@ -493,9 +509,20 @@ export default function CommitmentSheet({
                                   {sel.count_existing && (
                                     <Check size={11} strokeWidth={3} aria-hidden="true" />
                                   )}
-                                  count the £{Math.round(balance).toLocaleString("en-GB")} already here
+                                  count the £{Math.round(chipBalance).toLocaleString("en-GB")} already here
                                 </span>
                               </button>
+                              {/* Non-blocking — information, not attention. An
+                                  older goal keeps first claim on a shared pot. */}
+                              {hasConflict && (
+                                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                                  Also funding {detail!.also_funding.map((f) => f.name).join(", ")} — £
+                                  {Math.round(
+                                    detail!.also_funding.reduce((sum, f) => sum + f.amount, 0)
+                                  ).toLocaleString("en-GB")}{" "}
+                                  spoken for · £{Math.round(detail!.free).toLocaleString("en-GB")} free
+                                </p>
+                              )}
                             </div>
                           )}
                         </div>
