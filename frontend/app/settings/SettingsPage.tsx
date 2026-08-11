@@ -542,7 +542,7 @@ export default function SettingsPage() {
         })()}
 
         {/* ── Financial profile ── */}
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div data-tutorial-id="tutorial-income" className="glass-card rounded-2xl overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Financial profile</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Self-declared — unlocks personalised tax insights</p>
