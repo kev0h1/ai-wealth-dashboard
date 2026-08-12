@@ -8,6 +8,7 @@ import ThemeColor from "@/components/ThemeColor";
 import BiometricLock from "@/components/BiometricLock";
 import { TutorialProvider } from "@/components/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import GlowField from "@/components/GlowField";
 
 export const metadata: Metadata = {
   title: "Sorted",
@@ -64,11 +65,11 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="relative isolate min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
-        {/* Ambient glow fields — Liquid Glass canvas lighting, behind every screen */}
-        <div aria-hidden="true" className="app-glow pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-          <div className="glow-ambient absolute left-1/2 -translate-x-1/2 top-[4vh] h-[96vh] w-[135vw] max-w-[780px]" />
-        </div>
+      <body className="relative isolate min-h-full bg-[#f7f8fc] dark:bg-[#0b1120] antialiased">
+        {/* Ambient glow field — Liquid Glass canvas lighting, behind every
+            screen. Tier (hero/ambient/minimal) is route-driven; see
+            components/GlowField.tsx for the map. */}
+        <GlowField />
         <Providers>
           <TutorialProvider>
             <ServiceWorkerRegistrar />

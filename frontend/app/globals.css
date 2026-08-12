@@ -3,21 +3,48 @@
 @custom-variant dark (&:is(.dark, .dark *));
 
 :root {
-  --background: #f0f2f7;
+  --background: #f7f8fc;
   --foreground: #0f172a;
   --card: #ffffff;
   --card-border: #f1f5f9;
   color-scheme: only light;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* ── Glow field tokens — system-wide, three tiers (hero/ambient/minimal),
+     one shared recipe (see .glow-hero/.glow-ambient-tier/.glow-minimal
+     further down). --glow-h holds the tier's hue as an rgb triplet — not a
+     true CSS hue angle — so every gradient stop can share one
+     `rgba(var(--glow-h), alpha)` call; light mode uses indigo-400 #818cf8,
+     dark uses indigo-500 #6366f1, same hue family always, never a second
+     colour. DOCTRINE: these alphas are a contrast ceiling, not decoration —
+     raising --glow-alpha-hero must keep in-card muted text reading through
+     the glass at ≥4.4:1; --glow-alpha-ambient is fixed at ≈45% of hero and
+     --glow-alpha-min at ≈15% of hero specifically because that headroom
+     holds by construction as the peak climbs. --glow-y is the field's
+     vertical centre (px) and is meant to be overridden per-route
+     (components/GlowField.tsx sets it inline); --glow-w/--glow-fall tune
+     the field's width and how far out it fades to fully transparent. */
+  --glow-h: 129, 140, 248; /* indigo-400 #818cf8 — light-mode hue family */
+  --glow-alpha-hero: 0.085;
+  --glow-alpha-ambient: 0.038;
+  --glow-alpha-min: 0.013;
+  --glow-y: 235px;
+  --glow-w: 640px;
+  --glow-fall: 86%;
 }
 
 .dark {
-  --background: #0f172a;
+  --background: #0b1120; /* deeper than the old slate-900 #0f172a */
   --foreground: #f1f5f9;
   --card: #1e293b;
   --card-border: #334155;
   color-scheme: dark;
+
+  --glow-h: 99, 102, 241; /* indigo-500 #6366f1 — dark-mode hue family */
+  --glow-alpha-hero: 0.18;
+  --glow-alpha-ambient: 0.081;
+  --glow-alpha-min: 0.027;
 }
 
 /* Text-selection highlight — indigo-tinted, legible in both themes */
@@ -325,27 +352,40 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ── Liquid Glass — app-wide surface system ───────────────────────────────
    Three tiers: .glass-hero (screen anchor), .glass-card (standard panel),
    .glass-tile (nested stat, fill-only — NO second backdrop-filter).
-   Ambient glow lives in app/layout.tsx (.app-glow).
+   Ambient glow lives in app/layout.tsx via <GlowField/> (components/GlowField.tsx).
    Fallbacks below flatten to solid surfaces. */
 
 .glass-hero,
 .glass-card {
-  background: rgba(255, 255, 255, 0.55);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+/* Hero — the screen's dominant surface: stronger fill, a near-invisible
+   ink hairline (not a white one — reads truer on the glow behind it), and
+   a soft ambient shadow of its own in light mode only. Dark elevation
+   comes entirely from the lighter fill (0.14 vs the card's 0.05) — never a
+   shadow, per the system's "fill lightness, not shadows" rule for dark. */
+.glass-hero {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+.dark .glass-hero {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+/* Card — clearly subordinate to the hero: lighter fill unchanged from
+   before, border presence reduced toward nothing, no shadow at all. */
+.glass-card {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: none;
 }
 .dark .glass-card {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-/* Hero keeps a slightly stronger fill so it stays the anchor */
-.dark .glass-hero {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.05);
+  box-shadow: none;
 }
 /* Nested stat tiles inside the hero — translucent fill only, NO second
    backdrop-filter layer (blur is capped at one layer for perf) */
@@ -367,12 +407,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    fill. --safe-area-inset-top is Capacitor 8.3+'s native inset variable
    (see ThemeColor.tsx notes); env() is the fallback for older WebViews. */
 .safe-top-frost {
-  background: rgba(240, 242, 247, 0.72);
+  background: rgba(247, 248, 252, 0.72);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
 .dark .safe-top-frost {
-  background: rgba(15, 23, 42, 0.72);
+  background: rgba(11, 17, 32, 0.72);
 }
 
 /* ── Glass bottom nav — edge-to-edge frost, hairline top border replaces
@@ -388,32 +428,53 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 .dark .glass-nav {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(11, 17, 32, 0.9);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Ambient glow — a single light source (child of .app-glow in app/layout.tsx).
-   One upper-third CORE, centred: an indigo core with a faint violet fringe
-   biased low — vertical geometry is px-locked to the original 560px field so
-   the core renders identically at any element height. A third, very faint
-   indigo TAIL is anchored at the viewport bottom (the element ends at 100vh)
-   so every glass surface has a whisper of field behind it — same light,
-   longer falloff, never a second source. All layers reach transparent before
-   the element's own edge — no filter blur — and the tail is centred and
-   narrow enough that the page gutters still read as bare canvas. Alphas are
-   contrast ceilings: tail peak 0.045 light / 0.03 dark keeps in-card muted
-   text at 4.4:1+ (vs the accepted 3.9:1 worst case under the core). */
-.glow-ambient {
+/* ── Glow field — one indigo light source, three tiers ────────────────────
+   Same recipe everywhere (proven in frontend/app/design/premium/premium.css
+   dark mode): one oversized core ellipse + one very wide whisper layer of
+   the SAME hue (var(--glow-h)), both fading to fully transparent well
+   before the box edge — no violet fringe, no second colour, no seam. The
+   three tiers below are literally the same two-layer background at three
+   different peak alphas (--glow-alpha-hero/-ambient/-min, tokens defined
+   on :root/.dark above) — mounted per-route by components/GlowField.tsx:
+     .glow-hero          — Home/Safe-to-Spend, /cards, /debt-plan, /grow —
+                            plus the one extra faint bottom tail (below),
+                            so every glass surface down the page still
+                            reads a whisper of the same field.
+     .glow-ambient-tier   — /spend, /planning, /insights, /mirror — supports
+                            content, never competes with it.
+     .glow-minimal        — /settings, /accounts, /month, dense utility
+                            screens — almost none, surfaces do the work.
+   DOCTRINE: alpha is a contrast ceiling, not decoration. --glow-alpha-ambient
+   is fixed at ≈45% of hero and --glow-alpha-min at ≈15% of hero (see the
+   token comment on :root) specifically so in-card muted text reading
+   through the glass holds ≥4.4:1 at every tier, not just the quiet ones. */
+.glow-hero,
+.glow-ambient-tier,
+.glow-minimal {
   background:
-    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.13) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 70%),
-    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.045), rgba(99, 102, 241, 0.027) 55%, transparent 92%);
+    radial-gradient(ellipse 55% 620px at 50% var(--glow-y), rgba(var(--glow-h), var(--glow-alpha)), rgba(var(--glow-h), calc(var(--glow-alpha) * 0.41)) 42%, transparent var(--glow-fall)),
+    radial-gradient(ellipse 92% 680px at 50% calc(var(--glow-y) + 40px), rgba(var(--glow-h), calc(var(--glow-alpha) * 0.26)), transparent 88%);
 }
-.dark .glow-ambient {
+.glow-hero        { --glow-alpha: var(--glow-alpha-hero); }
+.glow-ambient-tier { --glow-alpha: var(--glow-alpha-ambient); }
+.glow-minimal      { --glow-alpha: var(--glow-alpha-min); }
+
+/* Hero tier only — the faint bottom tail carried over from the previous
+   .glow-ambient recipe, so every glass surface below the fold on Home/
+   /cards/etc still has a whisper of the same field behind it. Same hue,
+   longer falloff, never a second source. Ratios (0.17/0.10 of the hero
+   peak) are chosen so dark reproduces the old tail almost exactly
+   (0.18 * 0.17 ≈ 0.03, matching the previous shipped 0.03) while light
+   comes out quieter than before, per the "felt not noticed" brief. */
+.glow-hero {
   background:
-    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.32), rgba(99, 102, 241, 0.16) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%),
-    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.018) 55%, transparent 92%);
+    radial-gradient(ellipse 55% 620px at 50% var(--glow-y), rgba(var(--glow-h), var(--glow-alpha)), rgba(var(--glow-h), calc(var(--glow-alpha) * 0.41)) 42%, transparent var(--glow-fall)),
+    radial-gradient(ellipse 92% 680px at 50% calc(var(--glow-y) + 40px), rgba(var(--glow-h), calc(var(--glow-alpha) * 0.26)), transparent 88%),
+    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(var(--glow-h), calc(var(--glow-alpha-hero) * 0.17)), rgba(var(--glow-h), calc(var(--glow-alpha-hero) * 0.10)) 55%, transparent 92%);
 }
 
 /* Regional echo of the ambient glow — for a glass-card panel that sits low
@@ -481,9 +542,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .safe-top-frost {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    background: #f0f2f7;
+    background: #f7f8fc;
   }
-  .dark .safe-top-frost { background: #0f172a; }
+  .dark .safe-top-frost { background: #0b1120; }
   .glass-nav {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -491,7 +552,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     border-top: 1px solid rgba(15, 23, 42, 0.08);
   }
   .dark .glass-nav {
-    background: #0f172a;
+    background: #0b1120;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
@@ -518,14 +579,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: #ffffff;
   }
   .dark .penny-fab-disc { background: #1e293b; }
-  .safe-top-frost { background: #f0f2f7; }
-  .dark .safe-top-frost { background: #0f172a; }
+  .safe-top-frost { background: #f7f8fc; }
+  .dark .safe-top-frost { background: #0b1120; }
   .glass-nav {
     background: #ffffff;
     border-top: 1px solid rgba(15, 23, 42, 0.08);
   }
   .dark .glass-nav {
-    background: #0f172a;
+    background: #0b1120;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
