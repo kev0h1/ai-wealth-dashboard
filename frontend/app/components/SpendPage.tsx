@@ -719,12 +719,13 @@ export default function SpendPage() {
         const displayTxns = largeOnly ? listTxns.filter(tx => Math.abs(tx.amount) >= 250) : listTxns;
         const listBlock = (
           <div ref={listSectionRef} className="relative">
-            {/* No local glow echo here (removed): the page-wide ambient-tier
-                field (components/GlowField.tsx) is viewport-fixed, not
-                document-flow-positioned, so it washes the whole visible
-                screen at every scroll depth — a second echo here would
-                stack on top of it and over-light this dense transaction
-                list, which should stay neutral. */}
+            {/* Ambient glow — this card sits low enough on the page that the
+                page-wide hero glow (app/layout.tsx) has faded to bare canvas
+                by the time it reaches here, so the glass reads flat. Echoes
+                the same indigo/violet field, scoped to this region. No new
+                blur layer (One Blur Rule) — glass-card below still owns the
+                only blur. */}
+            <div aria-hidden="true" className="glow-ambient-panel absolute -inset-x-3 -inset-y-6 -z-10 pointer-events-none" />
             {largeOnly && (
               <div className="flex items-center justify-between mb-2 px-1">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60">
