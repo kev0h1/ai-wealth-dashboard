@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { RotateCcw, Plus, Trash2, Loader2, Check, AlertCircle, X, ChevronDown } from "lucide-react";
-import { CATEGORIES, CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR } from "@/lib/categories";
+import {
+  RotateCcw, Plus, Trash2, Loader2, Check, AlertCircle, X, ChevronDown,
+  Wallet, Receipt, ArrowLeftRight, type LucideIcon,
+} from "lucide-react";
+import {
+  CATEGORIES, CATEGORY_COLOURS, DEFAULT_CUSTOM_COLOUR, getCategoryColour,
+  CATEGORY_KINDS, inferCategoryKind, type CategoryKind,
+} from "@/lib/categories";
 import { ICON_LIBRARY, suggestIcon, getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { useColours } from "@/components/ColourProvider";
@@ -123,6 +129,103 @@ function IconPicker({ current, colour, onSelect, onClose }: {
   );
 }
 
+// ── Category kind ───────────────────────────────────────────────────────────
+// What a new category MEANS: money spent freely, money already committed, or
+// money merely moved between the user's own pots. The app can't tell from the
+// name alone, and guessing wrong puts "House Fund" into every headline spend
+// figure. So we infer, state the answer plainly, and let one tap correct it —
+// a decision already made, never a blank question.
+const KIND_META: Record<CategoryKind, {
+  label: string;
+  icon: LucideIcon;
+  consequence: string;   // follows the category name in the verdict sentence
+  tail: string;          // one-line consequence on the alternative rows
+}> = {
+  discretionary: {
+    label: "Everyday spending",
+    icon: Wallet,
+    consequence: "counts as everyday spending — the money you choose to spend.",
+    tail: "Money you choose to spend",
+  },
+  commitment: {
+    label: "A bill or commitment",
+    icon: Receipt,
+    consequence: "counts as spending, but as something you've committed to — not everyday money.",
+    tail: "Real spend, already committed",
+  },
+  movement: {
+    label: "Money I move, not spend",
+    icon: ArrowLeftRight,
+    consequence: "won't count towards your spending at all — it's money moving to your own pot or account.",
+    tail: "Won't count towards your spending",
+  },
+};
+
+export function CategoryKindChooser({ name, kind, onChange }: {
+  name: string; kind: CategoryKind; onChange: (kind: CategoryKind) => void;
+}) {
+  const meta = KIND_META[kind];
+  const Icon = meta.icon;
+  const others = CATEGORY_KINDS.filter((k) => k !== kind);
+
+  return (
+    <div
+      role="group"
+      aria-label="How this category is counted"
+      className="mt-2.5 rounded-2xl bg-slate-50 dark:bg-slate-700/40 p-3"
+    >
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+        Counted as
+      </p>
+
+      {/* The verdict — already decided, stated in words */}
+      <div className="mt-1.5 flex items-start gap-2.5">
+        <span
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: `${DEFAULT_CUSTOM_COLOUR}26` }}
+        >
+          <Icon size={16} className="text-indigo-600 dark:text-indigo-300" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{meta.label}</p>
+          <p aria-live="polite" className="mt-0.5 text-[13px] leading-snug text-slate-600 dark:text-slate-300">
+            <span className="font-semibold text-slate-800 dark:text-slate-100 break-words">{name}</span>{" "}
+            {meta.consequence}
+          </p>
+        </div>
+      </div>
+
+      {/* One tap to correct it */}
+      <p className="mt-3 mb-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+        Not quite? Tap the right one.
+      </p>
+      <div className="space-y-1.5">
+        {others.map((k) => {
+          const m = KIND_META[k];
+          const OtherIcon = m.icon;
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onChange(k)}
+              aria-label={`Count ${name} as: ${m.label}. ${m.tail}.`}
+              className="w-full min-h-[44px] flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left bg-white dark:bg-slate-700 shadow-[0_1px_4px_rgba(0,0,0,0.07)] dark:shadow-none dark:ring-1 dark:ring-slate-600 active:scale-95 transition-transform"
+            >
+              <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-slate-100 dark:bg-slate-600/60">
+                <OtherIcon size={14} className="text-slate-500 dark:text-slate-300" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold text-slate-600 dark:text-slate-200 truncate">{m.label}</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-300 truncate">{m.tail}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Tinted icon chip on a custom-category row — tap to change the icon
 function IconChip({ cat, colour }: { cat: string; colour: string }) {
   const { icons, setIcon } = useCategoryIcons();
@@ -237,6 +340,10 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
   const [newCatIcon, setNewCatIcon] = useState<string | null>(null);
   const [newCatPickerOpen, setNewCatPickerOpen] = useState(false);
   const newCatIconKey = newCatIcon ?? suggestIcon(newCatName);
+  // Same resolution shape as the icon: the user's explicit choice wins,
+  // otherwise the name is read ("House Fund" → money moved, not spent).
+  const [newCatKind, setNewCatKind] = useState<CategoryKind | null>(null);
+  const newCatKindValue = newCatKind ?? inferCategoryKind(newCatName);
 
   const [rules, setRules] = useState<Rule[]>([]);
   const [ruleText, setRuleText] = useState("");
@@ -254,10 +361,11 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
     if (!name) return;
     setAddingCat(true); setCatError("");
     try {
-      await addCategory(name);
+      await addCategory(name, newCatKindValue);
       if (newCatIconKey !== "Tag") setCategoryIcon(name, newCatIconKey);
       setNewCatName("");
       setNewCatIcon(null);
+      setNewCatKind(null);
     } catch (e: unknown) {
       setCatError(e instanceof Error ? e.message : "Failed to add category");
     } finally {
@@ -364,7 +472,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
               <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">Default</p>
               <div className="grid grid-cols-2 gap-1.5">
                 {[...CATEGORIES].map((cat) => {
-                  const colour = colours[cat] ?? CATEGORY_COLOURS[cat];
+                  const colour = getCategoryColour(cat, colours);
                   const def = CATEGORY_COLOURS[cat];
                   const isModified = colour !== def;
                   return (
@@ -391,7 +499,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">No custom categories yet</p>
               )}
               {customCategories.map((cat) => {
-                const colour = colours[cat] ?? DEFAULT_CUSTOM_COLOUR;
+                const colour = getCategoryColour(cat, colours);
                 const isModified = colour !== DEFAULT_CUSTOM_COLOUR;
                 return (
                   <div key={cat} className="flex items-center justify-between py-2 border-b border-slate-50 dark:border-slate-700/50 last:border-0">
@@ -449,6 +557,13 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                   <Plus size={16} color="#fff" />
                 </button>
               </div>
+              {newCatName.trim() && (
+                <CategoryKindChooser
+                  name={newCatName.trim()}
+                  kind={newCatKindValue}
+                  onChange={setNewCatKind}
+                />
+              )}
               {catError && <p className="mt-1 text-xs text-red-500">{catError}</p>}
             </div>
             </>)}
@@ -478,7 +593,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                     <code className="text-xs font-mono text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-700 px-2 py-0.5 rounded">{pending.pattern}</code>
                     <span className="text-slate-400 text-xs">→</span>
                     <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colours[pending.category] ?? CATEGORY_COLOURS[pending.category] ?? DEFAULT_CUSTOM_COLOUR }} />
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getCategoryColour(pending.category, colours) }} />
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">{pending.category}</span>
                     </span>
                   </div>
@@ -533,7 +648,7 @@ export default function CategoryManagerSheet({ onClose }: { onClose: () => void 
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <code className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{rule.pattern}</code>
                       <span className="text-slate-300 dark:text-slate-600 text-[11px]">→</span>
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colours[rule.category] ?? CATEGORY_COLOURS[rule.category] ?? DEFAULT_CUSTOM_COLOUR }} />
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getCategoryColour(rule.category, colours) }} />
                       <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">{rule.category}</span>
                     </div>
                   </div>

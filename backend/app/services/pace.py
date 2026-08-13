@@ -29,15 +29,18 @@ from app.db.collections import (
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
+from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
 
 logger = logging.getLogger(__name__)
 
-# Categories whose debits are not real discretionary spend.
-# Mirrors _NON_DISC in app.services.cashflow (imported lazily to avoid cycles).
-_NON_SPEND = {"Transfer", "Savings", "Investment", "Debt", "Income"}
-
 # ── Typing alias ──────────────────────────────────────────────────────────────
 _Txn = dict   # normalised transaction record
+
+# "Which categories aren't real spend" now comes from app.services.categories,
+# not a local set. The kind map is fetched ONCE at the top of each public entry
+# point and threaded down through the private helpers, because every predicate
+# below runs inside a per-transaction loop.
+_KindMap = CategoryKinds | dict
 
 
 # ── 0. Internal helpers ───────────────────────────────────────────────────────
@@ -70,10 +73,11 @@ def _classify(
     txns: list[_Txn],
     patterns: list[dict],
     window_days: int,
+    kind_map: _KindMap,
 ) -> tuple[list[_Txn], list[_Txn], list[_Txn], list[_Txn]]:
     """Split *txns* into four buckets (mutually exclusive, priority order):
 
-    1. non_spend  — category in _NON_SPEND
+    1. non_spend  — category whose declared kind is movement or income
     2. planned    — user-declared one-off (txn["planned"] is True)
     3. commitment — matches a recurring-bill pattern
     4. discretionary — everything else
@@ -81,6 +85,10 @@ def _classify(
     Returns (discretionary, commitments, non_spend, planned).
     The bill matcher is stateless per call (fresh `used` sets each time),
     so it is safe to call twice with different window_days for the same txns.
+
+    `kind_map` is an already-fetched category-kind map (see
+    app.services.categories). It is a parameter rather than something this
+    function looks up so the classification loop does no database work.
     """
     # Index transactions by merchant key for O(n) bill matching.
     by_key: dict[str, list[_Txn]] = {}
@@ -132,7 +140,7 @@ def _classify(
 
     for t in txns:
         cat = t["category"]
-        if cat in _NON_SPEND:
+        if is_non_spend(kind_map, cat):
             non_spend.append(t)
         elif t["planned"]:
             planned.append(t)
@@ -152,15 +160,26 @@ _SPEND_PROJ = {
 }
 
 
-async def load_spend_txns(uid: str, start: date, end: date | None = None) -> list[dict]:
+async def load_spend_txns(
+    uid: str,
+    start: date,
+    end: date | None = None,
+    kind_map: _KindMap | None = None,
+) -> list[dict]:
     """Every spend-category transaction in [start, end], signed.
 
     Debits are positive; credits are refunds and net negative — exactly the
-    basis the Spend page's category tiles use. Categories in _NON_SPEND
-    (Transfer/Savings/Debt/Income) are excluded: they are not spending.
+    basis the Spend page's category tiles use. Non-spend categories (declared
+    kind movement or income — Transfer/Savings/Investment/Debt/Income) are
+    excluded: they are not spending.
+
+    Pass `kind_map` when the caller already holds one; otherwise this fetches
+    it once for the whole load (never per transaction).
 
     Returns [{"date": date, "category": str, "amount": float}].
     """
+    if kind_map is None:
+        kind_map = await get_category_kinds(uid)
     start_dt = datetime(start.year, start.month, start.day)
     date_filter: dict = {"$gte": start_dt}
     if end is not None:
@@ -192,7 +211,7 @@ async def load_spend_txns(uid: str, start: date, end: date | None = None) -> lis
             d_obj = date.today()
 
         cat = doc.get("custom_category") or doc.get("category") or "Other"
-        if cat in _NON_SPEND:
+        if is_non_spend(kind_map, cat):
             continue
 
         amt = abs(float(doc.get("amount") or 0))
@@ -318,6 +337,7 @@ def _discretionary_baseline(
     txns: list[_Txn],
     patterns: list[dict],
     period_start: date,
+    kind_map: _KindMap,
 ) -> tuple[dict[str, float], int]:
     """Median 30-day discretionary spend per category over the 90 days
     immediately BEFORE *period_start*.
@@ -338,7 +358,7 @@ def _discretionary_baseline(
         return {}, 0
 
     n_months = max(1, min(3, (period_start - min(t["date"] for t in window)).days // 30 + 1))
-    disc, _, _, _ = _classify(window, patterns, window_days=_BASELINE_DAYS)
+    disc, _, _, _ = _classify(window, patterns, window_days=_BASELINE_DAYS, kind_map=kind_map)
 
     buckets: dict[str, list[float]] = {}
     counts:  dict[str, int] = {}
@@ -364,6 +384,7 @@ async def compute_pace(
     uid: str,
     include_series: bool = False,
     sts: dict | None = None,
+    kind_map: _KindMap | None = None,
 ) -> dict:
     """Compute the spend-pace reading for *uid*.
 
@@ -378,6 +399,10 @@ async def compute_pace(
         Pre-computed safe-to-spend dict (from ``compute_safe_to_spend``).
         When omitted the function fetches it itself — pass it from the HTTP
         handler to save the extra round-trip.
+    kind_map:
+        Pre-fetched category-kind map. Omit and one is fetched here (a single
+        read for the whole computation); pass it from a caller that already
+        holds one so the request still does exactly one.
 
     Returns
     -------
@@ -385,6 +410,10 @@ async def compute_pace(
         See module docstring for the full return shape.
         Returns ``{"state": "unavailable"}`` when data is insufficient.
     """
+
+    # Category kinds — ONE read, threaded into every classifier below.
+    if kind_map is None:
+        kind_map = await get_category_kinds(uid)
 
     # ── A. Safe-to-spend pot ──────────────────────────────────────────────────
     if sts is None:
@@ -450,7 +479,7 @@ async def compute_pace(
 
     # Classify current-period debits
     disc_period, comm_period, non_spend_period, planned_period = _classify(
-        period_txns, patterns, window_days=days_elapsed
+        period_txns, patterns, window_days=days_elapsed, kind_map=kind_map
     )
 
     discretionary_so_far = round(sum(t["amount"] for t in disc_period), 2)
@@ -531,6 +560,7 @@ async def compute_pace(
         patterns=patterns,
         period_start=period_start,
         scan_end=today,
+        kind_map=kind_map,
     )
 
     result: dict = {
@@ -558,6 +588,7 @@ def _weekday_baseline(
     patterns: list[dict],
     period_start: date,
     scan_end: date,
+    kind_map: _KindMap,
 ) -> tuple[dict, dict, list]:
     """Classify history and return (daily_totals, weekday_medians, disc_history).
 
@@ -572,7 +603,7 @@ def _weekday_baseline(
     if not history_txns:
         return {}, {}, []
 
-    disc_history, _, _, _ = _classify(history_txns, patterns, window_days=70)
+    disc_history, _, _, _ = _classify(history_txns, patterns, window_days=70, kind_map=kind_map)
 
     if not disc_history:
         return {}, {}, []
@@ -606,6 +637,7 @@ def _compute_notable_day(
     patterns: list[dict],
     period_start: date,
     scan_end: date,
+    kind_map: _KindMap,
 ) -> dict | None:
     """Find the most recent day in the current period with unusually high spend.
 
@@ -620,7 +652,7 @@ def _compute_notable_day(
         return None
 
     daily_totals, weekday_medians, disc_history = _weekday_baseline(
-        history_txns, patterns, period_start, scan_end=scan_end
+        history_txns, patterns, period_start, scan_end=scan_end, kind_map=kind_map
     )
 
     if not daily_totals:
@@ -689,6 +721,10 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     offset = max(-60, min(0, int(offset)))
     closed = offset < 0
 
+    # Category kinds — ONE read for this whole payload, handed to compute_pace
+    # below so the two computations share it rather than reading twice.
+    kind_map = await get_category_kinds(uid)
+
     # ── A. Resolve the target period ─────────────────────────────────────────
     prefs   = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
@@ -705,7 +741,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
 
     if not closed:
         # ── B-A. Current period: delegate to compute_pace for pot/state ──────
-        pace_result = await compute_pace(uid, include_series=False, sts=sts)
+        pace_result = await compute_pace(uid, include_series=False, sts=sts, kind_map=kind_map)
         if pace_result.get("state") == "unavailable":
             return {"status": "unavailable"}
 
@@ -750,7 +786,9 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
     patterns = cached.get("recurring_spend", [])
 
     # ── D. Classify and compute period totals ─────────────────────────────────
-    disc_period, _, _, _ = _classify(period_txns, patterns, window_days=days_elapsed)
+    disc_period, _, _, _ = _classify(
+        period_txns, patterns, window_days=days_elapsed, kind_map=kind_map
+    )
 
     discretionary_so_far = round(sum(t["amount"] for t in disc_period), 2)
 
@@ -760,13 +798,17 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
         actual = round(discretionary_so_far / max(days_elapsed, 1), 2)
 
     # ── E. Notable day ────────────────────────────────────────────────────────
-    notable_day = _compute_notable_day(history_txns, patterns, period_start, scan_end)
+    notable_day = _compute_notable_day(
+        history_txns, patterns, period_start, scan_end, kind_map=kind_map
+    )
 
     # ── F. choices — discretionary grouped by category ────────────────────────
     # Baseline is discretionary-only, classified on the same basis as the
     # numerator (pace.py's own commitment matcher), so commitments never
     # inflate the usual_rate_per_day for discretionary categories.
-    baseline, baseline_months = _discretionary_baseline(all_txns, patterns, period_start)
+    baseline, baseline_months = _discretionary_baseline(
+        all_txns, patterns, period_start, kind_map=kind_map
+    )
     thin_history = baseline_months < 2
 
     cat_spent:   dict[str, float]       = {}
@@ -937,6 +979,9 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
     offset = max(-60, min(0, int(offset)))
     closed = offset < 0
 
+    # Category kinds — ONE read, reused by the (single) load_spend_txns call.
+    kind_map = await get_category_kinds(uid)
+
     # ── Resolve the target period ─────────────────────────────────────────────
     prefs   = await preferences_col.find_one({"user_id": uid}) or {}
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
@@ -961,12 +1006,13 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
 
     if cached_baseline is not None:
         baseline, baseline_months = cached_baseline
-        txns = await load_spend_txns(uid, period_start, period_end)
+        txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
     else:
         txns = await load_spend_txns(
             uid,
             period_start - timedelta(days=_BASELINE_DAYS),
             period_end,
+            kind_map=kind_map,
         )
         baseline, baseline_months = _total_baseline(txns, period_start)
         await _write_cached_baseline(

@@ -5,32 +5,34 @@ Zero hardcoding of specific users, accounts, merchants, or amounts.
 """
 import re
 import json
-import asyncio
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
-from typing import Any
 
-import httpx
-
-from app.core.config import OPENROUTER_API_KEY, APP_URL
 from app.db.collections import transactions_col, accounts_col, behaviour_portrait_col
+from app.services.categories import get_category_kinds, is_discretionary, is_non_spend
 
-# Categories excluded from "real spend" computations
-_NON_SPEND_CATEGORIES = {
-    "Transfer", "Savings", "Investment", "Debt", "Income", "Internal Transfer",
-    "Loan Payment", "Credit Card Payment",
-}
-
-# Discretionary categories eligible for "signature pleasure" trait
-_DISCRETIONARY = {
-    "Eating Out", "Entertainment", "Shopping", "Hobbies", "Travel",
-    "Health & Beauty", "Sports & Fitness", "Subscriptions",
-}
+# "Real spend" and "discretionary" are no longer local sets. They come from the
+# declared kind on each category (app.services.categories), fetched ONCE per
+# portrait and passed to the predicates inside the per-transaction loops below.
+#
+# The sets that used to live here also carried entries for categories that have
+# never existed ("Internal Transfer", "Loan Payment", "Credit Card Payment",
+# "Hobbies", "Health & Beauty", "Sports & Fitness"). Those matched nothing and
+# are gone; the names are now reserved in app.services.categories so a user
+# cannot create one and get half-recognised.
 
 # BNPL merchants (case-insensitive substring match)
 _BNPL_KEYWORDS = {"klarna", "clearpay", "zilch", "laybuy", "payl8r"}
 
-# Gambling indicators
+# Gambling indicators.
+#
+# DELIBERATELY NOT migrated to a category kind. "Is this gambling?" is not the
+# same question as "is this spend / discretionary spend", and the kind system
+# has no gambling kind to map onto — every plausible replacement predicate is
+# strictly weaker than this check. "Gambling" is a reserved name (it is not a
+# built-in category and can no longer be created as a custom one), so today
+# this set matches only legacy data; the description regex below does the real
+# work. It is kept because dropping it could only ever remove detections.
 _GAMBLING_CATEGORIES = {"Gambling"}
 # Word-boundary regex: 888 only matches as the brand compounds 888sport/888casino/888poker,
 # never as bare digits embedded in account/reference numbers.
@@ -43,44 +45,6 @@ _GAMBLING_RE = re.compile(
 # Returned payment / fee keywords
 _RETURNED_KEYWORDS = {"returned", "unpaid", "bounced", "dishonoured", "dishonoure",
                       "late fee", "overdraft fee", "rejected payment"}
-
-
-async def _llm_narrate(trait_id: str, title: str, evidence: list[str], fallback: str) -> str:
-    """Generate a warm one-sentence narrative via OpenRouter/Haiku.
-    Falls back to `fallback` on any error."""
-    if not OPENROUTER_API_KEY:
-        return fallback
-    evidence_text = "; ".join(evidence)
-    prompt = (
-        f"You are writing a single warm, plain-English sentence for a money app's 'behavioural portrait' card. "
-        f"The trait is: '{title}'. Evidence: {evidence_text}. "
-        "Rules: exactly one sentence, max 25 words, no invented numbers, no judgement, descriptive and calm. "
-        "Do not include quotes. Output only the sentence."
-    )
-    try:
-        async with httpx.AsyncClient(timeout=20) as http:
-            r = await http.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "HTTP-Referer": APP_URL,
-                },
-                json={
-                    "model": "anthropic/claude-haiku-4-5",
-                    "max_tokens": 60,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-        data = r.json()
-        text = data["choices"][0]["message"]["content"].strip()
-        # Strip any accidental quotes
-        text = text.strip('"\'')
-        if text:
-            return text
-    except Exception:
-        pass
-    return fallback
 
 
 def savings_account_ids(raw_accounts: list) -> set:
@@ -169,6 +133,10 @@ async def compute_portrait(uid: str) -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=180)
     cutoff_naive = cutoff.replace(tzinfo=None)
 
+    # Category kinds — ONE read for the whole portrait. Every use below is
+    # inside a per-transaction loop, so it must never be re-fetched there.
+    kind_map = await get_category_kinds(uid)
+
     # Fetch all transactions in window (all sources — TrueLayer only for now,
     # structured generically so adding Finexer/Mono collections is trivial)
     # date field may be stored as datetime object or YYYY-MM-DD string
@@ -247,10 +215,9 @@ async def compute_portrait(uid: str) -> dict:
         })
 
     traits = []
-    pending: list[tuple[int, Any]] = []
 
     # ── TRAIT 1: Front-loading ────────────────────────────────────────────────
-    spend_txns = [t for t in txns if t["is_debit"] and t["category"] not in _NON_SPEND_CATEGORIES]
+    spend_txns = [t for t in txns if t["is_debit"] and not is_non_spend(kind_map, t["category"])]
     early_spend = 0.0
     late_spend = 0.0
     day_totals: dict[int, float] = defaultdict(float)
@@ -284,7 +251,6 @@ async def compute_portrait(uid: str) -> dict:
                 "kind": "structure",
                 "choice": None,
             })
-            pending.append((len(traits) - 1, _llm_narrate("front_loader", "The Front-Loader", evidence, fallback)))
 
     # ── TRAIT 2: Credit switch mid-month ──────────────────────────────────────
     if credit_account_ids:
@@ -314,7 +280,6 @@ async def compute_portrait(uid: str) -> dict:
                     "kind": "structure",
                     "choice": None,
                 })
-                pending.append((len(traits) - 1, _llm_narrate("credit_switch", "Runs on Plastic Mid-Month", evidence, fallback)))
 
     # ── TRAIT 3: Saving habit ─────────────────────────────────────────────────
     #
@@ -413,7 +378,6 @@ async def compute_portrait(uid: str) -> dict:
                 "kind": "habit",
                 "choice": None,
             })
-            pending.append((len(traits) - 1, _llm_narrate("saving_habit", title, evidence, fallback)))
 
     # ── TRAIT 4: Orchestration ────────────────────────────────────────────────
     transfer_txns = [t for t in txns if t["category"] in ("Transfer", "Internal Transfer")]
@@ -438,13 +402,12 @@ async def compute_portrait(uid: str) -> dict:
             "kind": "structure",
             "choice": None,
         })
-        pending.append((len(traits) - 1, _llm_narrate("orchestrator", "The Orchestrator", evidence, fallback)))
 
     # ── TRAIT 5: Signature pleasure ───────────────────────────────────────────
     disc_counts: dict[str, int] = defaultdict(int)
     disc_totals: dict[str, float] = defaultdict(float)
     for t in txns:
-        if t["is_debit"] and t["category"] in _DISCRETIONARY:
+        if t["is_debit"] and is_discretionary(kind_map, t["category"]):
             disc_counts[t["category"]] += 1
             disc_totals[t["category"]] += abs(t["amount"])
 
@@ -468,7 +431,6 @@ async def compute_portrait(uid: str) -> dict:
                 # intent_pace, checkpoints) never have to parse the title string.
                 "ref_category": top_cat,
             })
-            pending.append((len(traits) - 1, _llm_narrate("signature_pleasure", f"Your Signature: {top_cat}", evidence, fallback)))
 
     # ── TRAIT 6: Money hygiene ────────────────────────────────────────────────
     # Cash withdrawals
@@ -518,7 +480,6 @@ async def compute_portrait(uid: str) -> dict:
             "kind": "hygiene",
             "choice": None,
         })
-        pending.append((len(traits) - 1, _llm_narrate("hygiene", title, evidence, fallback)))
     elif len(spend_txns) >= 10:
         # Only surface hygiene issues if there's enough data to be confident
         evidence = hygiene_issues
@@ -532,13 +493,6 @@ async def compute_portrait(uid: str) -> dict:
             "kind": "hygiene",
             "choice": None,
         })
-        pending.append((len(traits) - 1, _llm_narrate("hygiene", title, evidence, fallback)))
-
-    if pending:
-        results = await asyncio.gather(*(c for _, c in pending), return_exceptions=True)
-        for (idx, _), res in zip(pending, results):
-            if isinstance(res, str):
-                traits[idx]["narrative"] = res
 
     return {
         "status": "ok",

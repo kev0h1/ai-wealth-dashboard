@@ -26,6 +26,15 @@ from app.services.needle import (
 
 router = APIRouter(tags=["cards"])
 
+# Categories dropped from the per-card "spending drivers" breakdown.
+#
+# NOT migrated to `app.services.categories.is_non_spend`, and the difference is
+# a real one rather than a stylistic one: this set omits Savings, Investment and
+# Income, all of which the shared helper treats as non-spend. A card debit
+# categorised Savings or Investment therefore still shows up here as card
+# spending. That is very likely wrong, but correcting it moves published
+# per-card totals, so it is held back as a separate, owner-approved change.
+# See the migration report for the measured size of the discrepancy.
 _EXCLUDE_CATEGORIES = {"Transfer", "Debt"}
 
 

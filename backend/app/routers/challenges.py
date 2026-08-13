@@ -9,12 +9,26 @@ from app.db.collections import (
     challenges_col, budgets_col,
     transactions_col, yapily_transactions_col,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.region import get_user_region, get_kenya_transactions
 
 router = APIRouter(tags=["challenges"])
 
 CHALLENGE_CATS = {"Eating Out", "Entertainment", "Shopping", "Groceries", "Transport", "Subscriptions"}
-CHALLENGE_EXCL = {"Transfer", "Savings", "Investment", "Debt", "Income", "Bills", "Utilities"}
+
+# A challenge asks the user to CUT BACK, so eligibility is "is this spend
+# something the user could realistically reduce this week?" — which is a wider
+# question than the discretionary/commitment split. Groceries and Transport are
+# COMMITMENT kind (not freely chosen to exist at all) but are still classic,
+# cuttable budget-adherence challenges: you can buy less, shop cheaper, drive
+# less. `is_discretionary` was tried here and wrongly excluded them, along with
+# every other commitment category — collapsing eligible-category counts to 0
+# for most users. Bills is the one commitment that genuinely is NOT cuttable
+# week to week (rent, council tax, standing orders), so it is excluded by name
+# alongside the non-spend kinds. Do not fold Bills into `is_discretionary` or
+# any other blanket predicate — a future refactor will be tempted to "tidy"
+# this single hardcoded exclusion away, which would silently bring Bills
+# challenges back.
 
 
 def _week_bounds():
@@ -176,9 +190,12 @@ async def _generate_budget_adherence_challenges(uid: str) -> None:
     if not budget_doc:
         return
 
+    # ONE kind-map read for the whole budget list.
+    kinds = await get_category_kinds(uid)
+
     for b in budget_doc.get("budgets", []):
         cat = b.get("category", "")
-        if not cat or b.get("planned", False) or cat in CHALLENGE_EXCL:
+        if not cat or b.get("planned", False) or is_non_spend(kinds, cat) or cat == "Bills":
             continue
         existing = await challenges_col.find_one(
             {"uid": uid, "tier": "budget", "category": cat, "period_start": week_start}

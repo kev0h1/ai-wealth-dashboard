@@ -13,6 +13,7 @@ from app.db.collections import (
     preferences_col, budgets_col, savings_goals_col,
     transactions_col, yapily_transactions_col, notification_state_col,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.pay_period import get_pay_period_for_date
 
 log = logging.getLogger(__name__)
@@ -28,8 +29,9 @@ NOTIF_DEFAULTS = {
     "bill_alerts":     True,
 }
 
-# Outflows that aren't real consumption — never counted against a budget.
-_NON_BUDGET = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+# Outflows that aren't real consumption are never counted against a budget.
+# That set is no longer duplicated here — it is the declared category kind
+# (movement / income), read once per check via app.services.categories.
 
 
 async def notif_pref(user_id: str, key: str) -> bool:
@@ -87,12 +89,14 @@ async def _maybe_budget_exceeded(user_id: str, region: str) -> None:
 
     spend: dict[str, float] = {}
     if region != "Kenya":
+        # ONE kind-map read for the whole period scan below.
+        kinds = await get_category_kinds(user_id)
         q = {"user_id": user_id, "transaction_type": "debit", "date": {"$gte": start_dt}}
         proj = {"amount": 1, "category": 1, "custom_category": 1}
         for col in (transactions_col, yapily_transactions_col):
             for t in await col.find(q, proj).to_list(None):
                 cat = t.get("custom_category") or t.get("category") or "Other"
-                if cat in _NON_BUDGET:
+                if is_non_spend(kinds, cat):
                     continue
                 spend[cat] = spend.get(cat, 0.0) + abs(float(t.get("amount", 0) or 0))
 

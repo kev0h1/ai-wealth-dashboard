@@ -9,9 +9,8 @@ than 3 months of history we average over the months actually present.
 from datetime import datetime
 
 from app.db.collections import cashflow_cache_col, transactions_col, yapily_transactions_col
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.region import get_kenya_transactions
-
-_NON_DISC = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 # Only the fields the maths below actually touches — keeps the 90-day scan
 # from dragging full transaction documents over the wire.
@@ -49,7 +48,8 @@ def _median_monthly(txns: list[dict], now: datetime, n_months: int) -> float:
 async def monthly_cashflow(uid: str, region: str, cutoff: datetime) -> dict:
     """Spike-smoothed typical-month cash-flow. Returns:
       income   – median monthly "Income" credits
-      spending – median monthly everyday spend (excludes Transfer/Savings/Debt/Income)
+      spending – median monthly everyday spend (excludes every category whose
+                 declared kind is movement or income — see app.services.categories)
       debt     – median monthly "Debt" repayments
       cat      – median monthly total per debit category
       n_months – months of history used (1..3)
@@ -88,7 +88,12 @@ async def monthly_cashflow(uid: str, region: str, cutoff: datetime) -> dict:
         by_cat.setdefault(cat, []).append(t)
     monthly_cat = {cat: round(_median_monthly(txns, now, n_months), 2) for cat, txns in by_cat.items()}
 
-    monthly_spending = round(sum(v for k, v in monthly_cat.items() if k not in _NON_DISC), 2)
+    # ONE category-kinds read per computation; the filter below runs over the
+    # per-category medians (a handful of entries), never per transaction.
+    kinds = await get_category_kinds(uid)
+    monthly_spending = round(
+        sum(v for k, v in monthly_cat.items() if not is_non_spend(kinds, k)), 2
+    )
     monthly_debt     = round(monthly_cat.get("Debt", 0.0), 2)
 
     return {

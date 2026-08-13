@@ -20,6 +20,19 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export const logoUrl = (domain: string) => `${API_BASE}/logo/${encodeURIComponent(domain)}`;
 
+/** What a category *means*. Mirrors backend/app/services/categories.py.
+ *  "income" is backend-internal (only ever seen on the built-in Income
+ *  category) and is not offerable when creating a custom category. */
+export type CategoryKind = "discretionary" | "commitment" | "movement" | "income";
+
+export interface CategoriesResponse {
+  builtin: string[];
+  custom: string[];
+  all: string[];
+  /** Kind for every category, built-in and custom — one source of truth. */
+  kinds: Record<string, CategoryKind>;
+}
+
 export interface PagedTransactions {
   items: Transaction[];
   total: number;
@@ -1287,8 +1300,9 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
     }).then(r => r.json()) as Promise<{ hide_net_worth: boolean; dark_mode?: boolean }>,
-  getCategories: () => get<{ builtin: string[]; custom: string[]; all: string[] }>("/categories"),
-  addCategory: (name: string) => post<{ builtin: string[]; custom: string[]; all: string[] }>("/categories", { name }),
+  getCategories: () => get<CategoriesResponse>("/categories"),
+  addCategory: (name: string, kind: CategoryKind = "discretionary") =>
+    post<CategoriesResponse>("/categories", { name, kind }),
   deleteCategory: (name: string) =>
     fetch(`${API_BASE}/categories/${encodeURIComponent(name)}`, {
       method: "DELETE",

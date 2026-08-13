@@ -196,10 +196,11 @@ async def _live_balance(account_id: str) -> float | None:
     return None
 
 
-# Non-discretionary categories — mirrors cashflow.py's _NON_DISC. Excluded from
-# "everyday spend" so the payday-plan target isn't inflated by money that's
-# already accounted for elsewhere (bills, savings moves, debt payments, etc).
-_PP_NON_DISC = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+# Money that isn't real spend (declared kind movement or income) is excluded
+# from "everyday spend" so the payday-plan target isn't inflated by money
+# already accounted for elsewhere (savings moves, debt payments, transfers).
+# Formerly a local set that mirrored cashflow.py's; now read once per call from
+# app.services.categories.
 
 
 def _median(vals: list[float]) -> float:
@@ -220,9 +221,13 @@ async def _per_account_everyday_spend(uid: str, recurring_keys: set) -> dict[str
     Accounts with zero qualifying txns across all 3 periods are simply absent."""
     try:
         from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+        from app.services.categories import get_category_kinds, is_non_spend
 
         prefs = await preferences_col.find_one({"user_id": uid}) or {}
         pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+
+        # ONE kind-map read for the 100-day scan below.
+        kinds = await get_category_kinds(uid)
 
         cutoff = datetime.utcnow() - timedelta(days=100)
         txns: list[dict] = []
@@ -244,7 +249,7 @@ async def _per_account_everyday_spend(uid: str, recurring_keys: set) -> dict[str
         per_acct_sums: dict[str, list[float]] = {}
         for t in txns:
             cat = t.get("custom_category") or t.get("category") or ""
-            if cat in _PP_NON_DISC:
+            if is_non_spend(kinds, cat):
                 continue
             if series_key(t) in recurring_keys:
                 continue
@@ -276,6 +281,11 @@ async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> d
     `move` on each payday-plan destination card."""
     try:
         from app.services.pay_period import get_pay_period_for_date, prev_pay_period
+        from app.services.categories import get_category_kinds, is_non_spend, is_income
+
+        # ONE kind-map read for this whole call, reused for every debit across
+        # all 4 paydays below (never per-transaction).
+        kinds = await get_category_kinds(uid)
 
         cur_start, _ = get_pay_period_for_date(date.today(), pay_cfg)
         paydays: list[date] = []
@@ -302,7 +312,18 @@ async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> d
                 if str(d.get("account_id") or "") != str(salary_acct_id):
                     continue
                 d_cat = d.get("custom_category") or d.get("category") or ""
-                if d_cat not in {"Transfer", "Savings", "Debt", "Investment"}:
+                # Use the declared-kind helper instead of a hand-rolled name
+                # set, so a custom category kinded `movement` (e.g. a
+                # user-created savings pot name) is recognised as a payday
+                # destination too — the literal set only ever covered the
+                # 4 built-ins. `is_income` is excluded explicitly: plain
+                # `is_non_spend` also covers `income`, and measurement against
+                # live data showed some accounts have debit transactions
+                # categorised `Income` (refunds/reversals) that the old
+                # literal set never matched — including them would be a
+                # behaviour change, not just a generalisation, so income is
+                # kept out to match today's behaviour exactly.
+                if not is_non_spend(kinds, d_cat) or is_income(kinds, d_cat):
                     continue
                 debits.append(d)
 
@@ -2268,14 +2289,20 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     intent_pace_items: list[dict] = []
     try:
         from app.services.pace import (
-            _NON_SPEND as _PACE_NON_SPEND,
             _BASELINE_DAYS as _PACE_BASELINE_DAYS,
             _read_cached_baseline,
             _write_cached_baseline,
             _total_baseline,
             load_spend_txns as _load_spend_txns,
         )
+        from app.services.categories import (
+            get_category_kinds as _get_category_kinds,
+            is_non_spend as _is_non_spend,
+        )
         from app.services.checkpoints import engaged_categories as _engaged_categories
+
+        # ONE kind-map read, shared by load_spend_txns and both loops below.
+        _rc_kinds = await _get_category_kinds(uid)
         from app.db.collections import transactions_col as _rc_txns_col, yapily_transactions_col as _rc_yapily_col
 
         # ── resolve the current period ─────────────────────────────────────────
@@ -2287,12 +2314,15 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         _rc_cached = await _read_cached_baseline(uid, _rc_baseline_key)
         if _rc_cached is not None:
             _rc_baseline, _rc_months = _rc_cached
-            _rc_txns = await _load_spend_txns(uid, _rc_period_start, _rc_period_end)
+            _rc_txns = await _load_spend_txns(
+                uid, _rc_period_start, _rc_period_end, kind_map=_rc_kinds
+            )
         else:
             _rc_txns = await _load_spend_txns(
                 uid,
                 _rc_period_start - timedelta(days=_PACE_BASELINE_DAYS),
                 _rc_period_end,
+                kind_map=_rc_kinds,
             )
             _rc_baseline, _rc_months = _total_baseline(_rc_txns, _rc_period_start)
             await _write_cached_baseline(uid, _rc_baseline_key, _rc_baseline, _rc_months)
@@ -2317,7 +2347,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         # ── score each eligible category ──────────────────────────────────────
         _rc_candidates: list[tuple[float, float, str]] = []  # (multiple, spent, category)
         for _cat, _spent in _rc_cat_spent.items():
-            if _cat in _PACE_NON_SPEND:
+            if _is_non_spend(_rc_kinds, _cat):
                 continue
             if _cat in _rc_engaged:
                 continue
@@ -2437,7 +2467,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 _ip_change_cats |= set(_ip_cp.keys())
 
                 for _ip_cat in sorted(_ip_change_cats):
-                    if _ip_cat in _PACE_NON_SPEND:
+                    if _is_non_spend(_rc_kinds, _ip_cat):
                         continue
                     _ip_usual_30d = _rc_baseline.get(_ip_cat)
                     if not _ip_usual_30d:

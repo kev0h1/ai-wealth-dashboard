@@ -14,12 +14,11 @@ from app.db.collections import (
     accounts_col, debt_plans_col, savings_goals_col, budgets_col, preferences_col,
     transactions_col, yapily_transactions_col,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.region import get_user_region
 from app.services.pay_period import get_pay_period_for_date
 
 router = APIRouter(tags=["goals"])
-
-_NON_BUDGET = {"Transfer", "Savings", "Investment", "Debt", "Income"}
 
 
 async def _current_total_debt(uid: str) -> float:
@@ -29,7 +28,14 @@ async def _current_total_debt(uid: str) -> float:
 
 
 async def budget_period_spend(uid: str, start: _date, end: _date) -> dict[str, float]:
-    """Net spend per category (refunds subtract) over a period, GBP only."""
+    """Net spend per category (refunds subtract) over a period, GBP only.
+
+    Non-spend categories (declared kind movement or income) are dropped: they
+    are money moved, not consumed, so they never count against a budget.
+    """
+    # ONE kind-map read for the whole period scan — the predicate below runs
+    # once per transaction and must not touch the database.
+    kinds = await get_category_kinds(uid)
     start_dt = datetime(start.year, start.month, start.day)
     end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
     spend: dict[str, float] = {}
@@ -43,7 +49,7 @@ async def budget_period_spend(uid: str, start: _date, end: _date) -> dict[str, f
             if ttype not in ("debit", "credit"):
                 continue
             cat = t.get("custom_category") or t.get("category") or "Other"
-            if cat in _NON_BUDGET:
+            if is_non_spend(kinds, cat):
                 continue
             amt = abs(float(t.get("amount", 0) or 0))
             spend[cat] = spend.get(cat, 0.0) + (-amt if ttype == "credit" else amt)

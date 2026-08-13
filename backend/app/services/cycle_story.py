@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, APP_URL
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, APP_URL
 from app.db.collections import (
     transactions_col,
     accounts_col,
@@ -29,8 +29,8 @@ from app.db.collections import (
 from app.services.behaviour import (
     savings_account_ids,
     classify_saving_flow,
-    _NON_SPEND_CATEGORIES,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.needle import (
     _txns_for_period,
     _credit_card_account_ids,
@@ -66,6 +66,9 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     """Compute deterministic chapter facts for a pay period."""
     today = date.today()
     fetch_end = min(period_end, today)
+
+    # Category kinds — ONE read, used by the per-transaction spend filter below.
+    kind_map = await get_category_kinds(uid)
 
     raw_txns = await _txns_for_period(uid, period_start, fetch_end)
     if not raw_txns:
@@ -104,10 +107,10 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     week1_end = period_start + timedelta(days=6)
     week1_end_str = week1_end.isoformat()
 
-    # Real spend = debits NOT in _NON_SPEND_CATEGORIES (any account)
+    # Real spend = debits whose category kind is not movement/income (any account)
     real_spend_all = [
         t for t in txns
-        if t["is_debit"] and t["category"] not in _NON_SPEND_CATEGORIES
+        if t["is_debit"] and not is_non_spend(kind_map, t["category"])
     ]
 
     # ── Chapter 1: Opening ────────────────────────────────────────────────────
@@ -538,6 +541,7 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
+                        "provider": OPENROUTER_PROVIDER_PREFS,
                     },
                 )
             data = r.json()

@@ -8,12 +8,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import (
     budgets_col, preferences_col, chat_sessions_col, episodic_memory_col,
     transactions_col, yapily_transactions_col,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.memory import extract_episodic_memory
 
@@ -68,8 +69,12 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
     budget_doc      = await budgets_col.find_one({"user_id": uid, "region": region})
     current_budgets = budget_doc.get("budgets", []) if budget_doc else []
 
-    cutoff    = datetime.now() - timedelta(days=90)
-    non_budget = {"Transfer", "Savings", "Investment", "Debt"}
+    cutoff = datetime.now() - timedelta(days=90)
+    # ONE kind-map read; the filter below runs once per debit in the 90-day scan.
+    # NOTE: this local set used to omit Income, so Income-categorised debits
+    # (refund reversals and the like) were shown to Penny as ordinary spend.
+    # The shared helper treats income as non-spend, which is the correction.
+    kinds = await get_category_kinds(uid)
 
     if region == "Kenya":
         currency    = "KES "
@@ -91,7 +96,7 @@ async def budget_chat(body: dict, user: dict = Depends(current_user)):
     cat_totals: dict = {}
     for t in debit_txns:
         cat = t.get("custom_category") or t.get("category") or "Other"
-        if cat in non_budget:
+        if is_non_spend(kinds, cat):
             continue
         cat_totals[cat] = cat_totals.get(cat, 0) + t["amount"]
     monthly_avg  = {k: round(v / 3, 2) for k, v in cat_totals.items()}
@@ -145,7 +150,8 @@ Format the friendly message in clean markdown: short paragraphs, **bold** for ke
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
             json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 800,
-                  "messages": [{"role": "system", "content": system}] + full_messages},
+                  "messages": [{"role": "system", "content": system}] + full_messages,
+                  "provider": OPENROUTER_PROVIDER_PREFS},
         )
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")

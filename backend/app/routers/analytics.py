@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.models import KPIResponse, Insight
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
@@ -30,6 +30,7 @@ from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
 from app.services.categorisation import series_key, has_date_fragment, is_own_transfer, user_identity
 from app.services.card_rates import is_credit_card_account
+from app.services.categories import get_category_kinds, is_non_spend
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -83,6 +84,13 @@ router = APIRouter(tags=["analytics"])
 
 # Only transfers are excluded from the burn — money moved between own accounts
 # isn't real outflow. Everything else (incl. savings/debt) counts toward runway.
+#
+# DELIBERATELY NOT `app.services.categories.is_non_spend`. That helper also
+# excludes Savings, Investment and Debt (kind `movement`), and this is the one
+# place where that would be wrong: runway asks "how long does the cash last?",
+# and a savings transfer or a debt repayment genuinely leaves the account, so
+# it has to count. Swapping this for the shared helper would silently lengthen
+# every runway figure. If you are here to "fix the drift" — this is not drift.
 SKIP_BURN_CATS = {"Transfer"}
 
 
@@ -237,7 +245,7 @@ async def budget_pace_profile(user: dict = Depends(current_user)):
     region     = prefs.get("region", "UK")
 
     today         = _date.today()
-    SKIP          = {"Transfer", "Savings", "Investment", "Debt", "Income"}
+    kind_map      = await get_category_kinds(uid)  # ONE read per request
     SAMPLE_POINTS = 20
     MIN_PERIODS   = 2
 
@@ -275,7 +283,7 @@ async def budget_pace_profile(user: dict = Depends(current_user)):
         if tx.get("planned"):
             continue
         cat    = tx.get("custom_category") or tx.get("category") or "Other"
-        if cat in SKIP:
+        if is_non_spend(kind_map, cat):
             continue
         amount = abs(float(tx.get("amount", 0) or 0))
         if amount <= 0:
@@ -356,7 +364,8 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                 json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
-                      "messages": [{"role": "user", "content": prompt}]},
+                      "messages": [{"role": "user", "content": prompt}],
+                      "provider": OPENROUTER_PROVIDER_PREFS},
             )
         if r.status_code != 200:
             return []
@@ -1257,7 +1266,8 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                 json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
-                      "messages": [{"role": "user", "content": prompt}]},
+                      "messages": [{"role": "user", "content": prompt}],
+                      "provider": OPENROUTER_PROVIDER_PREFS},
             )
         if r.status_code != 200:
             return _soft_error
@@ -2103,12 +2113,19 @@ async def _flagged_miscategorised(uid: str) -> list:
     rather than a money-to-self category. Excludes rows/series already
     dismissed. Returns flat list of annotated txn docs (adds _series_key and
     _effective_category)."""
-    money_to_self = {"Transfer", "Savings", "Investment", "Debt", "Income"}
     identity = await user_identity(uid)
     # is_own_transfer treats "no identity data at all" as own (legacy default),
     # which would flag every spend row here. Guard: no identity → no guardrail.
     if not identity.get("name_tokens") and not identity.get("own_ids"):
         return []
+
+    # Built from this user's actual kind map (built-ins + custom), not a
+    # literal name set — a custom category the user declared `movement`
+    # (e.g. "House Fund") must be excluded here exactly like Transfer/Savings
+    # are, or the guardrail nags the user to recategorise money they already
+    # told the app is a transfer.
+    kind_map = await get_category_kinds(uid)  # ONE read per request
+    money_to_self = [name for name in kind_map if is_non_spend(kind_map, name)]
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     dismissed = set(prefs.get("dismissed_miscategorised") or [])
@@ -2118,7 +2135,7 @@ async def _flagged_miscategorised(uid: str) -> list:
         {"user_id": uid, "transaction_type": "debit",
          "$or": [
              # auto-categorised into a spend category
-             {"custom_category": None, "category": {"$nin": list(money_to_self)}},
+             {"custom_category": None, "category": {"$nin": money_to_self}},
              # manually overridden into a spend category — guide the user back
              {"custom_category": {"$nin": [None, *money_to_self]}},
          ]},

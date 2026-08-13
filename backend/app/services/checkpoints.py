@@ -34,7 +34,8 @@ from app.db.collections import (
     checkpoints_col,
     preferences_col,
 )
-from app.services.pace import _NON_SPEND, _total_baseline, load_spend_txns
+from app.services.categories import get_category_kinds, is_non_spend
+from app.services.pace import _total_baseline, load_spend_txns
 from app.services.pay_period import get_pay_period_for_date
 
 logger = logging.getLogger(__name__)
@@ -100,12 +101,18 @@ async def category_total_spend(
     category: str,
     period_start: date,
     period_end: date,
+    kind_map: dict[str, str] | None = None,
 ) -> float:
     """That category's TOTAL spend in the window — every spend-category
     transaction, refunds netted, commitments included. This is the same basis
     the Spend page's category tiles show: a user who aims at 'Eating Out'
-    means all of it."""
-    txns = await load_spend_txns(uid, period_start, period_end)
+    means all of it.
+
+    Pass `kind_map` when the caller already holds one (e.g. looping over
+    several checkpoints in one request) so `load_spend_txns` doesn't fetch
+    the kind map again per call — see the efficiency contract in
+    `app/services/categories.py`."""
+    txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
     return round(sum(t["amount"] for t in txns if t["category"] == category), 2)
 
 
@@ -121,15 +128,19 @@ async def create_checkpoint(
     Raises
     ------
     ValueError
-        ref is empty, ref is in _NON_SPEND, aim_amount is invalid, or there
-        is no baseline to derive an aim from.
+        ref is empty, ref is a non-spend category, aim_amount is invalid, or
+        there is no baseline to derive an aim from.
     DuplicateCheckpoint
         An active checkpoint already exists for (uid, ref, period_end).
     """
     if not ref or not ref.strip():
         raise ValueError("ref must be a non-empty category name")
     ref = ref.strip()
-    if ref in _NON_SPEND:
+    # One kind-map read per creation, reused below for the progress read too —
+    # this is a single-category validation, not a loop, so there is no
+    # per-transaction cost here.
+    kind_map = await get_category_kinds(uid)
+    if is_non_spend(kind_map, ref):
         raise ValueError(
             f"'{ref}' is not a spending category — the Door is for spending "
             "categories only (not Transfer, Savings, Debt, or Income)"
@@ -194,7 +205,7 @@ async def create_checkpoint(
     doc["_id"] = result.inserted_id
 
     # Attach live progress
-    spent = await category_total_spend(uid, ref, period_start, period_end)
+    spent = await category_total_spend(uid, ref, period_start, period_end, kind_map=kind_map)
     today = date.today()
     total_days   = (period_end - period_start).days + 1
     days_elapsed = max(1, min(total_days, (today - period_start).days))
@@ -211,7 +222,12 @@ async def create_checkpoint(
 
 async def list_active(uid: str) -> list[dict]:
     """Return active checkpoints for the current period, with live progress."""
-    await resolve_due(uid)
+    # ONE kind-map read for this whole call, reused by resolve_due and the
+    # per-checkpoint spend loop below — otherwise each checkpoint (in both
+    # resolve_due and this loop) would trigger its own get_category_kinds
+    # read via load_spend_txns.
+    kind_map = await get_category_kinds(uid)
+    await resolve_due(uid, kind_map=kind_map)
 
     _, period_end = await current_period(uid)
     today = date.today()
@@ -226,7 +242,9 @@ async def list_active(uid: str) -> list[dict]:
     for doc in docs:
         period_start = date.fromisoformat(doc["period_start"])
         period_end_d = date.fromisoformat(doc["period_end"])
-        spent        = await category_total_spend(uid, doc["ref"], period_start, period_end_d)
+        spent        = await category_total_spend(
+            uid, doc["ref"], period_start, period_end_d, kind_map=kind_map
+        )
         total_days   = (period_end_d - period_start).days + 1
         days_elapsed = max(1, min(total_days, (today - period_start).days))
         days_left    = max(0, (period_end_d - today).days + 1)
@@ -269,13 +287,21 @@ async def record_intent(uid: str, category: str, answer: str) -> dict:
     }
 
 
-async def resolve_due(uid: str) -> list[dict]:
+async def resolve_due(uid: str, kind_map: dict[str, str] | None = None) -> list[dict]:
     """The Verified Checkpoint Rule: resolve any active checkpoints whose period has closed.
 
     Resolution is entirely automatic from transaction data — the user never
     reports anything. Called lazily on list_active and at period close.
+
+    `kind_map`: pass one in when the caller already holds it (list_active
+    does) so this doesn't issue its own read per call; when called standalone
+    it fetches ONE, reused for every due checkpoint in this call — never one
+    per checkpoint.
     """
     today = date.today()
+    if kind_map is None:
+        kind_map = await get_category_kinds(uid)
+
     cursor = checkpoints_col.find({
         "user_id":    uid,
         "status":     "active",
@@ -286,10 +312,35 @@ async def resolve_due(uid: str) -> list[dict]:
     resolved = []
     for doc in due:
         try:
+            # Re-validate the category at RESOLVE time, not just at creation.
+            # If the user has since re-declared this category's kind as
+            # movement/income (e.g. renamed a custom category's purpose),
+            # load_spend_txns would filter it out entirely and
+            # category_total_spend would return 0.0 — which reads as "met"
+            # below. That is a fabricated win in a consent-based feature,
+            # worse than reporting nothing. There is no honest spend figure
+            # to report for a category that is no longer spend-tracked, so
+            # this checkpoint is closed the same way an explicit user
+            # cancellation is: status "cancelled", no result_amount, no
+            # shame — reusing the existing status rather than inventing a
+            # new user-facing one.
+            if is_non_spend(kind_map, doc["ref"]):
+                resolved_at = _utcnow_iso()
+                await checkpoints_col.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {
+                        "status":       "cancelled",
+                        "resolved_at":  resolved_at,
+                    }},
+                )
+                doc.update({"status": "cancelled", "resolved_at": resolved_at})
+                resolved.append(doc)
+                continue
+
             period_start = date.fromisoformat(doc["period_start"])
             period_end   = date.fromisoformat(doc["period_end"])
             result_amount = await category_total_spend(
-                uid, doc["ref"], period_start, period_end
+                uid, doc["ref"], period_start, period_end, kind_map=kind_map
             )
             status = "met" if result_amount <= doc["aim_amount"] else "missed"
             resolved_at = _utcnow_iso()
@@ -320,6 +371,7 @@ async def checkpoint_map_for_period(
     period_end: date,
     days_left: int | None = None,
     cat_spent: dict[str, float] | None = None,
+    kind_map: dict[str, str] | None = None,
 ) -> dict[str, dict]:
     """Return {category: {id, aim_amount, spent_so_far, days_left, on_track}}
     for ACTIVE checkpoints in the given period.
@@ -328,8 +380,16 @@ async def checkpoint_map_for_period(
                never contradicts the checkpoint progress.
     cat_spent: when passed, read spent from it (no DB recompute). This is the
                same TOTAL spend map the caller already computed.
+    kind_map:  pass one in when the caller already holds it, to skip the read
+               below entirely. Only fetched here (ONCE, regardless of how
+               many checkpoints are in this period) when `cat_spent` is None
+               and no map was supplied — that's the only branch that needs
+               one, since a supplied `cat_spent` requires no further DB read.
     """
     today = date.today()
+    if cat_spent is None and kind_map is None:
+        kind_map = await get_category_kinds(uid)
+
     cursor = checkpoints_col.find({
         "user_id":    uid,
         "status":     "active",
@@ -354,7 +414,9 @@ async def checkpoint_map_for_period(
         if cat_spent is not None:
             spent = cat_spent.get(cat, 0.0)
         else:
-            spent = await category_total_spend(uid, cat, period_start, period_end)
+            spent = await category_total_spend(
+                uid, cat, period_start, period_end, kind_map=kind_map
+            )
 
         on_track = spent <= aim * (days_elapsed / total_days)
 

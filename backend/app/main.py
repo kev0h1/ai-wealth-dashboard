@@ -176,6 +176,7 @@ async def _migrate():
         upsert=False,
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
+    asyncio.create_task(_migrate_category_kinds())
     asyncio.create_task(_fix_all_users_categories())
     asyncio.create_task(_seed_subscriptions())
     asyncio.create_task(_cleanup_stale_connections())
@@ -198,6 +199,14 @@ async def _encrypt_plaintext_tokens():
             count += 1
     if count:
         print(f"[startup] encrypted tokens on {count} connections")
+
+
+async def _migrate_category_kinds():
+    """One-time: upgrade user_categories from [str] to [{name, kind}]."""
+    from app.services.categories import migrate_category_kinds
+    stats = await migrate_category_kinds()
+    if stats["upgraded"]:
+        print(f"[startup] category kinds migrated: {stats}")
 
 
 async def _fix_all_users_categories():
