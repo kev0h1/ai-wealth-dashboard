@@ -168,24 +168,6 @@ body {
   }
 }
 
-/* ── Debt burndown card — frosted glass surface ──────────────────────────── */
-.debt-burndown-frosted {
-  background: rgba(255, 255, 255, 0.93);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow:
-    0 4px 24px rgba(99, 102, 241, 0.08),
-    0 1px 6px rgba(0, 0, 0, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-}
-.dark .debt-burndown-frosted {
-  background: rgba(30, 41, 59, 0.93);
-  box-shadow:
-    0 4px 24px rgba(99, 102, 241, 0.1),
-    0 1px 6px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
 /* ── Bottom-nav active pill entrance ─────────────────────────────────────── */
 @keyframes navPillIn {
   from { opacity: 0; transform: scale(0.90); }
@@ -325,7 +307,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ── Liquid Glass — app-wide surface system ───────────────────────────────
    Three tiers: .glass-hero (screen anchor), .glass-card (standard panel),
    .glass-tile (nested stat, fill-only — NO second backdrop-filter).
-   Ambient glow lives in app/layout.tsx (.app-glow).
    Fallbacks below flatten to solid surfaces. */
 
 .glass-hero,
@@ -337,6 +318,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .dark .glass-card {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+/* Fill-only variant of .glass-card — identical fill/border/shadow, NO
+   backdrop-filter. Not about nesting (that's .glass-tile's job): this is
+   about COUNT. Grids that repeat .glass-card many times over (e.g. Spend's
+   category tiles) stack that many independent backdrop-filter layers on
+   screen at once, which is a known WebView/Chromium raster failure mode —
+   a tile paints its own translucent fill and silently drops its children,
+   rendering as a blank white rounded box (load-timing dependent, so only
+   some tiles are hit). Use this for any repeated/grid instance of a card;
+   keep .glass-card (with blur) for one-off panels. Do NOT "simplify" this
+   back to .glass-card — that reintroduces the bug. */
+.glass-card-flat {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.dark .glass-card-flat {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -392,77 +393,40 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Ambient glow — a single light source (child of .app-glow in app/layout.tsx).
-   One upper-third CORE, centred: an indigo core with a faint violet fringe
-   biased low — vertical geometry is px-locked to the original 560px field so
-   the core renders identically at any element height. A third, very faint
-   indigo TAIL is anchored at the viewport bottom (the element ends at 100vh)
-   so every glass surface has a whisper of field behind it — same light,
-   longer falloff, never a second source. All layers reach transparent before
-   the element's own edge — no filter blur — and the tail is centred and
-   narrow enough that the page gutters still read as bare canvas. Alphas are
-   contrast ceilings: tail peak 0.045 light / 0.03 dark keeps in-card muted
-   text at 4.4:1+ (vs the accepted 3.9:1 worst case under the core). */
-.glow-ambient {
+/* ── Safe-to-Spend hero glow — THE only glow surface left in the app ──────
+   Emitted from within: no field behind the card, just a soft top-down inner
+   luminance folded into the card's own fill (no added drop shadow — The One
+   Shadow Rule holds; this only replaces .glass-hero's flat fill). Scoped to
+   .sts-card in components/SafeToSpendCard.tsx ONLY — this is deliberately
+   not a reusable app-wide system (a prior attempt at that was rejected).
+   Indigo only (rgba(99,102,241,...)) — no violet; the indigo→violet pairing
+   is Penny's exclusive signature and this card is not a Penny surface.
+   Chosen 2026-08-07 from three coded candidates (A: bounded halo behind the
+   card, B: this one, C: tight field anchored on the verdict figure). */
+.sts-card {
   background:
-    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.25), rgba(99, 102, 241, 0.13) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 70%),
-    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.045), rgba(99, 102, 241, 0.027) 55%, transparent 92%);
+    linear-gradient(180deg, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 60%),
+    rgba(255, 255, 255, 0.55);
 }
-.dark .glow-ambient {
+.dark .sts-card {
   background:
-    radial-gradient(ellipse 50% 246px at 50% 235px, rgba(99, 102, 241, 0.32), rgba(99, 102, 241, 0.16) 45%, transparent 72%),
-    radial-gradient(ellipse 52% 302px at 50% 325px, rgba(139, 92, 246, 0.13), rgba(139, 92, 246, 0.065) 45%, transparent 70%),
-    radial-gradient(ellipse 62% 66% at 50% 100%, rgba(99, 102, 241, 0.03), rgba(99, 102, 241, 0.018) 55%, transparent 92%);
+    linear-gradient(180deg, rgba(99, 102, 241, 0.14) 0%, rgba(99, 102, 241, 0) 60%),
+    rgba(255, 255, 255, 0.08);
 }
-
-/* Regional echo of the ambient glow — for a glass-card panel that sits low
-   enough on a page (e.g. the Spend transactions list) that the page-wide
-   .glow-ambient field above has already faded to bare canvas, leaving the
-   glass reading flat. Same indigo/violet family, same alpha family as
-   .glow-ambient, just re-centred on the panel's own box with relative (%)
-   geometry instead of px so it scales with the panel, not the viewport.
-   One light source, echoed — never a second colour. No filter blur (One
-   Blur Rule) — the glass-card above it owns the only blur in this region. */
-.glow-ambient-panel {
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 25%, rgba(99, 102, 241, 0.13), rgba(99, 102, 241, 0.06) 45%, transparent 75%),
-    radial-gradient(ellipse 65% 60% at 50% 78%, rgba(139, 92, 246, 0.07), rgba(139, 92, 246, 0.035) 45%, transparent 75%);
-}
-.dark .glow-ambient-panel {
-  background:
-    radial-gradient(ellipse 70% 55% at 50% 25%, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.09) 45%, transparent 75%),
-    radial-gradient(ellipse 65% 60% at 50% 78%, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.05) 45%, transparent 75%);
-}
-
-/* Debt burndown — THE debt-plan background (/debt-plan page). Standard app glow
-   restored; the burndown-line is the historical-solid portion, burndown-line-forecast
-   is the projection (dashed). Alphas are computed ceilings: the verdict and in-card
-   muted text hold ≥4.5:1 through the glass over every backdrop region; this page
-   bumps its muted text one step toward ink (slate-600 / dark slate-300) to fund the
-   headroom. Colours never leave the app's indigo + slate token families. */
-
-.burndown-line          { stroke: rgba(79,70,229,0.13); }
-.dark .burndown-line    { stroke: rgba(129,140,248,0.18); }
-.burndown-line-forecast { stroke: rgba(79,70,229,0.07); }
-.dark .burndown-line-forecast { stroke: rgba(129,140,248,0.10); }
-.burndown-seam          { stroke: rgba(100,116,139,0.12); }
-.dark .burndown-seam    { stroke: rgba(148,163,184,0.14); }
 
 /* Flatten back to the previous solid surfaces when the user prefers
    reduced transparency, or the browser can't do backdrop-filter. */
 @media (prefers-reduced-transparency: reduce) {
-  .app-glow { display: none; }
-  .glow-ambient-panel { display: none; }
-  .burndown-bg { display: none; }
-  .glass-hero, .glass-card {
+  .sts-card { background: #ffffff !important; }
+  .dark .sts-card { background: #1e293b !important; }
+  .glass-hero, .glass-card, .glass-card-flat {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: #ffffff;
     border-color: #f1f5f9;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
-  .dark .glass-hero, .dark .glass-card {
+  .dark .glass-hero, .dark .glass-card, .dark .glass-card-flat {
     background: #1e293b;
     border-color: #334155;
     box-shadow: none;
@@ -496,15 +460,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .app-glow { display: none; }
-  .glow-ambient-panel { display: none; }
-  .burndown-bg { display: none; }
-  .glass-hero, .glass-card {
+  .sts-card { background: #ffffff !important; }
+  .dark .sts-card { background: #1e293b !important; }
+  .glass-hero, .glass-card, .glass-card-flat {
     background: #ffffff;
     border-color: #f1f5f9;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
-  .dark .glass-hero, .dark .glass-card {
+  .dark .glass-hero, .dark .glass-card, .dark .glass-card-flat {
     background: #1e293b;
     border-color: #334155;
     box-shadow: none;

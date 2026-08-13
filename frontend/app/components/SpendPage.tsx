@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, SlidersHo
 import { api, Account, Transaction, CategorySignal } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { getToken, setToken } from "@/lib/auth";
 import {
   getPayPeriodWithConfig,
@@ -585,7 +585,7 @@ export default function SpendPage() {
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {categories.map((cat) => {
-                  const colour = colours[cat.name] ?? CATEGORY_COLOURS[cat.name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                  const colour = getCategoryColour(cat.name, colours);
                   const Icon = getCategoryIcon(cat.name, iconOverrides);
                   const sig = signals[cat.name];
                   const s = cat.count !== 1 ? "s" : "";
@@ -595,7 +595,7 @@ export default function SpendPage() {
                       key={cat.name}
                       data-category={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className={`glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
+                      className={`glass-card-flat rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
                     >
                       <div className="flex items-center gap-2.5">
                         {/* tinted icon chip — the card's single colour-identity cue */}
@@ -684,14 +684,14 @@ export default function SpendPage() {
             {untrackedOpen && (
               <div className="mt-2 grid grid-cols-2 gap-3">
                 {untrackedCategories.map(cat => {
-                  const colour = colours[cat.name] ?? CATEGORY_COLOURS[cat.name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                  const colour = getCategoryColour(cat.name, colours);
                   const Icon = getCategoryIcon(cat.name, iconOverrides);
                   return (
                     <button
                       key={cat.name}
                       data-category={cat.name}
                       onClick={() => setOpenCategory(cat)}
-                      className={`glass-card rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
+                      className={`glass-card-flat rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
                     >
                       <div className="flex items-center gap-2.5">
                         <span
@@ -719,13 +719,6 @@ export default function SpendPage() {
         const displayTxns = largeOnly ? listTxns.filter(tx => Math.abs(tx.amount) >= 250) : listTxns;
         const listBlock = (
           <div ref={listSectionRef} className="relative">
-            {/* Ambient glow — this card sits low enough on the page that the
-                page-wide hero glow (app/layout.tsx) has faded to bare canvas
-                by the time it reaches here, so the glass reads flat. Echoes
-                the same indigo/violet field, scoped to this region. No new
-                blur layer (One Blur Rule) — glass-card below still owns the
-                only blur. */}
-            <div aria-hidden="true" className="glow-ambient-panel absolute -inset-x-3 -inset-y-6 -z-10 pointer-events-none" />
             {largeOnly && (
               <div className="flex items-center justify-between mb-2 px-1">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60">

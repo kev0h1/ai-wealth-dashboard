@@ -27,7 +27,7 @@ import { api, Transaction, TransportSummary } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import {
   PayPeriodConfig, prevPeriodWithConfig, filterPeriod,
 } from "@/lib/payPeriod";
@@ -130,8 +130,7 @@ function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: bool
 
   if (slices.length === 0) return <EmptyWidget compact={compact} />;
   const total = slices.reduce((s, x) => s + x.value, 0);
-  const colour = (name: string) =>
-    data.colours[name] ?? CATEGORY_COLOURS[name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+  const colour = (name: string) => getCategoryColour(name, data.colours);
 
   return (
     <div className="flex items-center gap-3">

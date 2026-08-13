@@ -7,7 +7,7 @@ import { Transaction, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { BankBadge, BANK_META } from "@/components/AccountMiniCard";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { useCategories } from "@/components/CategoriesContext";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -47,7 +47,7 @@ export default function TransactionSheet({
   const { icons: iconOverrides } = useCategoryIcons();
   const { allCategories } = useCategories();
   const isCredit = transaction.transaction_type === "credit";
-  const colour = colours[category] ?? CATEGORY_COLOURS.Other;
+  const colour = getCategoryColour(category, colours);
   const CategoryIcon = getCategoryIcon(category, iconOverrides);
   const name = transaction.merchant_name || transaction.description || "(no description)";
 

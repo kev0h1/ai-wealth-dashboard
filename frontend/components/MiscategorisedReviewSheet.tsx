@@ -6,7 +6,7 @@ import { X, ArrowLeftRight } from "lucide-react";
 import { Transaction, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -175,7 +175,7 @@ export default function MiscategorisedReviewSheet({
             <div className="space-y-2">
               {items.map((item) => {
                 const category = item.category || "Other";
-                const colour = colours[category] ?? CATEGORY_COLOURS.Other;
+                const colour = getCategoryColour(category, colours);
                 const CategoryIcon = getCategoryIcon(category, iconOverrides);
                 const name = item.merchant_name || item.description || "(no description)";
                 const isCredit = item.transaction_type === "credit";

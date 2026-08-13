@@ -13,7 +13,7 @@ import { CategoryData } from "@/components/CategoryRow";
 import CategorySheet from "@/components/CategorySheet";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import SegmentedControl from "@/components/SegmentedControl";
 import BottomNav from "@/components/BottomNav";
@@ -1953,7 +1953,7 @@ export default function AccountsPage() {
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 {categories.map((cat) => {
-                  const colour = colours[cat.name] ?? CATEGORY_COLOURS[cat.name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                  const colour = getCategoryColour(cat.name, colours);
                   const Icon = getCategoryIcon(cat.name, iconOverrides);
                   return (
                     <button

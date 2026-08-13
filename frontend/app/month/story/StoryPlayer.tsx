@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { api, CycleStory } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtDate(iso: string): string {
@@ -146,10 +146,7 @@ function WhereItWentSlide({
       <Whisper>WHERE IT WENT</Whisper>
       <div className="space-y-4">
         {top5.map((d) => {
-          const colour =
-            colours[d.category] ??
-            CATEGORY_COLOURS[d.category] ??
-            CATEGORY_COLOURS.Other;
+          const colour = getCategoryColour(d.category, colours);
           return (
             <div key={d.category} className="flex items-center gap-3">
               <div

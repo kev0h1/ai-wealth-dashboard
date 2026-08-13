@@ -8,7 +8,7 @@ import { goBack } from "@/lib/goBack";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
 
@@ -284,10 +284,7 @@ export default function CardsPage() {
             <div className="glass-card rounded-2xl mt-3 overflow-hidden">
               <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
                 {drivers.map((d) => {
-                  const colour =
-                    colours[d.category] ??
-                    CATEGORY_COLOURS[d.category] ??
-                    CATEGORY_COLOURS.Other;
+                  const colour = getCategoryColour(d.category, colours);
                   return (
                     <div key={d.category} className="px-4 py-3 flex items-center gap-3">
                       {/* Category colour chip */}

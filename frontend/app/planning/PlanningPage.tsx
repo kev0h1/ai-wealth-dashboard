@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import { api, Account, CashflowData, Commitment, SavingsInsight } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
@@ -833,7 +833,7 @@ export default function PlanningPage() {
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
           const highlighted = highlightBill === rowKey;
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
-          const colour = colours[catName] ?? CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+          const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
           // Insight hint — calm bill rows only: never on next-period amber
           // rows, and never competing with a risk verdict (red leads there).

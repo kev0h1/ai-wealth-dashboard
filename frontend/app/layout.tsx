@@ -65,10 +65,6 @@ export default function RootLayout({
         />
       </head>
       <body className="relative isolate min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
-        {/* Ambient glow fields — Liquid Glass canvas lighting, behind every screen */}
-        <div aria-hidden="true" className="app-glow pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-          <div className="glow-ambient absolute left-1/2 -translate-x-1/2 top-[4vh] h-[96vh] w-[135vw] max-w-[780px]" />
-        </div>
         <Providers>
           <TutorialProvider>
             <ServiceWorkerRegistrar />

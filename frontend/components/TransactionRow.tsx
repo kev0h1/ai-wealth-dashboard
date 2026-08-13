@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Transaction, logoUrl } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 
@@ -132,7 +132,7 @@ export default function TransactionRow({
   showAccount = false,
 }: TransactionRowProps) {
   const { colours } = useColours();
-  const colour = colours[transaction.category ?? "Other"] ?? CATEGORY_COLOURS.Other;
+  const colour = getCategoryColour(transaction.category ?? "Other", colours);
   const isCredit = transaction.transaction_type === "credit";
   const amount = transaction.amount;
 

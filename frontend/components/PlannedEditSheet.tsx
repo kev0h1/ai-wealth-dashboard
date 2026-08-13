@@ -6,7 +6,8 @@ import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, Account, PlannedExpense } from "@/lib/api";
 import { getCategoryIcon } from "@/lib/categoryIcons";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
+import { useColours } from "@/components/ColourProvider";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -31,6 +32,7 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
   useLockBodyScroll();
   useSheetOpen();
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  const { colours } = useColours();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -49,7 +51,7 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
   const [error, setError] = useState<string | null>(null);
 
   const catName = "Other";
-  const colour = CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+  const colour = getCategoryColour(catName, colours);
   const Icon = getCategoryIcon(catName, {});
 
   const formattedDate = new Date(item.date).toLocaleDateString("en-GB", {

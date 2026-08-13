@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import { useColours } from "@/components/ColourProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { isHomeCurrency } from "@/lib/currency";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -407,7 +407,7 @@ export default function BudgetPage() {
               {detail.choices.length > 0 ? (
                 <div className="glass-card rounded-2xl overflow-hidden">
                   {detail.choices.map((choice, i) => {
-                    const colour = colours[choice.category] ?? CATEGORY_COLOURS[choice.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+                    const colour = getCategoryColour(choice.category, colours);
                     const Icon = getCategoryIcon(choice.category, iconOverrides);
                     const ids = new Set(choice.txn_ids ?? []);
                     const txns = (categoryTxns[choice.category] ?? []).filter(t => ids.has(t.id));
@@ -643,7 +643,7 @@ function ApplyBudgetCard({
       </div>
       <div className="px-3 py-1.5 space-y-1">
         {budgets.map(b => {
-          const colour = colours[b.category] ?? CATEGORY_COLOURS[b.category as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+          const colour = getCategoryColour(b.category, colours);
           return (
             <div key={b.category} className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 min-w-0">

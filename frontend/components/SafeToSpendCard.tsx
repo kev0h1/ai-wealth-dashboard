@@ -162,7 +162,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   const debtCTAVisible = showDebtCTA && !suppressCTA && !showCardStrip;
 
   return (
-    <div className="hero-arrive rounded-3xl p-5 glass-hero">
+    <div className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero">
       {/* Whisper label + state icon */}
       <div className="flex items-center gap-1.5 mb-3">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -317,6 +317,6 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
         </button>
       )}
       </div>
-    </div>
+      </div>
   );
 }

@@ -77,8 +77,8 @@ const STEPS = [
     bg: "#fee2e2",
     title: "Track & Eliminate Debt",
     description:
-      "The Debt page shows your total balance across all credit cards and loans. Set a payoff goal by date or monthly amount, pick Avalanche or Snowball strategy, and watch the burndown chart.",
-    tip: "Avalanche saves the most interest. Snowball gives faster wins.",
+      "The Debt page shows your total card balance and whether it's on track to clear at your current pace. Add each card's interest rate to see what that's costing you and what it would take to clear sooner.",
+    tip: "See how paying the dearest card first compares to your current pace.",
   },
   {
     Icon: Lightbulb,

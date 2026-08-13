@@ -2,7 +2,7 @@
 
 import { Transaction } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import TransactionRow from "@/components/TransactionRow";
 
@@ -28,7 +28,7 @@ export default function CategoryRow({
   onTransactionClick,
 }: CategoryRowProps) {
   const { colours } = useColours();
-  const colour = colours[data.name] ?? CATEGORY_COLOURS.Other;
+  const colour = getCategoryColour(data.name, colours);
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden">

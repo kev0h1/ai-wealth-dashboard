@@ -7,7 +7,7 @@ import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api, Checkpoint } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import TransactionRow from "@/components/TransactionRow";
@@ -244,7 +244,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
   useEffect(() => setMounted(true), []);
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
-  const colour = colours[name] ?? CATEGORY_COLOURS[name as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other;
+  const colour = getCategoryColour(name, colours);
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const [toolOpen, setToolOpen] = useState(false);
 

@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { X, Repeat } from "lucide-react";
 import { api } from "@/lib/api";
 import { getCategoryIcon } from "@/lib/categoryIcons";
-import { CATEGORY_COLOURS } from "@/lib/categories";
+import { getCategoryColour } from "@/lib/categories";
+import { useColours } from "@/components/ColourProvider";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -33,6 +34,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
   useLockBodyScroll();
   useSheetOpen();
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
+  const { colours } = useColours();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -67,7 +69,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
   const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
   const colour = item.type === "income"
     ? INCOME_COLOUR
-    : (CATEGORY_COLOURS[catName as keyof typeof CATEGORY_COLOURS] ?? CATEGORY_COLOURS.Other);
+    : getCategoryColour(catName, colours);
   const Icon = getCategoryIcon(catName, {});
 
   const formattedDate = new Date(item.expected_date).toLocaleDateString("en-GB", {
