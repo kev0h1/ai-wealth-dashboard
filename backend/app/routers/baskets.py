@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_scan_limit, increment_scan_usage
 from app.db.collections import shopping_baskets_col
 
@@ -133,6 +133,7 @@ async def _extract_receipt(image_uri: str) -> dict:
                         {"type": "image_url", "image_url": {"url": image_uri}},
                     ]},
                 ],
+                "provider": OPENROUTER_PROVIDER_PREFS,
             },
         )
     data = r.json()

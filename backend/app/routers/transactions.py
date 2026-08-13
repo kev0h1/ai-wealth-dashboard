@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import httpx
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY
 from app.core.models import Transaction
 from app.db.collections import (
     transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
@@ -399,7 +399,8 @@ async def auto_categorise(
                     headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
                              "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
                     json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 600,
-                          "messages": [{"role": "user", "content": prompt}]},
+                          "messages": [{"role": "user", "content": prompt}],
+                          "provider": OPENROUTER_PROVIDER_PREFS},
                 )
             if r.status_code == 200:
                 content = r.json()["choices"][0]["message"]["content"]

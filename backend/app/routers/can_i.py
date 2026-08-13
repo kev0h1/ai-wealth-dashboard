@@ -13,7 +13,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import APP_URL, OPENROUTER_API_KEY
+from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import cashflow_cache_col, savings_goals_col
 from app.routers.analytics import compute_safe_to_spend, _build_cashflow_response
@@ -346,6 +346,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 "max_tokens": 120,
                 "temperature": 0,
                 "messages": messages,
+                "provider": OPENROUTER_PROVIDER_PREFS,
             },
         )
     if r.status_code != 200:

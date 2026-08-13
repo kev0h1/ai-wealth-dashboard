@@ -7,7 +7,7 @@ import os
 from fastapi import HTTPException
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 
 
 async def extract_pdf_text(content: bytes, password: str = "") -> str:
@@ -49,7 +49,7 @@ async def llm_parse_mpesa(text: str) -> list[dict]:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -103,7 +103,7 @@ async def llm_parse_statement(text: str) -> dict:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -160,7 +160,7 @@ async def llm_parse_investment_statement(text: str) -> dict:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -211,7 +211,7 @@ async def llm_parse_contract_note(text: str) -> dict:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:

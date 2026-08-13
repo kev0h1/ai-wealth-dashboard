@@ -4,7 +4,7 @@ from datetime import datetime
 
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY
 from app.db.collections import investment_accounts_col, investment_holdings_col
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ async def refresh_account_prices(acc: dict) -> dict:
                         "model": "google/gemini-2.5-flash",
                         "messages": [{"role": "user", "content": price_prompt}],
                         "temperature": 0,
+                        "provider": OPENROUTER_PROVIDER_PREFS,
                     },
                     timeout=30,
                 )

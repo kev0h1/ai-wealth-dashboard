@@ -15,6 +15,10 @@ load_dotenv(dotenv_path=_BACKEND_DIR / ".env")
 # ── General ───────────────────────────────────────────────────────────────────
 MONGO_URI           = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
+# Provider routing preferences applied to every OpenRouter request.
+# "data_collection": "deny" restricts routing to upstream providers that do
+# not retain or train on submitted prompts (regulatory commitment — see SECURITY.md).
+OPENROUTER_PROVIDER_PREFS = {"data_collection": "deny"}
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 LOGODEV_TOKEN       = os.getenv("LOGODEV_TOKEN", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 
 import httpx
@@ -69,7 +69,8 @@ Answer in 2-3 sentences. Bold key numbers. No bullet lists unless listing 3+ ite
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
             json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
-                  "messages": [{"role": "system", "content": system}] + messages},
+                  "messages": [{"role": "system", "content": system}] + messages,
+                  "provider": OPENROUTER_PROVIDER_PREFS},
         )
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")

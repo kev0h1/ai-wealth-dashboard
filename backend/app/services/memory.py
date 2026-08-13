@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.db.collections import episodic_memory_col
 
 
@@ -28,7 +28,8 @@ async def extract_episodic_memory(uid: str, conversation: list) -> None:
                 headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
                          "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
                 json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 200,
-                      "messages": [{"role": "user", "content": extraction_prompt}]},
+                      "messages": [{"role": "user", "content": extraction_prompt}],
+                      "provider": OPENROUTER_PROVIDER_PREFS},
             )
         if r.status_code != 200:
             return

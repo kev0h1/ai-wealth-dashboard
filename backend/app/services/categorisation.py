@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
     merchant_categories_col,
@@ -721,7 +721,8 @@ async def categorise_others_bg(uid: str) -> int:
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                     json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 600, "temperature": 0,
-                          "messages": [{"role": "user", "content": prompt_prefix + lines}]},
+                          "messages": [{"role": "user", "content": prompt_prefix + lines}],
+                          "provider": OPENROUTER_PROVIDER_PREFS},
                 )
             data = r.json()
             if "choices" not in data:
@@ -860,6 +861,7 @@ async def llm_name_check(uid: str) -> int:
                         "max_tokens": 600,
                         "temperature": 0,
                         "messages": [{"role": "user", "content": prompt_prefix + lines_text}],
+                        "provider": OPENROUTER_PROVIDER_PREFS,
                     },
                 )
             data = r.json()
