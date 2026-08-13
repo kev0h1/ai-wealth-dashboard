@@ -57,3 +57,6 @@ mobile/node_modules/
 
 # Built APKs — never commit binaries
 *.apk
+
+# Ad-hoc design-review scratch dir (LLM critiques, not for commit)
+design-review/
