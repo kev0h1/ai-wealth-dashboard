@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from calendar import monthrange
 from collections import defaultdict
@@ -13,7 +14,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY, APP_URL
+from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY, APP_URL
 from app.core.subscription import Tier, require_tier
 from app.db.collections import (
     savings_insights_col, savings_labels_col,
@@ -23,6 +24,7 @@ from app.db.collections import (
 )
 
 router = APIRouter(tags=["savings_insights"])
+log    = logging.getLogger(__name__)
 
 INSIGHT_CATEGORIES: dict[str, dict] = {
     "energy": {
@@ -80,7 +82,10 @@ INSIGHT_CATEGORIES: dict[str, dict] = {
 # Content format version: bump when the generation prompt changes materially so
 # existing stored insights regenerate on the next pass instead of serving the
 # old copy until their 30-day TTL.
-PROMPT_VERSION = 2
+# v4: savings_estimate must now be derivable from the supplied sources/facts
+# (see _savings_estimate_is_derivable) — previously-generated estimates may
+# be fabricated and need to pass through the new guard.
+PROMPT_VERSION = 4
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
@@ -106,6 +111,115 @@ _NON_UK_RE = re.compile(
     r"\bhulu\b|\bmax bundle\b|\bvenmo\b|\bzelle\b|\b401\s?\(?k\)?\b|\broth\b|\bmedicare\b|\bsales tax\b",
     re.IGNORECASE,
 )
+
+# Card-debt guardrail: this product treats balance transfers and moving credit
+# card debt between cards/lenders as notice-and-ask, never advice (that ban is
+# also stated in the prompt below). This is the fail-safe backstop for the two
+# refinancing categories (mortgage, car_finance) where a model can drift into
+# "open a 0% card and transfer the balance" territory. It does NOT catch
+# switching a mortgage or car finance deal to a new lender — that's the
+# intended feature and stays untouched. Checked post-generation like
+# _NON_UK_RE: one regeneration attempt, then the insight is dropped rather
+# than stored.
+_CARD_DEBT_MOVE_RE = re.compile(
+    r"balance transfer"
+    r"|transfer(?:ring)?\s+(?:your\s+|the\s+)?(?:card\s+|credit[\s-]?card\s+)?balance"
+    r"|(?:move|moving|shift|shifting|switch|switching|consolidat\w*)\s+(?:your\s+)?"
+    r"(?:card|credit[\s-]?card)\s+(?:debt|balance)"
+    r"|(?:move|moving|shift|shifting)\s+(?:your\s+)?debt\s+(?:to|onto|between)\s+"
+    r"(?:a\s+|another\s+)?(?:card|credit[\s-]?card)"
+    r"|(?:move|moving|shift|shifting|transfer|transferring|switch|switching)\s+"
+    r"(?:your\s+|the\s+|any\s+|that\s+)?(?:outstanding\s+|remaining\s+|current\s+|existing\s+)?"
+    r"balance\s+(?:to|onto)\s+(?:a\s+|another\s+)?(?:new\s+|different\s+|0%\s*)?"
+    r"(?:credit[\s-]?card|card)\b"
+    r"|0%\s*(?:purchase|balance transfer)\s*card",
+    re.IGNORECASE,
+)
+
+# Savings-estimate guardrail: the prompt tells the model savings_estimate may
+# only be a figure lifted straight from the sources or the arithmetic
+# difference of two such figures — but models drift into "typical" ranges
+# anyway (see _generate_savings_insight_content docstring history). This is
+# the post-hoc backstop: every number quoted in the estimate is checked
+# against an allowed set built from the actual inputs (Tavily snippets, user
+# context, the user's own spend facts), their pairwise differences, and
+# monthly<->annual conversions. Unlike _NON_UK_RE/_CARD_DEBT_MOVE_RE this
+# never drops the whole insight — an ungrounded number is unsupported, not
+# dangerous, so only savings_estimate is nulled and the title/body survive.
+_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+# "a pound or two, plus rounding" — generous enough to absorb £/mo->£/yr
+# rounding (e.g. 1862/12 = 155.1666...) without being loose enough to wave
+# through an unrelated number.
+_SAVINGS_ESTIMATE_TOLERANCE = 1.5
+
+
+def _extract_numbers(text: Optional[str]) -> list[float]:
+    """Pull every numeric literal out of free text — handles £, %, commas
+    and decimals ('£1,862', '4.13%', '300–600' all yield the bare numbers)."""
+    if not text:
+        return []
+    out = []
+    for m in _NUMBER_RE.finditer(str(text)):
+        try:
+            out.append(float(m.group(0).replace(",", "")))
+        except ValueError:
+            continue
+    return out
+
+
+def _build_allowed_savings_numbers(
+    web_text: str,
+    user_context: Optional[dict],
+    triggered_by: Optional[list[dict]],
+) -> set[float]:
+    """The full set of numbers a savings_estimate figure is allowed to trace
+    back to: every literal figure in the Tavily search results, every literal
+    figure in the user-supplied context/facts actually passed into the
+    prompt, their pairwise differences (a real subtraction between two stated
+    numbers, e.g. price-cap minus cheapest-fix), and monthly<->annual
+    conversions (the copy legitimately moves between '/mo' and '/yr').
+    Anything not reachable from this set is a guess, not a calculation."""
+    base: set[float] = set()
+    base.update(_extract_numbers(web_text))
+    if user_context:
+        for v in user_context.values():
+            base.update(_extract_numbers(str(v)))
+    if triggered_by:
+        for t in triggered_by:
+            amt = t.get("monthly_amount")
+            if amt is not None:
+                base.update(_extract_numbers(str(amt)))
+
+    allowed: set[float] = set(base)
+    for n in base:
+        allowed.add(round(n * 12, 2))
+        allowed.add(round(n / 12, 2))
+    values = list(base)
+    for i in range(len(values)):
+        for j in range(i + 1, len(values)):
+            allowed.add(round(abs(values[i] - values[j]), 2))
+    return allowed
+
+
+def _number_is_derivable(n: float, allowed: set[float]) -> bool:
+    if n == 0:
+        return True  # "£0"/free is never a fabricated figure
+    return any(abs(n - a) <= _SAVINGS_ESTIMATE_TOLERANCE for a in allowed)
+
+
+def _savings_estimate_is_derivable(estimate: Optional[str], allowed: set[float]) -> bool:
+    """True iff every number quoted in the estimate is derivable from the
+    inputs (a source/user figure, or the difference/×12/÷12 of two of them).
+    One fabricated number sitting next to a real one still fails the whole
+    estimate — there's no way to tell which part the model made up."""
+    if not estimate:
+        return True  # null is always fine — nothing to check
+    nums = _extract_numbers(estimate)
+    if not nums:
+        return True  # e.g. "Save on your plan" — no figure to fabricate
+    return all(_number_is_derivable(n, allowed) for n in nums)
+
 
 LABEL_OPTIONS: dict[str, dict] = {
     **{k: {"icon": v["icon"], "label": v["label"]} for k, v in INSIGHT_CATEGORIES.items()},
@@ -303,6 +417,32 @@ async def _generate_savings_insight_content(
         "omit the date rather than repeating it.\n"
     )
 
+    hard_rules = (
+        "HARD RULES — non-negotiable:\n"
+        "1. Balance transfers and moving credit card debt are NEVER advice in this product. "
+        "Never tell the user to transfer, move, shift or consolidate a credit card balance, or "
+        "to open a new card to pay off existing card debt. This ban is specifically about credit "
+        "card debt movement — switching a mortgage or car finance deal to a new lender is NOT "
+        "covered by this ban and is exactly what this insight should help with.\n"
+        "2. Never promise or predict what a third party (a lender, bank or provider) will do. "
+        "Every forward-looking statement about rates, offers or providers must be hedged — use "
+        "words like 'expected', 'about', '~', 'could' or 'typically', never state it as certain.\n"
+        "3. No alarm framing. A savings opportunity is not a risk — never use 'urgent', 'warning', "
+        "'risk' or red/danger language.\n"
+        "4. Any savings figure is an estimate, never a guarantee — hedge it ('~', 'could save', "
+        "'typically saves'), never state it as a fact.\n"
+        "5. savings_estimate must be DERIVED, never ESTIMATED. It may only be one of two things: "
+        "(a) a figure stated explicitly in the search results or the user's own facts above, quoted "
+        "as-is, or (b) the arithmetic difference between two figures explicitly stated in those "
+        "sources (e.g. today's price cap minus a cheapest fixed deal, both given as numbers above). "
+        "If neither (a) nor (b) is possible — no principal, no current rate, no two comparable prices "
+        "to subtract — savings_estimate MUST be null. Never invent a figure from 'typical' savings, "
+        "never guess a plausible-sounding range, never estimate from general knowledge of the market. "
+        "null is a correct, expected, and common answer here, not a failure — a hedge word like '~' "
+        "does not make an invented number acceptable, because the number itself must be real, not "
+        "just softly worded.\n"
+    )
+
     facts_block  = ""
     verdict_rule = ""
     if triggered_by:
@@ -326,7 +466,7 @@ async def _generate_savings_insight_content(
     if user_context:
         ctx_lines = "\n".join(f"- {k.replace('_', ' ').title()}: {v}" for k, v in user_context.items() if v)
         prompt    = (
-            f"{uk_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{uk_rules}{hard_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
             f"{facts_block}"
             f"The user's current {cfg['label'].lower()} situation:\n{ctx_lines}\n\n"
             "Write a HIGHLY PERSONALISED savings insight. Reference their specific spend, rate, provider, "
@@ -334,30 +474,46 @@ async def _generate_savings_insight_content(
             f"{verdict_rule}"
             "JSON: title (max 10 words, specific to their situation), "
             "body (2–3 sentences, direct advice referencing their details), "
-            "savings_estimate (calculate from their numbers if possible, else null)\n\n"
+            "savings_estimate (per rule 5 above: a stated figure or a subtraction of two stated "
+            "figures, else null — null is expected and fine)\n\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
     else:
         prompt = (
-            f"{uk_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
+            f"{uk_rules}{hard_rules}Based on these UK search results about {cfg['label']} savings:\n\n{web_text}\n\n"
             f"{facts_block}"
             "Write a concise savings insight card in JSON with three fields:\n"
             "- title: max 10 words, punchy, present tense\n"
             "- body: 1–2 sentences, specific deal or tip, no filler\n"
-            "- savings_estimate: e.g. '~£200/yr' or 'Save ~30%' if clearly supported, else null\n"
+            "- savings_estimate: per rule 5 above — e.g. '~£200/yr' ONLY if that figure or its two "
+            "source numbers are stated above, else null (null is expected and fine)\n"
             f"{verdict_rule}\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
 
     # Two attempts: if the model names a non-UK product (Hulu, Venmo, 401(k)…)
-    # we regenerate once with a sharper instruction, then drop the insight —
-    # never store garbage.
+    # or suggests moving/transferring/consolidating credit card debt, we
+    # regenerate once with a sharper instruction, then drop the insight —
+    # never store garbage, and never store regulated-sounding debt advice.
+    violation: Optional[str] = None
     for attempt in range(2):
-        attempt_prompt = prompt if attempt == 0 else (
-            prompt
-            + "\n\nIMPORTANT: your previous answer mentioned a non-UK product or US-only term. "
-              "Mention ONLY services, providers and terms available in the UK."
-        )
+        if attempt == 0:
+            attempt_prompt = prompt
+        elif violation == "card_debt":
+            attempt_prompt = (
+                prompt
+                + "\n\nIMPORTANT: your previous answer suggested transferring, moving, shifting "
+                  "or consolidating a credit card balance/debt. That is NEVER allowed in this "
+                  "product — remove any card balance-transfer or debt-consolidation suggestion "
+                  "entirely. You may still suggest switching a mortgage or car finance deal to a "
+                  "new lender; that is fine."
+            )
+        else:
+            attempt_prompt = (
+                prompt
+                + "\n\nIMPORTANT: your previous answer mentioned a non-UK product or US-only term. "
+                  "Mention ONLY services, providers and terms available in the UK."
+            )
         parsed = None
         async with httpx.AsyncClient(timeout=30) as client:
             try:
@@ -366,7 +522,8 @@ async def _generate_savings_insight_content(
                     headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
                     json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 220,
                           "messages": [{"role": "user", "content": attempt_prompt}],
-                          "response_format": {"type": "json_object"}},
+                          "response_format": {"type": "json_object"},
+                          "provider": OPENROUTER_PROVIDER_PREFS},
                 )
                 if r.status_code == 200:
                     raw = r.json()["choices"][0]["message"]["content"].strip()
@@ -378,14 +535,31 @@ async def _generate_savings_insight_content(
                 parsed = None
         if not isinstance(parsed, dict):
             continue
-        title = str(parsed.get("title", cfg["label"]))
-        body  = str(parsed.get("body", ""))
-        if _NON_UK_RE.search(f"{title} {body}"):
+        title    = str(parsed.get("title", cfg["label"]))
+        body     = str(parsed.get("body", ""))
+        estimate = str(parsed.get("savings_estimate") or "")
+        combined = f"{title} {body} {estimate}"
+        if _NON_UK_RE.search(combined):
+            violation = "non_uk"
             continue
+        if _CARD_DEBT_MOVE_RE.search(combined):
+            violation = "card_debt"
+            continue
+
+        savings_estimate = parsed.get("savings_estimate") or None
+        if savings_estimate is not None:
+            allowed = _build_allowed_savings_numbers(web_text, user_context, triggered_by)
+            if not _savings_estimate_is_derivable(savings_estimate, allowed):
+                log.warning(
+                    "savings_insights: ungrounded savings_estimate nulled — category=%s estimate=%r",
+                    category_key, savings_estimate,
+                )
+                savings_estimate = None
+
         return {
             "title": title,
             "body":  body,
-            "savings_estimate": parsed.get("savings_estimate") or None,
+            "savings_estimate": savings_estimate,
         }
     return None
 
