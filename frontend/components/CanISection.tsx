@@ -58,11 +58,29 @@ function PennyChip() {
 export default function CanISection({
   onCommitmentSaved,
   freeHint,
+  controlledOpen,
+  onControlledClose,
+  hideLauncher,
 }: {
   /** Fires after the offer chip's sheet saves — lets the page refresh its commitments list. */
   onCommitmentSaved?: () => void;
   /** The page's already-computed runway free figure — shown on the launcher and restated in the sheet header. */
   freeHint?: CanIFreeHint | null;
+  /**
+   * External open trigger — for the nav's Penny button, which has no launcher
+   * row of its own. When provided, transitions of this prop drive `sheetOpen`
+   * (open on true, close on false); internal flows (the offer chip hiding
+   * this sheet to open CommitmentSheet, then reopening it after) still just
+   * call the local setter directly and are unaffected, since this only
+   * reacts to the prop itself changing. Existing call sites never pass this,
+   * so `sheetOpen` stays fully internal state for them — byte-identical to
+   * before.
+   */
+  controlledOpen?: boolean;
+  /** Fires when the sheet is dismissed (backdrop/X/Escape) — lets an external controller (the nav) sync its own open flag back to false. No-op when unset. */
+  onControlledClose?: () => void;
+  /** Renders only the sheet (+ its CommitmentSheet round-trip) — no launcher row. For the nav's headless mount alongside `controlledOpen`. */
+  hideLauncher?: boolean;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -74,6 +92,21 @@ export default function CanISection({
   const [offer, setOffer] = useState<CanIOffer | null>(null);
   const [offerSheetOpen, setOfferSheetOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Controlled mode: an external trigger (the nav's Penny button) opens/closes
+  // this sheet by changing `controlledOpen`. Undefined (every existing call
+  // site) means this effect body never runs, leaving uncontrolled behaviour
+  // untouched.
+  useEffect(() => {
+    if (controlledOpen !== undefined) setSheetOpen(controlledOpen);
+  }, [controlledOpen]);
+
+  // Real dismissal (backdrop tap / X / Escape) — tells the external
+  // controller, if any, so its own open flag stays in sync. No-op otherwise.
+  function dismissSheet() {
+    setSheetOpen(false);
+    onControlledClose?.();
+  }
 
   async function ask(question: string, history: Msg[]) {
     setError(false);
@@ -117,20 +150,24 @@ export default function CanISection({
 
   return (
     <>
-      {/* Launcher — the only idle footprint: value first, never a chat bubble */}
-      <button
-        onClick={() => setSheetOpen(true)}
-        className="w-full glass-card rounded-2xl min-h-[44px] px-4 py-3 flex items-center gap-2 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-      >
-        <PennyChip />
-        <span className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">Can I…?</span>
-        {freeHint && (
-          <span className="text-[13px] text-slate-500 dark:text-slate-400 truncate min-w-0">
-            · {fmtWhole(freeHint.free)} free until period end
-          </span>
-        )}
-        <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0 ml-auto" aria-hidden="true" />
-      </button>
+      {/* Launcher — the only idle footprint: value first, never a chat bubble.
+          Skipped entirely in headless mode (hideLauncher) — the nav's Penny
+          button is the trigger instead, via controlledOpen. */}
+      {!hideLauncher && (
+        <button
+          onClick={() => setSheetOpen(true)}
+          className="w-full glass-card rounded-2xl min-h-[44px] px-4 py-3 flex items-center gap-2 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <PennyChip />
+          <span className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">Can I…?</span>
+          {freeHint && (
+            <span className="text-[13px] text-slate-500 dark:text-slate-400 truncate min-w-0">
+              · {fmtWhole(freeHint.free)} free until period end
+            </span>
+          )}
+          <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0 ml-auto" aria-hidden="true" />
+        </button>
+      )}
 
       {sheetOpen && (
         <CanISheet
@@ -145,7 +182,7 @@ export default function CanISection({
           onSend={send}
           onRetry={retry}
           onOfferTap={openOfferSheet}
-          onClose={() => setSheetOpen(false)}
+          onClose={dismissSheet}
         />
       )}
 

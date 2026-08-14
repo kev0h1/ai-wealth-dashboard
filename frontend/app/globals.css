@@ -318,9 +318,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .dark .glass-card {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: #1a2334;
+  border-color: rgba(255,255,255,0.07);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 /* Fill-only variant of .glass-card — identical fill/border/shadow, NO
    backdrop-filter. Not about nesting (that's .glass-tile's job): this is
@@ -338,15 +338,15 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 .dark .glass-card-flat {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: #1a2334;
+  border-color: rgba(255,255,255,0.07);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 /* Hero keeps a slightly stronger fill so it stays the anchor */
 .dark .glass-hero {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: #1c2537;
+  border-color: rgba(255,255,255,0.08);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.40);
 }
 /* Nested stat tiles inside the hero — translucent fill only, NO second
    backdrop-filter layer (blur is capped at one layer for perf) */
@@ -355,8 +355,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .dark .glass-tile {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.06);
+  background: #212b40;
+  border-color: rgba(255,255,255,0.06);
+  box-shadow: none;
+}
+/* Matte = solid fills, no haze — kill the blur on dark cards. A solid fill
+   also sidesteps the known WebView blank-tile bug (see .glass-card-flat
+   note above): with no backdrop-filter there's nothing for stacked layers
+   to fail to raster. .glass-nav and .safe-top-frost keep their blur —
+   those are intentional translucent-over-scrolling-content surfaces. */
+.dark .glass-card, .dark .glass-card-flat, .dark .glass-hero, .dark .glass-tile {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ── Safe-area top frost (mobile shell only) ──────────────────────────────
@@ -393,6 +403,35 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* ── Floating cockpit rail (Nav A) — the bottom-nav's matte pill surface,
+   inset from the screen edges and raised clear of the home indicator
+   (components/BottomNav.tsx sets the bottom offset/safe-area inline).
+   Solid & opaque on purpose — an earlier translucent+blurred pass looked
+   busy with content scrolling behind it and its brighter border read as a
+   glassy specular edge that fought the matte look. This is the one glass
+   tier that never gets to be glass: fully opaque fill, a calm hairline,
+   one soft lift shadow, no blur, no highlight. A .nav-scrim (below) fades
+   page content into the canvas before it ever reaches the rail. */
+.glass-rail {
+  background: #eef1f7;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.04), 0 6px 20px rgba(15, 23, 42, 0.14);
+}
+.dark .glass-rail {
+  background: #1c2537;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Nav scrim — sits behind the floating rail (z-40 vs the rail's z-50)
+   so scrolling content fades into the canvas colour before it reaches the
+   rail/Penny, instead of visibly colliding with them. Canvas colour at
+   the bottom, transparent at the top. */
+.nav-scrim {
+  background: linear-gradient(to top, #f0f2f7 38%, rgba(240, 242, 247, 0) 100%);
+}
+.dark .nav-scrim {
+  background: linear-gradient(to top, #0f172a 38%, rgba(15, 23, 42, 0) 100%);
+}
+
 /* ── Safe-to-Spend hero glow — THE only glow surface left in the app ──────
    Emitted from within: no field behind the card, just a soft top-down inner
    luminance folded into the card's own fill (no added drop shadow — The One
@@ -411,7 +450,40 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .dark .sts-card {
   background:
     linear-gradient(180deg, rgba(99, 102, 241, 0.14) 0%, rgba(99, 102, 241, 0) 60%),
-    rgba(255, 255, 255, 0.08);
+    #1c2537;
+}
+
+/* ── Attention glow — a card GLOWS only when it needs the user. At most one
+   per screen (priority resolved in lib/attention.ts). Indigo = "your move";
+   never red (red stays genuine risk). Layered over the glass depth system. */
+.needs-you { position: relative; isolation: isolate; }
+.needs-you {
+  border-color: rgba(79, 70, 229, 0.35);
+  background:
+    linear-gradient(180deg, rgba(79, 70, 229, 0.08) 0%, rgba(79, 70, 229, 0) 55%),
+    rgba(255, 255, 255, 0.55);
+}
+.needs-you::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit;
+  box-shadow: 0 0 32px -8px rgba(79, 70, 229, 0.35);
+  opacity: 0; z-index: -1; pointer-events: none;
+  animation: needsYouArrive 700ms var(--ease-out) forwards;
+}
+.dark .needs-you {
+  border-color: rgba(99,102,241,0.42);
+  background:
+    linear-gradient(180deg, rgba(99,102,241,0.16) 0%, rgba(99,102,241,0) 55%),
+    #1c2537;
+}
+.dark .needs-you::after {
+  box-shadow: 0 0 40px -6px rgba(99,102,241,0.50);
+}
+@keyframes needsYouArrive {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .needs-you::after { animation: none; opacity: 1; transform: none; }
 }
 
 /* Flatten back to the previous solid surfaces when the user prefers
@@ -426,15 +498,21 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     border-color: #f1f5f9;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
-  .dark .glass-hero, .dark .glass-card, .dark .glass-card-flat {
-    background: #1e293b;
-    border-color: #334155;
-    box-shadow: none;
+  .dark .glass-card, .dark .glass-card-flat {
+    background: #1a2334;
+    border-color: rgba(255,255,255,0.07);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .dark .glass-hero {
+    background: #1c2537;
+    border-color: rgba(255,255,255,0.08);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.40);
   }
   .glass-tile { background: #f8fafc; border-color: #f1f5f9; }
   .dark .glass-tile {
-    background: rgba(51, 65, 85, 0.4);
-    border-color: rgba(51, 65, 85, 0.6);
+    background: #212b40;
+    border-color: rgba(255,255,255,0.06);
+    box-shadow: none;
   }
   .penny-fab-disc {
     -webkit-backdrop-filter: none;
@@ -458,6 +536,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: #0f172a;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
+  /* .glass-rail is already fully opaque with no blur (see base rule
+     above) — nothing left for this fallback to flatten. */
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .sts-card { background: #ffffff !important; }
@@ -467,15 +547,21 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     border-color: #f1f5f9;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   }
-  .dark .glass-hero, .dark .glass-card, .dark .glass-card-flat {
-    background: #1e293b;
-    border-color: #334155;
-    box-shadow: none;
+  .dark .glass-card, .dark .glass-card-flat {
+    background: #1a2334;
+    border-color: rgba(255,255,255,0.07);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .dark .glass-hero {
+    background: #1c2537;
+    border-color: rgba(255,255,255,0.08);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.40);
   }
   .glass-tile { background: #f8fafc; border-color: #f1f5f9; }
   .dark .glass-tile {
-    background: rgba(51, 65, 85, 0.4);
-    border-color: rgba(51, 65, 85, 0.6);
+    background: #212b40;
+    border-color: rgba(255,255,255,0.06);
+    box-shadow: none;
   }
   .penny-fab-disc {
     background: #ffffff;
@@ -491,6 +577,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: #0f172a;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
+  /* .glass-rail is already fully opaque with no blur (see base rule
+     above) — nothing left for this fallback to flatten. */
 }
 
 /* ── Story slide transition ──────────────────────────────────────────────── */

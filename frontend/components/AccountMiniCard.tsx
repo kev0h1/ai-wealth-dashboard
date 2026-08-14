@@ -262,10 +262,28 @@ export function accountBrand(account: Account): AccountBrand {
   return { background, logoSrc, textOnBrand, initials, label };
 }
 
-function typeLabel(account: Account) {
+/** Account-type → spine colour (Estate area, account-card Variant A).
+ *  Matches the approved account-cards preview's type→colour map. ISA/Offline
+ *  are defensive branches — real bank `Account` objects from Open Banking
+ *  practically never carry those subtypes (investments and offline accounts
+ *  render through their own components), but the mapping stays correct if
+ *  one ever does. */
+type AccountKind = "Current" | "Savings" | "ISA" | "Credit" | "Offline";
+
+const ACCOUNT_KIND_COLOUR: Record<AccountKind, string> = {
+  Current: "#60a5fa",
+  Savings: "#fbbf24",
+  ISA: "#34d399",
+  Credit: "#f87171",
+  Offline: "#94a3b8",
+};
+
+function typeLabel(account: Account): AccountKind {
+  if (account.manual) return "Offline";
   const type = account.type.toLowerCase();
   const sub = (account.subtype ?? "").toLowerCase();
   if (type.includes("credit") || sub.includes("credit")) return "Credit";
+  if (sub.includes("isa") || sub.includes("invest") || sub.includes("stocks") || sub.includes("pension")) return "ISA";
   if (sub.includes("saving")) return "Savings";
   return "Current";
 }
@@ -322,70 +340,81 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
   // Quiet-card surface: no brand flood, no shadow. Brand colour lives only in
   // the 36px chip — the rest is neutral slate ink on white/slate-800 glass.
   if (calm) {
+    const kind = typeLabel(account);
+    const spineColour = ACCOUNT_KIND_COLOUR[kind];
     return (
       <button
         onClick={onClick}
-        className={`w-full rounded-2xl p-4 text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} active:scale-95 transition-transform overflow-hidden relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+        className={`relative w-full rounded-2xl text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} active:scale-95 transition-transform overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
       >
-        {/* Top row: brand chip + type badge */}
-        <div className="flex items-start justify-between mb-3">
-          <BankBadge
-            logoSrc={brand.logoSrc}
-            initials={brand.initials}
-            altText={brand.label}
-            brandBg={brand.background}
-          />
-          <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-            {typeLabel(account)}
-          </span>
-        </div>
+        {/* Coloured left spine — account-type identity (Variant A) */}
+        <div
+          className="absolute left-0 top-0 bottom-0"
+          style={{ width: 3, backgroundColor: spineColour }}
+          aria-hidden="true"
+        />
 
-        {/* Provider name */}
-        <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate mb-0.5">
-          {brand.label}
-        </p>
+        <div className="p-4 pl-[18px]">
+          {/* Top row: brand chip + name / bank·type */}
+          <div className="flex items-start gap-2.5 mb-3">
+            <BankBadge
+              logoSrc={brand.logoSrc}
+              initials={brand.initials}
+              altText={brand.label}
+              brandBg={brand.background}
+            />
+            <div className="min-w-0 flex-1">
+              {/* Account name — wraps to 2 lines rather than truncating, so a
+                  long name never eats the balance/hierarchy below it. */}
+              <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 leading-snug line-clamp-2">
+                {account.name.trim()}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                {brand.label} · <span style={{ color: spineColour }}>{kind}</span>
+              </p>
+            </div>
+          </div>
 
-        {/* Account name */}
-        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate mb-1">
-          {account.name.trim()}
-        </p>
+          {/* Balance — the hero. Neutral ink even when negative (Red Is Risk rule) */}
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num leading-none">
+            {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
+          </p>
+          {isCredit && !hidden && (
+            <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">owed</p>
+          )}
 
-        {/* Balance — neutral ink even when negative (Red Is Risk rule) */}
-        <p className="text-base font-semibold text-slate-900 dark:text-slate-100 num">
-          {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
-        </p>
-
-        {/* Card-terms pill / Add-rates affordance / legacy APR chip.
-            44px hit targets wrap the small visuals (visual pill stays quiet). */}
-        {termsPill && onTermsClick ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onTermsClick(); }}
-            aria-label={`${termsPill.label} — edit this card's rates`}
-            className="-ml-1.5 -mb-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
-          >
-            <span
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full num ${
-                termsPill.amber
-                  ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
-                  : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
-              }`}
+          {/* Card-terms pill / Add-rates affordance / legacy APR chip.
+              44px hit targets wrap the small visuals (visual pill stays quiet). */}
+          {termsPill && onTermsClick ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onTermsClick(); }}
+              aria-label={`${termsPill.label} — edit this card's rates`}
+              className="-ml-1.5 mt-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
             >
-              {termsPill.label}
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full num ${
+                  termsPill.amber
+                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {termsPill.label}
+              </span>
+            </button>
+          ) : isCredit && onAddRates ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAddRates(); }}
+              className="-ml-1.5 mt-2 min-h-[44px] flex items-center gap-1 px-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+            >
+              <Percent size={11} aria-hidden="true" />
+              Add rates
+            </button>
+          ) : isCredit && account.apr != null ? (
+            <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
+              {account.apr}% APR
             </span>
-          </button>
-        ) : isCredit && onAddRates ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAddRates(); }}
-            className="-ml-1.5 -mb-2 min-h-[44px] flex items-center gap-1 px-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
-          >
-            <Percent size={11} aria-hidden="true" />
-            Add rates
-          </button>
-        ) : isCredit && account.apr != null ? (
-          <span className="inline-block mt-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
-            {account.apr}% APR
-          </span>
-        ) : null}
+          ) : null}
+        </div>
 
         {/* Pin toggle */}
         {onTogglePin && account.status !== "expired" && (

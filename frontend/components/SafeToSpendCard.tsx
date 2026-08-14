@@ -4,6 +4,7 @@ import { ShieldCheck, AlertCircle, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
+import { useCountUp } from "@/lib/useCountUp";
 
 interface SafeToSpendCardProps {
   data: SafeToSpend | null;
@@ -11,6 +12,8 @@ interface SafeToSpendCardProps {
   suppressCTA?: boolean;
   /** Net card growth since payday (GET /needle/summary → current.card_delta_so_far). */
   cardDeltaSoFar?: number | null;
+  /** Glow this card — true only when the attention resolver targets "hero". */
+  glow?: boolean;
 }
 
 function fmt(n: number): string {
@@ -43,9 +46,21 @@ function syncAgeLabel(isoString: string | null | undefined): string | null {
   return `Synced on ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
 }
 
-export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaSoFar }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaSoFar, glow }: SafeToSpendCardProps) {
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
+
+  // Count-up targets for the NOW / BILLS / FREE tiles — computed unconditionally
+  // (before any early return) since hooks can't be called conditionally. Falls
+  // back to 0 when there's no "ok" data yet; the hook itself no-ops until the
+  // card actually renders these values.
+  const okData = data?.status === "ok" ? data : null;
+  const nowTarget = okData?.spendable_now ?? 0;
+  const billsTarget = okData?.bills_total ?? 0;
+  const freeTarget = okData ? Math.abs(okData.safe_to_spend) : 0;
+  const nowCounted = useCountUp(nowTarget);
+  const billsCounted = useCountUp(billsTarget);
+  const freeCounted = useCountUp(freeTarget);
 
   // Loading skeleton — only while this card's own data hasn't arrived yet;
   // once data exists we render it even if a background refresh is in flight
@@ -162,7 +177,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   const debtCTAVisible = showDebtCTA && !suppressCTA && !showCardStrip;
 
   return (
-    <div className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero">
+    <div className={`hero-arrive sts-card relative rounded-3xl p-5 glass-hero${glow ? " needs-you" : ""}`}>
       {/* Whisper label + state icon */}
       <div className="flex items-center gap-1.5 mb-3">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -192,18 +207,18 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           {/* NOW */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Now</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{hidden ? "£••••" : fmt(spendable_now!)}</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{hidden ? "£••••" : fmt(nowCounted)}</span>
           </div>
           {/* BILLS */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Bills</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">−{hidden ? "£••••" : fmt(bills_total)}</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">−{hidden ? "£••••" : fmt(billsCounted)}</span>
           </div>
           {/* FREE */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Free</span>
             <span className={`text-base font-semibold tabular-nums num text-left ${freeClass}`}>
-              {state === "short" ? `−${hidden ? "£••••" : fmt(gap)}` : (hidden ? "£••••" : fmt(safe_to_spend))}
+              {state === "short" ? `−${hidden ? "£••••" : fmt(freeCounted)}` : (hidden ? "£••••" : fmt(freeCounted))}
             </span>
           </div>
         </div>

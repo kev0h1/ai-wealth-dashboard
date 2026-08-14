@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight } from "lucide-react";
+import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight, Settings } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import TutorialTrigger from "@/components/TutorialTrigger";
@@ -12,6 +13,7 @@ import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { getCategoryColour } from "@/lib/categories";
+import type { AttentionTarget } from "@/lib/attention";
 
 interface HomeBriefProps {
   items: CompanionItem[];
@@ -24,6 +26,8 @@ interface HomeBriefProps {
   onHelp?: () => void;
   hideNetWorth?: boolean;
   onRefresh?: () => void;
+  /** Which card, if any, should glow — resolved centrally in lib/attention.ts. */
+  attnTarget?: AttentionTarget;
 }
 
 function BriefSkeleton() {
@@ -35,9 +39,9 @@ function BriefSkeleton() {
   );
 }
 
-function SyncErrorBanner() {
+function SyncErrorBanner({ glow }: { glow?: boolean }) {
   return (
-    <div role="alert" className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2">
+    <div role="alert" className={`flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2${glow ? " needs-you" : ""}`}>
       <AlertTriangle size={13} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0" />
       <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
     </div>
@@ -680,9 +684,10 @@ interface BriefBodyProps {
   router: ReturnType<typeof useRouter>;
   hideNetWorth?: boolean;
   onRefresh?: () => void;
+  attnTarget?: AttentionTarget;
 }
 
-function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh }: BriefBodyProps) {
+function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget }: BriefBodyProps) {
   if (items.length === 0) {
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
@@ -802,7 +807,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
         ))}
 
         {paydayPlanItems.map(item => (
-          <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} />
+          <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} glow={attnTarget === "payday"} />
         ))}
 
         {moveItems.map(item => (
@@ -812,7 +817,7 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -896,6 +901,17 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">{greeting}</h1>
         <div className="flex items-center gap-2">
           <TutorialTrigger variant="dark-on-white" />
+          {/* Settings — relocated off the bottom nav (Nav A redesign dropped
+              the 5th tab); this top-right gear on Home is now the primary
+              mobile entry point to /settings. Tutorial hook moves with it. */}
+          <Link
+            href="/settings"
+            data-tutorial-id="tutorial-nav-settings"
+            aria-label="Settings"
+            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <Settings size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
+          </Link>
           <button
             onClick={onSync}
             disabled={syncing}
@@ -909,11 +925,11 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
 
       {/* Brief body */}
       <div className="space-y-3">
-        {syncError && <SyncErrorBanner />}
+        {syncError && <SyncErrorBanner glow={attnTarget === "sync"} />}
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} />
         )}
       </div>
 
@@ -929,7 +945,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
             onClick={handleTogglePreview}
             disabled={previewLoading}
             aria-expanded={!!previewItem}
-            className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className={`glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500${attnTarget === "payday" ? " needs-you" : ""}`}
           >
             <span className="min-w-0">
               <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">

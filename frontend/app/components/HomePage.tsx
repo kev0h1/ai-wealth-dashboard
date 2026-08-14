@@ -26,6 +26,7 @@ import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import HomeBrief from "@/components/HomeBrief";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { resolveAttention } from "@/lib/attention";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -60,6 +61,7 @@ export default function HomePage() {
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
+  const [hasUrgentBill, setHasUrgentBill] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const { pinned: pinnedCards } = useHomePinnedCards();
@@ -234,6 +236,19 @@ export default function HomePage() {
     } catch {}
   }
 
+  // ── Attention glow — at most one card glows per screen; priority resolved
+  // centrally so no component can independently decide to glow (lib/attention.ts).
+  const heroNeedsAttention =
+    safeToSpend?.status === "ok" && (safeToSpend.state === "tight" || safeToSpend.state === "short");
+  const hasLivePlan = companionItems.some(i => i.type === "payday_plan");
+  const attn = resolveAttention({
+    hasExpiredProvider: expiredProviders.length > 0,
+    syncError,
+    hasUrgentBill,
+    hasLivePlan,
+    heroNeedsAttention: !!heroNeedsAttention,
+  });
+
   return (
     <div className="relative isolate min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Sticky desktop header — appears when greeting scrolls out of view */}
@@ -263,6 +278,7 @@ export default function HomePage() {
               onSync={handleSync}
               hideNetWorth={hideNetWorth}
               onRefresh={loadData}
+              attnTarget={attn}
             />
           </div>
 
@@ -297,6 +313,7 @@ export default function HomePage() {
                       loading={stsLoading}
                       suppressCTA={hasMoveItem}
                       cardDeltaSoFar={needle?.current?.card_delta_so_far ?? null}
+                      glow={attn === "hero"}
                     />
                   );
                 }
@@ -328,8 +345,11 @@ export default function HomePage() {
           )}
 
           {/* Reauth banners */}
-          {expiredProviders.map(({ provider, provider_id }) => (
-            <div key={provider} className="mt-4 mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0">
+          {expiredProviders.map(({ provider, provider_id }, idx) => (
+            <div
+              key={provider}
+              className={`mt-4 mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0${attn === "reconnect" && idx === 0 ? " needs-you" : ""}`}
+            >
               <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
@@ -353,7 +373,7 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="space-y-3">
-                <UpcomingBillsStrip />
+                <UpcomingBillsStrip glow={attn === "bill"} onUrgentChange={setHasUrgentBill} />
                 <ThisMonthStrip summary={needle} summaryStatus={needleStatus} />
                 <HomeInsightSpotlight />
               </div>
@@ -464,7 +484,7 @@ export default function HomePage() {
             <div className="flex items-center justify-between mb-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
               <button
-                onClick={() => router.push("/spend?view=list")}
+                onClick={() => router.push("/transactions")}
                 className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
               >
                 See all <ChevronRight size={13} aria-hidden="true" />

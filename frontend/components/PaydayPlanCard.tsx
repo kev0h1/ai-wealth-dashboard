@@ -32,6 +32,8 @@ interface PaydayPlanCardProps {
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
   onClose?: () => void;
+  /** Glow this card — true only when the attention resolver targets "payday". */
+  glow?: boolean;
 }
 
 // Multi-destination fork of MoveCard — one payday_plan item can fan money out
@@ -41,7 +43,7 @@ interface PaydayPlanCardProps {
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
 // HomeBrief does not thread an onDismiss prop through any companion card).
-export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose }: PaydayPlanCardProps) {
+export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose, glow }: PaydayPlanCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -66,7 +68,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className={`glass-card rounded-2xl p-4${glow ? " needs-you" : ""}`}>
       {/* Penny gradient chip — marks this as a proactive advice surface, same
           treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
           sits on the same row, matching the CelebrationCard/CliffCard

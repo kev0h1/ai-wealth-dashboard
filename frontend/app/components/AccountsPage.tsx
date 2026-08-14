@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, TrendingDown, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import AccountMiniCard, { BANK_META, accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import CardTermsSheet from "@/components/CardTermsSheet";
@@ -31,6 +31,26 @@ function isCreditAccount(acc: { type?: string; subtype?: string | null }): boole
   const t = (acc.type ?? "").toLowerCase();
   const s = (acc.subtype ?? "").toLowerCase();
   return t.includes("credit") || s.includes("credit");
+}
+
+/** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
+ *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
+function AddMenuItem({
+  icon, label, onClick, disabled, tutorialId,
+}: {
+  icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean; tutorialId?: string;
+}) {
+  return (
+    <button
+      data-tutorial-id={tutorialId}
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-left text-slate-700 dark:text-slate-200 active:bg-slate-50 dark:active:bg-slate-600 disabled:opacity-50"
+    >
+      {icon}
+      {label}
+    </button>
+  );
 }
 
 /** Muted terms pill for a confirmed card. APR is information, not alarm —
@@ -192,6 +212,10 @@ export default function AccountsPage() {
   );
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
   const [showBankPicker, setShowBankPicker] = useState(false);
+  // Header Variant B: the four/three "add" actions condense into one primary
+  // button that opens this menu — same handlers/routes, just one entry point.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [reconnectWarning, setReconnectWarning] = useState<string | null>(null);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
@@ -309,6 +333,20 @@ export default function AccountsPage() {
     for (const c of cardTermsCards) m[c.account_id] = c;
     return m;
   }, [cardTermsCards]);
+
+  // Close the "+ Add" menu on outside tap (same pattern as SpendTrends' widget menu)
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const close = (e: MouseEvent | TouchEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+    };
+  }, [addMenuOpen]);
 
   // Custom confirm dialog (replaces native window.confirm)
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -2027,126 +2065,133 @@ export default function AccountsPage() {
       >
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Accounts</h1>
-          {kpis && (
-            <>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mt-3">Net worth</p>
-              <div className="flex items-center gap-2">
-                <span
-                  className="text-3xl font-bold tracking-tight num text-slate-900 dark:text-slate-100"
-                  aria-label={hideNetWorth ? "Balance hidden" : undefined}
-                >
-                  {hideNetWorth
-                    ? "••••••"
-                    : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
-                </span>
-                {kpis.net_worth < 0
-                  ? <TrendingDown size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-500" />
-                  : <TrendingUp size={16} strokeWidth={2} className="text-slate-400 dark:text-slate-500" />}
+          {kpis && (() => {
+            const cardTotal = accounts
+              .filter(a => {
+                const t = (a.type ?? "").toLowerCase();
+                const s = (a.subtype ?? "").toLowerCase();
+                return t.includes("credit") || s.includes("credit");
+              })
+              .reduce((sum, a) => sum + Math.abs(Math.min(a.balance, 0)), 0);
+            // Net worth is a position, not a risk — it stays hero-white even
+            // when negative (Red Is Risk keeps red for genuine risk states).
+            // Quieter than the old 3xl treatment: present, not shouting.
+            return (
+              <div className="flex items-start justify-between gap-3 mt-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Net worth</p>
+                  <p
+                    className="mt-1 text-2xl font-bold tracking-tight num text-slate-900 dark:text-slate-100 leading-none"
+                    aria-label={hideNetWorth ? "Balance hidden" : undefined}
+                  >
+                    {hideNetWorth
+                      ? "••••••"
+                      : `${kpis.net_worth < 0 ? "−" : ""}${region === "Kenya" ? "KES " : "£"}${Math.abs(kpis.net_worth).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                  </p>
+                  {/* The two stats + counts, whispered onto one line. No
+                      month-over-month trend here — KPIs carries only a
+                      point-in-time net_worth, no history/delta to report
+                      honestly, so nothing is fabricated in its place. */}
+                  <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
+                    {cardTotal > 0 &&
+                      `${hideNetWorth ? "−£••••" : `−£${cardTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`} across cards · `}
+                    {bankAccounts.length} bank · {investmentAccounts.length} investment
+                    {manualAccounts.length > 0 && ` · ${manualAccounts.length} offline`}
+                  </p>
+                </div>
                 <button
                   onClick={() => setHideNetWorth(!hideNetWorth)}
                   aria-label={hideNetWorth ? "Show balance" : "Hide balance"}
-                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors p-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors flex-shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   {hideNetWorth ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              {(() => {
-                const cardTotal = accounts
-                  .filter(a => {
-                    const t = (a.type ?? "").toLowerCase();
-                    const s = (a.subtype ?? "").toLowerCase();
-                    return t.includes("credit") || s.includes("credit");
-                  })
-                  .reduce((sum, a) => sum + Math.abs(Math.min(a.balance, 0)), 0);
-                return cardTotal > 0 ? (
-                  <p className="text-base font-semibold num text-slate-700 dark:text-slate-200 mt-0.5">
-                    {hideNetWorth ? "−£••••" : `−£${cardTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 ml-1.5">across cards</span>
-                  </p>
-                ) : null;
-              })()}
-            </>
-          )}
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {bankAccounts.length} bank · {investmentAccounts.length} investment
-            {manualAccounts.length > 0 && ` · ${manualAccounts.length} offline`}
-          </p>
+            );
+          })()}
         </div>
 
-        {/* Context-aware action buttons */}
+        {/* Context-aware action: one primary "+ Add" — condensed from the
+            old 3/4-button row (header Variant B). Every destination below is
+            the exact same handler the separate buttons used to call; only
+            the entry point changed. */}
         {tab === "Banks" ? (
-          region === "UK" ? (
-            <>
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                <button
-                  data-tutorial-id="tutorial-add-account"
-                  onClick={() => setShowBankPicker(true)}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-                >
-                  <Plus size={14} />
-                  Add Bank
-                </button>
-                <button
-                  data-tutorial-id="tutorial-upload-statement"
-                  onClick={() => setShowMpesaUpload(true)}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-                >
-                  <Upload size={14} />
-                  Statement
-                </button>
-                <button
-                  onClick={openAddManual}
-                  className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-                >
-                  <Plus size={14} />
-                  Offline
-                </button>
-              </div>
-              <button
-                onClick={async () => {
-                  try {
-                    const { auth_url } = await api.finexerConnectLink();
-                    window.location.href = auth_url;
-                  } catch {
-                    // no-op; user stays on page
-                  }
-                }}
-                className="flex w-full items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-2"
+          <div className="relative mb-4" ref={addMenuRef}>
+            <button
+              onClick={() => setAddMenuOpen(v => !v)}
+              className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
+              aria-expanded={addMenuOpen}
+              aria-haspopup="menu"
+            >
+              <Plus size={15} />
+              Add
+              <ChevronDown size={13} className={`opacity-70 transition-transform ${addMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+            {addMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 bg-white dark:bg-slate-700 rounded-xl shadow-lg border border-slate-100 dark:border-slate-600 py-1 overflow-hidden"
               >
-                <Plus size={14} />
-                Finexer (beta)
-              </button>
-            </>
-          ) : (
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <MonoConnectWidget onSuccess={handleMonoSuccess}>
-                {(open, monoLoading) => (
-                  <button
-                    onClick={open}
-                    disabled={monoLoading}
-                    className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-                  >
-                    <Plus size={14} />
-                    {monoLoading ? "Opening…" : "Mono"}
-                  </button>
+                {region === "UK" ? (
+                  <>
+                    <AddMenuItem
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Add Bank"
+                      tutorialId="tutorial-add-account"
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker(true); }}
+                    />
+                    <AddMenuItem
+                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Statement"
+                      tutorialId="tutorial-upload-statement"
+                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
+                    />
+                    <AddMenuItem
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Offline"
+                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                    />
+                    <AddMenuItem
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Finexer (beta)"
+                      onClick={async () => {
+                        setAddMenuOpen(false);
+                        try {
+                          const { auth_url } = await api.finexerConnectLink();
+                          window.location.href = auth_url;
+                        } catch {
+                          // no-op; user stays on page
+                        }
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <MonoConnectWidget onSuccess={handleMonoSuccess}>
+                      {(open, monoLoading) => (
+                        <AddMenuItem
+                          icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                          label={monoLoading ? "Opening…" : "Mono"}
+                          disabled={monoLoading}
+                          onClick={() => { setAddMenuOpen(false); open(); }}
+                        />
+                      )}
+                    </MonoConnectWidget>
+                    <AddMenuItem
+                      icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Statement"
+                      onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
+                    />
+                    <AddMenuItem
+                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Offline"
+                      onClick={() => { setAddMenuOpen(false); openAddManual(); }}
+                    />
+                  </>
                 )}
-              </MonoConnectWidget>
-              <button
-                onClick={() => setShowMpesaUpload(true)}
-                className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-              >
-                <Upload size={14} />
-                Statement
-              </button>
-              <button
-                onClick={openAddManual}
-                className="flex items-center justify-center gap-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 transition-all px-2 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300"
-              >
-                <Plus size={14} />
-                Offline
-              </button>
-            </div>
-          )
+              </div>
+            )}
+          </div>
         ) : (
           <div className="mb-4">
             <div className="flex gap-2">
