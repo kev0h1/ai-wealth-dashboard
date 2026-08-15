@@ -89,19 +89,34 @@ PROMPT_VERSION = 4
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
+#
+# Points at the global search hub (/transactions), not the period-scoped
+# Spend view — this was the original trust bug: an insight about a merchant
+# used to open Spend's CategorySheet, which is scoped to the current pay
+# period, so a merchant with history outside that window showed only a
+# fraction of its transactions ("2 payments" for a bill paid every month for
+# years). /transactions?category=X searches ALL history via
+# GET /transactions/search, so the evidence behind the insight is complete.
+# mortgage/car_finance: no single reliable category — a mortgage payment can
+# land in "Bills" or "Other" depending on how the user's bank labels it, and
+# a wrong category guess would silently hide the very payments the CTA
+# promises. Routed on merchant alone (bare "/transactions", which
+# _merchant_scoped_route turns into "/transactions?merchants=<names>") so the
+# search is scoped to the transactions that actually triggered the insight,
+# not a category that may not contain them.
 CATEGORY_APP_ROUTES: dict[str, str] = {
-    "subscriptions": "/planning",           # recurring list lives there
-    "mobile":        "/spend?category=Bills",
-    "broadband":     "/spend?category=Bills",
-    "energy":        "/spend?category=Bills",
-    "groceries":     "/spend?category=Groceries",
-    "eating_out":    "/spend?category=Eating%20Out",
-    "gym":           "/spend?category=Health",
-    "car_finance":   "/planning",
-    "mortgage":      "/planning",
-    "car_insurance": "/spend?category=Bills",
-    "insurance":     "/spend?category=Bills",
-    "water":         "/spend?category=Bills",
+    "subscriptions": "/transactions?category=Subscriptions",
+    "mobile":        "/transactions?category=Bills",
+    "broadband":     "/transactions?category=Bills",
+    "energy":        "/transactions?category=Bills",
+    "groceries":     "/transactions?category=Groceries",
+    "eating_out":    "/transactions?category=Eating%20Out",
+    "gym":           "/transactions?category=Health",
+    "car_finance":   "/transactions",
+    "mortgage":      "/transactions",
+    "car_insurance": "/transactions?category=Bills",
+    "insurance":     "/transactions?category=Bills",
+    "water":         "/transactions?category=Bills",
 }
 
 # Non-UK guardrail: US-only services/terms that must never reach a UK user's
@@ -683,13 +698,16 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
 
 def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[str]:
     """Deep-link the CTA at the insight's own merchants, not the whole
-    category — "/spend?category=Bills" becomes
-    "/spend?category=Bills&merchants=Ee%20Ltd" so the category sheet can
-    highlight the rows that actually triggered this insight. Up to 3 display
-    names, comma-separated, each URL-encoded. Routes that don't drill into a
-    spend category (e.g. /planning) pass through untouched."""
+    category — "/transactions?category=Bills" becomes
+    "/transactions?category=Bills&merchants=Ee%20Ltd" so the search hub can
+    pre-filter to the rows that actually triggered this insight. A bare
+    "/transactions" (no category — used where category is unreliable, e.g.
+    mortgage/car_finance) becomes "/transactions?merchants=Ee%20Ltd" instead.
+    Up to 3 display names, comma-separated, each URL-encoded. Routes that
+    don't drill into a filtered transaction list (e.g. /planning) pass
+    through untouched."""
     route = CATEGORY_APP_ROUTES.get(category)
-    if not route or "/spend?" not in route:
+    if not route or not route.startswith("/transactions"):
         return route
     names: list[str] = []
     for t in triggered_by[:3]:
@@ -698,7 +716,8 @@ def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[
             names.append(name)
     if not names:
         return route
-    return f"{route}&merchants={','.join(quote(n, safe='') for n in names)}"
+    sep = "&" if "?" in route else "?"
+    return f"{route}{sep}merchants={','.join(quote(n, safe='') for n in names)}"
 
 
 def _serialize_insight(d: dict) -> dict:
