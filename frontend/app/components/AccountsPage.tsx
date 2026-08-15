@@ -2410,7 +2410,7 @@ export default function AccountsPage() {
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
-                  {bankAccounts.map((acc) => {
+                  {bankAccounts.map((acc, i) => {
                     const isCredit = isCreditAccount(acc);
                     const termsCard = cardTermsByAccount[acc.id];
                     const pill = isCredit ? termsPillFor(termsCard) : null;
@@ -2421,6 +2421,7 @@ export default function AccountsPage() {
                         grid
                         calm
                         glass
+                        index={i}
                         hidden={hideNetWorth}
                         pinned={pinnedIds.includes(acc.id)}
                         onTogglePin={() => togglePin(acc.id)}

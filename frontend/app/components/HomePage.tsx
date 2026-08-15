@@ -441,24 +441,26 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {topPickAccounts.map((acc) => (
+                {topPickAccounts.map((acc, i) => (
                   <AccountMiniCard
                     key={acc.id}
                     account={acc}
                     grid
                     calm
                     glass
+                    index={i}
                     hidden={hideNetWorth}
                     onClick={() => router.push(`/accounts?id=${acc.id}`)}
                   />
                 ))}
-                {investmentAccounts.slice(0, 1).map(inv => (
+                {investmentAccounts.slice(0, 1).map((inv, i) => (
                   <InvestmentMiniCard
                     key={inv.id}
                     account={inv}
                     grid
                     calm
                     glass
+                    index={topPickAccounts.length + i}
                     hidden={hideNetWorth}
                     onClick={() => router.push("/accounts?tab=Investments")}
                   />

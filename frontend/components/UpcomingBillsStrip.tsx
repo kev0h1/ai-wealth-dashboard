@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { CalendarClock } from "lucide-react";
+import { Receipt } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useRouter } from "next/navigation";
@@ -100,8 +100,8 @@ export default function UpcomingBillsStrip({ glow, onUrgentChange }: UpcomingBil
         className={`w-full glass-card rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500${glow ? " needs-you" : ""}`}
         onClick={() => router.push("/planning")}
       >
-        <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-          <CalendarClock size={17} className="text-amber-500" />
+        <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/25 flex items-center justify-center flex-shrink-0">
+          <Receipt size={17} className="text-amber-600 dark:text-amber-400" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Coming up · 14 days</p>

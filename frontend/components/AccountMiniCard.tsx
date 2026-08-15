@@ -32,6 +32,10 @@ interface AccountMiniCardProps {
   onTermsClick?: () => void;
   /** Quiet "Add rates" affordance for credit cards without confirmed terms (calm variant) */
   onAddRates?: () => void;
+  /** Position in a grid — drives the staggered entrance animation via
+   *  --card-index (see .card-rise-in in globals.css). Omit to skip the
+   *  animation (e.g. cards rendered outside a fresh-load grid). */
+  index?: number;
 }
 
 export interface BankMeta {
@@ -328,7 +332,7 @@ export function BankBadge({
   );
 }
 
-export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass, termsPill, onTermsClick, onAddRates }: AccountMiniCardProps) {
+export default function AccountMiniCard({ account, onClick, onReconnect, fullWidth, grid, hidden, pinned, onTogglePin, calm, glass, termsPill, onTermsClick, onAddRates, index }: AccountMiniCardProps) {
   const brand = accountBrand(account);
   const isCredit = account.type.toLowerCase().includes("credit");
   const balance = account.balance;
@@ -341,20 +345,14 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
   // the 36px chip — the rest is neutral slate ink on white/slate-800 glass.
   if (calm) {
     const kind = typeLabel(account);
-    const spineColour = ACCOUNT_KIND_COLOUR[kind];
+    const kindColour = ACCOUNT_KIND_COLOUR[kind];
     return (
       <button
         onClick={onClick}
-        className={`relative w-full rounded-2xl text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} active:scale-95 transition-transform overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+        style={index !== undefined ? ({ "--card-index": index } as React.CSSProperties) : undefined}
+        className={`relative w-full h-[13rem] flex flex-col rounded-2xl text-left ${glass ? "glass-card" : "bg-white/60 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60"} ${index !== undefined ? "card-rise-in" : ""} active:scale-[0.98] transition-transform overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
       >
-        {/* Coloured left spine — account-type identity (Variant A) */}
-        <div
-          className="absolute left-0 top-0 bottom-0"
-          style={{ width: 3, backgroundColor: spineColour }}
-          aria-hidden="true"
-        />
-
-        <div className="p-4 pl-[18px]">
+        <div className="p-4 flex flex-col flex-1">
           {/* Top row: brand chip + name / bank·type */}
           <div className="flex items-start gap-2.5 mb-3">
             <BankBadge
@@ -370,7 +368,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
                 {account.name.trim()}
               </p>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
-                {brand.label} · <span style={{ color: spineColour }}>{kind}</span>
+                {brand.label} · <span style={{ color: kindColour }}>{kind}</span>
               </p>
             </div>
           </div>
@@ -383,13 +381,15 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
             <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">owed</p>
           )}
 
-          {/* Card-terms pill / Add-rates affordance / legacy APR chip.
+          {/* Card-terms pill / Add-rates affordance / legacy APR chip — pinned
+              to the bottom (mt-auto) so a card without one still keeps the
+              same top rhythm (logo/name/balance) as a card with one.
               44px hit targets wrap the small visuals (visual pill stays quiet). */}
           {termsPill && onTermsClick ? (
             <button
               onClick={(e) => { e.stopPropagation(); onTermsClick(); }}
               aria-label={`${termsPill.label} — edit this card's rates`}
-              className="-ml-1.5 mt-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+              className="-ml-1.5 mt-auto pt-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
             >
               <span
                 className={`text-[10px] font-semibold px-2 py-0.5 rounded-full num ${
@@ -404,13 +404,13 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           ) : isCredit && onAddRates ? (
             <button
               onClick={(e) => { e.stopPropagation(); onAddRates(); }}
-              className="-ml-1.5 mt-2 min-h-[44px] flex items-center gap-1 px-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+              className="-ml-1.5 mt-auto pt-2 min-h-[44px] flex items-center gap-1 px-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
             >
               <Percent size={11} aria-hidden="true" />
               Add rates
             </button>
           ) : isCredit && account.apr != null ? (
-            <span className="inline-block mt-2 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
+            <span className="inline-block mt-auto pt-2 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num self-start">
               {account.apr}% APR
             </span>
           ) : null}
