@@ -16,7 +16,6 @@ import UpcomingEditSheet from "@/components/UpcomingEditSheet";
 import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
-import CanISection from "@/components/CanISection";
 import CommitmentSheet from "@/components/CommitmentSheet";
 
 function isCliffSoon(until: string): boolean {
@@ -722,7 +721,6 @@ export default function PlanningPage() {
 
         if (rawItems.length === 0) {
           // Nothing left to pay this period — the whole spendable pool is free.
-          const emptySpendable = cashflow.spendable_balance ?? cashflow.available_balance;
           return (
             <div className="space-y-3">
               <div className="glass-card rounded-2xl p-8 text-center">
@@ -748,14 +746,6 @@ export default function PlanningPage() {
                 commitments={commitments}
                 onAdd={() => setCommitmentSheet({ editing: null })}
                 onEdit={(c) => setCommitmentSheet({ editing: c })}
-              />
-              <CanISection
-                onCommitmentSaved={refreshCommitments}
-                freeHint={
-                  emptySpendable != null && emptySpendable >= 0
-                    ? { free: emptySpendable, daysLeft: daysToPayday }
-                    : null
-                }
               />
             </div>
           );
@@ -1092,16 +1082,6 @@ export default function PlanningPage() {
               commitments={commitments}
               onAdd={() => setCommitmentSheet({ editing: null })}
               onEdit={(c) => setCommitmentSheet({ editing: c })}
-            />
-            {/* Free hint = the runway hero's figure above; withheld when the
-                runway is negative — the launcher never leads with a minus. */}
-            <CanISection
-              onCommitmentSaved={refreshCommitments}
-              freeHint={
-                (cashflow.spendable_balance ?? cashflow.available_balance) != null && !runwayNegative
-                  ? { free: runway, daysLeft: daysToPayday }
-                  : null
-              }
             />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
