@@ -258,6 +258,110 @@ export type CategorySignals = {
   signals: Record<string, CategorySignal>;
 };
 
+// ── GET /spend/verdict — mirrors backend/app/services/spend_verdict.py's
+// `assemble_verdict` return shape exactly (field-for-field). Every notable/
+// majority/moved figure here is server-computed (Show Your Working Rule —
+// "the model narrates; Python counts"); the frontend only formats. ─────────
+// ── PATCH /transactions/{id} + POST /transactions/{id}/resolve-movement —
+// mirrors backend/app/routers/transactions.py field-for-field. The teaching
+// sheet's propagation offer ("Always file X as Y? Matches N past payments")
+// reads matches_past/rule_suggestion straight off the PATCH response — no
+// second round-trip. ───────────────────────────────────────────────────────
+export type PatchTransactionResult = {
+  updated: string;
+  custom_category: string;
+  bulk_count: number;
+  merchant_key: string;
+  matches_past: number;
+  rule_suggestion: { pattern: string; category: string } | null;
+};
+
+export type ResolveMovementResult = {
+  updated: string;
+  resolution: "mine-goal" | "mine-offline" | "someone-else" | "spending";
+  custom_category?: string | null;
+  linked_goal_id?: string;
+  linked_offline_account_id?: string;
+  offline_pot_name?: string;
+};
+
+export type SpendVerdictState = "normal" | "nothing" | "everything" | "nobaseline" | "early";
+
+export type SpendVerdictCause = { name: string; amount: number };
+
+export type SpendVerdictNotable = {
+  category: string;
+  spent: number;
+  multiple: number;
+  excess: number;
+  payments_count: number;
+  cause: SpendVerdictCause[];
+  pace: { spent: number; usual_by_now: number };
+};
+
+// Qualifying categories that overflowed past the NOTABLE_CAP (3) — never
+// rendered as their own cards, only as a quiet tag on their majority row.
+export type SpendVerdictQuietFlag = {
+  category: string;
+  spent: number;
+  multiple: number;
+  excess: number;
+  payments_count: number;
+};
+
+export type SpendVerdictMajorityRow = {
+  category: string;
+  spent: number;
+  payments_count: number;
+  has_baseline: boolean;
+  elevated: boolean;
+};
+
+export type SpendVerdictUnresolved = {
+  total: number;
+  payments_count: number;
+  ask_worthy: boolean;
+  weight: "material" | "routine";
+  largest: {
+    id: string;
+    display_name: string | null;
+    raw_description: string;
+    amount: number;
+    date: string;
+  } | null;
+};
+
+export type SpendVerdictMoved = {
+  kind: "pots" | "credit_cards" | "investments";
+  label: string;
+  amount: number;
+  payments_count: number;
+  goal_names?: string[];
+};
+
+export type SpendVerdictPills = { spent: number; income: number; net: number };
+
+export type SpendVerdictPeriod = {
+  start: string;
+  end: string;
+  days_elapsed: number;
+  days_left: number | null;
+  offset: number;
+  closed: boolean;
+};
+
+export type SpendVerdict = {
+  state: SpendVerdictState;
+  reading: string;
+  notables: SpendVerdictNotable[];
+  quiet_flags: SpendVerdictQuietFlag[];
+  majority: SpendVerdictMajorityRow[];
+  unresolved: SpendVerdictUnresolved;
+  moved: SpendVerdictMoved[];
+  pills: SpendVerdictPills;
+  period: SpendVerdictPeriod;
+};
+
 export type PaceDetail =
   | { status: "unavailable" }
   | {
@@ -629,6 +733,25 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// Every hand-rolled `fetch(...).then(r => r.json())` call below used to skip
+// the ok check that get<T>/post<T> do — a FastAPI error body is still valid
+// JSON, so those promises resolved on 4xx/5xx and callers never saw a
+// rejection (design re-gate P0: teaching sheet reported success on a 401).
+// Route every one of them through this so a non-2xx always throws.
+async function toJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* body wasn't JSON — keep the status line */
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 
@@ -1049,7 +1172,7 @@ export const api = {
     fetch(`${API_BASE}/baskets/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
   accounts: () => get<Account[]>("/accounts"),
   syncAccounts: () => post<{ message: string; total_accounts: number }>("/accounts/sync"),
   transactions: (accountId: string, opts?: {
@@ -1072,6 +1195,9 @@ export const api = {
   safeToSpend: (opts?: { series?: boolean }) => get<SafeToSpend>(`/safe-to-spend${opts?.series ? "?include=series" : ""}`),
   paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),
   categorySignals: (offset = 0) => get<CategorySignals>(`/spend/category-signals?offset=${offset}`),
+  spendVerdict: (offset = 0) => get<SpendVerdict>(`/spend/verdict?offset=${offset}`),
+  dismissUnresolvedAsk: (txnId: string) =>
+    post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>
@@ -1120,9 +1246,42 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data),
-    }).then((r) => r.json()) as Promise<{ updated: string; custom_category: string; bulk_count: number }>,
+    }).then((r) => toJson<PatchTransactionResult>(r)),
   similarTransactions: (id: string, scope: "all" | "future") =>
     get<Transaction[]>(`/transactions/${id}/similar?scope=${scope}`),
+  // Global, paginated, searchable transaction list spanning every connected
+  // source — backs the /transactions hub (Task 2). Read-only, no writes.
+  // `from`/`to` (ISO dates) scope to a pay period as a removable chip on the
+  // hub — mirrors backend/app/routers/transactions.py's `from`/`to` query
+  // params field-for-field. Both optional; omitted means all history.
+  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; merchants?: string; days?: number; from?: string; to?: string } = {}) => {
+    const p = new URLSearchParams();
+    if (params.q) p.set("q", params.q);
+    if (params.page) p.set("page", String(params.page));
+    if (params.page_size) p.set("page_size", String(params.page_size));
+    if (params.category) p.set("category", params.category);
+    if (params.merchants) p.set("merchants", params.merchants);
+    if (params.days) p.set("days", String(params.days));
+    if (params.from) p.set("from", params.from);
+    if (params.to) p.set("to", params.to);
+    const qs = p.toString();
+    return get<PagedTransactions>(`/transactions/search${qs ? `?${qs}` : ""}`);
+  },
+  // The movement fork of the teaching sheet (ENGINE.md Destination Rule) —
+  // POST /transactions/{id}/resolve-movement. See backend/app/routers/
+  // transactions.py:resolve_movement for the full resolution contract.
+  resolveMovement: (id: string, body: {
+    resolution: "mine-goal" | "mine-offline" | "someone-else" | "spending";
+    goal_id?: string;
+    offline_pot_name?: string;
+    note?: string;
+    category?: string;
+  }) =>
+    fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}/resolve-movement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => toJson<ResolveMovementResult>(r)),
   syncAll: () => post<{ message: string }>("/accounts/sync", {}),
   autoCategorise: () => post<{ message: string }>("/transactions/auto-categorise", {}),
   taxChat: (messages: { role: string; content: string }[]) =>
@@ -1209,58 +1368,58 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(goal),
-    }).then(r => r.json()) as Promise<SavingsInsights>,
+    }).then((r) => toJson<SavingsInsights>(r)),
   deleteSavingsGoal: () =>
     fetch(`${API_BASE}/savings/goal`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ configured: boolean }>,
+    }).then((r) => toJson<{ configured: boolean }>(r)),
   addSavingsManualAccount: (body: { name: string; balance: number }) =>
     fetch(`${API_BASE}/savings/manual-account`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<SavingsInsights>,
+    }).then((r) => toJson<SavingsInsights>(r)),
   updateSavingsManualAccount: (id: string, body: { name?: string; balance?: number }) =>
     fetch(`${API_BASE}/savings/manual-account/${encodeURIComponent(id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<SavingsInsights>,
+    }).then((r) => toJson<SavingsInsights>(r)),
   deleteSavingsManualAccount: (id: string) =>
     fetch(`${API_BASE}/savings/manual-account/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<SavingsInsights>,
+    }).then((r) => toJson<SavingsInsights>(r)),
   getSavingsPlan: () => get<{ plan: SavingsPlan | null }>("/savings/plan"),
   saveSavingsPlan: (plan: SuggestedPlan) =>
     fetch(`${API_BASE}/savings/plan`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(plan),
-    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
   addSavingsPlanMilestones: (plan: SuggestedPlan) =>
     fetch(`${API_BASE}/savings/plan/milestones`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(plan),
-    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null; added: number }>,
+    }).then((r) => toJson<{ plan: SavingsPlan | null; added: number }>(r)),
   toggleSavingsPlanStep: (stepId: string, done: boolean) =>
     fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ done }),
-    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
   deleteSavingsPlanStep: (stepId: string) =>
     fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
   deleteSavingsPlan: () =>
     fetch(`${API_BASE}/savings/plan`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ plan: SavingsPlan | null }>,
+    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
   getPreferences: () => get<{
     hide_net_worth: boolean;
     dark_mode?: boolean;
@@ -1299,7 +1458,7 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<{ hide_net_worth: boolean; dark_mode?: boolean }>,
+    }).then((r) => toJson<{ hide_net_worth: boolean; dark_mode?: boolean }>(r)),
   getCategories: () => get<CategoriesResponse>("/categories"),
   addCategory: (name: string, kind: CategoryKind = "discretionary") =>
     post<CategoriesResponse>("/categories", { name, kind }),
@@ -1307,7 +1466,7 @@ export const api = {
     fetch(`${API_BASE}/categories/${encodeURIComponent(name)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
   getChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/debt/chat/session"),
   newChatSession: () => post<{ session_id: string; messages: [] }>("/debt/chat/new", {}),
   getBudgets: () => get<{ budgets: { category: string; monthly_limit: number }[] }>("/budgets"),
@@ -1316,7 +1475,7 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ budgets }),
-    }).then(r => r.json()) as Promise<{ budgets: { category: string; monthly_limit: number }[] }>,
+    }).then((r) => toJson<{ budgets: { category: string; monthly_limit: number }[] }>(r)),
   budgetChat: (messages: { role: string; content: string }[], session_id?: string) =>
     post<{ reply: string; session_id?: string; suggested_budgets?: { category: string; monthly_limit: number }[] }>("/budget/chat", { messages, session_id }),
   getBudgetChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/budget/chat/session"),
@@ -1327,7 +1486,7 @@ export const api = {
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   // Offline (manually-tracked) accounts
   manualAccounts: () => get<ManualAccount[]>("/manual-accounts"),
@@ -1338,12 +1497,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<ManualAccount>,
+    }).then((r) => toJson<ManualAccount>(r)),
   deleteManualAccount: (id: string) =>
     fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   // Offline-account ledger (hand-added + rule-posted entries)
   manualTransactions: (accountId: string) =>
@@ -1355,12 +1514,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<Transaction>,
+    }).then((r) => toJson<Transaction>(r)),
   deleteManualTransaction: (accountId: string, txId: string) =>
     fetch(`${API_BASE}/manual-accounts/${encodeURIComponent(accountId)}/transactions/${encodeURIComponent(txId)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   // Transaction-mirror rules
   manualAccountRules: () => get<ManualAccountRule[]>("/manual-account-rules"),
@@ -1379,12 +1538,12 @@ export const api = {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
-    }).then(r => r.json()) as Promise<ManualAccountRule>,
+    }).then((r) => toJson<ManualAccountRule>(r)),
   deleteManualAccountRule: (id: string) =>
     fetch(`${API_BASE}/manual-account-rules/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   // Yapily (UK open banking)
   yapilyInstitutions: (country = "GB") =>
@@ -1396,7 +1555,7 @@ export const api = {
     fetch(`${API_BASE}/yapily/connections/${encodeURIComponent(consentToken)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   // Mono (Kenya open banking)
   monoPublicKey: () => get<{ public_key: string }>("/auth/mono/public-key"),
@@ -1408,7 +1567,7 @@ export const api = {
     fetch(`${API_BASE}/mono/connections/${id}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: boolean }>,
+    }).then((r) => toJson<{ deleted: boolean }>(r)),
 
   // M-Pesa CSV upload (legacy — kept for backward compat)
   uploadMpesa: (file: File, password?: string) => {
@@ -1515,7 +1674,7 @@ export const api = {
     fetch(`${API_BASE}/investment/accounts/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
 
   refreshInvestmentPrices: async (id: string) => {
     const r = await fetch(`${API_BASE}/investment/accounts/${encodeURIComponent(id)}/refresh`, {
@@ -1603,16 +1762,23 @@ export const api = {
   challenges: () => get<ChallengesData>("/challenges"),
   getRules: () => get<{ rules: { id: string; description: string; pattern: string; category: string; created_at: string }[] }>("/rules"),
   parseRule: (text: string) => post<{ pattern: string; category: string } | { error: string }>("/rules/parse", { text }),
+  // `affected` — {id, previous_category} for every sibling transaction the
+  // new rule recategorised (backend/app/services/categorisation.py
+  // apply_single_rule), so TeachingSheet's "Undo" can revert each one
+  // precisely instead of only the primary transaction (fix-round HIGH finding).
   addRule: (description: string, pattern: string, category: string) =>
-    post<{ id: string; description: string; pattern: string; category: string }>("/rules", { description, pattern, category }),
+    post<{
+      id: string; description: string; pattern: string; category: string;
+      affected: { id: string; previous_category: string | null }[];
+    }>("/rules", { description, pattern, category }),
   setTransactionPlanned: (id: string, planned: boolean) =>
     fetch(`${API_BASE}/transactions/${encodeURIComponent(id)}/planned`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ planned }),
-    }).then(r => r.json()) as Promise<{ updated: string; planned: boolean }>,
+    }).then((r) => toJson<{ updated: string; planned: boolean }>(r)),
   deleteRule: (id: string) =>
-    fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ deleted: string }>,
+    fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ deleted: string }>(r)),
   getDailyMoneyBasic: () => get<MoneyBasic>("/money-basics/daily"),
   getMoneyBasics: (topic?: string) =>
     get<{ items: MoneyBasic[]; tax_year: string }>(`/money-basics${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
@@ -1628,7 +1794,7 @@ export const api = {
     fetch(`${API_BASE}/savings-insights/${encodeURIComponent(id)}/pin`, {
       method: "PATCH",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ pinned: boolean }>,
+    }).then((r) => toJson<{ pinned: boolean }>(r)),
   refreshSavingsInsights: () => post<{ message: string }>("/savings-insights/refresh", {}),
   getUnknownBills: () => get<{
     unknown_bills: { merchant_key: string; display_name: string; monthly_amount: number; occurrences: number }[];
@@ -1642,13 +1808,13 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ context }),
-    }).then(r => r.json()) as Promise<{ message: string }>,
+    }).then((r) => toJson<{ message: string }>(r)),
   getBillLabels: () => get<{ merchant_key: string; display_name: string; category: string; icon: string; label: string; is_skip: boolean }[]>("/savings-insights/labels"),
   deleteBillLabel: (merchant_key: string) =>
     fetch(`${API_BASE}/savings-insights/labels/${encodeURIComponent(merchant_key)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ deleted: string }>,
+    }).then((r) => toJson<{ deleted: string }>(r)),
   getMpesaAccounts: () => get<MpesaAccount[]>("/mpesa/accounts"),
   getMpesaTransactions: (id: string) => get<Transaction[]>(`/mpesa/accounts/${id}/transactions`),
   getAccountRate: (accountId: string) => get<{ apr: number | null }>(`/accounts/${encodeURIComponent(accountId)}/rate`),
@@ -1657,7 +1823,7 @@ export const api = {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ apr }),
-    }).then(r => r.json()) as Promise<{ apr: number | null }>,
+    }).then((r) => toJson<{ apr: number | null }>(r)),
 
   getVapidPublicKey: () => get<{ public_key: string }>("/push/vapid-public-key"),
 
@@ -1666,14 +1832,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(subscription),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   unsubscribePush: (endpoint: string) =>
     fetch(`${API_BASE}/push/subscribe`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ endpoint }),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   // Native (Capacitor) push — APNs on iOS, FCM on Android. Mirrors
   // subscribePush/unsubscribePush above but keyed by raw device token
@@ -1684,14 +1850,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ token, platform }),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   unregisterApnsToken: (token: string) =>
     fetch(`${API_BASE}/push/apns/register`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ token }),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   // Native (Capacitor) push — FCM on Android. Mirrors
   // registerApnsToken/unregisterApnsToken above but for the Android
@@ -1701,14 +1867,14 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ token, platform }),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   unregisterFcmToken: (token: string) =>
     fetch(`${API_BASE}/push/fcm/register`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ token }),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
 
@@ -1723,7 +1889,7 @@ export const api = {
     fetch(`${API_BASE}/income/streams/${encodeURIComponent(key)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then((r) => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
   confirmPayday: () => post<ConfirmPaydayResponse>("/income/confirm-payday", {}),
 
   getToday: (paydayPreview?: boolean) =>
@@ -1752,7 +1918,7 @@ export const api = {
     post<{ planned: PlannedExpense; impact: PlannedImpact }>("/planned", params),
   getPlanned: () => get<PlannedExpense[]>("/planned"),
   deletePlanned: (id: string) =>
-    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then(r => r.json()) as Promise<{ ok: boolean }>,
+    fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ ok: boolean }>(r)),
   updatePlanned: (id: string, patch: { name?: string; amount?: number; date?: string; account_id?: string | null }) =>
     fetch(`${API_BASE}/planned/${encodeURIComponent(id)}`, { method: "PATCH", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then(r => { if (!r.ok) throw new Error("patch failed"); return r.json(); }) as Promise<PlannedExpense>,
 
@@ -1763,7 +1929,7 @@ export const api = {
     fetch(`${API_BASE}/checkpoints/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: authHeaders(),
-    }).then(r => r.json()) as Promise<{ ok: boolean }>,
+    }).then((r) => toJson<{ ok: boolean }>(r)),
   recordTrendIntent: (category: string, answer: "one_off" | "new_normal") =>
     post<{ ok: boolean }>("/trends/intent", { category, answer }),
 };

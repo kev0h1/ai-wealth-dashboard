@@ -1,15 +1,16 @@
 "use client";
 
 // TEMPORARY PREVIEW — delete after review.
-// The real surface (CategoryManagerSheet) is auth-gated and can't be
-// screenshotted, so this route renders the same add-category flow, using the
-// same exported CategoryKindChooser, over realistic names.
+// The real surface is TeachingSheet's naming step (born-in-context, per
+// ENGINE.md); the standalone CategoryManagerSheet this preview used to
+// mirror has been deleted. This route renders the same add-category row
+// shape, using the same exported CategoryKindChooser, over realistic names.
 // Deep-linkable: /design/category-kind?mode=light | ?mode=dark
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
-import { CategoryKindChooser } from "@/components/CategoryManagerSheet";
+import { CategoryKindChooser } from "@/components/CategoryKindChooser";
 import { DEFAULT_CUSTOM_COLOUR, inferCategoryKind, type CategoryKind } from "@/lib/categories";
 import { ICON_LIBRARY, suggestIcon } from "@/lib/categoryIcons";
 

@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings2, SlidersHorizontal, ReceiptText, Fuel, CreditCard, Info } from "lucide-react";
-import { api, Account, Transaction, CategorySignal } from "@/lib/api";
+import { api, Account, Transaction, CategorySignal, SpendVerdict } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useColours } from "@/components/ColourProvider";
-import { getCategoryColour } from "@/lib/categories";
 import { getToken, setToken } from "@/lib/auth";
 import {
   getPayPeriodWithConfig,
@@ -17,24 +15,29 @@ import {
 import { usePreferences } from "@/components/PreferencesContext";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { isHomeCurrency } from "@/lib/currency";
-import { getCategoryIcon } from "@/lib/categoryIcons";
-import { useCategoryIcons } from "@/components/IconProvider";
 import { CategoryData } from "@/components/CategoryRow";
 import CategorySheet from "@/components/CategorySheet";
-import TransactionSheet from "@/components/TransactionSheet";
+import TeachingSheet from "@/components/TeachingSheet";
 import MiscategorisedReviewSheet from "@/components/MiscategorisedReviewSheet";
 import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
-import TransactionRow from "@/components/TransactionRow";
-import CategoryManagerSheet from "@/components/CategoryManagerSheet";
 import SpendTrends from "@/components/SpendTrends";
-import SegmentedControl from "@/components/SegmentedControl";
+import SpendVerdictView from "@/components/SpendVerdictView";
+import SpendHeader, { SpendPatternsToggle, RecentPeriodOption } from "@/components/SpendHeader";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 
 async function ensureAuth() {}
 
 const SKIP_FROM_SPEND = new Set(["Transfer"]);
+
+// YYYY-MM-DD in the date's own UTC calendar day — periodStart/periodEnd are
+// built with Date.UTC (lib/payPeriod.ts), so this reads back the exact day
+// boundary the period math intended, matching what the hub's `from`/`to`
+// query params (backend/app/routers/transactions.py) expect.
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
 
 // ── Category-signal cache (module level, per period offset) ──────────────────
 // The tiles themselves render from `useAllTransactions`, which is memoised for
@@ -76,16 +79,51 @@ function fetchSignals(offset: number, force = false): Promise<SignalMap> {
   return p;
 }
 
+// ── Verdict cache (module level, per period offset) ──────────────────────────
+// Same shape as the signals cache above, for the same reason: a revisit (most
+// commonly BACK-navigation from /transactions, since every category tap and
+// the header search icon now push a real route instead of opening a sheet)
+// should paint the last-known verdict immediately instead of a spinner at
+// near-zero height — there's nothing to scroll-restore onto otherwise. Unlike
+// signals, every read here also kicks off a silent revalidation against the
+// server so a stale cached verdict never lingers past one paint.
+const VERDICT_TTL_MS = 90_000; // matches the server's own /spend/verdict cache window
+const verdictCache = new Map<number, { data: SpendVerdict; at: number }>();
+const verdictInflight = new Map<number, Promise<SpendVerdict>>();
+
+export function invalidateVerdictCache() {
+  verdictCache.clear();
+  verdictInflight.clear();
+}
+
+function cachedVerdict(offset: number): SpendVerdict | null {
+  const hit = verdictCache.get(offset);
+  return hit && Date.now() - hit.at < VERDICT_TTL_MS ? hit.data : null;
+}
+
+function fetchVerdictData(offset: number): Promise<SpendVerdict> {
+  const pending = verdictInflight.get(offset);
+  if (pending) return pending;
+  const p = api.spendVerdict(offset)
+    .then(v => {
+      verdictCache.set(offset, { data: v, at: Date.now() });
+      return v;
+    })
+    .finally(() => { verdictInflight.delete(offset); });
+  verdictInflight.set(offset, p);
+  return p;
+}
+
 export default function SpendPage() {
   const { payPeriodConfig, setPayPeriodConfig, region } = usePreferences();
   const { colours } = useColours();
-  const { icons: iconOverrides } = useCategoryIcons();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [view, setView] = useState<"categories" | "list" | "trends">(() => {
-    const v = searchParams.get("view");
-    return v === "list" || v === "trends" ? v : "categories";
-  });
+  // The old three-way Categories/Transactions/Trends tabs are retired — the
+  // verdict hub replaces the first two; only the quiet "This period ·
+  // Patterns" split survives (approved spec, "NO Categories/Transactions/
+  // Trends tabs").
+  const [showPatterns, setShowPatterns] = useState<boolean>(() => searchParams.get("view") === "trends");
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions();
   const [loading, setLoading] = useState(true);
   const [periodStart, setPeriodStart] = useState<Date>(() => {
@@ -96,28 +134,23 @@ export default function SpendPage() {
     const [, e] = getPayPeriodWithConfig(new Date(), { type: "calendar_month" });
     return e;
   });
-  const [untrackedOpen, setUntrackedOpen] = useState(false);
   const [oldestTxDate, setOldestTxDate] = useState<Date | null>(null);
 
   useEffect(() => {
     api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
   }, []);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [incomeExpanded, setIncomeExpanded] = useState(false);
+  // Set only by the ask card's "Tell me what this was" — see onAskCorrect
+  // below. Tracks the id rather than a plain boolean so it can't stick
+  // after a later, unrelated setSelectedTx call reuses "truthy state".
+  const [askHandoffTxId, setAskHandoffTxId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(searchParams.get("manage") === "1");
-  const [openCategory, setOpenCategory] = useState<CategoryData | null>(null);
-  const [pendingCategory, setPendingCategory] = useState<string | null>(null);
-  // Merchant names from an insight deep-link ("?merchants=Ee Ltd,…") — the
-  // category sheet highlights the matching rows so "see your mobile bills"
-  // lands on EE, not the whole Bills list. Cleared when the sheet closes.
-  const [deepLinkMerchants, setDeepLinkMerchants] = useState<string[] | null>(null);
+  // `title` marks this as the synthetic "Payments over £250" list (Spend
+  // Trends' onReviewLarge) — the one CategorySheet use this page has left
+  // (Task 3/5): every real-category tap now opens the global hub instead
+  // (notable cards, majority rows, the RhythmCard deep-link above).
+  const [openCategory, setOpenCategory] = useState<(CategoryData & { title?: string }) | null>(null);
   const [periodOffset, setPeriodOffset] = useState(0);
-  // Transient highlight for the "miscategorised" chip's deep-link — glows the
-  // affected tile(s) for a couple of seconds so the chip's tap has a visible
-  // destination even on desktop, where every view renders at once.
-  const [highlightedCategories, setHighlightedCategories] = useState<Set<string>>(new Set());
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(0) ?? {});
   const signalsOffsetRef = useRef(0);
   // force = the Door or a category just changed, so the cached copy is dead.
@@ -140,23 +173,57 @@ export default function SpendPage() {
     return () => clearTimeout(warm);
   }, [periodOffset, refetchSignals]);
 
+  // ── /spend/verdict — the reading + notable cards + ask/unresolved +
+  // majority rows + money-you-moved. Seeded from the module-level cache
+  // above so a revisit (period swipe back, or BACK-navigation from
+  // /transactions) paints instantly; every read still revalidates against
+  // the server and updates in place — never a stale-data lie, just an
+  // instant first paint while the fresh copy lands a round trip later.
+  const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(0));
+  const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(0) == null);
+  const verdictOffsetRef = useRef(0);
+  // `silent` = we already have something on screen for this offset (cache
+  // or a previous fetch) — revalidate in the background without flipping
+  // the spinner back on, and never blank a good verdict on a transient error.
+  const fetchVerdict = useCallback((offset: number, silent = false) => {
+    verdictOffsetRef.current = offset;
+    if (!silent) setVerdictLoading(true);
+    fetchVerdictData(offset)
+      .then(v => { if (verdictOffsetRef.current === offset) setVerdict(v); })
+      .catch(() => { if (verdictOffsetRef.current === offset && !silent) setVerdict(null); })
+      .finally(() => { if (verdictOffsetRef.current === offset) setVerdictLoading(false); });
+  }, []);
+  useEffect(() => {
+    verdictOffsetRef.current = periodOffset;
+    const hit = cachedVerdict(periodOffset);
+    if (hit) {
+      setVerdict(hit);
+      setVerdictLoading(false);
+      fetchVerdict(periodOffset, true);
+    } else {
+      setVerdict(null);
+      fetchVerdict(periodOffset);
+    }
+  }, [periodOffset, fetchVerdict]);
+
+  // "Out" tap's Show Your Working destination — force the majority list
+  // open and scroll to it, the exact reconciled transactions behind the
+  // Out/Spent figure (notables + majority + unresolved = pills.spent).
+  // Starts undefined (not 0) — SpendVerdictView's expandMajoritySignal
+  // effect fires whenever the prop is non-null, so 0 would force-expand on
+  // the very first render before any tap.
+  const [expandSignal, setExpandSignal] = useState<number | undefined>(undefined);
+  function handleOutTap() {
+    setExpandSignal((s) => (s ?? 0) + 1);
+    document.getElementById("spend-majority-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isPro, setIsPro] = useState<boolean>(false);
   const [miscategorisedCount, setMiscategorisedCount] = useState(0);
   const [miscategorisedIds, setMiscategorisedIds] = useState<string[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
-
-  // Desktop shows every view at once (no tabs), so render mode must be
-  // decided in JS — CSS-hiding a duplicate tree would double every fetch.
-  const [isDesktop, setIsDesktop] = useState(false);
-  useLayoutEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -183,18 +250,24 @@ export default function SpendPage() {
   }, []);
 
   // Category deep-link — e.g. from RhythmCard "I'd like to change this"
-  // (sessionStorage) or an insight card's "/spend?category=X" primary action.
+  // (sessionStorage). Insight cards route straight to /transactions now
+  // (savings_insights.py's CATEGORY_APP_ROUTES) so this is the one surviving
+  // producer of "/spend?category=X" — RhythmCard's rhythm item is about
+  // *this period's* pattern, so the redirect below carries the live period
+  // as the hub's removable period chip rather than landing on all-time.
+  // Task 3 — every category tap now opens the global hub, never the sheet.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const cat = sessionStorage.getItem("wealth_open_category") ?? searchParams.get("category");
     if (cat) {
       sessionStorage.removeItem("wealth_open_category");
-      setPendingCategory(cat);
       const merchants = searchParams.get("merchants");
-      if (merchants) {
-        const names = merchants.split(",").map(s => s.trim()).filter(Boolean);
-        if (names.length > 0) setDeepLinkMerchants(names);
-      }
+      const params = new URLSearchParams();
+      params.set("category", cat);
+      if (merchants) params.set("merchants", merchants);
+      params.set("from", isoDate(periodStart));
+      params.set("to", isoDate(periodEnd));
+      router.replace(`/transactions?${params.toString()}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -230,24 +303,15 @@ export default function SpendPage() {
     [allTransactions, region]
   );
 
-  // Compute summary. Transactions live where their category points: Income
-  // counts as income, anything else counts as spend — a credit categorised
-  // as e.g. Eating Out is a refund and nets against that category, not income.
-  const summary = useMemo(() => {
-    let spent = 0;
-    let income = 0;
-    for (const tx of homeTxns) {
-      const cat = tx.category || "Other";
-      if (cat === "Transfer") continue;
-      const amt = Math.abs(tx.amount);
-      if (cat === "Income") {
-        income += tx.transaction_type === "credit" ? amt : -amt;
-      } else {
-        spent += tx.transaction_type === "debit" ? amt : -amt;
-      }
-    }
-    return { spent, income, net: income - spent };
-  }, [homeTxns]);
+  // NOTE: the top-region Spent/Income/Net figures come from `verdict.pills`
+  // (SpendHeader), not a client-side re-derivation. A previous local
+  // `summary` here summed all non-"Transfer" categories as spend, which
+  // silently counted Savings/Investment/Debt-kind transactions (movement,
+  // per ENGINE.md's Destination Rule — SKIP_FROM_SPEND only ever named
+  // "Transfer") as spending. verdict.pills is the engine's reconciled
+  // figure and is the same number SpendVerdictView's own majority/notables/
+  // unresolved breakdown adds up to — this is exactly the invariant
+  // fixtures.ts's assertFixtureInvariants checks.
 
   // Category breakdown
   const categories = useMemo((): CategoryData[] => {
@@ -275,42 +339,6 @@ export default function SpendPage() {
       .sort((a, b) => b.total - a.total);
   }, [homeTxns]);
 
-  // Untracked categories — only Transfer (both directions)
-  const untrackedCategories = useMemo((): CategoryData[] => {
-    const map: Record<string, { total: number; count: number; transactions: Transaction[] }> = {};
-    for (const tx of homeTxns) {
-      const cat = tx.category || "Other";
-      if (cat !== "Transfer") continue;
-      const label = tx.transaction_type === "credit" ? "Transfer (in)" : "Transfer (out)";
-      if (!map[label]) map[label] = { total: 0, count: 0, transactions: [] };
-      map[label].total += Math.abs(tx.amount);
-      map[label].count += 1;
-      map[label].transactions.push(tx);
-    }
-    return Object.entries(map)
-      .map(([name, { total, count, transactions }]) => ({
-        name,
-        total,
-        count,
-        transactions: transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-        pct: 0,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [homeTxns]);
-
-  // Open the matching category once categories have loaded (deep-link from
-  // RhythmCard, or the miscategorised-transfers chip). Checks the untracked
-  // (Transfer) list too, since flagged transfers can land there.
-  useEffect(() => {
-    if (!pendingCategory) return;
-    const match =
-      categories.find(c => c.name === pendingCategory) ??
-      untrackedCategories.find(c => c.name === pendingCategory);
-    if (match) {
-      setPendingCategory(null);
-      setOpenCategory(match);
-    }
-  }, [pendingCategory, categories, untrackedCategories]);
 
   // Income transactions for drill-down — Income category only; other credits
   // are refunds and live in their own category
@@ -329,7 +357,9 @@ export default function SpendPage() {
     [homeTxns]
   );
 
-  // All transactions in the period, newest first — for the chronological list view
+  // All transactions in the period, newest first — the chronological list
+  // view itself is retired, but SpendTrends' "review large payments" cta
+  // still needs the raw period list to build its synthetic sheet.
   const listTxns = useMemo(
     () =>
       [...periodTxns].sort(
@@ -341,18 +371,12 @@ export default function SpendPage() {
   // Stop at the period containing the oldest transaction — no empty pre-history
   const canGoPrev = !oldestTxDate || periodStart.getTime() > oldestTxDate.getTime();
 
-  const [largeToast, setLargeToast] = useState(false);
-  const largeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listSectionRef = useRef<HTMLDivElement>(null);
-  const [largeOnly, setLargeOnly] = useState(false);
-
   function handlePrev() {
     if (!canGoPrev) return;
     const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
     setPeriodOffset(o => o - 1);
-    setLargeOnly(false);
   }
 
   function handleNext() {
@@ -360,8 +384,44 @@ export default function SpendPage() {
     setPeriodStart(s);
     setPeriodEnd(e);
     setPeriodOffset(o => o + 1);
-    setLargeOnly(false);
   }
+
+  // Jump straight to an arbitrary offset — the period sheet's row taps and
+  // "Back to this period" (offset 0). handlePrev/handleNext only ever step
+  // by one, so this walks from "now" the same number of steps the sheet's
+  // own recentPeriods list below was built with.
+  function handleSelectOffset(offset: number) {
+    let [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    if (offset < 0) {
+      for (let i = 0; i > offset; i--) {
+        const [ps, pe] = prevPeriodWithConfig(s, payPeriodConfig);
+        s = ps; e = pe;
+      }
+    } else if (offset > 0) {
+      for (let i = 0; i < offset; i++) {
+        const [ns, ne] = nextPeriodWithConfig(e, payPeriodConfig);
+        s = ns; e = ne;
+      }
+    }
+    setPeriodStart(s);
+    setPeriodEnd(e);
+    setPeriodOffset(offset);
+  }
+
+  // Recent periods for the period sheet — six most recent, stopping early if
+  // we'd walk before the oldest known transaction (mirrors canGoPrev's own
+  // boundary, no empty pre-history rows).
+  const recentPeriods = useMemo<RecentPeriodOption[]>(() => {
+    const list: RecentPeriodOption[] = [];
+    let [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    for (let i = 0; i < 6; i++) {
+      list.push({ offset: -i, label: formatPeriodLocal(s, e) });
+      if (oldestTxDate && s.getTime() <= oldestTxDate.getTime()) break;
+      const [ps, pe] = prevPeriodWithConfig(s, payPeriodConfig);
+      s = ps; e = pe;
+    }
+    return list;
+  }, [payPeriodConfig, oldestTxDate]);
 
   // Miscategorised-transfers chip: opens the review sheet where each flagged
   // transaction can be recategorised or dismissed in place (replaces the old
@@ -377,18 +437,24 @@ export default function SpendPage() {
 
   const periodSwipe = usePeriodSwipe({ onPrev: handlePrev, onNext: handleNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
-  // Sync view with ?view= query param when it changes (e.g. deep-link from home strip)
+  // Sync the This period/Patterns split with ?view= when it changes (e.g. a
+  // deep-link from the home strip). "list" — the retired Transactions view —
+  // falls back to "This period", the hub that replaces it.
   useEffect(() => {
     const v = searchParams.get("view");
     if (v === "upcoming") { router.replace("/planning"); return; }
-    if (v === "list" || v === "categories" || v === "trends") setView(v);
+    if (v === "trends") setShowPatterns(true);
+    else if (v === "categories" || v === "list") setShowPatterns(false);
   }, [searchParams, router]);
 
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     invalidateTransactionsCache();
-    // Re-categorising moves what "usual" means for both categories involved.
+    // Re-categorising moves what "usual" means for both categories involved
+    // — and can move which categories are notable/majority for any period,
+    // not just the one currently in view.
     invalidateSignalsCache();
+    invalidateVerdictCache();
     setAllTransactions((prev) =>
       prev.map((t) => {
         if (t.id === updated.id) return { ...t, category: updated.category };
@@ -401,368 +467,130 @@ export default function SpendPage() {
     api.getMiscategorisedCount()
       .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
       .catch(() => {});
+    // A correction can move which categories are notable/majority this period.
+    fetchVerdict(periodOffset);
   }
 
   const sym = region === "Kenya" ? "KES " : "£";
-  const fmtSummary = (n: number) =>
-    `£${Math.abs(n).toLocaleString("en-GB", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    })}`;
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header */}
-      <div className="px-4 pt-6 pb-2">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">
-              Where your money goes
-            </p>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Spending</h1>
-          </div>
-          <button
-            onClick={() => setManageOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-transform"
-          >
-            <SlidersHorizontal size={14} />
-            <span className="text-xs font-semibold">Manage</span>
-          </button>
-        </div>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      {/* Header — shared with /design/spend-live so the two can never draw
+          different Spent/Income figures again (SpendHeader.tsx). */}
+      <SpendHeader
+        verdict={verdict}
+        loading={pageLoading}
+        periodLabel={formatPeriodLocal(periodStart, periodEnd)}
+        isCurrentPeriod={isCurrentPeriod}
+        canGoPrev={canGoPrev}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        swipeHandlers={periodSwipe}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenRules={() => setRulesOpen(true)}
+        incomeTxns={incomeTxns}
+        onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
+        onOutTap={handleOutTap}
+        recentPeriods={recentPeriods}
+        onSelectOffset={handleSelectOffset}
+      />
 
-        {/* Period nav + summary chips: stacked on mobile, side-by-side on desktop */}
-        <div className="lg:grid lg:grid-cols-2 lg:gap-3 lg:items-stretch">
-        <div className="glass-card rounded-2xl p-3" {...periodSwipe} style={{ touchAction: "pan-y" }}>
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handlePrev}
-              disabled={!canGoPrev}
-              className="w-11 h-11 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors disabled:opacity-30"
-            >
-              <ChevronLeft size={16} color="#64748b" />
-            </button>
-            <div className="text-center">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {formatPeriodLocal(periodStart, periodEnd)}
-              </p>
-              {isCurrentPeriod && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Current period</p>
-              )}
+      {/* This period — the verdict hub — or Patterns (SpendTrends, unchanged).
+          The This period/Over time tablist moves with the content it
+          switches: inside SpendVerdictView's aboveMajority slot when "This
+          period" is showing, above SpendTrends when "Over time" is. */}
+      {!showPatterns ? (
+        <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">
+          {verdict ? (
+            // A cached verdict (warm from a previous visit — see
+            // cachedVerdict above) paints immediately even while pageLoading
+            // (accounts/transactions) or a silent revalidation is still in
+            // flight; this is what makes the page restorable on BACK-nav —
+            // there's no spinner-at-near-zero-height for ScrollReset's
+            // gated restore to land on.
+            <SpendVerdictView
+              verdict={verdict}
+              colours={colours}
+              hideReading
+              expandMajoritySignal={expandSignal}
+              aboveMajority={<SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />}
+              miscategorisedCount={miscategorisedCount}
+              onMiscategorisedTap={handleMiscategorisedTap}
+              // Task 3 — every category tap (notable card's "See the N
+              // payments", every majority row) opens the global hub with
+              // both the category and this period pre-applied as removable
+              // chips, instead of CategorySheet.
+              onOpenCategory={(name) => {
+                const params = new URLSearchParams();
+                params.set("category", name);
+                params.set("from", isoDate(periodStart));
+                params.set("to", isoDate(periodEnd));
+                router.push(`/transactions?${params.toString()}`);
+              }}
+              signals={signals}
+              sym={sym}
+              onAimChanged={refetchSignals}
+              onIntent={(category, answer) => {
+                // Returns the request promise (no swallowed .catch()) so the
+                // card can await the real result and only claim success once
+                // the write has actually landed — see SpendVerdictView.
+                return api.recordTrendIntent(category, answer)
+                  .then(() => { refetchSignals(); fetchVerdict(periodOffset); });
+              }}
+              onAskCorrect={() => {
+                // "Tell me what this was" opens the teaching sheet directly
+                // on the unresolved transaction — no detour through a
+                // synthetic "Other" category sheet first. category stays
+                // "Other" (honest — that's what the row really is); the
+                // sheet is told separately (forceMovementRoot below) to
+                // open on "Is this account yours?" rather than the spend
+                // picker, matching /design/spend-live's preview of this
+                // handoff (fix-round Blocker 4 — the Destination Rule's
+                // movement question is the better first question for a
+                // payment the engine explicitly couldn't place).
+                const largest = verdict.unresolved.largest;
+                if (!largest) return;
+                setAskHandoffTxId(largest.id);
+                setSelectedTx({
+                  id: largest.id,
+                  account_id: "",
+                  date: largest.date,
+                  amount: largest.amount,
+                  currency: region === "Kenya" ? "KES" : "GBP",
+                  // description carries the raw provider string (the sheet's
+                  // evidence line); merchant_name only carries a display_name
+                  // when one actually survived the cleanup — never launder
+                  // the raw string into the field that means "cleaned
+                  // merchant" (TeachingSheet's `name` falls back to
+                  // `description` automatically when this is undefined).
+                  description: largest.raw_description,
+                  merchant_name: largest.display_name || undefined,
+                  category: "Other",
+                  transaction_type: "debit",
+                });
+              }}
+            />
+          ) : pageLoading || verdictLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Spinner size={32} />
             </div>
-            <button
-              onClick={handleNext}
-              disabled={isCurrentPeriod}
-              className="w-11 h-11 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 active:bg-slate-200 dark:active:bg-slate-600 transition-colors disabled:opacity-30"
-            >
-              <ChevronRight size={16} color="#64748b" />
-            </button>
-          </div>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="mt-2 flex items-center gap-1.5 mx-auto text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors text-xs"
-          >
-            <Settings2 size={12} />
-            <span>Pay period settings</span>
-          </button>
-        </div>
-
-        {/* Summary — three equal pills: Spent | Income | Net */}
-        {!pageLoading && (
-          <div className="mt-3 lg:mt-0 space-y-2">
-            <div className="grid grid-cols-3 gap-2">
-              {/* Spent */}
-              <div className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Spent</span>
-                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.spent)}</span>
-              </div>
-              {/* Income — tappable to expand drill-down */}
-              <button
-                onClick={() => setIncomeExpanded(v => !v)}
-                className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center active:opacity-70 transition-opacity"
-              >
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5 flex items-center gap-0.5">
-                  Income {incomeExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                </span>
-                <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{fmtSummary(summary.income)}</span>
-              </button>
-              {/* Net */}
-              <div className="glass-card rounded-xl px-3 py-2.5 flex flex-col items-center">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">Net</span>
-                <span
-                  className={`text-sm font-bold ${
-                    summary.net >= 0
-                      ? "text-emerald-700 dark:text-emerald-400"
-                      : "text-slate-900 dark:text-slate-100"
-                  }`}
-                >
-                  {summary.net >= 0 ? "+" : "−"}
-                  {fmtSummary(Math.abs(summary.net))}
-                </span>
-              </div>
+          ) : (
+            <div className="glass-card rounded-2xl p-8 text-center">
+              <p className="text-slate-500 dark:text-slate-400 text-sm">Couldn&apos;t load this period. Try again shortly.</p>
             </div>
-            {/* Quiet guardrail — informational only, glass-tile affordance
-                (never red/alarm at rest: Calm Cockpit, Red Is Risk is
-                reserved for genuine liability). Deep-links to and glows the
-                flagged tile(s) rather than just opening the raw list. */}
-            {miscategorisedCount > 0 && (
-              <button
-                onClick={handleMiscategorisedTap}
-                className="w-full glass-tile rounded-xl px-3 py-2 flex items-center gap-2 active:scale-95 transition-transform"
-              >
-                <ReceiptText size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-                <span className="flex-1 text-left text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  {miscategorisedCount} transfer{miscategorisedCount !== 1 ? "s" : ""} may be miscategorised
-                </span>
-                <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-              </button>
-            )}
-            {/* Income drill-down — shown below the pills when expanded */}
-            {incomeExpanded && incomeTxns.length > 0 && (
-              <div className="glass-card rounded-xl overflow-hidden">
-                <div className="px-4 pt-2.5 pb-1">
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Income this period</p>
-                </div>
-                {incomeTxns.map(tx => (
-                  <TransactionRow
-                    key={tx.id}
-                    transaction={tx}
-                    onClick={() => setSelectedTx(tx)}
-                  />
-                ))}
+          )}
+        </div>
+      ) : (
+        <>
+          {pageLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Spinner size={32} />
+            </div>
+          ) : (
+            <>
+              <div className="px-4 pt-4">
+                <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />
               </div>
-            )}
-          </div>
-        )}
-        </div>{/* end lg:grid wrapper */}
-
-        {/* View switcher — categories / transactions / trends */}
-        {!isDesktop && (
-          <SegmentedControl
-            ariaLabel="View"
-            className="mt-3"
-            value={view}
-            onChange={(v) => setView(v as typeof view)}
-            options={[
-              { value: "categories", label: "Categories" },
-              { value: "list", label: "Transactions" },
-              { value: "trends", label: "Trends" },
-            ]}
-          />
-        )}
-
-        {/* How we categorise — quiet, discoverable affordance. Calm slate
-            text button (never loud), consistent with the "Pay period
-            settings" button above. Opens CategorisationRulesSheet. */}
-        <button
-          onClick={() => setRulesOpen(true)}
-          className="mt-3 flex items-center gap-1.5 mx-auto text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors text-[11px] font-medium"
-        >
-          <Info size={11} />
-          <span>How we categorise your money</span>
-        </button>
-      </div>
-
-
-      {/* ── Content blocks extracted as consts for desktop/mobile reuse ── */}
-      {(() => {
-        const sectionTitle = (label: string, colour: string) => (
-          <div className="flex items-center gap-2 px-1">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colour }} />
-            <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</h2>
-          </div>
-        );
-
-        const categoriesBlock = (
-          <>
-            {pageLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Spinner size={32} />
-              </div>
-            ) : categories.length === 0 ? (
-              <div className="glass-card rounded-2xl p-8 text-center">
-                <p className="text-slate-500 dark:text-slate-400 text-sm">No spending in this period</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {categories.map((cat) => {
-                  const colour = getCategoryColour(cat.name, colours);
-                  const Icon = getCategoryIcon(cat.name, iconOverrides);
-                  const sig = signals[cat.name];
-                  const s = cat.count !== 1 ? "s" : "";
-                  const multipleFragment = sig?.multiple != null ? ` · ${sig.multiple.toFixed(1)}× usual` : "";
-                  return (
-                    <button
-                      key={cat.name}
-                      data-category={cat.name}
-                      onClick={() => setOpenCategory(cat)}
-                      className={`glass-card-flat rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        {/* tinted icon chip — the card's single colour-identity cue */}
-                        <span
-                          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                          style={{ backgroundColor: `${colour}26` }}
-                        >
-                          <Icon size={16} style={{ color: colour }} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{cat.name}</p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{cat.count} txn{s}{multipleFragment}</p>
-                        </div>
-                      </div>
-                      <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </p>
-                      {/* spend bar */}
-                      <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
-                      </div>
-                      {/* Badge slot — precedence: checkpoint > "is this usual?" > existing category badges */}
-                      {(() => {
-                        if (sig?.checkpoint) {
-                          return (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                              <span>{sym}{Math.round(sig.checkpoint.spent_so_far)} of {sym}{Math.round(sig.checkpoint.aim_amount)} aim</span>
-                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                            </span>
-                          );
-                        }
-                        if (sig && sig.multiple != null && sig.multiple >= 1.5 && !sig.door_engaged) {
-                          return (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                              <span>is this usual?</span>
-                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                            </span>
-                          );
-                        }
-                        if (cat.name.toLowerCase() === "transport" || cat.name.toLowerCase() === "groceries" || cat.name === "Debt") {
-                          return (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                              {cat.name.toLowerCase() === "transport" ? (
-                                <><Fuel size={10} style={{ color: colour }} /><span>cheaper fuel inside</span></>
-                              ) : cat.name.toLowerCase() === "groceries" ? (
-                                <><ReceiptText size={10} style={{ color: colour }} /><span>scan receipts inside</span></>
-                              ) : (
-                                <><CreditCard size={10} style={{ color: colour }} /><span>payoff plan</span></>
-                              )}
-                              <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        );
-
-        const untrackedBlock = (
-          <>
-            <button
-              onClick={() => setUntrackedOpen(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-2xl"
-            >
-              <div className="text-left">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Untracked</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Transfers — not counted in spend
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">
-                  {untrackedCategories.reduce((s, c) => s + c.count, 0)}
-                </span>
-                {untrackedOpen
-                  ? <ChevronUp size={16} className="text-slate-500 dark:text-slate-400" />
-                  : <ChevronDown size={16} className="text-slate-500 dark:text-slate-400" />}
-              </div>
-            </button>
-
-            {untrackedOpen && (
-              <div className="mt-2 grid grid-cols-2 gap-3">
-                {untrackedCategories.map(cat => {
-                  const colour = getCategoryColour(cat.name, colours);
-                  const Icon = getCategoryIcon(cat.name, iconOverrides);
-                  return (
-                    <button
-                      key={cat.name}
-                      data-category={cat.name}
-                      onClick={() => setOpenCategory(cat)}
-                      className={`glass-card-flat rounded-2xl p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden ${highlightedCategories.has(cat.name) ? "category-glow" : ""}`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                          style={{ backgroundColor: `${colour}26` }}
-                        >
-                          <Icon size={16} style={{ color: colour }} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{cat.name}</p>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{cat.count} txn{cat.count !== 1 ? "s" : ""}</p>
-                        </div>
-                      </div>
-                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        );
-
-        const displayTxns = largeOnly ? listTxns.filter(tx => Math.abs(tx.amount) >= 250) : listTxns;
-        const listBlock = (
-          <div ref={listSectionRef} className="relative">
-            {largeOnly && (
-              <div className="flex items-center justify-between mb-2 px-1">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60">
-                  Payments over £250
-                </span>
-                <button
-                  onClick={() => setLargeOnly(false)}
-                  className="text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                >
-                  Show all
-                </button>
-              </div>
-            )}
-            {pageLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Spinner size={32} />
-              </div>
-            ) : displayTxns.length === 0 ? (
-              <div className="glass-card rounded-2xl p-8 text-center">
-                <p className="text-slate-500 dark:text-slate-400 text-sm">
-                  {largeOnly ? "No payments over £250 in this period" : "No transactions in this period"}
-                </p>
-              </div>
-            ) : (
-              <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-50 dark:divide-slate-700 lg:max-h-[640px] lg:overflow-y-auto">
-                {displayTxns.map((tx) => (
-                  <TransactionRow
-                    key={tx.id}
-                    transaction={tx}
-                    onClick={() => setSelectedTx(tx)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        );
-
-        const trendsBlock = (
-          <>
-            {pageLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Spinner size={32} />
-              </div>
-            ) : (
               <SpendTrends
                 periodTxns={homeTxns}
                 allTxns={homeAllTxns}
@@ -771,114 +599,73 @@ export default function SpendPage() {
                 payPeriodConfig={payPeriodConfig}
                 colours={colours}
                 onReviewLarge={() => {
-                  setLargeOnly(true);
-                  setView("list");
-                  setLargeToast(true);
-                  if (largeToastTimer.current) clearTimeout(largeToastTimer.current);
-                  largeToastTimer.current = setTimeout(() => setLargeToast(false), 2500);
-                  // After the state update paints, scroll to the transactions list
-                  // (window top on mobile; list section into view on desktop).
-                  // Respects prefers-reduced-motion: smooth vs instant.
-                  requestAnimationFrame(() => {
-                    const reducedMotion =
-                      typeof window !== "undefined" &&
-                      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                    const scrollBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
-                    if (listSectionRef.current) {
-                      listSectionRef.current.scrollIntoView({ behavior: scrollBehavior, block: "start" });
-                    } else {
-                      window.scrollTo({ top: 0, behavior: scrollBehavior });
-                    }
+                  // No standalone Transactions/list view survives the redesign
+                  // — reuse the existing CategorySheet as a synthetic, scoped
+                  // list rather than inventing a new surface.
+                  const large = listTxns.filter((tx) => Math.abs(tx.amount) >= 250);
+                  setOpenCategory({
+                    name: "Other",
+                    title: "Payments over £250",
+                    total: large.reduce((s, t) => s + Math.abs(t.amount), 0),
+                    count: large.length,
+                    transactions: large,
+                    pct: 0,
                   });
                 }}
               />
-            )}
-          </>
-        );
+            </>
+          )}
+        </>
+      )}
 
-        return isDesktop ? (
-          <>
-            <div className="px-4 pt-4 grid grid-cols-2 gap-4 items-start">
-              <div className="space-y-3" data-tutorial-id="tutorial-spend-categories">
-                {sectionTitle("Categories", "#6366f1")}
-                {categoriesBlock}
-                {!pageLoading && untrackedCategories.length > 0 && untrackedBlock}
-              </div>
-              <div className="space-y-3">
-                {sectionTitle("Transactions", "#10b981")}
-                {listBlock}
-              </div>
-            </div>
-            <div className="pt-6">
-              <div className="px-4">{sectionTitle("Trends", "#8b5cf6")}</div>
-              {trendsBlock}
-            </div>
-          </>
-        ) : (
-          <>
-            {view === "categories" && (
-              <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">{categoriesBlock}</div>
-            )}
-            {view === "categories" && !pageLoading && untrackedCategories.length > 0 && (
-              <div className="px-4 pt-2 pb-2">{untrackedBlock}</div>
-            )}
-            {view === "list" && <div className="px-4 pt-4">{listBlock}</div>}
-            {view === "trends" && trendsBlock}
-          </>
-        );
-      })()}
-
-      {/* Category sheet */}
+      {/* Category sheet — survives ONLY for the synthetic "Payments over
+          £250" list (Spend Trends' onReviewLarge, below): an amount-
+          threshold cut across every category, which the hub's
+          category/merchants/period filters can't express. Every real
+          category now opens the hub instead (Task 3/5), so `door` (the aim
+          mechanism) never applies here any more — it lives on the notable
+          card (SpendVerdictView's AimBlock) for real categories. */}
       {openCategory && (
         <CategorySheet
           name={openCategory.name}
+          title={openCategory.title}
           total={openCategory.total}
           count={openCategory.count}
           transactions={openCategory.transactions}
           sym={sym}
-          highlightMerchants={deepLinkMerchants ?? undefined}
-          onClose={() => { setOpenCategory(null); setDeepLinkMerchants(null); }}
-          onTransactionClick={(tx) => { setOpenCategory(null); setDeepLinkMerchants(null); setSelectedTx(tx); }}
+          onClose={() => setOpenCategory(null)}
+          onTransactionClick={(tx) => { setOpenCategory(null); setAskHandoffTxId(null); setSelectedTx(tx); }}
           isPro={isPro}
-          door={signals[openCategory.name] ? (() => {
-            const catSig = signals[openCategory.name];
-            return {
-              category: openCategory.name,
-              multiple: catSig.multiple,
-              suggestedAim: catSig.suggested_aim,
-              checkpoint: catSig.checkpoint,
-              intent: catSig.intent,
-              doorEngaged: catSig.door_engaged,
-              isCurrentPeriod,
-              sym,
-              onChanged: refetchSignals,
-            };
-          })() : undefined}
         />
       )}
 
-      {/* Transaction sheet */}
+      {/* Teaching sheet — absorbs the recategorise flow for every entry
+          point into a transaction from Spend (category rows, income
+          drill-down, the miscategorised guardrail's "Recategorise", and the
+          ask card's "Tell me what this was"). */}
       {selectedTx && (
-        <TransactionSheet
+        <TeachingSheet
           transaction={selectedTx}
-          onClose={() => setSelectedTx(null)}
+          onClose={() => { setSelectedTx(null); setAskHandoffTxId(null); }}
           onUpdated={handleTxUpdated}
           account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
+          forceMovementRoot={selectedTx.id === askHandoffTxId}
         />
       )}
 
       {/* Miscategorised-transfers review sheet — "Recategorise" opens the
-          existing TransactionSheet on top (stacked), reusing the same
-          selectedTx state and onUpdated handler as everywhere else. */}
+          TeachingSheet on top (stacked), reusing the same selectedTx state
+          and onUpdated handler as everywhere else. */}
       {reviewOpen && (
         <MiscategorisedReviewSheet
           onClose={() => setReviewOpen(false)}
-          onRecategorise={(tx) => setSelectedTx(tx)}
-          onChanged={() =>
+          onRecategorise={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
+          onChanged={() => {
             api.getMiscategorisedCount()
               .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
-              .catch(() => {})
-          }
+              .catch(() => {});
+            fetchVerdict(periodOffset);
+          }}
         />
       )}
 
@@ -897,19 +684,6 @@ export default function SpendPage() {
             setSettingsOpen(false);
           }}
         />
-      )}
-
-      {/* Category & rules manager sheet */}
-      {manageOpen && <CategoryManagerSheet onClose={() => setManageOpen(false)} />}
-
-      {/* Transient confirmation toast — "Showing payments over £250" */}
-      {largeToast && (
-        <div
-          className="wd-toast fixed left-4 right-4 z-[70] pointer-events-none bg-slate-900/95 dark:bg-slate-100/95 backdrop-blur rounded-xl shadow-lg px-4 min-h-[48px] flex items-center"
-          style={{ bottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
-        >
-          <p className="text-sm font-medium text-white dark:text-slate-900">Showing payments over £250</p>
-        </div>
       )}
 
       <BottomNav />

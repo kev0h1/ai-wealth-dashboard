@@ -14,6 +14,7 @@ import TransactionRow from "@/components/TransactionRow";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import { fmtWhole, daysLabel } from "@/lib/aimFormat";
 
 interface DoorProps {
   category: string;
@@ -41,16 +42,6 @@ interface Props {
   // From an insight deep-link: merchant display names whose rows should be
   // highlighted (case-insensitive substring match on merchant/description).
   highlightMerchants?: string[];
-}
-
-function fmtWhole(n: number, sym: string): string {
-  return `${sym}${Math.round(n).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
-function daysLabel(days: number): string {
-  if (days <= 0) return "last day";
-  if (days === 1) return "1 day left";
-  return `${days} days left`;
 }
 
 function DoorBlock({ door }: { door: DoorProps }) {
@@ -317,7 +308,11 @@ export default function CategorySheet({ name, title, total, count, transactions,
           })()}
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{title ?? name}</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{count} transaction{count !== 1 ? "s" : ""}</p>
+            {/* Scope/comparison basis stated up front (Show Your Working) —
+                this sheet is always scoped to the period it was opened from. */}
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {count} transaction{count !== 1 ? "s" : ""} · this period
+            </p>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
             {sym}{total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -329,6 +324,35 @@ export default function CategorySheet({ name, title, total, count, transactions,
             <X size={15} color="#64748b" />
           </button>
         </div>
+
+        {/* Fuel/receipts hints — live in the header area, not as per-row
+            ad-chips (approved spec: "NO ad-chips on rows"). Collapsed by
+            default so the header stays quiet. */}
+        {(name.toLowerCase() === "transport" || (name.toLowerCase() === "groceries" && isPro)) && (
+          <div className="px-5 pb-3 flex-shrink-0">
+            <button
+              onClick={() => setToolOpen((o) => !o)}
+              aria-expanded={toolOpen}
+              className="inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px] active:opacity-70 transition-opacity"
+            >
+              {name.toLowerCase() === "transport" ? (
+                <><Fuel size={10} style={{ color: colour }} /><span>Cheaper fuel nearby</span></>
+              ) : (
+                <><ReceiptText size={10} style={{ color: colour }} /><span>Scan &amp; compare receipts</span></>
+              )}
+              <ChevronDown
+                size={11}
+                className="transition-transform motion-reduce:transition-none"
+                style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+              />
+            </button>
+            {toolOpen && (
+              <div className="mt-2">
+                {name.toLowerCase() === "transport" ? <FuelSavingsCard /> : <GroceryBasketCard />}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Merchant deep-link chip — quiet, dismissible. Tap toggles between
             "highlight in all" and "only these rows"; × clears it. */}
@@ -367,57 +391,6 @@ export default function CategorySheet({ name, title, total, count, transactions,
         {/* Transaction list */}
         <div ref={listRef} className="overflow-y-auto flex-1 border-t border-slate-100 dark:border-slate-700" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
           {door && <DoorBlock door={door} />}
-          {/* Compact tool launchers — collapsed by default so transactions lead */}
-          {name.toLowerCase() === "transport" && (
-            <div className="border-b border-slate-100 dark:border-slate-700">
-              <button
-                onClick={() => setToolOpen(o => !o)}
-                aria-expanded={toolOpen}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-              >
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                  <Fuel size={10} style={{ color: colour }} />
-                  <span>Cheaper fuel nearby</span>
-                  <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                </span>
-                <ChevronDown
-                  size={14}
-                  className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-auto transition-transform motion-reduce:transition-none"
-                  style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                />
-              </button>
-              {toolOpen && (
-                <div className="px-4 pb-3">
-                  <FuelSavingsCard />
-                </div>
-              )}
-            </div>
-          )}
-          {name.toLowerCase() === "groceries" && isPro && (
-            <div className="border-b border-slate-100 dark:border-slate-700">
-              <button
-                onClick={() => setToolOpen(o => !o)}
-                aria-expanded={toolOpen}
-                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-              >
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-300 text-[11px]">
-                  <ReceiptText size={10} style={{ color: colour }} />
-                  <span>Scan &amp; compare receipts</span>
-                  <ChevronRight size={10} className="text-slate-400 dark:text-slate-500" />
-                </span>
-                <ChevronDown
-                  size={14}
-                  className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-auto transition-transform motion-reduce:transition-none"
-                  style={{ transform: toolOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                />
-              </button>
-              {toolOpen && (
-                <div className="px-4 pb-3">
-                  <GroceryBasketCard />
-                </div>
-              )}
-            </div>
-          )}
           {visibleTxns.map(tx => {
             const isMatch = merchantMode && matchesMerchant(tx);
             return (

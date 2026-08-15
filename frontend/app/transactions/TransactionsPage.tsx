@@ -1,0 +1,325 @@
+"use client";
+
+// The global transactions hub (ENGINE.md "TEACHING SHEET + hub" — Task 2.2).
+// Not a tab — a route reached from Spend's header search icon and from
+// deep links (?category=X from an insight card etc). Lifts the proven
+// search UI from AccountsPage.tsx (debounced input, server pagination,
+// swipe, empty state) and points it at the global GET /transactions/search
+// instead of one account's transactions — every source, every account, all
+// time, unlike Spend's period-scoped view. Category correction goes through
+// TeachingSheet, same as everywhere else in Spend.
+
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ArrowLeft, Search, X } from "lucide-react";
+import { api, Transaction } from "@/lib/api";
+import TransactionRow from "@/components/TransactionRow";
+import TeachingSheet from "@/components/TeachingSheet";
+import BottomNav from "@/components/BottomNav";
+import Spinner from "@/components/Spinner";
+
+const PAGE_SIZE = 20;
+
+export default function TransactionsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(() => searchParams.get("category"));
+  // Merchant names from an insight deep-link ("?merchants=Ee Ltd,…") — up to
+  // 3 display names, comma-separated. Shown as a removable chip alongside
+  // the category filter so "see the payments behind this insight" lands on
+  // the exact evidence, searched across all history (not the period-scoped
+  // Spend view this used to open).
+  const [merchantsFilter, setMerchantsFilter] = useState<string[] | null>(() => {
+    const raw = searchParams.get("merchants");
+    if (!raw) return null;
+    const names = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return names.length > 0 ? names : null;
+  });
+  // The pay-period scope (?from=&to=) — a category tap from Spend arrives
+  // with both dates, so the hub opens already narrowed to that period; the
+  // frontend owns the period maths (periodStart/periodEnd), the backend
+  // just accepts a plain range (backend/app/routers/transactions.py). Shown
+  // as its own removable chip — clearing it widens to all history, same as
+  // clearing category/merchants.
+  const [periodFrom, setPeriodFrom] = useState<string | null>(() => searchParams.get("from"));
+  const [periodTo, setPeriodTo] = useState<string | null>(() => searchParams.get("to"));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<Transaction[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  // A new search or a cleared/changed category/merchants/period filter always restarts at page 1.
+  useEffect(() => { setPage(1); }, [debouncedQuery, categoryFilter, merchantsFilter, periodFrom, periodTo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.transactionsSearch({
+      q: debouncedQuery || undefined,
+      category: categoryFilter || undefined,
+      merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
+      from: periodFrom || undefined,
+      to: periodTo || undefined,
+      page,
+      page_size: PAGE_SIZE,
+    })
+      .then((r) => {
+        if (cancelled) return;
+        setItems(r.items);
+        setTotalPages(r.pages);
+        setTotal(r.total);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setItems([]);
+        setTotalPages(1);
+        setTotal(0);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [debouncedQuery, categoryFilter, merchantsFilter, periodFrom, periodTo, page]);
+
+  // Rebuilds the URL from whichever filters remain after one is cleared —
+  // every clear*Filter below keeps the others (an insight deep-link, or a
+  // category tap from Spend, can carry category+period together).
+  function urlFor(overrides: { category?: string | null; merchants?: string[] | null; from?: string | null; to?: string | null }) {
+    const cat = overrides.category !== undefined ? overrides.category : categoryFilter;
+    const merch = overrides.merchants !== undefined ? overrides.merchants : merchantsFilter;
+    const from = overrides.from !== undefined ? overrides.from : periodFrom;
+    const to = overrides.to !== undefined ? overrides.to : periodTo;
+    const params = new URLSearchParams();
+    if (cat) params.set("category", cat);
+    if (merch && merch.length > 0) params.set("merchants", merch.join(","));
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const qs = params.toString();
+    return qs ? `/transactions?${qs}` : "/transactions";
+  }
+
+  function clearCategoryFilter() {
+    setCategoryFilter(null);
+    router.replace(urlFor({ category: null }));
+  }
+
+  function clearMerchantsFilter() {
+    setMerchantsFilter(null);
+    router.replace(urlFor({ merchants: null }));
+  }
+
+  // The scope-transparency fix: widening to all history is always one tap,
+  // and the result count updates visibly the moment the filter clears (the
+  // fetch effect above already re-runs on periodFrom/periodTo).
+  function clearPeriodFilter() {
+    setPeriodFrom(null);
+    setPeriodTo(null);
+    router.replace(urlFor({ from: null, to: null }));
+  }
+
+  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+    setItems((prev) => prev.map((t) => {
+      if (t.id === updated.id) return { ...t, category: updated.category };
+      if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };
+      return t;
+    }));
+  }
+
+  function formatPeriodChip(from: string | null, to: string | null): string {
+    const fmt = (iso: string) => {
+      const d = new Date(iso + "T00:00:00");
+      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    };
+    if (from && to) return `${fmt(from)} → ${fmt(to)}`;
+    if (from) return `From ${fmt(from)}`;
+    return `Until ${fmt(to!)}`;
+  }
+
+  const hasPeriodFilter = Boolean(periodFrom || periodTo);
+  // With a period chip applied the line must not claim "all time" — the chip
+  // itself states the exact range, this only states the account scope.
+  const scopeLine = hasPeriodFilter
+    ? "Searching all accounts"
+    : "Searching everything · all accounts, all time";
+
+  return (
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+      <div className="px-4 pt-6 pb-2">
+        <div className="flex items-center gap-3 mb-4">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label="Back"
+            className="w-11 h-11 flex items-center justify-center rounded-full glass-tile flex-shrink-0 active:scale-95 transition-transform"
+          >
+            <ArrowLeft size={18} className="text-slate-500 dark:text-slate-400" />
+          </button>
+          <div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 font-medium uppercase tracking-wide">
+              Every payment
+            </p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Search</h1>
+          </div>
+        </div>
+
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search transactions…"
+            className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        <div className="mt-2 flex items-center justify-between gap-2 min-h-[28px] flex-wrap">
+          <p className="text-[11px] text-slate-600 dark:text-slate-400">{scopeLine}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {categoryFilter && (
+              <button
+                type="button"
+                onClick={clearCategoryFilter}
+                aria-label={`Remove ${categoryFilter} filter`}
+                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+              >
+                {categoryFilter}
+                <X size={10} />
+              </button>
+            )}
+            {merchantsFilter && merchantsFilter.length > 0 && (
+              <button
+                type="button"
+                onClick={clearMerchantsFilter}
+                aria-label={`Remove ${merchantsFilter.join(", ")} filter`}
+                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+              >
+                {merchantsFilter[0]}
+                {merchantsFilter.length > 1 && ` +${merchantsFilter.length - 1}`}
+                <X size={10} />
+              </button>
+            )}
+            {hasPeriodFilter && (
+              <button
+                type="button"
+                onClick={clearPeriodFilter}
+                aria-label="Remove period filter — widen to all history"
+                className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
+              >
+                {formatPeriodChip(periodFrom, periodTo)}
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 pt-2 space-y-2">
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Spinner size={32} />
+          </div>
+        ) : (
+          <>
+            <div
+              className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
+              onTouchStart={(e) => {
+                swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+              }}
+              onTouchEnd={(e) => {
+                if (!swipeTouchStart.current || totalPages <= 1) return;
+                const dx = e.changedTouches[0].clientX - swipeTouchStart.current.x;
+                const dy = e.changedTouches[0].clientY - swipeTouchStart.current.y;
+                swipeTouchStart.current = null;
+                if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+                if (dx < 0 && page < totalPages) setPage((p) => p + 1);
+                if (dx > 0 && page > 1) setPage((p) => p - 1);
+              }}
+            >
+              {items.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    {searchQuery || categoryFilter || merchantsFilter
+                      ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryFilter || merchantsFilter!.join(", "))}`
+                      : hasPeriodFilter
+                        ? "No payments in this period"
+                        : "No payments yet"}
+                  </p>
+                  {hasPeriodFilter && (
+                    <button
+                      type="button"
+                      onClick={clearPeriodFilter}
+                      className="mt-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+                    >
+                      Widen to all history →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                  {items.map((tx) => (
+                    <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 py-2">
+                <button
+                  type="button"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => p - 1)}
+                  className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                >
+                  ← Prev
+                </button>
+                <span className="text-sm text-slate-600 dark:text-slate-400">
+                  {page} / {totalPages} · {total} total
+                </span>
+                <button
+                  type="button"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                  className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {selectedTx && (
+        <TeachingSheet
+          transaction={selectedTx}
+          onClose={() => setSelectedTx(null)}
+          onUpdated={handleTxUpdated}
+        />
+      )}
+
+      <BottomNav />
+    </div>
+  );
+}
