@@ -28,7 +28,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <h1 className="text-lg font-semibold text-white mb-1">Wealth Dashboard</h1>
+        <h1 className="text-lg font-semibold text-white mb-1">Sorted</h1>
         <p className="text-sm text-slate-400 mb-6">Enter your 4-digit PIN</p>
 
         <input

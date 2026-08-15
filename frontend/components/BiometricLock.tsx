@@ -49,7 +49,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
       setLocked(false);
       return;
     }
-    const ok = await authenticate("Unlock Wealth Dashboard");
+    const ok = await authenticate("Unlock Sorted");
     setAwaitingAuth(false);
     setLocked(!ok);
   }, []);
@@ -98,7 +98,7 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
           <div className="w-20 h-20 rounded-3xl bg-indigo-500 shadow-xl flex items-center justify-center mb-6">
             <Fingerprint size={36} className="text-white" />
           </div>
-          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1.5">Wealth Dashboard is locked</h1>
+          <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-1.5">Sorted is locked</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-8 max-w-xs">
             Confirm it&apos;s you to see your accounts.
           </p>

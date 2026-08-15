@@ -58,7 +58,7 @@ export async function isAvailable(): Promise<BiometryAvailability> {
  * failure or user cancellation — it never throws, so callers can treat it as
  * a simple boolean gate.
  */
-export async function authenticate(reason = "Unlock Wealth Dashboard"): Promise<boolean> {
+export async function authenticate(reason = "Unlock Sorted"): Promise<boolean> {
   if (!isNative()) return true;
   try {
     const { BiometricAuth } = await import("@aparajita/capacitor-biometric-auth");

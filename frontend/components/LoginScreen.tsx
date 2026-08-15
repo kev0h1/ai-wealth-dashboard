@@ -24,14 +24,21 @@ export default function LoginScreen({ error }: LoginScreenProps) {
       <div className="w-full max-w-sm">
         {/* Logo / branding */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg mb-5">
+          {/* Solid Adviser Indigo tile, not the indigo→violet gradient — that
+              gradient is Penny's signature alone (DESIGN.md's Penny Gradient
+              Rule) and this screen is sign-in, not an advice surface. No
+              usable vector "settle" mark was found in the repo (only
+              composited PNG app-icon layers with a baked-in bloom/gradient
+              in capacitor-spike/assets/) so the existing trending-up glyph
+              is kept rather than tracing new artwork. */}
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-lg mb-5">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
               <polyline points="17 6 23 6 23 12" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Wealth Dashboard</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Your personal AI finance tracker</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>
         </div>
 
         {/* Card */}
@@ -60,10 +67,6 @@ export default function LoginScreen({ error }: LoginScreenProps) {
             Continue with Google
           </a>
         </div>
-
-        <p className="text-center text-xs text-slate-400 dark:text-slate-500 mt-6">
-          Sign in to manage your personal finance dashboard.
-        </p>
       </div>
     </div>
   );

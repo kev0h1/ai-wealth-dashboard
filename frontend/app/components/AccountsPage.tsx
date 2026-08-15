@@ -2118,6 +2118,7 @@ export default function AccountsPage() {
         {tab === "Banks" ? (
           <div className="relative mb-4" ref={addMenuRef}>
             <button
+              data-tutorial-id="tutorial-add-account"
               onClick={() => setAddMenuOpen(v => !v)}
               className="w-full flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
               aria-expanded={addMenuOpen}
@@ -2137,13 +2138,11 @@ export default function AccountsPage() {
                     <AddMenuItem
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Add Bank"
-                      tutorialId="tutorial-add-account"
                       onClick={() => { setAddMenuOpen(false); setShowBankPicker(true); }}
                     />
                     <AddMenuItem
                       icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Statement"
-                      tutorialId="tutorial-upload-statement"
                       onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
                     />
                     <AddMenuItem

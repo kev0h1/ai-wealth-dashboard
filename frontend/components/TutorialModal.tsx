@@ -12,7 +12,7 @@ const STEPS = [
     Icon: Sparkles,
     color: "#4f46e5",
     bg: "#ede9fe",
-    title: "Welcome to Wealth Dashboard",
+    title: "Welcome to Sorted",
     description:
       "Track all your money in one place. This short tour walks you through everything the app can do — from connecting your bank to eliminating debt.",
     tip: undefined,
@@ -24,7 +24,7 @@ const STEPS = [
     title: "Connect Open Banking",
     description:
       "Go to the Accounts page and tap + Add Account. Choose your bank, sign in securely, and your transactions will start syncing automatically.",
-    tip: "Supports most UK banks via TrueLayer and Yapily.",
+    tip: "Supports most UK banks via secure open banking.",
   },
   {
     Icon: Upload,
