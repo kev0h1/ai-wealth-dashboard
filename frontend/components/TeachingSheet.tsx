@@ -24,7 +24,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Check, Undo2 } from "lucide-react";
+import { X, Check, Undo2, ChevronRight } from "lucide-react";
 import { Transaction, Commitment, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
@@ -441,9 +441,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   onClick={() => setGoalFallbackOpen(true)}
-                  className="mt-3 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+                  className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
                 >
-                  My goal isn't listed →
+                  My goal isn't listed
+                  <ChevronRight size={13} className="flex-shrink-0" aria-hidden="true" />
                 </button>
               ) : (
                 <div className="mt-3 flex items-center gap-2">
@@ -587,9 +588,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <button
                 type="button"
                 onClick={() => { setViaEscape(true); setStep("movement-root"); }}
-                className="mt-4 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                className="mt-4 inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
               >
-                This was money I moved →
+                This was money I moved
+                <ChevronRight size={13} className="flex-shrink-0" aria-hidden="true" />
               </button>
             </>
           )}

@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, Transaction } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
@@ -269,9 +269,10 @@ export default function TransactionsPage() {
                     <button
                       type="button"
                       onClick={clearPeriodFilter}
-                      className="mt-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+                      className="mt-2 inline-flex items-center gap-0.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
                     >
-                      Widen to all history →
+                      Widen to all history
+                      <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -290,9 +291,10 @@ export default function TransactionsPage() {
                   type="button"
                   disabled={page === 1}
                   onClick={() => setPage((p) => p - 1)}
-                  className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                  className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
                 >
-                  ← Prev
+                  <ChevronLeft size={16} className="flex-shrink-0" aria-hidden="true" />
+                  Prev
                 </button>
                 <span className="text-sm text-slate-600 dark:text-slate-400">
                   {page} / {totalPages} · {total} total
@@ -301,9 +303,10 @@ export default function TransactionsPage() {
                   type="button"
                   disabled={page === totalPages}
                   onClick={() => setPage((p) => p + 1)}
-                  className="px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
+                  className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-sm font-medium text-slate-600 dark:text-slate-300 disabled:opacity-40 active:scale-95 transition-transform"
                 >
-                  Next →
+                  Next
+                  <ChevronRight size={16} className="flex-shrink-0" aria-hidden="true" />
                 </button>
               </div>
             )}

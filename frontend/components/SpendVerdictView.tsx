@@ -322,9 +322,10 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
       <button
         type="button"
         onClick={() => onOpenCategory(notable.category)}
-        className="mt-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400"
+        className="mt-2 inline-flex items-center gap-0.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400"
       >
-        See the {notable.payments_count} payment{s} →
+        See the {notable.payments_count} payment{s}
+        <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
       </button>
 
       <div className="mt-3">
