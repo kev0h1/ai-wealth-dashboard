@@ -18,6 +18,7 @@ from app.db.collections import (
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
+    teaching_events_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 
@@ -29,7 +30,7 @@ from app.routers import (
     fuel, baskets, subscription as subscription_router, transport, webhooks,
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
-    commitments,
+    commitments, spend_verdict,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -77,6 +78,7 @@ for router in [
     grow.router,
     can_i.router,
     commitments.router,
+    spend_verdict.router,
 ]:
     app.include_router(router)
 
@@ -100,6 +102,11 @@ async def _create_indexes():
     # and the cross-account queries (user_id + date range).
     await transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
     await transactions_col.create_index([("user_id", 1), ("date", -1)])
+    # ENGINE.md "Identity" stage — the similar-endpoint's primary lookup path
+    # (an exact equality match on merchant_key), so it's an index hit rather
+    # than the regex-prefix scan kept only as a fallback for rows missing the
+    # field.
+    await transactions_col.create_index([("user_id", 1), ("merchant_key", 1), ("transaction_type", 1)])
     await yapily_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
     await yapily_transactions_col.create_index([("user_id", 1), ("date", -1)])
     await statement_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
@@ -140,6 +147,11 @@ async def _create_indexes():
         [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
     await commitments_col.create_index([("user_id", 1), ("status", 1)])
+    # ENGINE.md "The One Stream Rule" — the uniform teaching-event feed.
+    await teaching_events_col.create_index([("user_id", 1), ("created_at", -1)])
+    # Append-only event log with no consumer/rollup yet — TTL bounds growth
+    # (365d retention) rather than letting it accumulate forever.
+    await teaching_events_col.create_index([("created_at", 1)], expireAfterSeconds=31536000)
 
 
 async def _acquire_migration_lock() -> bool:

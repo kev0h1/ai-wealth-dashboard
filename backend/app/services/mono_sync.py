@@ -4,7 +4,7 @@ import httpx
 
 from app.core.config import MONO_SECRET_KEY, MONO_API_URL
 from app.db.collections import mono_connections_col, mono_accounts_col, mono_transactions_col
-from app.services.categorisation import rule_categorise
+from app.services.categorisation import rule_categorise, canonical_merchant_key
 
 
 def mono_headers() -> dict:
@@ -83,6 +83,7 @@ async def sync_mono_connection(connection_id: str, user_id: str) -> list:
                         "amount": amount, "currency": t.get("currency", "KES"),
                         "description": narration, "merchant_name": merchant_name,
                         "category": cat, "transaction_type": txn_type,
+                        "merchant_key": canonical_merchant_key(merchant_name or "", narration),
                     },
                     "$setOnInsert": {"custom_category": None},
                 }, upsert=True)

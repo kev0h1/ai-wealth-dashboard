@@ -11,7 +11,7 @@ from app.services.notifications import notify_after_sync
 from app.db.collections import (
     yapily_accounts_col, yapily_transactions_col, yapily_consents_col,
 )
-from app.services.categorisation import rule_categorise
+from app.services.categorisation import rule_categorise, canonical_merchant_key
 
 
 def yapily_headers(consent: str | None = None) -> dict:
@@ -102,6 +102,7 @@ async def sync_yapily_consent(consent_token: str, user_id: str):
                 "currency": amt_obj.get("currency", currency) if isinstance(amt_obj, dict) else currency,
                 "description": desc, "merchant_name": merchant_name,
                 "category": cat, "transaction_type": txn_type,
+                "merchant_key": canonical_merchant_key(merchant_name or "", desc),
             }, "$setOnInsert": {"custom_category": None}}, upsert=True)
             if yresult.upserted_id is not None:
                 yapily_new_txns.append({

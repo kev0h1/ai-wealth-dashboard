@@ -2,9 +2,12 @@
 import asyncio
 import re
 import json
+import uuid as uuid_lib
 from datetime import datetime, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from bson import ObjectId
+from bson.errors import InvalidId
+from fastapi import APIRouter, Depends, HTTPException, Query
 import httpx
 
 from app.core.auth import current_user
@@ -13,12 +16,15 @@ from app.core.models import Transaction
 from app.db.collections import (
     transactions_col, accounts_col, yapily_accounts_col, yapily_transactions_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
+    commitments_col, manual_accounts_col, teaching_events_col,
 )
 from app.services.categorisation import (
     RAW_TRUELAYER_CATEGORIES, VALID_CATEGORIES,
     apply_rules_bulk, rule_categorise, tavily_lookup_merchants,
-    normalise_merchant, cache_merchant, strip_date_fragments, LEADING_DATE_RE,
+    canonical_merchant_key, cache_merchant, user_allowed_categories,
+    strip_date_fragments, LEADING_DATE_RE, build_rule_pattern,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 from app.services import response_cache
 
 router = APIRouter(tags=["transactions"])
@@ -175,22 +181,193 @@ async def all_transactions(days: int = 365, user: dict = Depends(current_user)):
     return [_doc_to_tx(d) for d in docs]
 
 
+def _parse_date_bound(value: Optional[str], end_of_day: bool = False) -> Optional[datetime]:
+    """Parse an ISO date (YYYY-MM-DD) or datetime string from a query param.
+    Invalid/blank input is treated as absent rather than raising — an
+    unparsable bound should widen to all history, not 500."""
+    if not value or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if end_of_day and len(raw) <= 10:  # date-only string — include the whole day
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return dt
+
+
+def _search_query(
+    uid: str, q: Optional[str], category: Optional[str], days: Optional[int],
+    merchants: Optional[str] = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+) -> dict:
+    """Filter shared by every collection in the global search's gather —
+    generalises the account-scoped `q` clause in `get_transactions` above
+    to also match `merchant_key`, and drops the `account_id` scope.
+
+    `merchants` is a comma-separated list of display names from an insight
+    card's deep link (`_merchant_scoped_route`, savings_insights.py) — an
+    OR across every name, each matched against description/merchant_name/
+    merchant_key, so "see the payments behind this insight" lands on the
+    exact evidence regardless of how the name is capitalised or formatted
+    on the row.
+
+    `date_from`/`date_to` are explicit ISO date bounds (the frontend already
+    computes periodStart/periodEnd for the user's pay period, so the period
+    maths stays client-side — this endpoint just accepts a plain range). They
+    take priority over `days` when present, and still resolve to a `date`
+    range on the same (user_id, date) compound index every other path here
+    uses — no new index, no collection scan. Absent both, the query is
+    unscoped by date (all history)."""
+    base: dict = {"user_id": uid}
+    from_dt = _parse_date_bound(date_from)
+    to_dt   = _parse_date_bound(date_to, end_of_day=True)
+    if from_dt or to_dt:
+        rng: dict = {}
+        if from_dt:
+            rng["$gte"] = from_dt
+        if to_dt:
+            rng["$lte"] = to_dt
+        base["date"] = rng
+    elif days:
+        base["date"] = {"$gte": datetime.now() - timedelta(days=days)}
+    clauses = [base]
+    if q and q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        clauses.append({"$or": [
+            {"description": rx}, {"merchant_name": rx}, {"merchant_key": rx},
+            {"category": rx}, {"custom_category": rx},
+        ]})
+    if category:
+        clauses.append(_category_clause(category))
+    if merchants:
+        names = [n.strip() for n in merchants.split(",") if n.strip()]
+        if names:
+            merchant_or: list[dict] = []
+            for name in names:
+                rx = {"$regex": re.escape(name), "$options": "i"}
+                merchant_or += [{"description": rx}, {"merchant_name": rx}, {"merchant_key": rx}]
+            clauses.append({"$or": merchant_or})
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
+
+
+def _merge_paginate(per_collection: List[list], page: int, page_size: int) -> list:
+    """Merge already date-desc-sorted, over-fetched legs from every source
+    collection into one globally-ordered list and slice out the requested
+    page.
+
+    Per-collection skip/limit is wrong for a cross-collection feed: a 'skip
+    40, limit 20' window on one collection has no relationship to the
+    global date order across five. Instead each collection is over-fetched
+    up to the same cutoff (page * page_size docs, already sorted desc) —
+    the global top-K page can never draw more than K items from any single
+    collection, so that cutoff is always sufficient — and the merge sorts
+    and slices in Python."""
+    merged: list = []
+    for docs in per_collection:
+        merged += docs
+    merged.sort(key=lambda d: d.get("date") or datetime.min, reverse=True)
+    start = (page - 1) * page_size
+    return merged[start:start + page_size]
+
+
+@router.get("/transactions/search")
+async def search_transactions(
+    q: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    category: Optional[str] = None,
+    merchants: Optional[str] = None,
+    days: Optional[int] = None,
+    date_from: Optional[str] = Query(None, alias="from"),
+    date_to: Optional[str] = Query(None, alias="to"),
+    user: dict = Depends(current_user),
+):
+    """Global, paginated, searchable transaction list spanning every source
+    a user has connected — the account-scoped search in `get_transactions`
+    generalised for deep links and cross-account lookups ('every Playtomic
+    payment', not just one account's').
+
+    `from`/`to` (ISO dates, e.g. `2026-07-31`) scope the list to a pay
+    period — the frontend computes periodStart/periodEnd and passes them
+    straight through rather than this endpoint owning period maths. Optional;
+    absent means all history, matching today's behaviour exactly.
+
+    Read-only: no writes, no categorisation side effects."""
+    uid       = user["email"]
+    page      = max(1, page)
+    page_size = max(1, min(page_size, 100))
+    fetch_n   = page * page_size
+
+    query = _search_query(uid, q, category, days, merchants, date_from, date_to)
+    cols  = (transactions_col, yapily_transactions_col,
+             statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
+
+    counts, per_collection = await asyncio.gather(
+        asyncio.gather(*(c.count_documents(query) for c in cols)),
+        asyncio.gather(*(
+            c.find(query).sort("date", -1).limit(fetch_n).to_list(fetch_n) for c in cols
+        )),
+    )
+    total = sum(counts)
+    items = _merge_paginate(list(per_collection), page, page_size)
+
+    return {
+        "items": [_doc_to_tx(d) for d in items],
+        "total": total,
+        "page":  page,
+        "pages": max(1, -(-total // page_size)),
+    }
+
+
 @router.get("/transactions/{transaction_id}/similar", response_model=List[Transaction])
 async def similar_transactions(transaction_id: str, scope: str = "all", user: dict = Depends(current_user)):
     ref = await transactions_col.find_one({"_id": transaction_id, "user_id": user["email"]})
     if not ref:
         raise HTTPException(404, "Transaction not found")
 
-    merchant    = ref.get("merchant_name")
-    description = ref.get("description", "")
-    txn_type    = ref.get("transaction_type", "debit")
+    merchant     = ref.get("merchant_name")
+    description  = ref.get("description", "")
+    txn_type     = ref.get("transaction_type", "debit")
+    merchant_key = ref.get("merchant_key")
 
     match: dict = {
         "_id": {"$ne": transaction_id},
         "user_id": user["email"],
         "transaction_type": txn_type,
     }
-    if merchant:
+    if merchant_key:
+        # Indexed equality lookup on the stored identity field — this is the
+        # ENGINE.md "Identity" fix: one merchant_key per merchant, computed at
+        # sync time by canonical_merchant_key, so five differently-formatted
+        # statement lines (dates, channel codes, reference tokens stripped)
+        # all resolve to the same row here.
+        #
+        # The one-time backfill (scripts_merchant_key_backfill.py) has not
+        # been run against real users yet, so plenty of historical rows for
+        # this same merchant have no merchant_key field at all — an
+        # equality-only match would silently drop all of them (fewer/zero
+        # results than the old merchant_name path gave). Recompute the key
+        # live for this user's rows that are missing it and fold in any that
+        # match, so a post-deploy row still finds its pre-deploy history.
+        # Bounded (not O(all-txns)): most-recent-first cap keeps this a fixed
+        # amount of work per tap regardless of history size, pre-backfill.
+        # This scan vanishes entirely once scripts_merchant_key_backfill.py
+        # has run against real users.
+        legacy_candidates = await transactions_col.find(
+            {"_id": {"$ne": transaction_id}, "user_id": user["email"],
+             "transaction_type": txn_type,
+             "merchant_key": {"$in": [None, ""]}},
+            {"merchant_name": 1, "description": 1},
+        ).sort("date", -1).to_list(500)
+        legacy_ids = [
+            d["_id"] for d in legacy_candidates
+            if canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "") == merchant_key
+        ]
+        match["$or"] = [{"merchant_key": merchant_key}, {"_id": {"$in": legacy_ids}}]
+    elif merchant:
+        # Fallback for rows that predate the merchant_key backfill.
         match["merchant_name"] = merchant
     else:
         stem = _description_stem(description)
@@ -229,15 +406,60 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
 
     # Persist the correction to the learned merchant cache so it sticks across
     # syncs and generalises to the same merchant on future transactions.
-    if category in VALID_CATEGORIES:
+    # A user's own custom category (Padel, Golf, ...) is accepted here too —
+    # not just VALID_CATEGORIES — so the Two Inputs Rule holds for exactly the
+    # categories the user cared enough to create. Custom-category writes are
+    # scoped to this user (uid=...); VALID_CATEGORIES stay global, unchanged
+    # from today's behaviour (the Firewall Rule: a custom name is one user's
+    # private vocabulary and must never leak into another user's global cache).
+    is_valid = category in VALID_CATEGORIES
+    is_custom = False
+    if not is_valid:
+        user_vocab = await user_allowed_categories(user["email"])
+        is_custom = category in user_vocab
+    if is_valid or is_custom:
         touched = await transactions_col.find(
             {"_id": {"$in": [transaction_id, *additional_ids]}, "user_id": user["email"]},
             {"merchant_name": 1, "description": 1},
         ).to_list(None)
+        cache_uid = None if is_valid else user["email"]
         for d in touched:
-            key = normalise_merchant(d.get("merchant_name") or "", d.get("description") or "")
-            if len(key.strip()) >= 3:  # a blank key would "learn" a match-anything entry
-                await cache_merchant(key, category, "user")
+            key = canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")
+            if len(key) >= 3:  # a blank key would "learn" a match-anything entry
+                await cache_merchant(key, category, "user", uid=cache_uid)
+
+    # ENGINE.md "Input Contract" — the propagation payload. Read the stored
+    # sync-time identity field (stream 1's merchant_key; verified merged and
+    # backfilled opportunistically below for legacy rows) so the caller can
+    # show "matches N past payments" and propose a word-boundary-safe rule
+    # without a second round-trip.
+    primary_doc = await transactions_col.find_one(
+        {"_id": transaction_id, "user_id": user["email"]},
+        {"merchant_name": 1, "description": 1, "merchant_key": 1},
+    )
+    merchant_key    = ""
+    matches_past    = 0
+    rule_suggestion = None
+    if primary_doc:
+        merchant_key = primary_doc.get("merchant_key") or canonical_merchant_key(
+            primary_doc.get("merchant_name") or "", primary_doc.get("description") or "",
+        )
+        if merchant_key and not primary_doc.get("merchant_key"):
+            # Opportunistic backfill for a legacy row synced before the
+            # merchant_key migration — cheap since we already touched this row.
+            await transactions_col.update_one(
+                {"_id": transaction_id, "user_id": user["email"]},
+                {"$set": {"merchant_key": merchant_key}},
+            )
+        if merchant_key:
+            matches_past = await transactions_col.count_documents({
+                "user_id": user["email"], "merchant_key": merchant_key,
+                "_id": {"$ne": transaction_id},
+            })
+            if is_valid or is_custom:
+                pattern = build_rule_pattern(merchant_key)
+                if pattern:
+                    rule_suggestion = {"pattern": pattern, "category": category}
 
     # Category changes move money in/out of the Transfer exclusion and the
     # trusted recurring categories — refresh the upcoming-payments cache in the
@@ -252,7 +474,202 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     response_cache.invalidate(user["email"], "miscategorised_count")
     response_cache.invalidate(user["email"], "miscategorised_list")
 
-    return {"updated": transaction_id, "custom_category": category, "bulk_count": bulk_count}
+    # ENGINE.md "The One Stream Rule" — every teaching write appends to the
+    # same uniform event feed, user-scoped (Firewall Rule).
+    await teaching_events_col.insert_one({
+        "user_id": user["email"], "type": "correction",
+        "transaction_id": transaction_id, "merchant_key": merchant_key or None,
+        "payload": {"category": category, "additional_ids": additional_ids,
+                    "bulk_count": bulk_count},
+        "created_at": datetime.utcnow(),
+    })
+
+    return {
+        "updated": transaction_id, "custom_category": category, "bulk_count": bulk_count,
+        "merchant_key": merchant_key, "matches_past": matches_past,
+        "rule_suggestion": rule_suggestion,
+    }
+
+
+def _try_oid(v: str):
+    try:
+        return ObjectId(v)
+    except (InvalidId, TypeError):
+        return v
+
+
+# Generic movement-kind category applied by every "mine-*" resolution. Per
+# ENGINE.md's Destination Rule, movement never gets a bespoke category name —
+# it resolves to a destination (a goal or an offline pot) in the pot ledger,
+# and the category here only exists so the arithmetic knows "not spend".
+_MOVEMENT_CATEGORY = "Transfer"
+_MOVEMENT_RESOLUTIONS = {"mine-goal", "mine-offline", "someone-else", "spending"}
+
+
+async def _log_teaching_event(
+    uid: str, event_type: str, *, transaction_id: Optional[str] = None,
+    merchant_key: Optional[str] = None, payload: Optional[dict] = None,
+) -> None:
+    await teaching_events_col.insert_one({
+        "user_id": uid, "type": event_type,
+        "transaction_id": transaction_id, "merchant_key": merchant_key or None,
+        "payload": payload or {}, "created_at": datetime.utcnow(),
+    })
+
+
+@router.post("/transactions/{transaction_id}/resolve-movement")
+async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends(current_user)):
+    """The movement fork of the teaching sheet (ENGINE.md Destination Rule) —
+    "is this account yours?" for a payment that looks like it left for
+    somewhere the engine can't see.
+
+    resolution:
+      mine-goal     — funds an existing commitment/goal. Recategorised as
+                      movement AND linked, but only when that goal actually
+                      exists for this user; otherwise 404 (no half-linked state).
+      mine-offline  — an account of the user's the engine can't see. Creates
+                      (or reuses, by case-insensitive name) an offline pot via
+                      the existing goals-v2 machinery (manual_accounts_col) and
+                      links the transaction to it. Full linking IS shipped
+                      here — manual_accounts_col already supports exactly this
+                      "account of mine elsewhere, no goal attached" case.
+      someone-else  — money left the household for someone else's account
+                      (the WISE-remittance case). Keeps whatever spend-kind
+                      category the row already carries — never forced into
+                      movement (no destination of the user's exists) and never
+                      forced into ordinary consumption category semantics
+                      either. The only write is a user-scoped fact on the
+                      teaching-event stream (Firewall Rule: never global).
+      spending      — normal correction path. An optional `category` behaves
+                      exactly like PATCH /transactions/{id}; omitted, it just
+                      undoes a previous movement mis-resolution so the row
+                      falls back to the ordinary category picker.
+    """
+    uid = user["email"]
+    resolution = body.get("resolution")
+    if resolution not in _MOVEMENT_RESOLUTIONS:
+        raise HTTPException(400, f"resolution must be one of: {', '.join(sorted(_MOVEMENT_RESOLUTIONS))}")
+
+    doc = await transactions_col.find_one({"_id": transaction_id, "user_id": uid})
+    if not doc:
+        raise HTTPException(404, "Transaction not found")
+
+    if resolution in ("mine-goal", "mine-offline") and doc.get("transaction_type") != "debit":
+        # A movement resolution files the row under the movement-kind
+        # _MOVEMENT_CATEGORY (Transfer), which the arithmetic then excludes
+        # from both spend and income totals. That's only correct for money
+        # leaving the account (a debit) — forcing an inflow into it would
+        # silently drop real income from Safe-to-Spend / income totals.
+        raise HTTPException(400, "Movement resolution only applies to outgoing payments")
+
+    merchant_key = doc.get("merchant_key") or canonical_merchant_key(
+        doc.get("merchant_name") or "", doc.get("description") or "",
+    )
+
+    result: dict = {"updated": transaction_id, "resolution": resolution}
+    category_changed = False
+
+    if resolution == "mine-goal":
+        goal_id = body.get("goal_id")
+        if not goal_id:
+            raise HTTPException(400, "goal_id is required for resolution=mine-goal")
+        goal = await commitments_col.find_one(
+            {"_id": _try_oid(goal_id), "user_id": uid}, {"name": 1},
+        )
+        if not goal:
+            raise HTTPException(404, "Goal not found")
+        await transactions_col.update_one(
+            {"_id": transaction_id, "user_id": uid},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "linked_goal_id": str(goal["_id"])}},
+        )
+        category_changed = True
+        result["custom_category"] = _MOVEMENT_CATEGORY
+        result["linked_goal_id"]  = str(goal["_id"])
+        await _log_teaching_event(
+            uid, "movement_mine_goal", transaction_id=transaction_id, merchant_key=merchant_key,
+            payload={"goal_id": str(goal["_id"]), "goal_name": goal.get("name")},
+        )
+
+    elif resolution == "mine-offline":
+        pot_name = (body.get("offline_pot_name") or "").strip()[:60] or "An account of mine elsewhere"
+        existing = await manual_accounts_col.find_one({
+            "user_id": uid,
+            "name": {"$regex": f"^{re.escape(pot_name)}$", "$options": "i"},
+        })
+        if existing:
+            account_id = existing["_id"]
+        else:
+            account_id = str(uuid_lib.uuid4())[:8]
+            await manual_accounts_col.insert_one({
+                "_id": account_id, "user_id": uid,
+                "name": pot_name, "balance": 0.0, "account_type": "savings",
+                "created_at": datetime.now(), "updated_at": datetime.now(),
+            })
+        await transactions_col.update_one(
+            {"_id": transaction_id, "user_id": uid},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY, "linked_offline_account_id": account_id}},
+        )
+        category_changed = True
+        result["custom_category"]            = _MOVEMENT_CATEGORY
+        result["linked_offline_account_id"]  = account_id
+        result["offline_pot_name"]           = pot_name
+        await _log_teaching_event(
+            uid, "movement_mine_offline", transaction_id=transaction_id, merchant_key=merchant_key,
+            payload={"offline_account_id": account_id, "offline_pot_name": pot_name},
+        )
+
+    elif resolution == "someone-else":
+        note = (body.get("note") or "").strip()[:50]
+        await _log_teaching_event(
+            uid, "movement_someone_else", transaction_id=transaction_id, merchant_key=merchant_key,
+            payload={"note": note} if note else {},
+        )
+
+    else:  # resolution == "spending"
+        category = body.get("category")
+        if category:
+            is_valid = category in VALID_CATEGORIES
+            is_custom = False
+            if not is_valid:
+                is_custom = category in await user_allowed_categories(uid)
+            if not (is_valid or is_custom):
+                raise HTTPException(400, "Invalid category")
+            await transactions_col.update_one(
+                {"_id": transaction_id, "user_id": uid},
+                {"$set": {"custom_category": category},
+                 "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+            )
+            if len(merchant_key) >= 3:
+                await cache_merchant(merchant_key, category, "user", uid=None if is_valid else uid)
+            category_changed = True
+            result["custom_category"] = category
+        else:
+            # No category given — undo a previous movement mis-resolution so
+            # the row falls back to the ordinary categorisation pipeline (the
+            # "No — this was spending / opens the category picker" UI step).
+            kinds   = await get_category_kinds(uid)
+            current = doc.get("custom_category") or doc.get("category")
+            if current and is_non_spend(kinds, current):
+                await transactions_col.update_one(
+                    {"_id": transaction_id, "user_id": uid},
+                    {"$set": {"custom_category": None},
+                     "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+                )
+                category_changed = True
+                result["custom_category"] = None
+        await _log_teaching_event(
+            uid, "movement_spending", transaction_id=transaction_id, merchant_key=merchant_key,
+            payload={"category": category} if category else {},
+        )
+
+    if category_changed:
+        from app.routers.analytics import compute_and_cache_cashflow
+        import asyncio as _asyncio
+        _asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+        response_cache.invalidate(uid, "miscategorised_count")
+        response_cache.invalidate(uid, "miscategorised_list")
+
+    return result
 
 
 @router.patch("/transactions/{transaction_id}/planned")

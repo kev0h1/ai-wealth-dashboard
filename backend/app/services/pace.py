@@ -966,7 +966,9 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
 
 # ── H. Per-category Spend-tile signals (total basis) ─────────────────────────
 
-async def compute_category_signals(uid: str, offset: int = 0) -> dict:
+async def compute_category_signals(
+    uid: str, offset: int = 0, kind_map: _KindMap | None = None,
+) -> dict:
     """Total-basis per-category readings for the Spend page tiles.
 
     Computes × your usual multiples and Door (consent-gated aim) fields on
@@ -974,13 +976,21 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
     compute_pace or safe-to-spend so a signal can never go blank because the
     pot is unavailable.
 
-    Returns a dict with keys "period" and "signals".
+    Pass `kind_map` when the caller already holds one (e.g. spend_verdict.py's
+    single per-request kind-map fetch); otherwise this fetches it itself.
+
+    Returns a dict with keys "period" (now also carrying "thin_history" and
+    "suppress_multiple" — the same baseline-depth and early-period flags used
+    to null out "multiple" below, exposed so other consumers, e.g.
+    spend_verdict.py, can branch on them without recomputing) and "signals".
     """
     offset = max(-60, min(0, int(offset)))
     closed = offset < 0
 
-    # Category kinds — ONE read, reused by the (single) load_spend_txns call.
-    kind_map = await get_category_kinds(uid)
+    # Category kinds — ONE read (unless the caller already supplied one),
+    # reused by the (single) load_spend_txns call.
+    if kind_map is None:
+        kind_map = await get_category_kinds(uid)
 
     # ── Resolve the target period ─────────────────────────────────────────────
     prefs   = await preferences_col.find_one({"user_id": uid}) or {}
@@ -1118,12 +1128,14 @@ async def compute_category_signals(uid: str, offset: int = 0) -> dict:
 
     return {
         "period": {
-            "start":        period_start.isoformat(),
-            "end":          period_end.isoformat(),
-            "days_elapsed": days_elapsed,
-            "days_left":    days_left,
-            "offset":       offset,
-            "closed":       closed,
+            "start":             period_start.isoformat(),
+            "end":               period_end.isoformat(),
+            "days_elapsed":      days_elapsed,
+            "days_left":         days_left,
+            "offset":            offset,
+            "closed":            closed,
+            "thin_history":      thin_history,
+            "suppress_multiple": suppress_multiple,
         },
         "signals": signals,
     }

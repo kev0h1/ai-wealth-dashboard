@@ -2,6 +2,7 @@
 import re
 import json
 import logging
+import unicodedata
 from collections import defaultdict, Counter
 from datetime import datetime
 from typing import Optional
@@ -13,6 +14,7 @@ from app.db.collections import (
     merchant_categories_col,
     statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
 )
+from app.services.categories import get_category_kinds, MOVEMENT
 
 RAW_TRUELAYER_CATEGORIES = {
     "BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE",
@@ -195,7 +197,7 @@ def classify_ft(description: str, amount: float, identity: dict, own_account_id=
 # Barclays-style trailing channel codes (mechanism, not merchant) — see project notes.
 _CHANNEL_CODES = {
     "FT", "CPM", "BCC", "BGC", "DDR", "STO", "CLP", "CB",
-    "FP", "FPI", "FPO", "BP", "TFR", "DD", "SO",
+    "FP", "FPI", "FPO", "BP", "TFR", "DD", "SO", "CNP",
 }
 
 # Bank-statement date fragments: '29MAY', '29 MAY', 'ON 05 JUN 26'. They change
@@ -271,13 +273,313 @@ def normalise_merchant(merchant: str, description: str = "") -> str:
     return re.sub(r'\s+', ' ', key)
 
 
+# --- canonical_merchant_key -------------------------------------------------
+# ENGINE.md "Identity" stage: ONE shared merchant identity, stored on every
+# transaction at sync time, so the similar-endpoint, the learned cache and the
+# override propagation passes all agree that five differently-formatted
+# statement lines are the same merchant. `normalise_merchant` above stays
+# as-is (tested, still used nowhere critical to identity) — this supersedes
+# it for every identity/cache purpose.
+
+# Card-machine / POS-aggregator prefixes: the text BEFORE these markers is the
+# processor's own name, not the merchant — e.g. "SQ *INDIAN BREWERY" is a
+# Square terminal charging for "Indian Brewery"; "TST-Reginas" is Toast POS
+# for "Reginas". Keep the TAIL for these, unlike the generic */# rule below.
+# PAYPAL/GOOGLE/UBER are the same shape: "PAYPAL *TRAINLINE" is PayPal's own
+# checkout wrapper for Trainline, "GOOGLE*YOUTUBEPREMIUM" is Google Play
+# billing for YouTube Premium, "UBER *EATS"/"UBER *TRIP" are Uber's own app
+# billing two different real services through one storefront name. Without
+# this, the generic */# head-or-tail rule below keeps the head ("PAYPAL",
+# "GOOGLE", "UBER") and collapses every merchant behind the wrapper into one
+# key (confirmed: 43 live PAYPAL* rows -> 'paypal' spanning Trainline,
+# DisneyPlus, Cernucci jewellery...; 24 GOOGLE* rows -> 'google'; 26 UBER*
+# rows -> 'uber' conflating Uber Eats with Uber rides).
+_PROCESSOR_PREFIX_RE = re.compile(
+    r'^(?:DOJO\*|SQ \*|SQSP\*|Zettle_\*|TST-|SP |PAYPAL\s*\*\s*|GOOGLE\s*\*\s*|UBER\s*\*\s*)',
+    re.I,
+)
+
+# A leading bank card-fragment ('9896 04JUN26 ', '1917 11JUN26 D ') sits
+# BEFORE the processor prefix on some statement lines, which stops
+# _PROCESSOR_PREFIX_RE (anchored at the start) from ever matching — e.g.
+# '9896 04JUN26 PAYPAL *TRAINLINE' would otherwise key differently from
+# 'PAYPAL *DISNEYPLUS' purely because one has the card fragment and the other
+# doesn't. Strip it first so the real prefix/merchant match lines up. The
+# optional flag is a known transaction-type marker (C/D/CD), never a real
+# word (a genuine merchant starting with "The..." is NOT consumed — see
+# tests).
+_LEADING_CARD_DATE_RE = re.compile(
+    r'^\d{4}\s+\d{1,2}[A-Za-z]{3}\d{2,4}\s+(?:(?:CD|C|D)\s+)?', re.I
+)
+
+# A trailing channel code ('FP', mechanism for Faster Payment) sometimes has
+# no space before it on the statement ('CHIGOMEZYO GONDWEFP 01/06/26 30 ...'
+# vs 'CHIGOMEZYO GONDWE FP 01/06/26 30 ...') — same payee, would otherwise key
+# differently. Narrowly scoped to the "<name>FP <DD/MM/YY>" shape (a real bank
+# faster-payment narrative), so it never touches an unrelated word that
+# happens to end in "fp".
+_GLUED_CHANNEL_CODE_RE = re.compile(r'(?<=[A-Za-z])(FP)(?=\s+\d{1,2}/\d{1,2}/\d{2,4}\b)', re.I)
+
+# FX conversion boilerplate: "AMOUNT IN USD 52.75 ON 08 APR VISA 1.3208 FINAL
+# GBP AMOUNT INCLUDES NON-STERLING TRANS FEE £1.19 [BCC]" — everything from
+# "AMOUNT IN <CCY>" to the end of the line is mechanism, not merchant.
+_FX_BOILERPLATE_RE = re.compile(r'\bAMOUNT\s+IN\s+[A-Z]{3}\b.*$', re.I | re.S)
+
+# Monzo pot-funded purchases: "West Midlands Golf Club from Fun stuff Pot" —
+# the pot name is bookkeeping, not merchant identity.
+_MONZO_POT_SUFFIX_RE = re.compile(r'\s+from\s+.+?\s+pot\s*$', re.I)
+
+# Bare URLs and merchant.tld[/path] domains — 'PLAYTOMIC.IO', 'BOLT.EU/O/123',
+# 'DIGITALOCEAN.COM' should all identify as the bare word.
+_BARE_URL_RE = re.compile(r'https?://\S+', re.I)
+_DOMAIN_SUFFIX_RE = re.compile(
+    r'\b([A-Za-z][A-Za-z0-9-]{1,30})\.(?:co\.uk|com|io|eu|net|org|app|co|me|ai)\b(?:/\S*)?',
+    re.I,
+)
+
+# Card-terminal country annotations on FX/international rows, e.g. "...SPAIN
+# ON 25 FEB BCC" or "...HONG KONG ON 21 FEB BCC". A small closed vocabulary —
+# stripping any capitalised trailing word would wreck real one-word merchants
+# ('KFC ON 25 MAY CPM', 'MOONPIG ON 06 APR CPM', 'VANGUARD ON 28 FEB BCC').
+_MULTI_WORD_COUNTRIES = (
+    "UNITED KINGDOM", "UNITED STATES", "UNITED ARAB EMIRATES", "HONG KONG",
+    "SOUTH AFRICA", "SOUTH KOREA", "NORTH KOREA", "NEW ZEALAND",
+    "SAUDI ARABIA", "COSTA RICA", "SRI LANKA", "EL SALVADOR", "PUERTO RICO",
+    "DOMINICAN REPUBLIC", "CZECH REPUBLIC", "IVORY COAST",
+)
+# Spelled-out single-word country names — only ever stripped when the row has
+# OTHER card-terminal annotation evidence (a channel code just got peeled off
+# it, e.g. "...SPAIN ON 25 FEB BCC"). Without that gate this wrecks real
+# merchants whose name legitimately ends in a country word, e.g. "TASTE OF
+# INDIA" -> "taste of" (false merge with "SPICE OF INDIA"), "BANK OF CHINA" ->
+# "bank of" (confirmed defect).
+_SINGLE_WORD_COUNTRIES = frozenset({
+    "SPAIN", "PORTUGAL", "FRANCE", "GERMANY", "ITALY", "IRELAND", "ESTONIA",
+    "NETHERLANDS", "BELGIUM", "SWITZERLAND", "AUSTRIA", "POLAND", "SWEDEN",
+    "NORWAY", "DENMARK", "FINLAND", "GREECE", "TURKEY", "CYPRUS", "MALTA",
+    "CROATIA", "HUNGARY", "ROMANIA", "BULGARIA", "SLOVAKIA", "SLOVENIA",
+    "LITHUANIA", "LATVIA", "LUXEMBOURG", "ICELAND", "MOROCCO", "EGYPT",
+    "KENYA", "NIGERIA", "GHANA", "TANZANIA", "UGANDA", "INDIA", "CHINA",
+    "JAPAN", "THAILAND", "SINGAPORE", "MALAYSIA", "INDONESIA", "VIETNAM",
+    "PHILIPPINES", "AUSTRALIA", "CANADA", "MEXICO", "BRAZIL", "ARGENTINA",
+    "CHILE", "COLOMBIA", "PERU", "RUSSIA", "UKRAINE", "ISRAEL", "QATAR",
+    "JORDAN", "LEBANON", "GEORGIA", "ARMENIA", "MONACO",
+})
+# Bank-statement abbreviations/ISO codes — these are near-never the tail of a
+# real merchant name, so they keep stripping unconditionally (this is the
+# already-correct, live-verified behaviour: 'PAYPAL *DISNEYPLUS ... GBR').
+_COUNTRY_CODES = frozenset({
+    "USA", "UK", "UAE", "GBR", "IRL", "ESP", "FRA", "DEU", "ITA", "PRT",
+    "NLD", "POL", "IND", "CHN", "JPN", "KOR", "AUS", "CAN", "MEX", "BRA",
+    "ZAF", "EST", "NGA",
+})
+
+
+def _strip_trailing_country(text: str, allow_spelled_out: bool) -> str:
+    """Drop a trailing 1-3 word country name/abbreviation, longest match first.
+
+    Abbreviations/ISO codes (_COUNTRY_CODES) always strip. Spelled-out country
+    NAMES (_MULTI_WORD_COUNTRIES / _SINGLE_WORD_COUNTRIES) only strip when
+    `allow_spelled_out` is True — the caller sets this from other annotation
+    evidence on the row (a channel code was just peeled off), so a real
+    merchant name that happens to end in a country word is left alone.
+    """
+    words = text.split()
+    for span in (3, 2, 1):
+        if len(words) <= span:
+            continue
+        candidate = " ".join(w.upper() for w in words[-span:])
+        if span == 1 and candidate in _COUNTRY_CODES:
+            return " ".join(words[:-span])
+        if allow_spelled_out and candidate in (
+            _MULTI_WORD_COUNTRIES if span > 1 else _SINGLE_WORD_COUNTRIES
+        ):
+            return " ".join(words[:-span])
+    return text
+
+
+def _split_head_or_tail(text: str) -> str:
+    """For a generic '*' or '#' inside the text (payment-intent / order refs,
+    e.g. 'PLAYTOMIC* PI-C096', 'WEBSIT#23231'), the merchant is normally the
+    HEAD — unless the head is trivial, in which case the tail is more likely
+    to carry the real identity."""
+    m = re.search(r'[*#]', text)
+    if not m:
+        return text
+    head, tail = text[:m.start()].strip(), text[m.end():].strip()
+    head_alpha = len(re.sub(r'[^A-Za-z]', '', head))
+    if head_alpha >= 4:
+        return head
+    return tail or head
+
+
+def _strip_one_reference_token(text: str) -> str:
+    """Drop ONE trailing alphanumeric reference token (e.g. '0987A',
+    '69559-0', 'AWC-0946-863-807'), but only when enough alphabetic identity
+    survives — mirrors normalise_merchant's 'A/C 76526682' guard, where the
+    number IS the identity."""
+    words = text.split()
+    if len(words) < 2:
+        return text
+    last = words[-1]
+    if not re.fullmatch(r'(?=.*\d)[A-Za-z0-9/-]{2,20}', last):
+        return text
+    remainder = " ".join(words[:-1])
+    if len(re.sub(r'[^A-Za-z]', '', remainder)) >= 4:
+        return remainder
+    return text
+
+
+def canonical_merchant_key(merchant: str, description: str = "") -> str:
+    """The ONE shared merchant identity function (ENGINE.md "Identity" stage).
+
+    Conservative normalisation so that differently-formatted statement lines
+    for the same real-world merchant collapse to one key — e.g. the five
+    Playtomic formats ('Playtomic', 'PLAYTOMIC.IO 0987A SPAIN ON 25 FEB BCC',
+    'PLAYTOMIC* PI-C096 ON 10 JUN BCC', ...) all become 'playtomic'.
+
+    Prefers a real merchant name (already fairly clean); falls back to the
+    description, stripping in order: POS-processor prefixes (keeping the
+    tail), FX-conversion boilerplate, Monzo "from X Pot" suffixes, URLs, date
+    fragments, trailing channel codes, trailing country annotations, a
+    generic '*'/'#' payment-reference split (head, unless trivial), and
+    finally ONE trailing alphanumeric reference token.
+    """
+    base = (merchant or "").strip() or (description or "").strip()
+    if not base:
+        return ""
+
+    # Leading card-fragment ('9896 04JUN26 ', '1917 11JUN26 D ') would
+    # otherwise block the processor-prefix match below, since that match is
+    # anchored at the very start of the string.
+    base = _LEADING_CARD_DATE_RE.sub('', base)
+    # Payee name glued directly onto a trailing "FP <date>" channel code with
+    # no separating space — normalise before date-stripping consumes the date
+    # this depends on.
+    base = _GLUED_CHANNEL_CODE_RE.sub(r' \1', base)
+
+    m = _PROCESSOR_PREFIX_RE.match(base)
+    if m:
+        base = base[m.end():].strip()
+
+    base = _FX_BOILERPLATE_RE.sub('', base).strip()
+    base = _MONZO_POT_SUFFIX_RE.sub('', base).strip()
+    base = _BARE_URL_RE.sub(' ', base)
+    base = _DOMAIN_SUFFIX_RE.sub(r'\1', base)
+    base = strip_date_fragments(base)
+    before_numeric_date = base
+    base = NUMERIC_DATE_RE.sub(' ', base)
+    base = re.sub(r'\s{2,}', ' ', base).strip()
+    had_date_signal = base != before_numeric_date.strip()
+
+    # Peel off one or more trailing known channel codes.
+    had_channel_code = False
+    while True:
+        cm = re.search(r'\s+([A-Za-z]{2,4})\s*$', base)
+        if cm and cm.group(1).upper() in _CHANNEL_CODES:
+            base = base[:cm.start()].strip()
+            had_channel_code = True
+        else:
+            break
+
+    # Spelled-out country NAMES only strip when the row shows other
+    # card-terminal annotation evidence (a date or channel code was actually
+    # present) — otherwise a real merchant ending in a country word (e.g.
+    # "TASTE OF INDIA") would be wrongly truncated. Abbreviation/ISO codes
+    # keep stripping unconditionally regardless of this signal.
+    base = _strip_trailing_country(base, allow_spelled_out=had_date_signal or had_channel_code)
+    base = _split_head_or_tail(base)
+    base = _strip_one_reference_token(base)
+
+    # Decompose accented Latin characters to their base letter + combining
+    # mark (é -> e + ́) and drop the mark, so 'café' collapses to the
+    # correct 'cafe' stem rather than the truncated 'caf' a raw [^a-z0-9]
+    # strip would produce. Non-Latin scripts (no ASCII decomposition exists)
+    # still safely fall through to an empty key, same as before.
+    ascii_base = unicodedata.normalize('NFKD', base).encode('ascii', 'ignore').decode('ascii')
+    key = re.sub(r'[^a-z0-9]+', ' ', ascii_base.lower()).strip()
+    return re.sub(r'\s+', ' ', key)
+
+
+def build_rule_pattern(merchant_key: str) -> str:
+    """A word-boundary-safe, escaped regex for a rule PROPOSED from a
+    merchant_key (ENGINE.md "One-Way Ladder" / teaching-endpoint acceptance).
+
+    A naive substring pattern (the bare key, unescaped, unanchored) can match
+    inside an unrelated word — the trigger word-boundary lesson: a rule for
+    "ee" once matched the "ee" inside "Mowgli Street". Every token is
+    re.escape'd (defence in depth — canonical_merchant_key already yields
+    only [a-z0-9] tokens, but this function must stay safe even if that
+    changes) and the whole phrase is anchored with \\b on both ends, with
+    \\s+ between tokens so it still matches if whitespace in the live
+    transaction text differs from the single-space-normalised key.
+
+    Returns "" for an empty key — never a pattern that would match everything.
+    """
+    tokens = merchant_key.split()
+    if not tokens:
+        return ""
+    body = r'\s+'.join(re.escape(tok) for tok in tokens)
+    return r'\b' + body + r'\b'
+
+
+# Bounds on what a user's own custom category names can inject into the
+# Haiku prompts (categorise_others_bg, llm_name_check both join this list
+# verbatim into cat_list). Blast radius is already scoped to that user's own
+# categorisation (a custom name never reaches the global cache/catalog — the
+# Firewall Rule), but an unbounded, unescaped list is still not something we
+# should ever hand to a prompt: a name could be very long, or contain
+# newlines/instruction-shaped text.
+_MAX_CUSTOM_CATEGORIES = 30
+_MAX_CATEGORY_NAME_LEN = 40
+
+
+async def user_allowed_categories(uid: str) -> list[str]:
+    """VALID_CATEGORIES plus this user's own custom SPEND categories.
+
+    Custom categories with a MOVEMENT kind are excluded — movement resolves to
+    a destination in the pot ledger, never a category (the Destination Rule),
+    so a movement-kind custom is never something the ladder should learn or
+    guess into. Used to widen every categorisation gate (cache write, the
+    cache-application read, both LLM prompts) so a user's own words — Padel,
+    Golf — are treated as first-class vocabulary, not silently discarded.
+
+    Custom names are collapsed to a single line and length-capped, and the
+    list is capped at _MAX_CUSTOM_CATEGORIES, before being returned — this is
+    the one place every categorisation gate and both LLM prompts read from.
+    """
+    kinds = await get_category_kinds(uid)
+    customs: list[str] = []
+    for name, kind in kinds.items():
+        if name in VALID_CATEGORIES or kind == MOVEMENT:
+            continue
+        clean = " ".join((name or "").split())[:_MAX_CATEGORY_NAME_LEN]
+        if clean and clean not in customs:
+            customs.append(clean)
+        if len(customs) >= _MAX_CUSTOM_CATEGORIES:
+            break
+    return VALID_CATEGORIES + customs
+
+
 async def cache_merchant(key: str, category: str, source: str, uid: str | None = None) -> None:
     """Persist a merchant->category decision. 'user' entries win: an 'llm' write
     will not overwrite a category a user has explicitly corrected.
     When uid is given the entry is scoped to that user (id = uid::key) so that
-    name-based decisions don't leak between users."""
-    if not key or category not in VALID_CATEGORIES:
+    name-based decisions don't leak between users.
+
+    Category gate: VALID_CATEGORIES always qualify. A uid-scoped write may ALSO
+    use one of THAT user's own custom categories (Padel, Golf, ...) — never a
+    global (uid=None) write, per the Firewall Rule: a custom category name is
+    one user's private vocabulary and must never leak into another user's
+    global-cache lookup (Pass 3.4's `cache` dict, shared by everyone)."""
+    if not key:
         return
+    if category not in VALID_CATEGORIES:
+        if not uid:
+            return
+        allowed = await user_allowed_categories(uid)
+        if category not in allowed:
+            return
     store_id = f"{uid}::{key}" if uid else key
     if source != "user":
         existing = await merchant_categories_col.find_one({"_id": store_id}, {"source": 1})
@@ -409,25 +711,28 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             )
             updated += result.modified_count
 
-        # Pass 2.5: propagate manual overrides
+        # Pass 2.5: propagate manual overrides. Keyed on canonical_merchant_key
+        # (not the raw lowercased description — no date/reference stripping at
+        # all) so a correction on one dated statement line propagates to every
+        # other row for the same merchant, not just byte-identical repeats.
         custom_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": {"$ne": None}},
-            {"description": 1, "transaction_type": 1, "custom_category": 1},
+            {"merchant_name": 1, "description": 1, "transaction_type": 1, "custom_category": 1},
         ).to_list(None)
 
         override_map: dict = defaultdict(Counter)
         for t in custom_txns:
-            desc_key = re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
-            if desc_key:
+            desc_key = canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
+            if len(desc_key) >= 3:
                 override_map[(desc_key, t.get("transaction_type", "debit"))][t["custom_category"]] += 1
 
         if override_map:
             no_custom = await transactions_col.find(
                 {"user_id": user_id, "custom_category": None},
-                {"_id": 1, "description": 1, "transaction_type": 1, "category": 1},
+                {"_id": 1, "merchant_name": 1, "description": 1, "transaction_type": 1, "category": 1},
             ).to_list(None)
             for t in no_custom:
-                desc_key = re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
+                desc_key = canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
                 key = (desc_key, t.get("transaction_type", "debit"))
                 if key not in override_map:
                     continue
@@ -570,6 +875,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # Pass 3.4: learned merchant cache (persisted LLM + user decisions)
     # Load global entries (no uid field) + user-scoped entries for this user.
     # User-scoped entries take priority (name-based decisions must not cross users).
+    # Global entries are gated to VALID_CATEGORIES only (the Firewall Rule — a
+    # custom category is one user's private vocabulary); user-scoped entries
+    # may also carry this user's OWN custom categories (Padel, Golf, ...).
+    allowed_cats = await user_allowed_categories(user_id)
     all_cache_docs = await merchant_categories_col.find(
         {"$or": [{"uid": {"$exists": False}}, {"uid": user_id}]},
         {"category": 1, "uid": 1},
@@ -577,15 +886,20 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     cache: dict[str, str] = {}
     user_cache: dict[str, str] = {}
     for d in all_cache_docs:
-        if d.get("category") not in VALID_CATEGORIES:
+        cat = d.get("category")
+        is_user_scoped = d.get("uid") == user_id
+        if is_user_scoped:
+            if cat not in allowed_cats:
+                continue
+        elif cat not in VALID_CATEGORIES:
             continue
         raw_id: str = d["_id"]
-        if d.get("uid") == user_id:
+        if is_user_scoped:
             # User-scoped: strip the "uid::" prefix to get bare normalised key
             bare = raw_id[len(user_id) + 2:] if raw_id.startswith(f"{user_id}::") else raw_id
-            user_cache[bare] = d["category"]
+            user_cache[bare] = cat
         else:
-            cache[raw_id] = d["category"]
+            cache[raw_id] = cat
     # Merge: user-scoped wins
     merged_cache = {**cache, **user_cache}
     if merged_cache:
@@ -595,7 +909,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             {"merchant_name": 1, "description": 1, "category": 1},
         ).to_list(None)
         for t in cache_txns:
-            cat = merged_cache.get(normalise_merchant(t.get("merchant_name") or "", t.get("description") or ""))
+            cat = merged_cache.get(canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or ""))
             if cat and t.get("category") != cat:
                 await transactions_col.update_one(
                     {"_id": t["_id"], "custom_category": None},
@@ -624,7 +938,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 except re.error:
                     continue
 
-    # Pass 4: propagate custom_category to auto-categorised transactions
+    # Pass 4: propagate custom_category to auto-categorised transactions. Keyed
+    # on canonical_merchant_key (not the raw lowercased field — no date/
+    # reference stripping at all), tried against merchant_name and description
+    # independently so either field alone can still resolve a match.
     user_overrides = await transactions_col.find(
         {"user_id": user_id, "custom_category": {"$ne": None}},
         {"merchant_name": 1, "description": 1, "custom_category": 1, "transaction_type": 1},
@@ -634,12 +951,13 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     for h in user_overrides:
         cat = h["custom_category"]
         txn_type = h.get("transaction_type", "")
-        for key in [h.get("merchant_name"), h.get("description")]:
-            if key:
-                norm = re.sub(r'\s+', ' ', key.strip().lower())
-                map_key = (norm, txn_type)
-                if norm and map_key not in override_map2:
-                    override_map2[map_key] = cat
+        for norm in (
+            canonical_merchant_key(h.get("merchant_name") or "", ""),
+            canonical_merchant_key("", h.get("description") or ""),
+        ):
+            map_key = (norm, txn_type)
+            if len(norm) >= 3 and map_key not in override_map2:
+                override_map2[map_key] = cat
 
     if override_map2:
         all_auto = await transactions_col.find(
@@ -648,19 +966,53 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         ).to_list(None)
         for t in all_auto:
             txn_type = t.get("transaction_type", "")
-            for key in [t.get("merchant_name"), t.get("description")]:
-                if key:
-                    norm = re.sub(r'\s+', ' ', key.strip().lower())
-                    desired = override_map2.get((norm, txn_type))
-                    if desired:
-                        if t.get("category") != desired:
-                            await transactions_col.update_one(
-                                {"_id": t["_id"]}, {"$set": {"category": desired}}
-                            )
-                            updated += 1
-                        break
+            for norm in (
+                canonical_merchant_key(t.get("merchant_name") or "", ""),
+                canonical_merchant_key("", t.get("description") or ""),
+            ):
+                desired = override_map2.get((norm, txn_type)) if len(norm) >= 3 else None
+                if desired:
+                    if t.get("category") != desired:
+                        await transactions_col.update_one(
+                            {"_id": t["_id"]}, {"$set": {"category": desired}}
+                        )
+                        updated += 1
+                    break
 
     return updated
+
+
+async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[dict]:
+    """Apply ONE newly-created rule (mirrors apply_rules_bulk's Pass 3.5, but
+    scoped to a single pattern) synchronously, and return {id,
+    previous_category} for every row it changes.
+
+    Fix-round HIGH finding: the "Always" propagation offer used to fire this
+    same matching as a fire-and-forget task with no record of what it
+    touched, so the undo toast could only revert the one transaction the
+    sheet was open on — every other matching sibling stayed silently
+    recategorised even after "Undo". Running it here, awaited, with a return
+    value lets the caller revert every affected row precisely.
+    """
+    affected: list[dict] = []
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return affected
+    candidates = await transactions_col.find(
+        {"user_id": user_id, "custom_category": None},
+        {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
+    ).to_list(None)
+    for t in candidates:
+        text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
+        if not compiled.search(text):
+            continue
+        prev = t.get("category")
+        if prev == category:
+            continue
+        await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": category}})
+        affected.append({"id": t["_id"], "previous_category": prev})
+    return affected
 
 
 async def categorise_others_bg(uid: str) -> int:
@@ -669,12 +1021,16 @@ async def categorise_others_bg(uid: str) -> int:
         return 0
     identity = await user_identity(uid)
     owner_name = " ".join(t.capitalize() for t in identity["name_tokens"]) if identity["name_tokens"] else None
+    # This user's own vocabulary (VALID_CATEGORIES + their custom categories,
+    # e.g. Padel) — so the model can propose a name the user actually coined,
+    # instead of being limited to the 19 shared built-ins.
+    allowed_cats = await user_allowed_categories(uid)
 
     col_map = [transactions_col, statement_transactions_col, mono_transactions_col, mpesa_transactions_col]
     # Structural / money-to-self categories (Transfer, Savings, Debt, Investment) are
     # assigned deterministically by earlier passes (Pass 2 / 2.6) and must never be
     # something the LLM guesses at — exclude them from the list it's allowed to pick.
-    cat_list = ", ".join(c for c in VALID_CATEGORIES if c not in {"Transfer", "Savings", "Debt", "Investment"})
+    cat_list = ", ".join(c for c in allowed_cats if c not in {"Transfer", "Savings", "Debt", "Investment"})
     _name_clause = (
         f"- The account owner's name is {owner_name}. "
         "A credit into a bank account whose text does NOT reference the owner's name → Income.\n"
@@ -749,12 +1105,15 @@ async def categorise_others_bg(uid: str) -> int:
                 # never offered (see cat_list above) but may still hallucinate. Never
                 # let a hallucinated answer land here — fall back to Other.
                 cat = "Other"
-            final = cat if (cat and cat in VALID_CATEGORIES) else None
+            final = cat if (cat and cat in allowed_cats) else None
             update: dict = {"ai_attempted": True}
             if final and final != "Other":
                 update["category"] = final
                 total_updated += len(seen[label])
-                await cache_merchant(normalise_merchant("", label), final, "llm")
+                # A custom category (Padel, ...) is this user's private
+                # vocabulary — scope the cache write to them (Firewall Rule).
+                cache_uid = uid if final not in VALID_CATEGORIES else None
+                await cache_merchant(canonical_merchant_key("", label), final, "llm", uid=cache_uid)
             await col.update_many({"_id": {"$in": seen[label]}}, {"$set": update})
 
         reached_ids = {_id for ids in seen.values() for _id in ids}
@@ -785,7 +1144,10 @@ async def llm_name_check(uid: str) -> int:
         return 0
 
     owner_name = " ".join(t.capitalize() for t in name_tokens)
-    cat_list = ", ".join(VALID_CATEGORIES)
+    # This user's own vocabulary (VALID_CATEGORIES + their custom categories)
+    # so the model can propose a name the user actually coined (e.g. Padel).
+    allowed_cats = await user_allowed_categories(uid)
+    cat_list = ", ".join(allowed_cats)
 
     # --- Prefilter: pull candidates from transactions_col only (primary data source)
     candidates_raw = await transactions_col.find(
@@ -881,7 +1243,7 @@ async def llm_name_check(uid: str) -> int:
 
         for i, d in enumerate(lines_data):
             cat = classifications.get(str(i + 1))
-            if not cat or cat not in VALID_CATEGORIES:
+            if not cat or cat not in allowed_cats:
                 continue
             old_cat = d["old_cat"]
             if cat == old_cat:
@@ -896,8 +1258,8 @@ async def llm_name_check(uid: str) -> int:
                 flip_key = f"{old_cat or 'None'} → {cat}"
                 flip_counts[flip_key] = flip_counts.get(flip_key, 0) + 1
                 # Cache user-scoped so future syncs don't re-ask
-                norm_key = normalise_merchant("", d["desc"])
-                if norm_key:
+                norm_key = canonical_merchant_key("", d["desc"])
+                if len(norm_key) >= 3:
                     await cache_merchant(norm_key, cat, "llm", uid=uid)
                 # Collect up to 5 spot-check examples
                 if len(spot_examples) < 5:

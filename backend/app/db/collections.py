@@ -124,3 +124,9 @@ category_intent_col     = db["category_intents"]
 
 # Commitments — named future big expenses funded a slice per pay period
 commitments_col         = db["commitments"]
+
+# ENGINE.md "The One Stream Rule" — every teaching signal (correction, naming,
+# kind confirm, intent, ask answer, bill confirm/dismiss) lands here as one
+# uniform event, user-scoped (Firewall Rule: nothing global). Indexed
+# (user_id, created_at) — see app/main.py startup index creation.
+teaching_events_col     = db["teaching_events"]

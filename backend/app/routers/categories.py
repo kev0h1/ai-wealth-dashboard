@@ -17,7 +17,7 @@ from app.db.collections import (
     user_rules_col,
 )
 from app.services import response_cache
-from app.services.categorisation import apply_rules_bulk
+from app.services.categorisation import apply_rules_bulk, apply_single_rule
 from app.services.categories import (
     BUILTIN_CATEGORIES,
     BUILTIN_CATEGORY_KINDS,
@@ -287,8 +287,15 @@ async def add_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(
         "pattern": pattern.lower(), "category": category,
         "created_at": datetime.utcnow(),
     })
+    # Awaited (not fire-and-forget) and scoped to just this new rule so the
+    # response can carry exactly which sibling rows it recategorised —
+    # TeachingSheet's "Undo" reverts each one by id (fix-round HIGH finding).
+    affected = await apply_single_rule(uid, pattern.lower(), category)
     asyncio.create_task(apply_rules_bulk(uid))
-    return {"id": rule_id, "description": description, "pattern": pattern.lower(), "category": category}
+    return {
+        "id": rule_id, "description": description, "pattern": pattern.lower(), "category": category,
+        "affected": affected,
+    }
 
 
 @router.delete("/rules/{rule_id}")

@@ -13,7 +13,7 @@ from app.db.collections import (
     finexer_consents_col, finexer_customers_col,
     accounts_col, transactions_col,
 )
-from app.services.categorisation import rule_categorise, user_identity, is_own_transfer
+from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
 
 
@@ -197,6 +197,7 @@ async def _upsert_finexer_transactions(
             "category":         category,
             "transaction_type": txn_type,
             "provider":         "Finexer",
+            "merchant_key":     canonical_merchant_key(merchant, description),
         }
         if running_balance is not None:
             try:

@@ -14,7 +14,7 @@ from app.core.config import (
 from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
 from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
-from app.services.categorisation import rule_categorise, user_identity, is_own_transfer
+from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 
 
 async def save_connection(connection_id: str, token_data: dict, user_id: Optional[str] = None):
@@ -99,6 +99,7 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
             "merchant_name":    merchant or None,
             "category":         category,
             "transaction_type": "credit" if is_credit else "debit",
+            "merchant_key":     canonical_merchant_key(merchant, description),
         }
         result = await transactions_col.update_one(
             {"_id": txn["transaction_id"]},

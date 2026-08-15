@@ -1,0 +1,646 @@
+"""Spend Verdict Service — backend for the redesigned Spend → Categories view.
+
+ENGINE.md Build Stream 2. Pure Python, deterministic, no LLM — the model
+never does arithmetic (the house rule already enforced in `can_i.py`); this
+module IS the Python that counts, so a future narrator has numbers to read
+rather than invent.
+
+Doctrine this module encodes:
+  - Show Your Working Rule (ENGINE.md "Traceability") — every notable is
+    traceable to its top contributing merchants, computed here, not narrated.
+  - The ontology (ENGINE.md "Learning & Scope") — "Other" is never a category:
+    it never earns a baseline, a multiple, or a peer tile. It is carved out
+    into `unresolved` before notables/majority are built, never promoted,
+    never demoted alongside real categories.
+  - The Destination Rule — moved money resolves to a destination (a pot's
+    goal name, a credit-card payment, an investment), never a category, and
+    is never shown with a minus sign.
+
+Reuses rather than recomputes:
+  - `pace.compute_category_signals` for `multiple` / `usual_rate_per_day` /
+    the thin-history and early-period flags (`thin_history`,
+    `suppress_multiple`) — this module never re-derives a baseline.
+  - `commitments.compute_pot_ledger` (which itself reuses `_doc_pots`) for the
+    active goal names behind "money you moved to your pots" — read-only, no
+    second commitments query.
+
+Per-request I/O budget: ONE category-kind fetch, ONE pot-ledger computation,
+ONE transaction fetch for the current period (compute_category_signals's own
+baseline fetch is separately cached and out of this module's control).
+"""
+from __future__ import annotations
+
+import logging
+import re
+from datetime import date, datetime, timedelta
+
+from app.db.collections import preferences_col, transactions_col, yapily_transactions_col
+from app.services.categories import (
+    INCOME,
+    MOVEMENT,
+    get_category_kinds,
+    kind_of,
+)
+from app.services.categorisation import canonical_merchant_key
+from app.services.pace import compute_category_signals
+from app.services.region import get_user_region
+
+logger = logging.getLogger(__name__)
+
+# ── The qualifying formula (ENGINE.md Traceability / this brief) ────────────
+# excess = spent - usual_rate_per_day * days_elapsed. A category qualifies as
+# notable when either branch fires — the low-multiple branch needs a bigger
+# pound gap to fire (guards against a tiny category swinging wildly), the
+# high-multiple branch needs less (a genuine 1.25x on a big category is
+# already material at £120).
+_QUALIFY_LOW_MULTIPLE, _QUALIFY_LOW_EXCESS = 1.5, 40.0
+_QUALIFY_HIGH_MULTIPLE, _QUALIFY_HIGH_EXCESS = 1.25, 120.0
+
+NOTABLE_CAP = 3           # cards rendered; overflow becomes quiet_flags
+EVERYTHING_THRESHOLD = 3  # qualifying_count > this ⇒ state "everything"
+
+# Materiality (ENGINE.md Ask Budget Rule — "a recurring merchant, or a
+# material amount"). Gated on the LARGEST unresolved transaction itself, not
+# the bucket total: thirty small rows summing to £120 must never point an
+# ask at a £4.50 payment. Whichever fires first — a flat floor for
+# small-Out periods, a proportion for big ones.
+UNRESOLVED_MATERIAL_FRACTION = 0.10   # of the period's Out
+UNRESOLVED_MATERIAL_FLOOR = 250.0     # flat £ floor
+
+_TXN_PROJ = {
+    "amount": 1, "date": 1, "category": 1, "custom_category": 1,
+    "transaction_type": 1, "description": 1, "merchant_name": 1, "merchant_key": 1,
+    "currency": 1,
+}
+
+# Money-you-moved destination groups, fixed display order.
+_MOVED_ORDER = (
+    ("pots", "To your pots"),
+    ("credit_cards", "To your credit cards"),
+    ("investments", "To your investments"),
+)
+
+
+def _movement_bucket(category: str) -> str:
+    """Which "money you moved" destination group a movement-kind category
+    belongs to — the Destination Rule's grouping, not a new category system."""
+    if category == "Investment":
+        return "investments"
+    if category == "Debt":
+        return "credit_cards"
+    return "pots"  # Savings, Transfer, and any custom movement category
+
+
+# ── I/O: transaction load (kept separate from pace.py's load_spend_txns
+# because notables/unresolved/moved all need merchant identity + txn ids that
+# the Spend-tile signal loader deliberately does not carry) ─────────────────
+
+async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
+    """Every debit/credit transaction in [start, end], normalised, filtered
+    to the user's home currency (matching SpendPage's `categories`/`summary`
+    memos — a foreign-currency row, e.g. a KES M-Pesa line on a UK account,
+    must never inflate the verdict's pills/notables/majority/unresolved
+    figures beyond what the tiles above them show; fix-round LOW finding).
+
+    Returns [{"date", "category", "amount" (always positive), "debit" (bool),
+    "description", "merchant_name", "merchant_key", "id"}].
+    """
+    region = await get_user_region(uid)
+    home_currency = "KES" if region == "Kenya" else "GBP"
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    raw_docs: list[dict] = []
+    for col in (transactions_col, yapily_transactions_col):
+        try:
+            async for doc in col.find(
+                {
+                    "user_id": uid,
+                    "transaction_type": {"$in": ["debit", "credit"]},
+                    "date": {"$gte": start_dt, "$lte": end_dt},
+                },
+                _TXN_PROJ,
+            ):
+                raw_docs.append(doc)
+        except Exception:
+            logger.exception("_load_period_txns: failed fetching from %s for %s", col.name, uid)
+
+    out: list[dict] = []
+    for doc in raw_docs:
+        txn_currency = doc.get("currency")
+        if txn_currency and txn_currency != home_currency:
+            continue
+        raw_date = doc.get("date")
+        if hasattr(raw_date, "date"):
+            d_obj = raw_date.date()
+        elif isinstance(raw_date, date):
+            d_obj = raw_date
+        else:
+            d_obj = date.today()
+        out.append({
+            "date":          d_obj,
+            "category":      doc.get("custom_category") or doc.get("category") or "Other",
+            "amount":        abs(float(doc.get("amount") or 0)),
+            "debit":         doc.get("transaction_type") == "debit",
+            "description":   doc.get("description") or "",
+            "merchant_name": doc.get("merchant_name") or "",
+            "merchant_key":  doc.get("merchant_key") or "",
+            "id":            str(doc.get("_id") or ""),
+        })
+    return out
+
+
+def _merchant_identity(t: dict) -> str:
+    """merchant_key||description-stem — prefer the stored sync-time identity
+    (ENGINE.md "Identity" stage, `merchant_key`, backfilling onto rows as it
+    lands) and fall back to computing the same shared identity function
+    on-the-fly for rows that don't have it yet."""
+    return t.get("merchant_key") or canonical_merchant_key(t["merchant_name"], t["description"])
+
+
+# ── Pure bucketing — no I/O, fully unit-testable ─────────────────────────────
+
+def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, float]:
+    """Split normalised txns into (cat_agg, moved_groups, income_total).
+
+    cat_agg[category]    = {"spent": float, "payments_count": int,
+                             "debit_txns": [txn, ...]}   # refund credits are
+                             # netted into `spent` but never counted as a
+                             # payment nor considered a spend "cause".
+    moved_groups[bucket]  = {"amount": float, "payments_count": int}  # bucket
+                             is one of "pots" / "credit_cards" / "investments";
+                             only outgoing (debit) legs count as money moved —
+                             an incoming own-transfer is not spend either, but
+                             it did not leave the user, so it does not appear
+                             here or in pills.spent.
+    income_total is the net of all income-kind rows (credit adds, debit —
+    a correction/reversal — subtracts).
+    """
+    cat_agg: dict[str, dict] = {}
+    moved_groups: dict[str, dict] = {
+        key: {"amount": 0.0, "payments_count": 0} for key, _ in _MOVED_ORDER
+    }
+    income_total = 0.0
+
+    for t in txns:
+        cat = t["category"]
+        kind = kind_of(kind_map, cat)
+
+        if kind == INCOME:
+            income_total += t["amount"] if t["debit"] is False else -t["amount"]
+            continue
+
+        if kind == MOVEMENT:
+            if t["debit"]:
+                bucket = moved_groups[_movement_bucket(cat)]
+                bucket["amount"] += t["amount"]
+                bucket["payments_count"] += 1
+            continue
+
+        # Real spend (discretionary/commitment, incl. "Other" — carved out of
+        # notables/majority downstream, but its arithmetic lives here too so
+        # the reconciliation invariant holds without a special case).
+        row = cat_agg.setdefault(cat, {"spent": 0.0, "payments_count": 0, "debit_txns": []})
+        row["spent"] += t["amount"] if t["debit"] else -t["amount"]
+        if t["debit"]:
+            row["payments_count"] += 1
+            row["debit_txns"].append(t)
+
+    return cat_agg, moved_groups, income_total
+
+
+def _top_causes(debit_txns: list[dict], cap: int = 3) -> list[dict]:
+    """Top contributors within a category, grouped by merchant identity
+    (merchant_key||description-stem, via `_merchant_identity`)."""
+    groups: dict[str, dict] = {}
+    for t in debit_txns:
+        key = _merchant_identity(t)
+        display = t["merchant_name"] or t["description"] or "Unknown"
+        g = groups.setdefault(key, {"name": display, "amount": 0.0})
+        g["amount"] += t["amount"]
+    ranked = sorted(groups.values(), key=lambda g: g["amount"], reverse=True)
+    return [{"name": g["name"], "amount": round(g["amount"], 2)} for g in ranked[:cap]]
+
+
+# ── Unresolved-bucket display name ───────────────────────────────────────
+# `canonical_merchant_key` is an IDENTITY function, not a label function: it
+# lowercases and peels channel codes/dates so five differently-formatted
+# statement lines collapse to one merchant, but it deliberately leaves
+# legal-entity tokens (LTD) and payment-rail nouns (OPENBANKINGPAYMENT) in
+# place — identity doesn't care about those, display does. This reuses that
+# same normalisation and then strips the tokens that are correct for
+# identity but wrong for a human-facing label.
+_LEGAL_ENTITY_TOKENS = {"ltd", "limited", "plc", "llp", "uk", "group", "holdings", "international"}
+_PAYMENT_RAIL_TOKENS = {
+    "openbankingpayment", "fasterpayment", "faster", "payment", "payments",
+    "bacs", "chaps", "dd", "so", "ft", "fp", "transfer",
+}
+_DISPLAY_ACRONYMS = {"edf", "hmrc", "nhs", "tfl", "bt", "ee"}
+_DISPLAY_NAME_MAX_LEN = 22
+_TRAILING_PUNCT_RE = re.compile(r'[.,;:!?]+$')
+
+
+def _unresolved_display_name(merchant_name: str, description: str) -> str | None:
+    """A human-recognisable label for an unresolved (Other-bucket) merchant,
+    or None if nothing clean survives — the card then names no merchant
+    rather than quote bank plumbing (e.g. 'FINEXER LTD OPENBANKINGPAYMENT
+    FT.' -> 'Finexer'; 'PLAYTOMIC* PI-F0D6 ON 11 JUL BCC' -> 'Playtomic';
+    'WISE *8827 TRANSFER' -> 'Wise').
+
+    Trailing punctuation is stripped BEFORE handing off to
+    `canonical_merchant_key`, because that function's channel-code peel is
+    anchored at end-of-string — a trailing '.' silently blocks it (the bug
+    this exists to fix).
+    """
+    base = (merchant_name or "").strip() or (description or "").strip()
+    if not base:
+        return None
+    base = _TRAILING_PUNCT_RE.sub("", base).strip()
+    key = canonical_merchant_key(base)
+    if not key:
+        return None
+    tokens = [
+        tok for tok in key.split()
+        if tok not in _LEGAL_ENTITY_TOKENS and tok not in _PAYMENT_RAIL_TOKENS
+    ]
+    if not tokens:
+        return None
+    words = [tok.upper() if tok in _DISPLAY_ACRONYMS else tok.capitalize() for tok in tokens]
+    name = " ".join(words)
+    if len(name) > _DISPLAY_NAME_MAX_LEN:
+        name = name[:_DISPLAY_NAME_MAX_LEN].rstrip()
+    return name or None
+
+
+def build_unresolved(other_row: dict | None, total_out: float = 0.0) -> dict:
+    """The Other-bucket total + whether it earns an ask.
+
+    Always returned (even at zero, even when not ask-worthy) so the UI's
+    "Show Your Working" whisper row has something to render — the Ask Budget
+    Rule only governs whether Penny asks, never whether the total is shown.
+
+    `total_out` is the period's whole spend total (pills.spent) — the
+    materiality fraction is measured against it, not the Other bucket alone.
+    """
+    if not other_row or not other_row["debit_txns"]:
+        return {
+            "total": round((other_row or {}).get("spent", 0.0), 2),
+            "payments_count": (other_row or {}).get("payments_count", 0),
+            "ask_worthy": False,
+            "weight": "routine",
+            "largest": None,
+        }
+    debit_txns = other_row["debit_txns"]
+    total = round(other_row["spent"], 2)
+    largest_txn = max(debit_txns, key=lambda x: x["amount"])
+    largest_amount = round(largest_txn["amount"], 2)
+    largest_key = _merchant_identity(largest_txn)
+    # Recurring: the largest transaction's merchant identity appears more
+    # than once in this period's unresolved bucket.
+    occurrences = sum(1 for t in debit_txns if _merchant_identity(t) == largest_key)
+    recurring = occurrences >= 2
+
+    material = (
+        largest_amount >= UNRESOLVED_MATERIAL_FLOOR
+        or (total_out > 0 and largest_amount >= UNRESOLVED_MATERIAL_FRACTION * total_out)
+    )
+    weight = "material" if material else "routine"
+    # Gate the ask on the LARGEST transaction being itself material or
+    # recurring — a bucket total crossing an old flat threshold used to be
+    # enough on its own, which let thirty small rows summing to £120 fire an
+    # ask that named a £4.50 payment. That violates the Ask Budget Rule.
+    ask_worthy = material or recurring
+
+    raw_description = largest_txn["merchant_name"] or largest_txn["description"] or "Unknown"
+    display_name = _unresolved_display_name(largest_txn["merchant_name"], largest_txn["description"])
+
+    return {
+        "total": total,
+        "payments_count": other_row["payments_count"],
+        "ask_worthy": ask_worthy,
+        "weight": weight,
+        "largest": {
+            # ENGINE.md's teaching sheet opens directly on this transaction
+            # (the ask card's "Tell me what this was") — it needs the real
+            # id to PATCH/resolve-movement, not just display fields.
+            "id":              largest_txn["id"],
+            "display_name":    display_name,
+            "raw_description": raw_description,
+            "amount":          largest_amount,
+            "date":            largest_txn["date"].isoformat(),
+        },
+    }
+
+
+def build_notables_and_majority(
+    cat_agg: dict[str, dict], signals: dict[str, dict], days_elapsed: int,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Returns (notables, quiet_flags, majority).
+
+    "Other" never participates here — it is carved out by the caller before
+    this runs (via `build_unresolved`), per the ontology: Other is never a
+    baseline, never a multiple, never a peer tile.
+    """
+    qualifying: list[dict] = []
+    for cat, row in cat_agg.items():
+        if cat == "Other":
+            continue
+        sig = signals.get(cat) or {}
+        multiple = sig.get("multiple")
+        usual_rate_per_day = sig.get("usual_rate_per_day")
+        if multiple is None or usual_rate_per_day is None:
+            continue
+        usual_by_now = usual_rate_per_day * days_elapsed
+        excess = row["spent"] - usual_by_now
+        if excess <= 0:
+            continue  # under-usual NEVER qualifies
+        qualifies = (
+            (multiple >= _QUALIFY_LOW_MULTIPLE and excess >= _QUALIFY_LOW_EXCESS) or
+            (multiple >= _QUALIFY_HIGH_MULTIPLE and excess >= _QUALIFY_HIGH_EXCESS)
+        )
+        if not qualifies:
+            continue
+        qualifying.append({
+            "category":        cat,
+            "spent":           round(row["spent"], 2),
+            "multiple":        multiple,
+            "excess":          round(excess, 2),
+            "payments_count":  row["payments_count"],
+            "cause":           _top_causes(row["debit_txns"]),
+            "pace":            {"spent": round(row["spent"], 2), "usual_by_now": round(usual_by_now, 2)},
+        })
+
+    qualifying.sort(key=lambda q: q["excess"], reverse=True)
+    notables = qualifying[:NOTABLE_CAP]
+    quiet_flags = [
+        {k: v for k, v in q.items() if k not in ("cause", "pace")}
+        for q in qualifying[NOTABLE_CAP:]
+    ]
+
+    promoted = {n["category"] for n in notables}
+    majority = []
+    for cat, row in cat_agg.items():
+        if cat == "Other" or cat in promoted:
+            continue
+        sig = signals.get(cat) or {}
+        m = sig.get("multiple")
+        has_baseline = m is not None and sig.get("usual_rate_per_day") is not None
+        # A majority category can still have a materially high multiple if it
+        # only missed the pound-threshold gate (small category, big swing) —
+        # "close to usual" would be false for it, so it's flagged here rather
+        # than silently swept into a blanket reassurance downstream.
+        elevated = has_baseline and m >= _QUALIFY_LOW_MULTIPLE
+        majority.append({
+            "category":       cat,
+            "spent":          round(row["spent"], 2),
+            "payments_count": row["payments_count"],
+            "has_baseline":   has_baseline,
+            "elevated":       elevated,
+        })
+    majority.sort(key=lambda r: r["spent"], reverse=True)
+
+    return notables, quiet_flags, majority
+
+
+def build_moved(moved_groups: dict[str, dict], goal_names: list[str]) -> list[dict]:
+    """Money-you-moved destination groups — never a minus sign, never a
+    category (Destination Rule). Zero-payment groups are omitted."""
+    out: list[dict] = []
+    for key, label in _MOVED_ORDER:
+        g = moved_groups.get(key) or {}
+        if not g.get("payments_count"):
+            continue
+        entry = {
+            "kind":            key,
+            "label":           label,
+            "amount":          round(g["amount"], 2),
+            "payments_count":  g["payments_count"],
+        }
+        if key == "pots":
+            entry["goal_names"] = goal_names
+        out.append(entry)
+    return out
+
+
+def determine_state(days_elapsed: int, thin_history: bool, qualifying_count: int) -> str:
+    if days_elapsed < 5:
+        return "early"
+    if thin_history:
+        return "nobaseline"
+    if qualifying_count == 0:
+        return "nothing"
+    if qualifying_count > EVERYTHING_THRESHOLD:
+        return "everything"
+    return "normal"
+
+
+_ORDINAL_COUNT_WORD = {1: "One category is", 2: "Two categories are", 3: "Three categories are"}
+
+
+def _join_names(names: list[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def build_reading(
+    state: str, *, days_elapsed: int, qualifying: list[dict],
+    majority: list[dict], total_excess: float, unresolved_total: float = 0.0,
+) -> str:
+    """Deterministic template string per state — real counts/amounts from
+    real data, causal clauses hedged ("mostly"), never "because" (no
+    causation is asserted, only correlation of biggest contributor).
+
+    "Nothing unusual" / "Everything else looks normal" are only ever said
+    about categories that actually earn them: a real baseline AND a multiple
+    that isn't itself materially elevated. A majority category that has no
+    baseline yet, or one that only avoided "notable" status by missing the
+    pound-threshold gate, is named and hedged instead of swept silently into
+    the blanket claim (ENGINE.md Traceability — no manufactured reassurance).
+    """
+    majority_count = len(majority)
+    elevated = [m["category"] for m in majority if m.get("elevated")]
+    no_baseline = [m["category"] for m in majority if not m.get("has_baseline", True)]
+
+    if state == "early":
+        return f"{days_elapsed} day{'s' if days_elapsed != 1 else ''} in — too soon to compare against usual."
+    if state == "nobaseline":
+        return (
+            "Still learning your usual — I need about two full pay periods "
+            "before I can compare. Here's where this period's money went so far."
+        )
+    if state == "nothing":
+        if majority_count == 0:
+            if unresolved_total > 0:
+                return "No spend categories to compare yet this period — everything so far is still unreviewed."
+            return "No spending logged for this period yet."
+        base = (
+            f"Nothing unusual to report — all {majority_count} "
+            f"categor{'y' if majority_count == 1 else 'ies'} "
+            f"{'is' if majority_count == 1 else 'are'} running close to usual."
+        )
+        if not elevated and not no_baseline:
+            return base
+        notes = []
+        if elevated:
+            notes.append(f"{_join_names(elevated)} ran hotter than usual, just not by much yet")
+        if no_baseline:
+            notes.append(f"I don't have a usual yet for {_join_names(no_baseline)}")
+        return "Nothing crossed the line this period. " + " ".join(f"{n[0].upper()}{n[1:]}." for n in notes)
+    if state == "everything":
+        return (
+            f"Spending is running high across the board — about "
+            f"£{round(total_excess):,} more than a typical {days_elapsed} days in. "
+            f"The three biggest are below."
+        )
+    # normal
+    n = len(qualifying)
+    word = _ORDINAL_COUNT_WORD.get(n, f"{n} categories are")
+    top_name = qualifying[0]["category"] if qualifying else ""
+    tail = "Everything else looks normal."
+    if elevated or no_baseline:
+        notes = []
+        if elevated:
+            notes.append(f"{_join_names(elevated)} also ran hot, just in smaller amounts")
+        if no_baseline:
+            notes.append(f"still building a usual for {_join_names(no_baseline)}")
+        joined = "; ".join(notes)
+        tail = f"{joined[0].upper()}{joined[1:]}."
+    return f"{word} running above your usual pace — mostly {top_name}. {tail}"
+
+
+def assemble_verdict(
+    *,
+    cat_agg: dict[str, dict],
+    moved_groups: dict[str, dict],
+    income_total: float,
+    signals: dict[str, dict],
+    days_elapsed: int,
+    thin_history: bool,
+    goal_names: list[str],
+    period: dict,
+    dismissed_unresolved_ids: frozenset[str] | set[str] = frozenset(),
+) -> dict:
+    """Pure assembly — no I/O. The seam every unit test drives.
+
+    `dismissed_unresolved_ids` — transaction ids the user has already tapped
+    "Not now" on (persisted, fetched by the orchestrator below). A dismissal
+    only suppresses the ASK CARD for that exact transaction; the quiet
+    unresolved whisper (total, still counted in Out) keeps showing — the Ask
+    Budget Rule governs asking, never whether the total is shown.
+    """
+    other_row = cat_agg.get("Other")
+    spend_total = sum(row["spent"] for row in cat_agg.values())
+    unresolved = build_unresolved(other_row, total_out=spend_total)
+    largest = unresolved.get("largest")
+    if largest and largest["id"] in dismissed_unresolved_ids:
+        unresolved["ask_worthy"] = False
+
+    notables, quiet_flags, majority = build_notables_and_majority(cat_agg, signals, days_elapsed)
+
+    qualifying_count = len(notables) + len(quiet_flags)
+    state = determine_state(days_elapsed, thin_history, qualifying_count)
+
+    total_excess = sum(n["excess"] for n in notables) + sum(q["excess"] for q in quiet_flags)
+    reading = build_reading(
+        state,
+        days_elapsed=days_elapsed,
+        qualifying=notables + quiet_flags,
+        majority=majority,
+        total_excess=total_excess,
+        unresolved_total=unresolved["total"],
+    )
+
+    moved = build_moved(moved_groups, goal_names)
+
+    pills = {
+        "spent":  round(spend_total, 2),
+        "income": round(income_total, 2),
+        "net":    round(income_total - spend_total, 2),
+    }
+
+    # In "early"/"nobaseline" states no category can qualify (multiple is
+    # always None there — see pace.py's suppress_multiple/thin_history gate),
+    # so notables/quiet_flags are structurally empty; the majority list still
+    # carries every real spend category so the UI has rows to render.
+    return {
+        "state":       state,
+        "reading":     reading,
+        "notables":    notables,
+        "quiet_flags": quiet_flags,
+        "majority":    majority,
+        "unresolved":  unresolved,
+        "moved":       moved,
+        "pills":       pills,
+        "period":      period,
+    }
+
+
+# ── I/O orchestrator ──────────────────────────────────────────────────────
+
+async def _active_goal_names(uid: str) -> list[str]:
+    """Distinct active-goal names, oldest-goal-first, via a read-only reuse of
+    `compute_pot_ledger` (itself built on `_doc_pots`) — never a second,
+    bespoke commitments query. Failure-tolerant: a commitments hiccup must
+    never take down the whole verdict."""
+    try:
+        from app.routers.commitments import compute_pot_ledger
+        ledger = await compute_pot_ledger(uid)
+        names: list[str] = []
+        seen: set[str] = set()
+        for acc in ledger.get("accounts", {}).values():
+            for claim in acc.get("claimed_by", []):
+                name = claim.get("name")
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        return names
+    except Exception:
+        logger.exception("spend_verdict: pot-ledger goal-name lookup failed for %s", uid)
+        return []
+
+
+async def _dismissed_unresolved_ids(uid: str) -> set[str]:
+    """Transaction ids whose unresolved-merchant ask the user has already
+    dismissed ("Not now") — persisted the same way the miscategorised
+    guardrail persists its dismissal (`dismiss_miscategorised`,
+    `analytics.py`): an `$addToSet` array on the user's preferences doc.
+    Failure-tolerant, same rationale as `_active_goal_names`."""
+    try:
+        prefs = await preferences_col.find_one({"user_id": uid}, {"dismissed_unresolved_asks": 1}) or {}
+        return set(prefs.get("dismissed_unresolved_asks") or [])
+    except Exception:
+        logger.exception("spend_verdict: dismissed-unresolved lookup failed for %s", uid)
+        return set()
+
+
+async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
+    """The GET /spend/verdict payload. ONE kind-map fetch, ONE pot-ledger
+    computation, ONE period transaction fetch."""
+    kind_map = await get_category_kinds(uid)
+
+    signals_result = await compute_category_signals(uid, offset=offset, kind_map=kind_map)
+    period = signals_result["period"]
+    signals = signals_result["signals"]
+
+    start = date.fromisoformat(period["start"])
+    end = date.fromisoformat(period["end"])
+
+    txns = await _load_period_txns(uid, start, end)
+    cat_agg, moved_groups, income_total = bucket_transactions(txns, kind_map)
+
+    goal_names = await _active_goal_names(uid)
+    dismissed_unresolved_ids = await _dismissed_unresolved_ids(uid)
+
+    return assemble_verdict(
+        cat_agg=cat_agg,
+        moved_groups=moved_groups,
+        income_total=income_total,
+        signals=signals,
+        days_elapsed=period["days_elapsed"],
+        thin_history=period["thin_history"],
+        goal_names=goal_names,
+        period=period,
+        dismissed_unresolved_ids=dismissed_unresolved_ids,
+    )
