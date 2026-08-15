@@ -1224,7 +1224,7 @@ export default function InsightsPage() {
   })();
 
   return (
-    <div className="min-h-dvh pb-36 max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] max-w-[430px] mx-auto lg:max-w-6xl lg:pb-10" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — compact, one primary stat max. */}
       {loading ? (
         <div className="mx-4 mt-4 rounded-3xl h-[120px] bg-slate-200 dark:bg-slate-800 animate-pulse" />

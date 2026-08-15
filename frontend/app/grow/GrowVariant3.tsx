@@ -320,7 +320,7 @@ export default function GrowVariant3() {
   const bufferPct = grow ? Math.max(0, Math.min(100, grow.buffer.pct)) : 0;
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Back nav */}
         <button

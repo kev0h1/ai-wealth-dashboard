@@ -713,7 +713,7 @@ export default function DebtPlanPage() {
   const riseTransferRoutesIdx = showTransferRoutes ? riseIdx++ : 0;
 
   return (
-    <div className="min-h-dvh pb-36 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto">
         {/* Back nav */}
         <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
