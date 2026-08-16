@@ -1900,7 +1900,7 @@ export default function AccountsPage() {
               type="button"
               onClick={() => openCardTermsAt(selectedAccount.id)}
               aria-label={`${termsPill.label} — edit this card's rates`}
-              className="mt-2 inline-flex items-center min-h-[28px] active:opacity-70 transition-opacity"
+              className="relative mt-2 inline-flex items-center min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
             >
               <span
                 className={`text-[11px] font-semibold px-2.5 py-1 rounded-full num ${
@@ -1916,7 +1916,7 @@ export default function AccountsPage() {
             <button
               type="button"
               onClick={() => openCardTermsAt(selectedAccount.id)}
-              className="mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+              className="relative mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
             >
               <Percent size={11} aria-hidden="true" />
               Add rates
@@ -1985,7 +1985,7 @@ export default function AccountsPage() {
                 type="button"
                 onClick={() => { setDetailCatFilter(null); setPage(1); }}
                 aria-label={`Remove ${detailCatFilter.name} filter`}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full min-h-[28px]"
+                className="relative inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-['']"
                 style={{ backgroundColor: `${getCategoryColour(detailCatFilter.name, colours)}1f`, color: getCategoryColour(detailCatFilter.name, colours) }}
               >
                 {detailCatFilter.name}
