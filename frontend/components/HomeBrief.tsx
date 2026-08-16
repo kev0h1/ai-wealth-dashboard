@@ -3,10 +3,10 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight, Settings } from "lucide-react";
+import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight, UserRound } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
-import TutorialTrigger from "@/components/TutorialTrigger";
+import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
@@ -819,7 +819,22 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
 
 export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget }: HomeBriefProps) {
   const router = useRouter();
+  const { user } = useAuth();
   const name = firstName || "there";
+
+  // Avatar initials — derived from the full account name (not just firstName),
+  // up to two initials from the first two words. Falls back to a generic
+  // person icon when there's no name to work with yet.
+  const avatarInitials = (() => {
+    const full = user?.name?.trim();
+    if (!full) return null;
+    const words = full.split(/\s+/).filter(Boolean);
+    const initials = words
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? "")
+      .join("");
+    return initials || null;
+  })();
 
   // Hydration guard: render a neutral greeting on first paint to avoid SSR/client
   // mismatch from new Date().getHours(), then swap to the time-aware version after mount.
@@ -897,30 +912,31 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
   return (
     <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
       {/* Header row */}
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">{greeting}</h1>
-        <div className="flex items-center gap-2">
-          <TutorialTrigger variant="dark-on-white" />
-          {/* Settings — relocated off the bottom nav (Nav A redesign dropped
-              the 5th tab); this top-right gear on Home is now the primary
-              mobile entry point to /settings. Tutorial hook moves with it. */}
-          <Link
-            href="/settings"
-            data-tutorial-id="tutorial-nav-settings"
-            aria-label="Settings"
-            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <Settings size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
-          </Link>
-          <button
-            onClick={onSync}
-            disabled={syncing}
-            aria-label={syncing ? "Syncing…" : "Sync accounts"}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
+      <div className="flex items-center gap-2 mb-3">
+        {/* Avatar — relocated off the bottom nav (Nav A redesign dropped the
+            5th tab); this top-left avatar on Home is now the primary mobile
+            entry point to /settings. Visible circle is 36px but the tap
+            target is padded out to the 44px HIG minimum. */}
+        <Link
+          href="/settings"
+          aria-label="Account and settings"
+          className="lg:hidden shrink-0 -ml-1 w-11 h-11 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="w-9 h-9 flex items-center justify-center rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[13px] font-semibold">
+            {avatarInitials ?? <UserRound size={16} aria-hidden="true" />}
+          </span>
+        </Link>
+        <h1 className="flex-1 min-w-0 truncate text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">{greeting}</h1>
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          aria-label={syncing ? "Syncing…" : "Sync accounts"}
+          className="shrink-0 -mr-1 w-11 h-11 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="w-9 h-9 flex items-center justify-center rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700">
             <RefreshCw size={14} aria-hidden="true" className={`text-slate-500 dark:text-slate-400 ${syncing ? "animate-spin" : ""}`} />
-          </button>
-        </div>
+          </span>
+        </button>
       </div>
 
       {/* Brief body */}

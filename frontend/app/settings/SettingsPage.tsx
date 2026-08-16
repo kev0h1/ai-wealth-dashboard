@@ -1,7 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RotateCcw, LogOut, Loader2, AlertCircle, Bell, BellOff, ChevronRight, ChevronDown } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  RotateCcw,
+  LogOut,
+  Loader2,
+  AlertCircle,
+  Bell,
+  BellOff,
+  ChevronRight,
+  ChevronDown,
+  Moon,
+  Wallet,
+  Landmark,
+  ShieldCheck,
+  Database,
+  UserRound,
+  HelpCircle,
+  AlertTriangle,
+} from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
@@ -14,16 +32,76 @@ import {
   setLockEnabled as setBiometricLockEnabled,
 } from "@/lib/biometrics";
 import BottomNav from "@/components/BottomNav";
-import TutorialTrigger from "@/components/TutorialTrigger";
+import { useTutorial } from "@/components/TutorialContext";
 import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { useRouter } from "next/navigation";
 
+const INDIGO = "#4f46e5";
+const EMERALD = "#10b981";
+const AMBER = "#f59e0b";
+const RED = "#ef4444";
+
+const SECTION_ACCOUNTS = "settings-accounts";
+const SECTION_SECURITY = "settings-security";
+
+function jumpTo(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+}
+
+// ~15%-alpha tinted icon chip — the Category Voice Rule (DESIGN.md): colour
+// as a tinted chip + full-strength icon, never a flooded surface.
+function IconChip({ icon: Icon, hex }: { icon: LucideIcon; hex: string }) {
+  return (
+    <span
+      className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+      style={{ background: `${hex}26` }}
+      aria-hidden="true"
+    >
+      <Icon size={16} style={{ color: hex }} />
+    </span>
+  );
+}
+
+function SectionHeader({
+  icon,
+  hex,
+  title,
+  subtitle,
+}: {
+  icon: LucideIcon;
+  hex: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-start gap-2.5">
+      <IconChip icon={icon} hex={hex} />
+      <div className="min-w-0 pt-0.5">
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">{title}</p>
+        {subtitle && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
+function deriveInitials(name: string | undefined): string {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return "";
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 1) return words[0].charAt(0).toUpperCase();
+  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { darkMode, setDarkMode, rawPrefs } = usePreferences();
+  const { start: startTutorial } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [syncHistoryMsg, setSyncHistoryMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -103,6 +181,7 @@ export default function SettingsPage() {
 
   // Cover-plan source accounts
   const [coverAccounts, setCoverAccounts] = useState<Account[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [coverOpen, setCoverOpen] = useState(false);
   useEffect(() => {
@@ -114,7 +193,10 @@ export default function SettingsPage() {
         return true;
       });
       setCoverAccounts(eligible);
-    }).catch(() => {});
+      setAccountsLoaded(true);
+    }).catch(() => {
+      setAccountsLoaded(true);
+    });
   }, []);
   useEffect(() => {
     if (rawPrefs === null) return;
@@ -335,25 +417,72 @@ export default function SettingsPage() {
     </div>
   );
 
+  const initials = deriveInitials(user?.name);
+  const bioLabel = bioState?.enabled ? "Face ID on" : "Face ID off";
+
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">CUSTOMISE YOUR DASHBOARD</p>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
+      </div>
+
+      <div className="px-4 pt-4">
+        {/* ── Account identity hero ── */}
+        <div className="glass-hero rounded-3xl p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <span
+              className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-base font-bold bg-indigo-500/15 dark:bg-indigo-400/20 text-indigo-600 dark:text-indigo-300"
+              aria-hidden="true"
+            >
+              {initials || <UserRound size={20} />}
+            </span>
+            <div className="min-w-0">
+              <p className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">{user?.name || "—"}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email}</p>
+            </div>
           </div>
-          <TutorialTrigger />
+
+          {(accountsLoaded || bioState?.supported) && (
+            <div className={`grid gap-2 ${accountsLoaded && bioState?.supported ? "grid-cols-2" : "grid-cols-1"}`}>
+              {accountsLoaded && (
+                <button
+                  type="button"
+                  onClick={() => jumpTo(SECTION_ACCOUNTS)}
+                  aria-label={`${coverAccounts.length} accounts connected — jump to Where money can come from`}
+                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Accounts</p>
+                  <p className="text-[13px] font-bold text-slate-900 dark:text-slate-100 mt-1 leading-tight">
+                    {coverAccounts.length} connected
+                  </p>
+                </button>
+              )}
+              {bioState?.supported && (
+                <button
+                  type="button"
+                  onClick={() => jumpTo(SECTION_SECURITY)}
+                  aria-label={`${bioLabel} — jump to Security`}
+                  className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</p>
+                  <p
+                    className="text-[13px] font-bold mt-1 leading-tight"
+                    style={{ color: bioState.enabled ? EMERALD : AMBER }}
+                  >
+                    {bioLabel}
+                  </p>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="px-4 pt-4 space-y-3">
+      <div className="px-4 pt-3 space-y-3">
 
         {/* ── Display ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Display</p>
-          </div>
+          <SectionHeader icon={Moon} hex={INDIGO} title="Display" />
           <div className="flex items-center justify-between px-4 py-3.5">
             <div>
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Dark Mode</p>
@@ -369,9 +498,7 @@ export default function SettingsPage() {
 
         {/* ── Notifications ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Notifications</p>
-          </div>
+          <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
               isNativePlatform() ? (
@@ -484,14 +611,15 @@ export default function SettingsPage() {
             : `${allowedCount} of ${total} ${total === 1 ? "account" : "accounts"}`;
           const bodyId = "cover-accounts-body";
           return (
-            <div className="glass-card rounded-2xl overflow-hidden">
+            <div id={SECTION_ACCOUNTS} className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
               <button
                 type="button"
                 aria-expanded={coverOpen}
                 aria-controls={bodyId}
                 onClick={() => setCoverOpen(o => !o)}
-                className={`w-full text-left flex items-center gap-3 px-4 py-3 active:opacity-70${coverOpen ? " border-b border-slate-100 dark:border-slate-700" : ""}`}
+                className={`w-full text-left flex items-center gap-3 px-4 py-3 min-h-[44px] active:opacity-70${coverOpen ? " border-b border-slate-100 dark:border-slate-700" : ""}`}
               >
+                <IconChip icon={Wallet} hex={INDIGO} />
                 <span className="flex-1 min-w-0">
                   <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Where money can come from</span>
                   <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 mt-0.5">{summaryText}</span>
@@ -543,10 +671,12 @@ export default function SettingsPage() {
 
         {/* ── Financial profile ── */}
         <div data-tutorial-id="tutorial-income" className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Financial profile</p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Self-declared — unlocks personalised tax insights</p>
-          </div>
+          <SectionHeader
+            icon={Landmark}
+            hex={INDIGO}
+            title="Financial profile"
+            subtitle="Self-declared — unlocks personalised tax insights"
+          />
 
           <div className="px-4 py-3.5">
                 <label htmlFor="settings-income" className="text-sm font-medium text-slate-800 dark:text-slate-100 block mb-1">
@@ -622,10 +752,8 @@ export default function SettingsPage() {
 
         {/* ── Security (app shell only) ── */}
         {bioState?.supported && (
-          <div className="glass-card rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Security</p>
-            </div>
+          <div id={SECTION_SECURITY} className="glass-card rounded-2xl overflow-hidden scroll-mt-4">
+            <SectionHeader icon={ShieldCheck} hex={EMERALD} title="Security" />
             <div className="flex items-center justify-between px-4 py-3.5">
               <div>
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Biometric unlock</p>
@@ -642,16 +770,14 @@ export default function SettingsPage() {
 
         {/* ── Data ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Data</p>
-          </div>
+          <SectionHeader icon={Database} hex={INDIGO} title="Data" />
           <div className="px-4 py-3.5">
             <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Sync all history</p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 mb-3">Re-fetch the last 90 days from all connected banks.</p>
             <button
               onClick={handleSyncHistory}
               disabled={syncingHistory}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+              className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
             >
               <RotateCcw size={14} className={syncingHistory ? "animate-spin" : ""} />
               {syncingHistory ? "Syncing…" : "Sync history (90 days)"}
@@ -664,9 +790,12 @@ export default function SettingsPage() {
 
         {/* ── Account ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Account</p>
-            {user?.email && <p className="text-xs text-slate-500 dark:text-slate-400">{user.email}</p>}
+          <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 flex items-start gap-2.5">
+            <IconChip icon={UserRound} hex={INDIGO} />
+            <div className="min-w-0 pt-0.5">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Account</p>
+              {user?.email && <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.email}</p>}
+            </div>
           </div>
 
           {/* Profile — full name feeds transfer categorisation, postcode feeds fuel prices */}
@@ -709,23 +838,42 @@ export default function SettingsPage() {
 
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
+            className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3.5 text-left text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 transition-colors"
           >
             <LogOut size={16} />
             <span className="text-sm font-medium">Sign out</span>
           </button>
         </div>
 
+        {/* ── Help ── */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
+          <button
+            type="button"
+            onClick={startTutorial}
+            className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 text-left active:opacity-70 transition-opacity"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">How Sorted works</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">A quick tour of Penny and the loop</span>
+            </span>
+            <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+          </button>
+        </div>
+
         {/* ── Danger zone ── */}
         <div className="glass-card rounded-2xl overflow-hidden border border-red-100 dark:border-red-900/40">
-          <div className="px-4 py-3">
-            <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-1">Danger zone</p>
-            <button
-              onClick={() => setDeleteOpen(true)}
-              className="px-4 py-2.5 text-sm font-medium text-red-500 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 active:bg-red-100 transition-colors"
-            >
-              Delete account &amp; all data…
-            </button>
+          <div className="px-4 py-3 flex items-start gap-2.5">
+            <IconChip icon={AlertTriangle} hex={RED} />
+            <div className="min-w-0 pt-0.5">
+              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wide mb-1">Danger zone</p>
+              <button
+                onClick={() => setDeleteOpen(true)}
+                className="min-h-[44px] px-4 py-2.5 -ml-4 text-sm font-medium text-red-500 dark:text-red-400 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 active:bg-red-100 transition-colors"
+              >
+                Delete account &amp; all data…
+              </button>
+            </div>
           </div>
         </div>
 
