@@ -135,9 +135,15 @@ async def get_transactions(
 
 
 @router.get("/accounts/{account_id}/categories")
-async def get_account_categories(account_id: str, days: int = 90, user: dict = Depends(current_user)):
-    """Spend-by-category rollup for one account (debits only), aggregated in
-    Mongo so the client never needs the full transaction set."""
+async def get_account_categories(
+    account_id: str, days: int = 90, txn_type: str = "debit", user: dict = Depends(current_user),
+):
+    """Category rollup for one account, aggregated in Mongo so the client
+    never needs the full transaction set. Defaults to debits (spend) so
+    every existing caller is unchanged; pass txn_type=credit for the
+    "money in" side (refunds, card payments, incoming transfers, etc.)."""
+    if txn_type not in ("debit", "credit"):
+        raise HTTPException(status_code=400, detail="txn_type must be 'debit' or 'credit'")
     uid    = user["email"]
     col    = await _txn_source(account_id, uid)
     cutoff = datetime.now() - timedelta(days=days)
@@ -147,7 +153,7 @@ async def get_account_categories(account_id: str, days: int = 90, user: dict = D
     ], "default": "Other"}}
     rows = await col.aggregate([
         {"$match": {"account_id": account_id, "user_id": uid,
-                    "transaction_type": "debit", "date": {"$gte": cutoff}}},
+                    "transaction_type": txn_type, "date": {"$gte": cutoff}}},
         {"$group": {"_id": effective,
                     "total": {"$sum": {"$abs": "$amount"}},
                     "count": {"$sum": 1}}},

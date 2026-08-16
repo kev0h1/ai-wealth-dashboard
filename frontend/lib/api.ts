@@ -1189,8 +1189,8 @@ export const api = {
     const qs = p.toString();
     return get<PagedTransactions>(`/accounts/${accountId}/transactions${qs ? `?${qs}` : ""}`);
   },
-  accountCategories: (accountId: string) =>
-    get<AccountCategorySummary[]>(`/accounts/${accountId}/categories`),
+  accountCategories: (accountId: string, txnType?: "debit" | "credit") =>
+    get<AccountCategorySummary[]>(`/accounts/${accountId}/categories${txnType ? `?txn_type=${txnType}` : ""}`),
   kpis: () => get<KPIs>("/kpis"),
   safeToSpend: (opts?: { series?: boolean }) => get<SafeToSpend>(`/safe-to-spend${opts?.series ? "?include=series" : ""}`),
   paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),

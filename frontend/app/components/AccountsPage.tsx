@@ -2,15 +2,16 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
-import AccountMiniCard, { BANK_META, accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
+import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
+import AccountLedgerRow from "@/components/AccountLedgerRow";
+import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
+import { accountKind, accountKindLabel } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import TransactionRow from "@/components/TransactionRow";
-import TransactionSheet from "@/components/TransactionSheet";
-import { CategoryData } from "@/components/CategoryRow";
-import CategorySheet from "@/components/CategorySheet";
+import TeachingSheet from "@/components/TeachingSheet";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -27,12 +28,6 @@ import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
 
-function isCreditAccount(acc: { type?: string; subtype?: string | null }): boolean {
-  const t = (acc.type ?? "").toLowerCase();
-  const s = (acc.subtype ?? "").toLowerCase();
-  return t.includes("credit") || s.includes("credit");
-}
-
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
 function AddMenuItem({
@@ -45,7 +40,7 @@ function AddMenuItem({
       data-tutorial-id={tutorialId}
       onClick={onClick}
       disabled={disabled}
-      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-left text-slate-700 dark:text-slate-200 active:bg-slate-50 dark:active:bg-slate-600 disabled:opacity-50"
+      className="w-full min-h-[44px] flex items-center gap-2.5 px-3.5 py-3 text-sm font-medium text-left text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-white/5 active:bg-slate-100 dark:active:bg-white/10 disabled:opacity-50"
     >
       {icon}
       {label}
@@ -204,7 +199,6 @@ export default function AccountsPage() {
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [loadingTxns, setLoadingTxns] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [tab, setTab] = useState<"Banks" | "Investments">(
@@ -233,6 +227,9 @@ export default function AccountsPage() {
   const [deletingNote, setDeletingNote] = useState<string | null>(null);
   const [confirmDeleteNote, setConfirmDeleteNote] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({});
+  // "How this account stays current" explainer — answer first, evidence
+  // second: collapsed by default behind a small ⓘ toggle per account.
+  const [howItWorksOpen, setHowItWorksOpen] = useState<Record<string, boolean>>({});
   const [showNoteUploadFor, setShowNoteUploadFor] = useState<string | null>(null);
   const [noteFile, setNoteFile] = useState<File | null>(null);
   const [notePassword, setNotePassword] = useState("");
@@ -367,15 +364,22 @@ export default function AccountsPage() {
   // Transaction search (server-side for bank accounts, debounced)
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Category filter chip on the Transactions tab — set from a Categories-tab
+  // row tap (switches segment + scopes the fetch). Direction-aware: a
+  // "Spending" row scopes to debit, a "Money in" row scopes to credit, so
+  // card payments / refunds are reachable the same way spend categories are.
+  const [detailCatFilter, setDetailCatFilter] = useState<{ name: string; txnType: "debit" | "credit" } | null>(null);
 
   // Server-paginated transactions for the selected bank account
   const [serverTxns, setServerTxns] = useState<Transaction[]>([]);
   const [serverPages, setServerPages] = useState(1);
   const [refreshTick, setRefreshTick] = useState(0);
 
-  // Server-aggregated category rollup + lazily-fetched per-category txns
+  // Server-aggregated category rollups for the Categories tab — debit
+  // (spend, default) and credit ("money in": card payments, refunds,
+  // incoming transfers) fetched side by side.
   const [catSummaries, setCatSummaries] = useState<AccountCategorySummary[] | null>(null);
-  const [catTxns, setCatTxns] = useState<Record<string, Transaction[]>>({});
+  const [catSummariesCredit, setCatSummariesCredit] = useState<AccountCategorySummary[] | null>(null);
 
   // Swipe between transaction pages
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
@@ -648,13 +652,13 @@ export default function AccountsPage() {
     setSegment("Transactions");
     setDetailSegment("Transactions");
     setPage(1);
-    setExpandedCat(null);
+    setDetailCatFilter(null);
     setSearchQuery("");
     setDebouncedQuery("");
     setServerTxns([]);
     setServerPages(1);
     setCatSummaries(null);
-    setCatTxns({});
+    setCatSummariesCredit(null);
     if (acc.manual) {
       await loadAccountTxns(acc.id);
     } else {
@@ -672,8 +676,14 @@ export default function AccountsPage() {
     let cancelled = false;
     (async () => {
       try {
+        // When scoped to a Categories-tab filter, match the rollup's own
+        // window exactly (last 90 days, same direction) — GET
+        // /accounts/{id}/categories aggregates on those same terms, so an
+        // unscoped fetch here would show a different (all-time, wrong
+        // direction) set than the count/total the chip was opened from.
         const r = await api.transactions(selectedAccountId, {
-          page, q: debouncedQuery || undefined,
+          page, q: debouncedQuery || undefined, category: detailCatFilter?.name || undefined,
+          ...(detailCatFilter ? { days: 90, txnType: detailCatFilter.txnType } : {}),
         });
         if (cancelled) return;
         setServerTxns(r.items);
@@ -685,9 +695,10 @@ export default function AccountsPage() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccountId, page, debouncedQuery, refreshTick, accounts]);
+  }, [selectedAccountId, page, debouncedQuery, detailCatFilter, refreshTick, accounts]);
 
-  // Category rollup is fetched lazily, first time the Categories tab opens
+  // Category rollups (spend + money-in) are fetched lazily, first time the
+  // Categories tab opens — both sides of the same 90-day window.
   useEffect(() => {
     if (!selectedAccountId || segment !== "Categories" || catSummaries !== null) return;
     const acc = accounts.find(a => a.id === selectedAccountId);
@@ -695,21 +706,11 @@ export default function AccountsPage() {
     api.accountCategories(selectedAccountId)
       .then(setCatSummaries)
       .catch(() => setCatSummaries([]));
+    api.accountCategories(selectedAccountId, "credit")
+      .then(setCatSummariesCredit)
+      .catch(() => setCatSummariesCredit([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, segment, catSummaries, accounts]);
-
-  async function openCategorySheet(name: string) {
-    setExpandedCat(name);
-    if (!catTxns[name] && selectedAccountId) {
-      try {
-        // Same 90-day debit-only window as the rollup, so counts and rows agree
-        const r = await api.transactions(selectedAccountId, {
-          category: name, pageSize: 100, days: 90, txnType: "debit",
-        });
-        setCatTxns(prev => ({ ...prev, [name]: r.items }));
-      } catch {}
-    }
-  }
 
   function handleBack() {
     if (window.history.state?.accountDetail) {
@@ -1123,18 +1124,57 @@ export default function AccountsPage() {
   // own editable section, so keep them out of the connected-bank list.
   const bankAccounts = accounts.filter(a => !a.manual);
 
-  // Unique providers with expired connections
-  const expiredProviders = useMemo(() => {
-    const seen = new Set<string>();
-    const result: { provider: string; provider_id?: string }[] = [];
-    for (const a of accounts) {
-      if (a.status === "expired" && !seen.has(a.provider)) {
-        seen.add(a.provider);
-        result.push({ provider: a.provider, provider_id: a.provider_id });
-      }
+  // Navigable ledger-rows estate (Wave 2) — combines bank + investment
+  // accounts into one normalized list for the Banks-tab view. Replaces the
+  // old separate bank-grid + per-provider "expired" banner: attention
+  // (expired) and inactive (dormant £0) are now derived from the estate
+  // itself, see accountsEstate.ts.
+  const estate = useMemo(
+    () => buildEstate(bankAccounts, investmentAccounts, pinnedIds),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [accounts, investmentAccounts, pinnedIds]
+  );
+  const [estateQuery, setEstateQuery] = useState("");
+  const [estateLens, setEstateLens] = useState<EstateLens>("All");
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [inactiveOpen, setInactiveOpen] = useState(false);
+  const estateIsFiltering = estateQuery.trim().length > 0 || estateLens !== "All";
+  const estateFilteredRows = useMemo(
+    () => (estateIsFiltering ? filterEstate(estate.rows, { query: estateQuery, lens: estateLens }) : []),
+    [estate.rows, estateQuery, estateLens, estateIsFiltering]
+  );
+  // An account that's both expired AND £0 belongs only in Attention — don't
+  // also show it in the collapsed Inactive bucket underneath.
+  const inactiveRows = useMemo(
+    () => estate.inactive.filter(r => !estate.attention.some(a => a.id === r.id)),
+    [estate.inactive, estate.attention]
+  );
+  function toggleEstateGroup(label: string) {
+    setCollapsedGroups(c => ({ ...c, [label]: !c[label] }));
+  }
+  function handleEstateRowClick(row: EstateRow) {
+    if (row.source === "investment") {
+      setTab("Investments");
+      handleToggleInvestment(row.id);
+      window.scrollTo(0, 0);
+    } else {
+      handleSelectAccount(row.raw as Account);
     }
-    return result;
-  }, [accounts]);
+  }
+
+  /** Credit-row terms-pill props (confirmed APR/promo pill, or a quiet "Add
+   *  rates" affordance) — same entry point AccountMiniCard used to expose,
+   *  carried over onto the ledger rows so it isn't lost in the redesign. */
+  function estateTermsProps(row: EstateRow) {
+    if (row.kind !== "Credit" || row.source !== "bank") return {};
+    const termsCard = cardTermsByAccount[row.id];
+    const pill = termsPillFor(termsCard);
+    return {
+      termsPill: pill,
+      onTermsClick: pill ? () => openCardTermsAt(row.id) : undefined,
+      onAddRates: !pill && termsCard ? () => openCardTermsAt(row.id) : undefined,
+    };
+  }
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
     const apply = (t: Transaction) =>
@@ -1142,9 +1182,9 @@ export default function AccountsPage() {
         ? { ...t, category: updated.category }
         : t;
     setServerTxns(prev => prev.map(apply));
-    // Category totals shifted — drop the rollup so it refetches on next view
+    // Category totals shifted — drop both rollups so they refetch on next view
     setCatSummaries(null);
-    setCatTxns({});
+    setCatSummariesCredit(null);
   }
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
@@ -1170,10 +1210,8 @@ export default function AccountsPage() {
     ? filteredTxns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
     : serverTxns;
 
-  // Categories: server rollup + lazily-fetched transactions per category
-  const categories = useMemo((): CategoryData[] =>
-    (catSummaries ?? []).map(c => ({ ...c, transactions: catTxns[c.name] ?? [] })),
-  [catSummaries, catTxns]);
+  // Categories: server rollup for the account's Categories tab card grid.
+  const categories = catSummaries ?? [];
 
   // Rules added from within an offline account are scoped to it (no picker).
   const inManualDetail = !!accounts.find(a => a.id === selectedAccountId)?.manual;
@@ -1703,54 +1741,108 @@ export default function AccountsPage() {
 
   // --- Account detail view ---
   if (selectedAccount) {
-    const isCredit = selectedAccount.type.toLowerCase().includes("credit");
+    const isCredit = accountKind(selectedAccount) === "Credit";
     const balance = selectedAccount.balance;
     const isManual = !!selectedAccount.manual;
     const isStatement = selectedAccount.id.startsWith("statement-");
+    const isExpired = selectedAccount.status === "expired";
     const manualAcc = manualAccounts.find(m => m.id === selectedAccount.id);
     const accountRules = rules.filter(r => r.target_account_id === selectedAccount.id);
     const showTransactions = isManual ? detailSegment === "Transactions" : segment === "Transactions";
     // Use the shared brand resolver so Finexer accounts (logo_url/bg_colors) get
-    // the same branding as the card, and TrueLayer accounts fall through to BANK_META.
+    // the same branding as the card, and TrueLayer accounts fall through to accountBrand's own defaults.
     const brand = accountBrand(selectedAccount);
-    const isSavings = selectedAccount.type.toLowerCase().includes("saving") || (selectedAccount.subtype ?? "").toLowerCase().includes("saving");
+    const isPinned = pinnedIds.includes(selectedAccount.id);
+    const termsCard = cardTermsByAccount[selectedAccount.id];
+    const termsPill = termsPillFor(termsCard);
+
+    // Categories tab — one row-panel renderer shared by the "Spending"
+    // (debit) and "Money in" (credit) sections so card payments/refunds
+    // are reachable the same way spend categories are, without duplicating
+    // the row markup for each direction.
+    function renderCategoryRows(rows: AccountCategorySummary[], txnType: "debit" | "credit") {
+      return (
+        <div className="glass-card rounded-2xl overflow-hidden">
+          {[...rows].sort((a, b) => b.total - a.total).map((cat, idx) => {
+            const colour = getCategoryColour(cat.name, colours);
+            const Icon = getCategoryIcon(cat.name, iconOverrides);
+            return (
+              <button
+                key={cat.name}
+                type="button"
+                onClick={() => {
+                  setDetailCatFilter({ name: cat.name, txnType });
+                  setPage(1);
+                  setSegment("Transactions");
+                }}
+                className={`w-full flex items-center gap-3 px-4 min-h-[56px] text-left active:bg-slate-50 dark:active:bg-white/5 transition-colors ${idx > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}
+              >
+                <span
+                  className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: `${colour}26` }}
+                >
+                  <Icon size={16} style={{ color: colour }} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 truncate">{cat.name}</p>
+                  <p className="text-[12.5px] text-slate-400 dark:text-slate-500 mt-0.5">{cat.count} payment{cat.count !== 1 ? "s" : ""}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[15px] font-bold num tabular-nums text-slate-900 dark:text-slate-100">
+                    £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" aria-hidden="true" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      );
+    }
 
     return (
       <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-        {/* Header */}
+        {/* Header — mini statement: back + compact icon actions, reconnect
+            banner only when genuinely expired, then balance-forward block. */}
         <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-card">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-2">
             <button
               onClick={handleBack}
-              className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+              className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors min-h-[44px] shrink-0"
             >
               <ArrowLeft size={18} />
               <span className="text-sm font-medium">Accounts</span>
             </button>
-            <div className="flex items-center gap-2">
-              {isManual ? (
+            <div className="flex items-center gap-1 shrink-0">
+              {isManual && (
                 <button
                   onClick={() => manualAcc && openEditManual(manualAcc)}
-                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+                  aria-label="Edit account"
+                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
                 >
-                  <Pencil size={13} />
-                  Edit
+                  <Pencil size={16} />
                 </button>
-              ) : isStatement ? (
+              )}
+              {isStatement && (
                 <button
                   onClick={() => setShowMpesaUpload(true)}
-                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+                  aria-label="Add statement"
+                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
                 >
-                  <Upload size={13} />
-                  Add statement
+                  <Upload size={16} />
                 </button>
-              ) : (
+              )}
+              {!isManual && !isExpired && (
                 <button
-                  onClick={() => handleReconnect(selectedAccount?.provider_id, selectedAccount)}
-                  className="flex items-center gap-1.5 min-h-[44px] bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors"
+                  onClick={() => togglePin(selectedAccount.id)}
+                  aria-label={isPinned ? "Unpin from Home" : "Pin to Home"}
+                  className={`w-11 h-11 flex items-center justify-center rounded-xl transition-colors ${
+                    isPinned
+                      ? "bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-400"
+                      : "bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-500 dark:text-slate-300"
+                  }`}
                 >
-                  <RefreshCw size={13} />
-                  Reconnect
+                  <Star size={16} className={isPinned ? "fill-current" : ""} />
                 </button>
               )}
               <button
@@ -1766,14 +1858,26 @@ export default function AccountsPage() {
                   }
                 }}
                 disabled={deletingAccount}
-                className="flex items-center gap-1.5 min-h-[44px] bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 px-3 py-1.5 rounded-xl text-xs font-semibold text-red-600 dark:text-red-400 transition-colors disabled:opacity-50"
+                aria-label="Remove account"
+                className="w-11 h-11 flex items-center justify-center rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 transition-colors disabled:opacity-50"
               >
-                <Trash2 size={13} />
-                {deletingAccount ? "Removing…" : "Remove"}
+                {deletingAccount ? <Spinner size={16} /> : <Trash2 size={16} />}
               </button>
             </div>
           </div>
 
+          {/* Reconnect — only when genuinely expired, never a standing chip */}
+          {!isManual && !isStatement && isExpired && (
+            <button
+              onClick={() => handleReconnect(selectedAccount?.provider_id, selectedAccount)}
+              className="mb-4 w-full flex items-center justify-center gap-1.5 min-h-[44px] bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors"
+            >
+              <RefreshCw size={15} />
+              Reconnect
+            </button>
+          )}
+
+          {/* Statement block */}
           <div className="flex items-center gap-3 mb-3">
             <BankBadge
               logoSrc={brand.logoSrc}
@@ -1781,28 +1885,54 @@ export default function AccountsPage() {
               altText={brand.label}
               brandBg={brand.background}
             />
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 min-w-0 truncate">{selectedAccount.name}</h1>
+            <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100 min-w-0 truncate">{selectedAccount.name}</h1>
           </div>
 
-          <div className="flex items-center gap-3 mt-2">
-            <span
-              className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                isCredit
-                  ? "bg-pink-50 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300"
-                  : isSavings
-                  ? "bg-amber-100 dark:bg-amber-400/20 text-amber-700 dark:text-amber-300"
-                  : "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-              }`}
+          <p
+            className={`text-[30px] leading-none font-bold num tabular-nums ${isCredit || balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+          >
+            {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          </p>
+          {isCredit && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+
+          {isCredit && (termsPill ? (
+            <button
+              type="button"
+              onClick={() => openCardTermsAt(selectedAccount.id)}
+              aria-label={`${termsPill.label} — edit this card's rates`}
+              className="mt-2 inline-flex items-center min-h-[28px] active:opacity-70 transition-opacity"
             >
-              {typeLabel(selectedAccount.type, selectedAccount.subtype)}
-            </span>
-            <span
-              className={`text-2xl font-bold num ${balance < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-slate-100"}`}
+              <span
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full num ${
+                  termsPill.amber
+                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
+                    : "bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {termsPill.label}
+              </span>
+            </button>
+          ) : termsCard ? (
+            <button
+              type="button"
+              onClick={() => openCardTermsAt(selectedAccount.id)}
+              className="mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
             >
-              {hideNetWorth ? "••••" : `${balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            </span>
-          </div>
+              <Percent size={11} aria-hidden="true" />
+              Add rates
+            </button>
+          ) : null)}
+
+          <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+            {accountKindLabel(accountKind(selectedAccount))} · {selectedAccount.provider}
+          </p>
         </div>
+
+        {pinMsg && (
+          <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300">
+            {pinMsg}
+          </div>
+        )}
 
         {/* Segmented control */}
         <div className="px-4 pt-4">
@@ -1843,6 +1973,27 @@ export default function AccountsPage() {
                   <X size={14} />
                 </button>
               )}
+            </div>
+          )}
+
+          {/* Category filter chip — set from a Categories-tab row tap. Shows
+              direction ("· in") when scoped to the credit ("Money in") side
+              so the list is self-explanatory without opening the row. */}
+          {showTransactions && !isManual && detailCatFilter && (
+            <div className="flex items-center gap-2 mb-1">
+              <button
+                type="button"
+                onClick={() => { setDetailCatFilter(null); setPage(1); }}
+                aria-label={`Remove ${detailCatFilter.name} filter`}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-full min-h-[28px]"
+                style={{ backgroundColor: `${getCategoryColour(detailCatFilter.name, colours)}1f`, color: getCategoryColour(detailCatFilter.name, colours) }}
+              >
+                {detailCatFilter.name}
+                <span className="opacity-70 font-medium">
+                  {detailCatFilter.txnType === "credit" ? "· in · 90 days" : "· 90 days"}
+                </span>
+                <X size={12} />
+              </button>
             </div>
           )}
 
@@ -1981,70 +2132,51 @@ export default function AccountsPage() {
               )}
             </>
           ) : (
-            /* Categories view — same card grid as the Spend page */
-            catSummaries === null ? (
-              <div className="flex items-center justify-center py-16">
-                <Spinner size={32} />
-              </div>
-            ) : categories.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
-                <p className="text-sm text-slate-400 dark:text-slate-500">No spending data</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {categories.map((cat) => {
-                  const colour = getCategoryColour(cat.name, colours);
-                  const Icon = getCategoryIcon(cat.name, iconOverrides);
-                  return (
-                    <button
-                      key={cat.name}
-                      onClick={() => openCategorySheet(cat.name)}
-                      className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-4 text-left active:scale-95 transition-transform flex flex-col gap-2 overflow-hidden"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                          style={{ backgroundColor: `${colour}26` }}
-                        >
-                          <Icon size={16} style={{ color: colour }} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">{cat.name}</p>
-                          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{cat.count} txn{cat.count !== 1 ? "s" : ""}</p>
-                        </div>
-                      </div>
-                      <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-                        £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </p>
-                      <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(cat.pct, 100)}%`, backgroundColor: colour }} />
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )
+            /* Categories view — Spend-page card language: tap routes to the
+               Transactions tab, scoped by the category filter chip (B2) —
+               no CategorySheet, no bottom sheet, one destination for a
+               category's payments across the app. Two direction-separated
+               sections so card payments / refunds / incoming transfers
+               (credit) aren't invisible next to spend (debit) — same row
+               anatomy, same 90-day window, captioned honestly for each. */
+            <>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2 px-0.5">
+                Spending · last 90 days
+              </p>
+              {catSummaries === null ? (
+                <div className="flex items-center justify-center py-16">
+                  <Spinner size={32} />
+                </div>
+              ) : categories.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center shadow-sm">
+                  <p className="text-sm text-slate-400 dark:text-slate-500">No spending data</p>
+                </div>
+              ) : (
+                renderCategoryRows(categories, "debit")
+              )}
+
+              {/* "Money in" — credit-side rollup (card payments, refunds,
+                  incoming transfers). Only rendered once loaded and
+                  non-empty; amounts stay neutral ink here, same as the
+                  Spending rows — green stays reserved for TransactionRow's
+                  own income treatment, not a whole section. */}
+              {catSummariesCredit !== null && catSummariesCredit.length > 0 && (
+                <>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-5 mb-2 px-0.5">
+                    Money in · last 90 days
+                  </p>
+                  {renderCategoryRows(catSummariesCredit, "credit")}
+                </>
+              )}
+            </>
           )}
         </div>
 
-        {/* Category sheet — opened from the category grid */}
-        {expandedCat && (() => {
-          const cat = categories.find(c => c.name === expandedCat);
-          return cat ? (
-            <CategorySheet
-              name={cat.name}
-              total={cat.total}
-              count={cat.count}
-              transactions={cat.transactions}
-              onClose={() => setExpandedCat(null)}
-              onTransactionClick={(tx) => { setExpandedCat(null); setSelectedTx(tx); }}
-            />
-          ) : null;
-        })()}
-
-        {/* Transaction sheet */}
+        {/* Transaction sheet — the Engine's teaching surface, same one the
+            transactions hub uses, so recategorising here or there is
+            identical behaviour. */}
         {selectedTx && (
-          <TransactionSheet
+          <TeachingSheet
             transaction={selectedTx}
             onClose={() => setSelectedTx(null)}
             onUpdated={handleTxUpdated}
@@ -2061,9 +2193,18 @@ export default function AccountsPage() {
   // --- Account list view ---
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      {/* Header */}
+      {/* Header — hidden once actually drilled into an investment (tab ===
+          "Investments" with at least one account) so that view owns the
+          screen the same way the bank account detail does; the zero-state
+          (no investments yet) keeps the hero, since its cold-start "Add
+          contract note" flow is the only way to create a first investment
+          account without a statement. relative + z-30 so this card's own
+          backdrop-filter stacking context (from .glass-card) doesn't trap
+          the "+ Add" popover beneath later siblings (find bar, lens chips,
+          sticky group headers) that paint after it in DOM order. */}
+      {(tab === "Banks" || investmentAccounts.length === 0) && (
       <div
-        className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-6 glass-card"
+        className="relative z-30 mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-card"
       >
         <div className="mb-4">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Accounts</h1>
@@ -2118,7 +2259,7 @@ export default function AccountsPage() {
             the exact same handler the separate buttons used to call; only
             the entry point changed. */}
         {tab === "Banks" ? (
-          <div className="relative mb-4" ref={addMenuRef}>
+          <div className="relative" ref={addMenuRef}>
             <button
               data-tutorial-id="tutorial-add-account"
               onClick={() => setAddMenuOpen(v => !v)}
@@ -2133,7 +2274,7 @@ export default function AccountsPage() {
             {addMenuOpen && (
               <div
                 role="menu"
-                className="absolute left-0 right-0 top-[calc(100%+6px)] z-20 bg-white dark:bg-slate-700 rounded-xl shadow-lg border border-slate-100 dark:border-slate-600 py-1 overflow-hidden"
+                className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-white/10 py-1 divide-y divide-slate-100 dark:divide-white/5 overflow-hidden"
               >
                 {region === "UK" ? (
                   <>
@@ -2146,6 +2287,11 @@ export default function AccountsPage() {
                       icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Statement"
                       onClick={() => { setAddMenuOpen(false); setShowMpesaUpload(true); }}
+                    />
+                    <AddMenuItem
+                      icon={<TrendingUp size={14} className="text-slate-400 flex-shrink-0" />}
+                      label="Investment"
+                      onClick={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
                     />
                     <AddMenuItem
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
@@ -2194,7 +2340,7 @@ export default function AccountsPage() {
             )}
           </div>
         ) : (
-          <div className="mb-4">
+          <div>
             <div className="flex gap-2">
               <button
                 onClick={() => setShowInvestmentUpload(true)}
@@ -2290,25 +2436,15 @@ export default function AccountsPage() {
           </div>
         )}
 
-        {/* Tab bar */}
-        <div className="flex bg-slate-100 dark:bg-slate-700 rounded-xl p-1 gap-1">
-          {(["Banks", "Investments"] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${
-                tab === t
-                  ? "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        {/* Spacer so the tab bar sits flush with the page edge */}
-        <div className="h-4" />
+        {/* Banks|Investments tab bar removed (Wave 2) — investment accounts
+            are now folded into the unified estate list below; the
+            "Investments" tab value still exists internally as the drill-in
+            view an investment row navigates to (see handleEstateRowClick),
+            reachable via the existing ?tab=Investments deep link too. No
+            trailing spacer here — the card's own pb-5 is the only space
+            below the Add button/upload row; don't reintroduce dead space. */}
       </div>
+      )}
 
       {/* ── Banks tab ── */}
       {tab === "Banks" && (
@@ -2331,28 +2467,12 @@ export default function AccountsPage() {
             </div>
           )}
 
-          {expiredProviders.map(({ provider, provider_id }) => (
-            <div key={provider} className="mx-4 mt-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3">
-              <AlertTriangle size={16} className="text-amber-500 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs to be reconnected</p>
-                <p className="text-xs text-amber-600 dark:text-amber-400">Your consent has expired — transactions are no longer syncing.</p>
-              </div>
-              <button
-                onClick={() => handleReconnect(provider_id)}
-                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white px-3 py-1.5 rounded-lg"
-              >
-                Reconnect
-              </button>
-            </div>
-          ))}
-
           <div className="px-4 pt-4 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Spinner size={32} />
               </div>
-            ) : bankAccounts.length === 0 ? (
+            ) : bankAccounts.length === 0 && investmentAccounts.length === 0 ? (
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
                 <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
                   <Landmark size={26} color="#4f46e5" />
@@ -2407,35 +2527,212 @@ export default function AccountsPage() {
             ) : (
               <>
                 {pinMsg && (
-                  <div className="mb-2 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <div className="mb-1 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300">
                     {pinMsg}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3">
-                  {bankAccounts.map((acc, i) => {
-                    const isCredit = isCreditAccount(acc);
-                    const termsCard = cardTermsByAccount[acc.id];
-                    const pill = isCredit ? termsPillFor(termsCard) : null;
+
+                {/* Find bar */}
+                <div className="relative">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" aria-hidden="true" />
+                  <input
+                    type="text"
+                    value={estateQuery}
+                    onChange={(e) => setEstateQuery(e.target.value)}
+                    placeholder="Find an account…"
+                    aria-label="Find an account"
+                    className="w-full min-h-[44px] rounded-xl glass-tile pl-9 pr-3 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* Lens chips */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {(["All", "Current", "Savings", "Credit", "Investment", "Owed"] as const).map((l) => {
+                    const active = estateLens === l;
                     return (
-                      <AccountMiniCard
-                        key={acc.id}
-                        account={acc}
-                        grid
-                        calm
-                        glass
-                        index={i}
-                        hidden={hideNetWorth}
-                        pinned={pinnedIds.includes(acc.id)}
-                        onTogglePin={() => togglePin(acc.id)}
-                        onClick={() => handleSelectAccount(acc)}
-                        onReconnect={() => handleReconnect(acc.provider_id, acc)}
-                        termsPill={pill}
-                        onTermsClick={pill ? () => openCardTermsAt(acc.id) : undefined}
-                        onAddRates={isCredit && !pill && termsCard ? () => openCardTermsAt(acc.id) : undefined}
-                      />
+                      <button
+                        key={l}
+                        type="button"
+                        onClick={() => setEstateLens(l)}
+                        aria-pressed={active}
+                        className={`shrink-0 min-h-[44px] px-3.5 rounded-full text-[13px] font-semibold transition-colors ${
+                          active
+                            ? "bg-indigo-500 text-white"
+                            : "glass-tile text-slate-500 dark:text-slate-400 active:bg-slate-100 dark:active:bg-white/10"
+                        }`}
+                      >
+                        {l}
+                      </button>
                     );
                   })}
                 </div>
+
+                {estateIsFiltering ? (
+                  <div>
+                    <p className="px-1 mb-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                      {estateFilteredRows.length} result{estateFilteredRows.length === 1 ? "" : "s"}
+                    </p>
+                    {estateFilteredRows.length === 0 ? (
+                      <div className="glass-card rounded-2xl px-4 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                        No accounts match
+                      </div>
+                    ) : (
+                      <div className="glass-card rounded-2xl overflow-hidden">
+                        {estateFilteredRows.map((row, i) => (
+                          <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                            <AccountLedgerRow
+                              row={row}
+                              onReconnect={row.attention ? () => handleReconnect((row.raw as Account).provider_id, row.raw as Account) : undefined}
+                              onClick={handleEstateRowClick}
+                              {...estateTermsProps(row)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* Attention — expired connections, prominent (not tucked away) */}
+                    {estate.attention.length > 0 && (
+                      <div>
+                        <div className="px-1 mb-1.5 flex items-center gap-1.5">
+                          <AlertTriangle size={12} className="text-amber-500 dark:text-amber-400" aria-hidden="true" />
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                            Needs reconnecting
+                            <span className="text-amber-500/70 dark:text-amber-400/70 font-medium normal-case"> · {estate.attention.length}</span>
+                          </span>
+                        </div>
+                        <div className="glass-card rounded-2xl overflow-hidden border border-amber-200/70 dark:border-amber-800/60">
+                          {estate.attention.map((row, i) => (
+                            <div key={row.id} className={i > 0 ? "border-t border-amber-100 dark:border-amber-900/40" : ""}>
+                              <AccountLedgerRow
+                                row={row}
+                                onReconnect={() => handleReconnect((row.raw as Account).provider_id, row.raw as Account)}
+                                onClick={handleEstateRowClick}
+                                {...estateTermsProps(row)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Pinned band */}
+                    {estate.pinned.length > 0 && (
+                      <div>
+                        <p className="px-1 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Pinned</p>
+                        <div className="glass-card rounded-2xl overflow-hidden">
+                          {estate.pinned.map((row, i) => (
+                            <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                              <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Collapsible groups — sticky header, chevron, subtotal */}
+                    {estate.groups.length === 0 ? (
+                      <div className="glass-card rounded-2xl px-4 py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+                        No accounts in this view
+                      </div>
+                    ) : (
+                      estate.groups.map((group) => {
+                        const isCollapsed = collapsedGroups[group.label] ?? (group.kind === "Credit" && group.count > 4);
+                        return (
+                          <div key={group.label}>
+                            <button
+                              type="button"
+                              onClick={() => toggleEstateGroup(group.label)}
+                              aria-expanded={!isCollapsed}
+                              className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                            >
+                              <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                {group.label}
+                                <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {group.count}</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 num">
+                                  {hideNetWorth
+                                    ? "••••"
+                                    : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
+                                </span>
+                                <ChevronDown
+                                  size={14}
+                                  className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${isCollapsed ? "" : "rotate-180"}`}
+                                  aria-hidden="true"
+                                />
+                              </span>
+                            </button>
+                            <div
+                              className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
+                                isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                              }`}
+                            >
+                              <div
+                                className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                                  isCollapsed ? "opacity-0" : "opacity-100"
+                                }`}
+                              >
+                                <div className="glass-card rounded-2xl overflow-hidden">
+                                  {group.rows.map((row, i) => (
+                                    <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                                      <AccountLedgerRow row={row} onClick={handleEstateRowClick} {...estateTermsProps(row)} />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+
+                    {/* Inactive — dormant £0 accounts, collapsed by default.
+                        Dedupe: an account that's both expired AND £0 already
+                        appears in Attention above — don't show it twice. */}
+                    {inactiveRows.length > 0 && (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setInactiveOpen(o => !o)}
+                          aria-expanded={inactiveOpen}
+                          className="sticky top-0 z-10 mb-1.5 w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2.5 bg-slate-50/95 dark:bg-slate-900/90 backdrop-blur-sm border border-slate-100/80 dark:border-white/5 shadow-sm"
+                        >
+                          <span className="flex items-baseline gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Inactive
+                            <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {inactiveRows.length}</span>
+                          </span>
+                          <ChevronDown
+                            size={14}
+                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-200 motion-reduce:transition-none ${inactiveOpen ? "rotate-180" : ""}`}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        <div
+                          className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none motion-reduce:duration-0 ${
+                            inactiveOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                          }`}
+                        >
+                          <div
+                            className={`overflow-hidden transition-opacity duration-200 motion-reduce:transition-none motion-reduce:duration-0 ${
+                              inactiveOpen ? "opacity-100" : "opacity-0"
+                            }`}
+                          >
+                            <div className="glass-card rounded-2xl overflow-hidden">
+                              {inactiveRows.map((row, i) => (
+                                <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                                  <AccountLedgerRow row={row} onClick={handleEstateRowClick} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -2484,9 +2781,19 @@ export default function AccountsPage() {
         </>
       )}
 
-      {/* ── Investments tab ── */}
+      {/* ── Investments tab — drill-in view reached from an estate investment
+          row (or the ?tab=Investments deep link); "Banks" tab above is now
+          the default unified estate list. ── */}
       {tab === "Investments" && (
         <div className="px-4 pt-4 space-y-3">
+          <button
+            type="button"
+            onClick={() => setTab("Banks")}
+            className="flex items-center gap-1.5 min-h-[44px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+          >
+            <ArrowLeft size={18} />
+            <span className="text-sm font-medium">Accounts</span>
+          </button>
           {investmentAccounts.length === 0 ? (
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-10 text-center shadow-sm">
               <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 mb-4">
@@ -2543,20 +2850,19 @@ export default function AccountsPage() {
                 );
               } else if (stmtDate) {
                 if (hasRefreshAfterStatement) {
-                  // Prices refreshed after statement — show refresh form
-                  const stmtValue = displayValue - addedSince;
-                  const stmtValueStr = stmtValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  const displayValueStr = displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  // Prices refreshed after statement — provenance only;
+                  // the headline £value already lives in the statement
+                  // block above, so this line must not repeat it.
                   if (notesSince > 0 && addedSince !== 0) {
                     const sign = addedSince > 0 ? "+" : "−";
                     const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    const noteWord = notesSince === 1 ? "contract note" : "contract notes";
+                    const noteWord = notesSince === 1 ? "note" : "notes";
                     decomposedLine = (
-                      <span>£{displayValueStr} · prices refreshed {refreshDate} · {sign}£{absVal} added since {stmtDate} statement ({notesSince} {noteWord})</span>
+                      <span>Prices refreshed {refreshDate} · {sign}£{absVal} since {stmtDate} statement · {notesSince} {noteWord}</span>
                     );
                   } else {
                     decomposedLine = (
-                      <span>£{stmtValueStr} · prices refreshed {refreshDate} · statement {stmtDate}</span>
+                      <span>Prices refreshed {refreshDate} · statement {stmtDate}</span>
                     );
                   }
                 } else {
@@ -2570,7 +2876,7 @@ export default function AccountsPage() {
                       <span>Valued £{(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · {sign}£{absVal} {verb} since ({notesSince} {noteWord})</span>
                     );
                   } else {
-                    decomposedLine = <span>Valued £{displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · statement</span>;
+                    decomposedLine = <span>Statement dated {stmtDate}</span>;
                   }
                 }
               }
@@ -2584,82 +2890,141 @@ export default function AccountsPage() {
               const thisNoteError = noteUploadError[inv.id] ?? null;
               const thisStatementError = statementUploadError[inv.id] ?? null;
 
+              const isInvPinned = pinnedIds.includes(inv.id);
+              const updatedDate = new Date(inv.updated_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
               return (
                 <div key={inv.id} className="glass-card rounded-2xl overflow-hidden">
-                  {/* Account header row */}
-                  <button
-                    onClick={() => handleToggleInvestment(inv.id)}
-                    className="w-full flex items-center justify-between px-4 py-3.5 text-left"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
-                        <TrendingUp size={16} className="text-indigo-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
-                            {inv.provider} {inv.account_type}
-                          </p>
-                          {isProvisional && (
-                            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                              no statement yet
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {inv.account_reference}
-                          {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
-                        </p>
-                      </div>
+                  {/* Account row — collapsed: badge, name, meta, value,
+                      expand chevron. Expanded: badge, name, collapse
+                      chevron ONLY — the value moves to the statement block
+                      below and pin/refresh/remove get their own row, so
+                      nothing fights for space on a 390px-wide phone. */}
+                  <div className="w-full flex items-center gap-3 px-4 py-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center flex-shrink-0">
+                      <TrendingUp size={16} className="text-indigo-500" />
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                        {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                      </span>
-                      {isExpanded ? <ChevronUp size={14} className="text-slate-500 dark:text-slate-400" /> : <ChevronDown size={14} className="text-slate-500 dark:text-slate-400" />}
+                    {isExpanded ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInvestment(inv.id)}
+                          className="min-w-0 flex-1 flex items-center gap-2 text-left"
+                        >
+                          <div className="min-w-0 flex-1 flex items-center gap-2">
+                            <p className="min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                              {inv.provider} {inv.account_type}
+                            </p>
+                            {isProvisional && (
+                              <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide flex-shrink-0">
+                                no statement yet
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInvestment(inv.id)}
+                          aria-label="Collapse"
+                          className="w-11 h-11 flex items-center justify-center text-slate-500 dark:text-slate-400 flex-shrink-0"
+                        >
+                          <ChevronUp size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInvestment(inv.id)}
+                          className="min-w-0 flex-1 flex items-center gap-2 text-left"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
+                                {inv.provider} {inv.account_type}
+                              </p>
+                              {isProvisional && (
+                                <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                                  no statement yet
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5 truncate">
+                              {inv.account_reference}
+                              {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
+                            </p>
+                          </div>
+                          <span className="text-sm font-bold num tabular-nums text-slate-800 dark:text-slate-100 flex-shrink-0">
+                            {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleInvestment(inv.id)}
+                          aria-label="Expand"
+                          className="w-11 h-11 flex items-center justify-center text-slate-500 dark:text-slate-400 flex-shrink-0"
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {isExpanded && (
+                    <div className="flex items-center justify-end gap-1 px-3 pb-2 -mt-1">
+                      <button
+                        type="button"
+                        onClick={() => togglePin(inv.id)}
+                        aria-label={isInvPinned ? "Unpin from Home" : "Pin to Home"}
+                        className={`w-11 h-11 flex items-center justify-center rounded-xl transition-colors ${
+                          isInvPinned
+                            ? "text-amber-500 dark:text-amber-400"
+                            : "text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        <Star size={15} className={isInvPinned ? "fill-current" : ""} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshInvestment(inv.id)}
+                        disabled={isRefreshing}
+                        aria-label="Refresh prices"
+                        className="w-11 h-11 flex items-center justify-center rounded-xl text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
+                      >
+                        <RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteInvestment(inv.id)}
+                        disabled={isDeleting}
+                        aria-label="Remove investment"
+                        className="w-11 h-11 flex items-center justify-center rounded-xl text-rose-500 dark:text-rose-400 disabled:opacity-50"
+                      >
+                        {isDeleting ? <Spinner size={15} /> : <Trash2 size={15} />}
+                      </button>
                     </div>
-                  </button>
+                  )}
 
                   {isExpanded && (
                     <div className="border-t border-slate-50 dark:border-slate-700">
-                      {/* Action bar: refresh / remove */}
-                      <div className="flex items-center gap-2 px-4 py-2.5">
-                        <button
-                          onClick={() => handleRefreshInvestment(inv.id)}
-                          disabled={isRefreshing}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 disabled:opacity-50"
-                        >
-                          <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} />
-                          {isRefreshing ? "Refreshing prices…" : "Refresh prices"}
-                        </button>
-                        <span className="text-slate-200 dark:text-slate-600">|</span>
-                        <button
-                          onClick={() => handleDeleteInvestment(inv.id)}
-                          disabled={isDeleting}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-rose-500 disabled:opacity-50"
-                        >
-                          <Trash2 size={12} />
-                          {isDeleting ? "Removing…" : "Remove"}
-                        </button>
+                      {/* ── Statement block: big value, real dates, quiet
+                          provenance line ── */}
+                      <div className="px-4 pt-3 pb-1">
+                        <p className="text-[30px] leading-none font-bold num tabular-nums text-slate-900 dark:text-slate-100">
+                          {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        </p>
+                        <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
+                          Investment · {inv.provider} · updated {updatedDate}
+                        </p>
+                        {decomposedLine && (
+                          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500 leading-snug">{decomposedLine}</p>
+                        )}
                       </div>
 
-                      {/* ── Decomposed value ── */}
-                      {decomposedLine && (
-                        <div className="px-4 pb-3">
-                          <p className="text-xs text-slate-400 dark:text-slate-500 leading-snug">{decomposedLine}</p>
-                        </div>
-                      )}
-
-                      {/* ── How this account stays current (always visible) ── */}
-                      <div className="mx-4 mb-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-4">
-                        <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2 uppercase tracking-wide">How this account stays current</p>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
-                          {isProvisional && (
-                            <>This account started from a contract note, so its value is a running total from £0 — upload your first statement to set the real value.<br /><br /></>
-                          )}
-                          A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives — then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
-                        </p>
-
+                      {/* ── How this account stays current — answer (upload
+                          actions) first, evidence (explainer) collapsed
+                          behind a small ⓘ toggle. ── */}
+                      <div className="mx-4 mt-3 mb-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-4">
                         {/* Upload action buttons */}
                         <div className="flex gap-2">
                           <button
@@ -2683,6 +3048,25 @@ export default function AccountsPage() {
                             Add contract note
                           </button>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setHowItWorksOpen(prev => ({ ...prev, [inv.id]: !prev[inv.id] }))}
+                          className="mt-3 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                          aria-expanded={!!howItWorksOpen[inv.id]}
+                        >
+                          <Info size={12} aria-hidden="true" />
+                          How this stays current
+                          {howItWorksOpen[inv.id] ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+                        </button>
+                        {howItWorksOpen[inv.id] && (
+                          <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                            {isProvisional && (
+                              <>This account started from a contract note, so its value is a running total from £0 — upload your first statement to set the real value.<br /><br /></>
+                            )}
+                            A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives — then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
+                          </p>
+                        )}
 
                         {/* Inline contract note upload form */}
                         {isShowingNoteUpload && (

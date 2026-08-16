@@ -110,16 +110,21 @@ export default function BottomNav() {
 
           {/* Matte rail surface */}
           <div className="glass-rail relative rounded-[22px]">
-            <div className="relative grid grid-cols-5 h-[64px] px-1">
+            <div className="relative grid grid-cols-5 h-[64px] px-1.5">
               {/* Sliding active indicator — soft indigo pill, transform-based.
                   Hidden off-rail (no matching tab) rather than defaulting to
-                  slot 0, so non-tab routes don't falsely highlight Home. */}
+                  slot 0, so non-tab routes don't falsely highlight Home.
+                  Inset 6px from both rail edges (matches the container's
+                  px-1.5) so the pill never sits flush against the rounded
+                  rail edge when the first/last tab (Home/Insights) is
+                  active — width/step are computed against that padded
+                  content box, not the full rail. */}
               <span
                 aria-hidden="true"
                 className="absolute top-1.5 bottom-1.5 rounded-2xl transition-transform duration-200 motion-reduce:transition-none"
                 style={{
-                  width: "20%",
-                  left: 0,
+                  width: "calc((100% - 12px) / 5)",
+                  left: "6px",
                   transform: `translateX(${(activeTab?.slot ?? -2) * 100}%)`,
                   transitionTimingFunction: "var(--ease-out)",
                   background: "rgba(79, 70, 229, 0.18)",

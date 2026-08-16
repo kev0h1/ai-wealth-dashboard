@@ -6,8 +6,8 @@ import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
-import AccountMiniCard from "@/components/AccountMiniCard";
-import InvestmentMiniCard from "@/components/InvestmentMiniCard";
+import AccountLedgerRow from "@/components/AccountLedgerRow";
+import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import TransactionRow from "@/components/TransactionRow";
 import TransactionSheet from "@/components/TransactionSheet";
 import BottomNav from "@/components/BottomNav";
@@ -412,16 +412,23 @@ export default function HomePage() {
                 <button
                   data-tutorial-id="tutorial-manage-link"
                   onClick={() => router.push("/accounts")}
-                  className="text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                  className="min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                 >
-                  Manage <ChevronRight size={14} aria-hidden="true" />
+                  Manage <ChevronRight size={13} aria-hidden="true" />
                 </button>
               </div>
             </div>
             {loading ? (
-              <div className="grid grid-cols-2 gap-3">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="h-28 bg-white dark:bg-slate-800 rounded-2xl animate-pulse shadow-sm" />
+              <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-[60px] px-4 py-2.5 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                      <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                    </div>
+                    <div className="h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                  </div>
                 ))}
               </div>
             ) : accounts.length === 0 ? (
@@ -440,38 +447,31 @@ export default function HomePage() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="glass-card rounded-2xl overflow-hidden">
                 {topPickAccounts.map((acc, i) => (
-                  <AccountMiniCard
-                    key={acc.id}
-                    account={acc}
-                    grid
-                    calm
-                    glass
-                    index={i}
-                    hidden={hideNetWorth}
-                    onClick={() => router.push(`/accounts?id=${acc.id}`)}
-                  />
+                  <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                    <AccountLedgerRow
+                      row={bankToRow(acc, pinnedIds)}
+                      onClick={() => router.push(`/accounts?id=${acc.id}`)}
+                    />
+                  </div>
                 ))}
-                {investmentAccounts.slice(0, 1).map((inv, i) => (
-                  <InvestmentMiniCard
-                    key={inv.id}
-                    account={inv}
-                    grid
-                    calm
-                    glass
-                    index={topPickAccounts.length + i}
-                    hidden={hideNetWorth}
-                    onClick={() => router.push("/accounts?tab=Investments")}
-                  />
+                {investmentAccounts.slice(0, 1).map((inv) => (
+                  <div key={inv.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                    <AccountLedgerRow
+                      row={investmentToRow(inv)}
+                      onClick={() => router.push("/accounts?tab=Investments")}
+                    />
+                  </div>
                 ))}
                 {hiddenAccountCount > 0 && (
                   <button
                     onClick={() => router.push("/accounts")}
-                    className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-slate-500 hover:opacity-80 active:scale-95 transition-[transform,opacity] min-h-[7rem]"
+                    className={`w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
+                      topPickAccounts.length + Math.min(investmentAccounts.length, 1) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
+                    }`}
                   >
-                    <span className="text-lg font-bold">+{hiddenAccountCount}</span>
-                    <span className="text-xs font-medium">more accounts</span>
+                    +{hiddenAccountCount} more accounts <ChevronRight size={13} aria-hidden="true" />
                   </button>
                 )}
               </div>

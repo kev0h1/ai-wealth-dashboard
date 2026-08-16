@@ -332,13 +332,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ── Liquid Glass — app-wide surface system ───────────────────────────────
    Three tiers: .glass-hero (screen anchor), .glass-card (standard panel),
    .glass-tile (nested stat, fill-only — NO second backdrop-filter).
-   Fallbacks below flatten to solid surfaces. */
+   Fallbacks below flatten to solid surfaces.
+   2026-08-16: LIGHT mode is now matte/solid too, mirroring the dark-mode
+   pass below. Chromium/WebView on Android has a known compositing bug
+   where large backdrop-filtered elements can raster as blank white tiles
+   with content dropped — this hit the Home "Your estate" hero and the
+   /accounts hero card on a real device in LIGHT mode. Blur is retained
+   ONLY on the small, intentional translucent-over-scroll nav frost
+   surfaces (.glass-nav, .safe-top-frost) — not on large card/hero/tile
+   surfaces in either theme. */
 
 .glass-hero,
 .glass-card {
-  background: rgba(255, 255, 255, 0.55);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
@@ -355,10 +361,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    a tile paints its own translucent fill and silently drops its children,
    rendering as a blank white rounded box (load-timing dependent, so only
    some tiles are hit). Use this for any repeated/grid instance of a card;
-   keep .glass-card (with blur) for one-off panels. Do NOT "simplify" this
-   back to .glass-card — that reintroduces the bug. */
+   .glass-card is ALSO solid now (see 2026-08-16 note above) so the two
+   are functionally identical in light mode, but keep the class split —
+   it still matters for dark mode's blur removal and documents intent. */
 .glass-card-flat {
-  background: rgba(255, 255, 255, 0.55);
+  background: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
@@ -373,25 +380,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: rgba(255,255,255,0.08);
   box-shadow: 0 4px 14px rgba(0,0,0,0.40);
 }
-/* Nested stat tiles inside the hero — translucent fill only, NO second
-   backdrop-filter layer (blur is capped at one layer for perf) */
+/* Nested stat tiles inside the hero — solid fill only, NO backdrop-filter
+   (light or dark) */
 .glass-tile {
-  background: rgba(255, 255, 255, 0.45);
+  background: #f8fafc;
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .dark .glass-tile {
   background: #212b40;
   border-color: rgba(255,255,255,0.06);
   box-shadow: none;
-}
-/* Matte = solid fills, no haze — kill the blur on dark cards. A solid fill
-   also sidesteps the known WebView blank-tile bug (see .glass-card-flat
-   note above): with no backdrop-filter there's nothing for stacked layers
-   to fail to raster. .glass-nav and .safe-top-frost keep their blur —
-   those are intentional translucent-over-scrolling-content surfaces. */
-.dark .glass-card, .dark .glass-card-flat, .dark .glass-hero, .dark .glass-tile {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 /* ── Safe-area top frost (mobile shell only) ──────────────────────────────
@@ -457,25 +455,18 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: linear-gradient(to top, #0f172a 38%, rgba(15, 23, 42, 0) 100%);
 }
 
-/* ── Safe-to-Spend hero glow — THE only glow surface left in the app ──────
-   Emitted from within: no field behind the card, just a soft top-down inner
-   luminance folded into the card's own fill (no added drop shadow — The One
-   Shadow Rule holds; this only replaces .glass-hero's flat fill). Scoped to
-   .sts-card in components/SafeToSpendCard.tsx ONLY — this is deliberately
-   not a reusable app-wide system (a prior attempt at that was rejected).
-   Indigo only (rgba(99,102,241,...)) — no violet; the indigo→violet pairing
-   is Penny's exclusive signature and this card is not a Penny surface.
-   Chosen 2026-08-07 from three coded candidates (A: bounded halo behind the
-   card, B: this one, C: tight field anchored on the verdict figure). */
+/* ── Safe-to-Spend hero — was a bespoke indigo-wash glow surface (chosen
+   2026-08-07 from three coded candidates: A: bounded halo behind the card,
+   B: this one, C: tight field anchored on the verdict figure). Removed at
+   the founder's request 2026-08-16 — the wash read as unwanted decoration
+   on real-device screenshots. .sts-card now renders identically to
+   .glass-hero's flat fill; the class hook stays in
+   components/SafeToSpendCard.tsx in case a future treatment needs it. */
 .sts-card {
-  background:
-    linear-gradient(180deg, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 60%),
-    rgba(255, 255, 255, 0.55);
+  background: #ffffff;
 }
 .dark .sts-card {
-  background:
-    linear-gradient(180deg, rgba(99, 102, 241, 0.14) 0%, rgba(99, 102, 241, 0) 60%),
-    #1c2537;
+  background: #1c2537;
 }
 
 /* ── Attention glow — a card GLOWS only when it needs the user. At most one
