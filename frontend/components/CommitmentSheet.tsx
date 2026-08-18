@@ -1,11 +1,12 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { X, Check, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { api, Account, Commitment, CommitmentPreview } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
-import { getPayPeriodWithConfig, nextPeriodWithConfig, PayPeriodConfig } from "@/lib/payPeriod";
+import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPeriodConfig } from "@/lib/payPeriod";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
@@ -111,6 +112,10 @@ export default function CommitmentSheet({
   useSheetOpen();
   const panelRef = useSheetA11y<HTMLDivElement>(onClose);
   const { payPeriodConfig } = usePreferences();
+  const router = useRouter();
+  const monthInputRef = useRef<HTMLInputElement>(null);
+  const [showConsent, setShowConsent] = useState(false);
+  const [consentSnapshot, setConsentSnapshot] = useState<CommitmentPreview["consent"]>(null);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -238,6 +243,7 @@ export default function CommitmentSheet({
 
   // Live "≈ £X/period" estimate — remaining over pay periods left, ceiled to £5
   const periods = monthValid ? periodsLeftFor(month, payPeriodConfig) : null;
+  const periodLabel = periodRhythmLabel(payPeriodConfig);
   const remaining = amountValid
     ? Math.max(0, parsedAmount - estimatedProgress)
     : null;
@@ -255,10 +261,11 @@ export default function CommitmentSheet({
     commitment && !potsChanged
       ? commitment.feasibility_note
       : preview?.feasibility_note;
+  const feasibilityTone =
+    commitment && !potsChanged ? commitment.feasibility_tone : preview?.feasibility_tone;
+  const feasibilityCaution = feasibilityTone ? feasibilityTone === "caution" : feasibility === "stretch";
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim() || !amountValid || !monthValid || saving) return;
+  async function doSave() {
     setSaving(true);
     setSaveError(false);
     const target_date = `${month}-01`;
@@ -297,6 +304,22 @@ export default function CommitmentSheet({
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !amountValid || !monthValid || saving) return;
+    // Consent gate applies only on CREATE, never when editing an existing
+    // plan — an edit's own preview already excludes the plan's prior self
+    // from "others" (commitment_id is sent), and the user already made this
+    // call once when they first created it. Never gate on a missing/failed
+    // preview — proceed straight to save.
+    if (!commitment && preview?.consent?.required && !showConsent) {
+      setConsentSnapshot(preview.consent);
+      setShowConsent(true);
+      return;
+    }
+    doSave();
   }
 
   async function handleCancelCommitment() {
@@ -352,11 +375,11 @@ export default function CommitmentSheet({
                 {commitment ? "Edit plan" : "Plan a big expense"}
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                A goal you set money aside for — separate from single bills.
+                A goal you set money aside for, separate from single bills.
               </p>
             </div>
             <button
-              onClick={onClose}
+              onClick={() => (showConsent ? setShowConsent(false) : onClose())}
               aria-label="Close"
               className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2 active:bg-slate-200 dark:active:bg-slate-600 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
             >
@@ -369,6 +392,57 @@ export default function CommitmentSheet({
             className="overflow-y-auto flex-1 px-5 space-y-3"
             style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}
           >
+            {showConsent && consentSnapshot ? (
+              <div className="space-y-4">
+                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                  {consentSnapshot.title}
+                </p>
+                <div className="space-y-2">
+                  {consentSnapshot.lines.map((line, i) => (
+                    <p key={i} className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+                {saveError && (
+                  <p className="text-[13px] text-slate-500 dark:text-slate-400">
+                    That didn&apos;t save. Try again.
+                  </p>
+                )}
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={doSave}
+                    className="w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    {saving ? "Saving…" : consentSnapshot.actions.anyway}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      setShowConsent(false);
+                      setTimeout(() => monthInputRef.current?.focus(), 0);
+                    }}
+                    className="w-full min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    {consentSnapshot.actions.later_date}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      onClose();
+                      router.push("/debt-plan");
+                    }}
+                    className="w-full min-h-[44px] text-sm font-semibold text-indigo-600 dark:text-indigo-400 rounded-xl hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    {consentSnapshot.actions.debt_first}
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-3">
               {/* Name */}
               <div>
@@ -411,6 +485,7 @@ export default function CommitmentSheet({
                   By when
                 </label>
                 <input
+                  ref={monthInputRef}
                   type="month"
                   value={month}
                   min={minMonth}
@@ -444,7 +519,7 @@ export default function CommitmentSheet({
                       <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
                         <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
                       </span>
-                      <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">No pot — track it by hand</span>
+                      <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">No pot, track it by hand</span>
                       <CheckDot selected={pots.length === 0} />
                     </button>
 
@@ -478,7 +553,7 @@ export default function CommitmentSheet({
                                 <span className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
                                 {acc.manual && (
                                   <span className="flex-shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.08] text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                                    offline — updated by you
+                                    offline, updated by you
                                   </span>
                                 )}
                               </span>
@@ -516,7 +591,7 @@ export default function CommitmentSheet({
                                   older goal keeps first claim on a shared pot. */}
                               {hasConflict && (
                                 <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                  Also funding {detail!.also_funding.map((f) => f.name).join(", ")} — £
+                                  Also funding {detail!.also_funding.map((f) => f.name).join(", ")}, £
                                   {Math.round(
                                     detail!.also_funding.reduce((sum, f) => sum + f.amount, 0)
                                   ).toLocaleString("en-GB")}{" "}
@@ -530,7 +605,7 @@ export default function CommitmentSheet({
                     })}
                   </div>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                    Pick pots and progress tracks their growth from today — offline pots you update yourself.
+                    Pick pots and progress tracks their growth from today, offline pots you update yourself.
                   </p>
                 </div>
               )}
@@ -538,7 +613,7 @@ export default function CommitmentSheet({
               {/* Live per-period estimate — hedged, backend derives the real slice */}
               {slice != null && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 num" aria-live="polite">
-                  ≈ £{slice.toLocaleString("en-GB")}/period · {periods} {periods === 1 ? "period" : "periods"}
+                  ≈ £{slice.toLocaleString("en-GB")} {periodLabel ? `each pay period (${periodLabel})` : "a period"} · {periods} {periods === 1 ? "period" : "periods"}
                 </p>
               )}
 
@@ -547,7 +622,7 @@ export default function CommitmentSheet({
               {slice != null && feasibility && feasibilityNote && (
                 <p
                   className={`text-[13px] leading-snug ${
-                    feasibility === "stretch"
+                    feasibilityCaution
                       ? "text-amber-600 dark:text-amber-400"
                       : "text-slate-500 dark:text-slate-400"
                   }`}
@@ -624,6 +699,7 @@ export default function CommitmentSheet({
                 </div>
               )}
             </form>
+            )}
           </div>
         </div>
       </div>

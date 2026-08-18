@@ -118,7 +118,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
       {/* Verdict — one calm line before the number */}
       {!loading && (
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-2 leading-snug">
-          {isNegative ? "Building towards net-positive — stay the course" : "Tracking in the right direction"}
+          {isNegative ? "Building towards net-positive, stay the course" : "Tracking in the right direction"}
         </p>
       )}
 

@@ -200,7 +200,7 @@ export default function AccountLedgerRow({
               e.stopPropagation();
               onTermsClick();
             }}
-            aria-label={`${termsPill.label} — edit this card's rates`}
+            aria-label={`${termsPill.label}, edit this card's rates`}
             className="mt-0.5 min-h-[28px] flex items-center active:opacity-70 transition-opacity motion-reduce:transition-none"
           >
             <span

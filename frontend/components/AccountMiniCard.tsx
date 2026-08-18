@@ -388,7 +388,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           {termsPill && onTermsClick ? (
             <button
               onClick={(e) => { e.stopPropagation(); onTermsClick(); }}
-              aria-label={`${termsPill.label} — edit this card's rates`}
+              aria-label={`${termsPill.label}, edit this card's rates`}
               className="-ml-1.5 mt-auto pt-2 min-h-[44px] flex items-center px-1.5 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
             >
               <span

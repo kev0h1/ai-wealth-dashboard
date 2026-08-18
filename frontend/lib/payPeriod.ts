@@ -233,6 +233,32 @@ export function getPayPeriodWithConfig(refDate: Date, config: PayPeriodConfig): 
   }
 }
 
+/**
+ * Human-readable pay-period rhythm, or null when it doesn't map to a clean
+ * cadence ("custom") — callers should fall back to unqualified copy rather
+ * than a wrong label. Mirrors backend/app/services/pay_period.py's
+ * period_rhythm_label so a client-side estimate (e.g. CommitmentSheet's
+ * live "≈ £X" preview, before there's a saved doc to ask the server about)
+ * agrees with what the server says once saved. "biweekly" here is a strict
+ * 14-day cycle (labelled "Every two weeks" in PayPeriodSettingsSheet.tsx),
+ * not a 4-weekly or twice-a-month cadence.
+ */
+export function periodRhythmLabel(config: PayPeriodConfig): string | null {
+  switch (config.type) {
+    case "calendar_month":
+    case "monthly_pay_date":
+    case "last_friday":
+    case "last_weekday_of_month":
+      return "monthly";
+    case "weekly":
+      return "weekly";
+    case "biweekly":
+      return "every 2 weeks";
+    default:
+      return null; // "custom" — irregular, no clean rhythm to name
+  }
+}
+
 export function prevPeriodWithConfig(start: Date, config: PayPeriodConfig): [Date, Date] {
   const d = new Date(start.getTime() - 86400000);
   return getPayPeriodWithConfig(d, config);

@@ -613,7 +613,7 @@ export default function AccountsPage() {
   }, []);
   function togglePin(id: string) {
     if (!pinnedIds.includes(id) && pinnedIds.length >= MAX_PINS) {
-      setPinMsg(`Home shows up to ${MAX_PINS} pinned accounts — unpin one first.`);
+      setPinMsg(`Home shows up to ${MAX_PINS} pinned accounts, unpin one first.`);
       if (pinMsgTimer.current) clearTimeout(pinMsgTimer.current);
       pinMsgTimer.current = setTimeout(() => setPinMsg(null), 3500);
       return;
@@ -1899,7 +1899,7 @@ export default function AccountsPage() {
             <button
               type="button"
               onClick={() => openCardTermsAt(selectedAccount.id)}
-              aria-label={`${termsPill.label} — edit this card's rates`}
+              aria-label={`${termsPill.label}, edit this card's rates`}
               className="relative mt-2 inline-flex items-center min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
             >
               <span
@@ -2034,7 +2034,7 @@ export default function AccountsPage() {
                     <p className="text-sm text-slate-400 dark:text-slate-500">
                       {searchQuery
                         ? `No transactions matching "${searchQuery}"`
-                        : isManual ? "No transactions yet — add one or set up a rule." : "No transactions"}
+                        : isManual ? "No transactions yet, add one or set up a rule." : "No transactions"}
                     </p>
                   </div>
                 ) : (
@@ -2741,7 +2741,7 @@ export default function AccountsPage() {
           <div className="px-4 pt-6">
             <div className="mb-2">
               <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">Offline accounts</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Track balances we can&apos;t connect to — pots, cash, store cards. Tap to add transactions &amp; rules.</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">Track balances we can&apos;t connect to: pots, cash, store cards. Tap to add transactions &amp; rules.</p>
             </div>
 
             {manualAccounts.length === 0 ? (
@@ -2846,7 +2846,7 @@ export default function AccountsPage() {
               if (isProvisional) {
                 // Provisional: running total from £0
                 decomposedLine = (
-                  <span>No statement yet — running total of your contract notes, from £0.</span>
+                  <span>No statement yet: running total of your contract notes, from £0.</span>
                 );
               } else if (stmtDate) {
                 if (hasRefreshAfterStatement) {
@@ -3062,9 +3062,9 @@ export default function AccountsPage() {
                         {howItWorksOpen[inv.id] && (
                           <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                             {isProvisional && (
-                              <>This account started from a contract note, so its value is a running total from £0 — upload your first statement to set the real value.<br /><br /></>
+                              <>This account started from a contract note, so its value is a running total from £0, upload your first statement to set the real value.<br /><br /></>
                             )}
-                            A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives — then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
+                            A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives, then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
                           </p>
                         )}
 

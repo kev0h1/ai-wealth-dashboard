@@ -3,9 +3,10 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, Sparkles, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
+import PennyMark from "@/components/PennyMark";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -517,7 +518,7 @@ function WorkflowDrawer({
             <div className="flex flex-col items-center gap-3 py-8">
               <CheckCircle2 size={48} className="text-emerald-500" />
               <p className="text-[14px] text-slate-500 dark:text-slate-400 text-center">
-                Saved — Penny is crunching your numbers.<br />
+                Saved, Penny is crunching your numbers.<br />
                 Your personalised advice appears on this card in a moment.
               </p>
             </div>
@@ -527,7 +528,7 @@ function WorkflowDrawer({
               {topTrigger && (
                 <div className="mb-4 px-3 py-2.5 rounded-xl border border-indigo-100/80 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 text-[11px] text-indigo-700 dark:text-indigo-300">
                   We can already see <span className="font-semibold">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
-                  <span className="font-semibold">{topTrigger.display_name}</span> — {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
+                  <span className="font-semibold">{topTrigger.display_name}</span>, {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
                 </div>
               )}
 
@@ -617,7 +618,7 @@ function InsightBody({ body }: { body: string }) {
   const hasMore = rest.length > 0;
 
   return (
-    <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+    <p lang="en-GB" className="hero-prose text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
       <span>{preview}</span>
       {hasMore && !expanded && (
         <>
@@ -643,7 +644,7 @@ function InsightBody({ body }: { body: string }) {
           </button>
         </>
       )}
-    </div>
+    </p>
   );
 }
 
@@ -681,7 +682,7 @@ function InsightCard({
 
               {insight.is_new && (
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center gap-1">
-                  <Sparkles size={10} /> New
+                  <PennyMark size={10} /> New
                 </span>
               )}
             </div>
@@ -698,7 +699,7 @@ function InsightCard({
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800">
               <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-snug">
-                <span className="font-bold">You did it</span> — payments to {insight.verified_merchant} have stopped.
+                <span className="font-bold">You did it</span>, payments to {insight.verified_merchant} have stopped.
                 That&apos;s ~£{insight.verified_savings.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo staying in your pocket.
               </p>
             </div>
@@ -710,7 +711,7 @@ function InsightCard({
               ~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo{" "}
               <span className="font-medium">at {topTrigger.display_name}</span>
               {extraTriggers > 0 && <span className="font-medium"> · +{extraTriggers} more</span>}{" "}
-              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">— from your transactions</span>
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">· from your transactions</span>
             </p>
           )}
 
@@ -929,11 +930,17 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
   const pinned = insights.filter(i => i.pinned);
   // The insight already featured on the Home spotlight is hidden here to avoid
-  // showing the same card twice — unless the user deep-linked straight to it,
-  // or it's the only thing we'd have to show.
+  // showing the same card twice, unless the user deep-linked straight to it,
+  // it's the only thing we'd have to show, or it's a RESURFACED card
+  // (return_reason set — backend now computes this for retired insights
+  // too, see savings_insights.py get_savings_insights). A resurfaced card
+  // is one the user already dismissed once; hiding it here as well would
+  // make it findable only via the transient Home spotlight and nowhere on
+  // this page, which is exactly the Home/insights disagreement this guards
+  // against.
   const unpinnedAll = insights.filter(i => !i.pinned);
   const unpinned = unpinnedAll.filter(i =>
-    i.id !== spotlightId || i.id === deepLinkId || unpinnedAll.length <= 1
+    i.id !== spotlightId || i.id === deepLinkId || unpinnedAll.length <= 1 || !!i.return_reason
   );
   const visibleUnpinned = showAll ? unpinned : unpinned.slice(0, VISIBLE_UNPINNED);
   const hiddenCount = unpinned.length - visibleUnpinned.length;
@@ -990,7 +997,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
             </button>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
-            Personalised ways to spend less. Start with the top one — pin the ones you want to act on.
+            Personalised ways to spend less. Start with the top one, pin the ones you want to act on.
           </p>
         </div>
       )}
@@ -1258,7 +1265,7 @@ export default function InsightsPage() {
         <div className="px-4 pt-6 pb-2" data-tutorial-id="tutorial-debt-header">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">INSIGHTS</p>
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Personalised ways to spend less — start with the top one.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Personalised ways to spend less, start with the top one.</p>
         </div>
       )}
 

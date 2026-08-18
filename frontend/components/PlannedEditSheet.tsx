@@ -97,7 +97,7 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
       onSaved();
       onClose();
     } catch {
-      setError("Couldn't save — please try again");
+      setError("Couldn't save, please try again");
     } finally {
       setSaving(false);
     }

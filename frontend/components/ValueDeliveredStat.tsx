@@ -24,23 +24,25 @@ export default function ValueDeliveredStat() {
   const monthly = data.total_monthly_saving;
 
   return (
-    <button
-      onClick={() => router.push("/insights?tab=save")}
-      className="w-full active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
-    >
-      <div className="min-h-[44px] flex items-center justify-between">
-        {/* Left */}
-        <div className="flex items-center gap-2">
-          <Sparkles size={15} className="text-slate-400 flex-shrink-0" />
-          <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
-            {verified > 0
-              ? `${sym}${verified.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo saved`
-              : `${sym}${monthly.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo potential savings`}
-          </span>
+    <div className="mt-3 rounded-2xl glass-card px-4">
+      <button
+        onClick={() => router.push("/insights?tab=save")}
+        className="w-full active:scale-[0.98] transition-transform duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
+      >
+        <div className="min-h-[44px] flex items-center justify-between">
+          {/* Left */}
+          <div className="flex items-center gap-2">
+            <Sparkles size={15} className="text-slate-400 flex-shrink-0" />
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
+              {verified > 0
+                ? `${sym}${verified.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo saved`
+                : `${sym}${monthly.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo potential savings`}
+            </span>
+          </div>
+          {/* Right */}
+          <span className="text-sm text-slate-400 dark:text-slate-500">›</span>
         </div>
-        {/* Right */}
-        <span className="text-sm text-slate-400 dark:text-slate-500">›</span>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }

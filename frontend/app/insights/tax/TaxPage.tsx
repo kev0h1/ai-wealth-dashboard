@@ -160,6 +160,7 @@ export default function TaxPage({
   embedded = false,
   prefsLoaded = false,
   incomeValue: incomeValueProp,
+  incomeBracket: incomeBracketProp,
   pensionAnnual: pensionAnnualProp,
   hasChildBenefit: hasChildBenefitProp,
 }: TaxPageProps) {
@@ -175,6 +176,14 @@ export default function TaxPage({
     if (skipFetch) return incomeValueProp ?? 0;
     return 0;
   });
+  // Raw Settings-declared income bracket (distinct from `income` above, which
+  // blends an exact income_value with a bracket-derived estimate for the tax
+  // maths) — needed by the self-assessment gate to tell "declared under £100k"
+  // apart from "nothing declared at all".
+  const [incomeBracket, setIncomeBracket] = useState(() => {
+    if (skipFetch) return incomeBracketProp ?? "";
+    return "";
+  });
   const [pensionAnnual, setPensionAnnual] = useState(() => {
     if (skipFetch) return pensionAnnualProp ?? 0;
     return 0;
@@ -186,6 +195,17 @@ export default function TaxPage({
 
   const [alsoKnowingOpen, setAlsoKnowingOpen] = useState(false);
 
+  // Annualised income from the app's own transaction-derived cashflow signal
+  // (median monthly income x12, see backend/app/services/cashflow.py) — used
+  // only to gate the self-assessment lever. Independent of the Settings-entered
+  // income above, and fetched the same way whether embedded or standalone since
+  // no parent currently prefetches it. null = unknown, gated content stays hidden.
+  const [annualisedIncome, setAnnualisedIncome] = useState<number | null>(null);
+
+  useEffect(() => {
+    api.getTaxAnnualisedIncome().then(r => setAnnualisedIncome(r.annualised_income ?? null)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     // When the parent already fetched prefs, keep state in sync if props change
     // (e.g. user updates settings while on the page) but don't fire a fetch.
@@ -193,12 +213,14 @@ export default function TaxPage({
       setPensionAnnual(pensionAnnualProp ?? 0);
       setHasChildBenefit(hasChildBenefitProp ?? false);
       setIncome(incomeValueProp ?? 0);
+      setIncomeBracket(incomeBracketProp ?? "");
       return;
     }
     // Standalone route: fetch prefs ourselves.
     api.getPreferences().then(p => {
       setPensionAnnual(p.pension_annual ?? 0);
       setHasChildBenefit(p.has_child_benefit ?? false);
+      setIncomeBracket(p.income_bracket ?? "");
       if (p.income_value && p.income_value > 0) {
         setIncome(p.income_value);
       } else if (p.income_bracket === "100k_125k") {
@@ -207,7 +229,7 @@ export default function TaxPage({
         setIncome(130_000);
       }
     }).catch(() => {}).finally(() => setLoading(false));
-  }, [skipFetch, incomeValueProp, pensionAnnualProp, hasChildBenefitProp]);
+  }, [skipFetch, incomeValueProp, incomeBracketProp, pensionAnnualProp, hasChildBenefitProp]);
 
   const ty = getTaxYear();
 
@@ -250,6 +272,35 @@ export default function TaxPage({
   const effectiveCost = pensionNeededTotal - taxSaving;
   const is125k = adjustedIncome >= TAPER_END;
   const hasTaperIssue = over100k > 0;
+  // Self-assessment lever only makes sense above the £100k mandatory-registration
+  // threshold, and that threshold is GROSS income. `annualisedIncome` below is
+  // derived from bank-observed inflows (see backend/app/services/cashflow.py),
+  // which is NET pay — after tax, NI, and pension deductions come out — so it
+  // systematically undershoots gross and can't be trusted to rule someone OUT.
+  // (Proof case: a user can declare the 100k_125k Settings bracket, i.e. >£100k
+  // gross by their own account, while their net inflows annualise well under
+  // £100k — gating on the net figure alone would wrongly hide the lever from
+  // exactly the person it's for.) So Settings-declared income is authoritative
+  // when we have it — exact income_value, or the bracket's lower bound when
+  // only a bracket is known (100k_125k → £100k, 125k_plus → £125,140; declared
+  // under_100k is a known "no" and is NOT unknown). The net cashflow proxy is
+  // only a fallback for users who haven't declared anything in Settings. Unknown
+  // on both fronts hides the lever — never tell someone to register on a guess.
+  // `income` above already resolves to the exact declared income_value when
+  // set, in both the embedded and standalone paths — otherwise fall back to
+  // the bracket's lower bound (only relevant if a bracket-only declaration
+  // ever reaches this component without a resolved `income`), then to a known
+  // "declared under £100k" zero, then to genuinely unknown.
+  const declaredIncome: number | null =
+    income > 0 ? income
+    : incomeBracket === "100k_125k" ? 100_000
+    : incomeBracket === "125k_plus" ? 125_140
+    : incomeBracket === "under_100k" ? 0
+    : null;
+  const showSelfAssessment =
+    declaredIncome !== null
+      ? declaredIncome >= 100_000
+      : annualisedIncome !== null && annualisedIncome >= 100_000;
 
   // ── HERO CARD ──────────────────────────────────────────────────────────────
   // Calm indigo-tinted surface — NOT the Penny gradient
@@ -264,7 +315,7 @@ export default function TaxPage({
         <>
           Pension contributions still attract <strong>45% relief</strong>. Contributing{" "}
           <strong>£{fmt(pensionNeededTotal)}</strong> restores your full{" "}
-          <strong>£{fmt(PA)}</strong> personal allowance — saving approximately{" "}
+          <strong>£{fmt(PA)}</strong> personal allowance, saving approximately{" "}
           <strong>£{fmt(taxSaving)}</strong> in tax.
         </>
       );
@@ -275,7 +326,7 @@ export default function TaxPage({
         <>
           Every £1 between £100k and £125k is taxed ~60%. Put{" "}
           <strong>£{fmt(pensionNeededTotal)}</strong> into your pension before 5 Apr to win
-          back your <strong>£{fmt(allowanceLost)}</strong> personal allowance — saving{" "}
+          back your <strong>£{fmt(allowanceLost)}</strong> personal allowance, saving{" "}
           <strong>£{fmt(taxSaving)}</strong> in tax, at a real cost of just{" "}
           <strong>£{fmt(effectiveCost)}</strong>.
         </>
@@ -295,8 +346,9 @@ export default function TaxPage({
       heroHeadline = "Your allowances reset on 5 Apr.";
       heroBody = (
         <>
-          This year&rsquo;s <strong>£20,000 ISA</strong> allowance doesn&rsquo;t roll over,
-          and pension contributions get <strong>20% added automatically</strong> — every
+          This year&rsquo;s <strong>£20,000 ISA</strong>{" "}
+          allowance doesn&rsquo;t roll over, and pension contributions get{" "}
+          <strong>20% added automatically</strong>. Every
           £80 in becomes £100 invested.
         </>
       );
@@ -317,7 +369,7 @@ export default function TaxPage({
         <div className="flex items-center gap-2 pt-3 border-t border-indigo-100 dark:border-indigo-800/50">
           <Calendar size={14} className="text-amber-500 flex-shrink-0" />
           <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-            {ty.daysLeft} days left in {ty.label} — allowances reset 5 Apr
+            {ty.daysLeft} days left in {ty.label}, allowances reset 5 Apr
           </p>
         </div>
       </div>
@@ -340,10 +392,10 @@ export default function TaxPage({
             <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-                Pension — contribute £{fmt(pensionNeededTotal)} before 5 Apr
+                Pension: contribute £{fmt(pensionNeededTotal)} before 5 Apr
               </p>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                Your adjusted income is £{fmt(adjustedIncome)} — £{fmt(over100k)} over the
+                Your adjusted income is £{fmt(adjustedIncome)}. £{fmt(over100k)} over the
                 £100,000 threshold. Contributing £{fmt(pensionNeededTotal)} more this tax year
                 (via any mix of regular or one-off payments) restores your full personal allowance.
               </p>
@@ -376,7 +428,7 @@ export default function TaxPage({
               Your personal allowance is safe
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Adjusted income £{fmt(adjustedIncome)} — below the £100,000 taper threshold. Pension contributions attract 40% relief at your rate.
+              Adjusted income £{fmt(adjustedIncome)}, below the £100,000 taper threshold. Pension contributions attract 40% relief at your rate.
             </p>
           </div>
         </div>
@@ -389,7 +441,7 @@ export default function TaxPage({
               Pension relief happens automatically
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              At basic rate, HMRC adds 20% to pension contributions with no forms to fill in — every £80 in becomes £100 invested.
+              At basic rate, HMRC adds 20% to pension contributions with no forms to fill in. Every £80 in becomes £100 invested.
             </p>
           </div>
         </div>
@@ -401,7 +453,7 @@ export default function TaxPage({
         title="Gift Aid donations"
         detail={
           adjustedIncome > 50_270
-            ? "A £100 gift to charity costs you £100, but you reclaim £25 via self-assessment (higher-rate relief). The charity also gets £25 from HMRC — so your £100 gift is worth £125 to the cause."
+            ? "A £100 gift to charity costs you £100, but you reclaim £25 via self-assessment (higher-rate relief). The charity also gets £25 from HMRC, so your £100 gift is worth £125 to the cause."
             : "Charitable donations via Gift Aid reduce your adjusted net income. The charity gets 25p added for every £1 you donate; basic-rate relief is claimed automatically."
         }
         onToggle={() => toggle("gift_aid")}
@@ -414,7 +466,7 @@ export default function TaxPage({
           title="High income child benefit charge"
           detail={
             adjustedIncome <= 60_000
-              ? "Your pension contributions bring your adjusted income below £60,000 — no charge applies."
+              ? "Your pension contributions bring your adjusted income below £60,000. No charge applies."
               : `Your adjusted income is £${fmt(adjustedIncome)}, above £60,000. You'll repay some or all child benefit via self-assessment. Contributing an extra £${fmt(Math.max(0, adjustedIncome - 60_000))} to pension this year eliminates the charge entirely.`
           }
         />
@@ -423,8 +475,8 @@ export default function TaxPage({
       {/* ISA allowance */}
       <ActionRow
         status={done.has("isa") ? "done" : "action"}
-        title={`ISA — £20,000 allowance · ${ty.daysLeft} days left`}
-        detail="Unused ISA allowance cannot be carried forward. Growth and withdrawals are completely tax-free — most useful for sheltering dividend income and capital gains that would otherwise be taxed at your marginal rate."
+        title={`ISA: £20,000 allowance · ${ty.daysLeft} days left`}
+        detail="Unused ISA allowance cannot be carried forward. Growth and withdrawals are completely tax-free, most useful for sheltering dividend income and capital gains that would otherwise be taxed at your marginal rate."
         highlight={ty.daysLeft < 90}
         onToggle={() => toggle("isa")}
       />
@@ -450,7 +502,7 @@ export default function TaxPage({
             <ActionRow
               status={done.has("carry_forward") ? "done" : "info"}
               title="Pension carry-forward"
-              detail={`Unused annual allowance from the last 3 tax years can be carried into this year — total allowed up to £60,000. Worth checking if you under-contributed in 2023/24, 2024/25, or 2025/26.`}
+              detail={`Unused annual allowance from the last 3 tax years can be carried into this year, total allowed up to £60,000. Worth checking if you under-contributed in 2023/24, 2024/25, or 2025/26.`}
               onToggle={() => toggle("carry_forward")}
             />
 
@@ -458,7 +510,7 @@ export default function TaxPage({
             <ActionRow
               status={done.has("salary_sacrifice") ? "done" : "info"}
               title="Salary sacrifice benefits"
-              detail="Cycle to work (up to ~£1,000), electric car via salary sacrifice, and employer childcare vouchers all reduce your gross pay before income tax — they count toward bringing you under £100,000."
+              detail="Cycle to work (up to ~£1,000), electric car via salary sacrifice, and employer childcare vouchers all reduce your gross pay before income tax, they count toward bringing you under £100,000."
               onToggle={() => toggle("salary_sacrifice")}
             />
 
@@ -466,23 +518,25 @@ export default function TaxPage({
             <ActionRow
               status={done.has("eis_seis") ? "done" : "info"}
               title="EIS / SEIS investments"
-              detail="Investing in qualifying early-stage companies gives 30% (EIS) or 50% (SEIS) upfront income tax relief, plus exemption from capital gains tax on qualifying profits. Some people use it to diversify outside pensions and ISAs — but it's high-risk and illiquid, so only worth considering with money you can afford to lose."
+              detail="Investing in qualifying early-stage companies gives 30% (EIS) or 50% (SEIS) upfront income tax relief, plus exemption from capital gains tax on qualifying profits. Some people use it to diversify outside pensions and ISAs, but it's high-risk and illiquid, so only worth considering with money you can afford to lose."
               onToggle={() => toggle("eis_seis")}
             />
 
-            {/* Self-assessment */}
-            <ActionRow
-              status={done.has("self_assessment") ? "done" : "action"}
-              title="Register for self-assessment"
-              detail="Mandatory if your income exceeds £100,000. HMRC may not contact you automatically. If you haven't filed before, register at gov.uk — penalties start from day one of missing the January deadline."
-              onToggle={() => toggle("self_assessment")}
-            />
+            {/* Self-assessment — only for incomes at/above £100k (annualised, transaction-derived) */}
+            {showSelfAssessment && (
+              <ActionRow
+                status={done.has("self_assessment") ? "done" : "action"}
+                title="Register for self-assessment"
+                detail="Mandatory if your income exceeds £100,000. HMRC may not contact you automatically. If you haven't filed before, register at gov.uk. Penalties start from day one of missing the January deadline."
+                onToggle={() => toggle("self_assessment")}
+              />
+            )}
 
             {/* Tax code */}
             <ActionRow
               status={done.has("tax_code") ? "done" : "action"}
               title="Check your tax code"
-              detail="Your employer's payroll uses a tax code set by HMRC, which may not reflect pension contributions, other income, or expenses. Log into your Personal Tax Account at gov.uk to verify your code is correct — a wrong code can mean overpaying or underpaying all year."
+              detail="Your employer's payroll uses a tax code set by HMRC, which may not reflect pension contributions, other income, or expenses. Log into your Personal Tax Account at gov.uk to verify your code is correct. A wrong code can mean overpaying or underpaying all year."
               onToggle={() => toggle("tax_code")}
             />
           </div>
@@ -500,7 +554,7 @@ export default function TaxPage({
         <KeyDate
           date={`31 Jul ${ty.nextYear}`}
           label="Second payment on account"
-          sublabel="Half your 2025/26 tax bill — due even if you haven't filed yet"
+          sublabel="Half your 2025/26 tax bill, due even if you haven't filed yet"
         />
         <KeyDate
           date={`31 Jan ${ty.nextYear + 1}`}

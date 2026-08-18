@@ -26,7 +26,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     color: "#4f46e5",
     bg: "#ede9fe",
     title: "Welcome to Sorted",
-    description: "Track all your money in one place. This short tour will walk you through the key features — tap Next to get started.",
+    description: "Track all your money in one place. This short tour will walk you through the key features, tap Next to get started.",
   },
   {
     id: "manage-accounts",
@@ -84,7 +84,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     color: "#4f46e5",
     bg: "#e0e7ff",
     title: "See What's Coming",
-    description: "The Planning tab shows what's left to last the pay period — with the bills still to leave and income still expected before your next one.",
+    description: "The Planning tab shows what's left to last the pay period, with the bills still to leave and income still expected before your next one.",
     tip: "Plan a one-off payment, save toward a big expense, or ask Penny Can I…? for a quick verdict.",
   },
   {
@@ -96,7 +96,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     color: "#4f46e5",
     bg: "#ede9fe",
     title: "Tell Penny your income",
-    description: "Add your income and pension in Settings — Grow and your tax levers personalise from them.",
+    description: "Add your income and pension in Settings, Grow and your tax levers personalise from them.",
   },
 ];
 

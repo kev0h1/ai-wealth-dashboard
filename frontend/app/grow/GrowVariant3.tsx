@@ -340,7 +340,7 @@ export default function GrowVariant3() {
         ) : fetchError || !grow ? (
           <div className="glass-card rounded-2xl p-5 text-center">
             <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">
-              Couldn&apos;t load your priority ladder — check your connection.
+              Couldn&apos;t load your priority ladder, check your connection.
             </p>
             <button
               onClick={load}
@@ -352,7 +352,7 @@ export default function GrowVariant3() {
         ) : noData ? (
           <div className="glass-card rounded-2xl p-5 text-center">
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Nothing to show yet — connect an account to see your priority ladder.
+              Nothing to show yet, connect an account to see your priority ladder.
             </p>
           </div>
         ) : (

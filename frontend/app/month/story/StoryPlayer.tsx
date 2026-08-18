@@ -248,7 +248,7 @@ function WinSlide({
           <span className="text-amber-300">✦</span> You kept {fmt(ch.keeping.kept)} of what you set aside.
         </p>
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
-          Set aside {fmt(ch.keeping.set_aside)}, drew back {fmt(ch.keeping.drawn_back)} — the rest stayed put.
+          Set aside {fmt(ch.keeping.set_aside)}, drew back {fmt(ch.keeping.drawn_back)}. The rest stayed put.
         </p>
       </div>
     );

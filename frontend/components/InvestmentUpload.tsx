@@ -130,7 +130,7 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
                   {selectedFile ? (
                     <>
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{selectedFile.name}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{(selectedFile.size / 1024).toFixed(0)} KB — tap to change</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{(selectedFile.size / 1024).toFixed(0)} KB, tap to change</p>
                     </>
                   ) : (
                     <>

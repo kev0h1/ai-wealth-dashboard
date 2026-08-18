@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { X, ChevronRight, TrendingDown, RotateCcw, Sparkles } from "lucide-react";
+import { X, ChevronRight, RotateCcw } from "lucide-react";
 import { api, SavingsInsight } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
+import PennyMark from "@/components/PennyMark";
 
 export default function HomeInsightSpotlight() {
   const router = useRouter();
@@ -128,15 +129,20 @@ export default function HomeInsightSpotlight() {
             </span>
             {insight.is_new && (
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center gap-1">
-                <Sparkles size={10} /> New
+                <PennyMark size={10} /> New
               </span>
             )}
           </div>
 
-          {/* A resurrected insight explains itself — return without a reason reads as nagging */}
+          {/* A resurrected insight explains itself — return without a reason reads
+              as nagging. Calm/muted, not amber: this is a routine update, not a
+              warning (amber is reserved for pace alerts). The backend's own
+              return_reason text is already a complete, self-explanatory
+              sentence (e.g. "Updated: estimated saving now ~£83/mo"), so no
+              "Back because:" prefix or arrow is added here. */}
           {insight.return_reason && (
-            <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
-              <RotateCcw size={11} className="flex-shrink-0" /> Back because: {insight.return_reason}
+            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
+              <RotateCcw size={11} className="flex-shrink-0" /> {insight.return_reason}
             </p>
           )}
 
@@ -144,19 +150,16 @@ export default function HomeInsightSpotlight() {
           <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
             {insight.title}
           </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2">
+          <p lang="en-GB" className="hero-prose text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2">
             {insight.body}
           </p>
 
-          {/* The saving — the payoff, given its own callout */}
-          {insight.savings_estimate && (
-            <div className="flex items-start gap-2 mt-3.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl px-3 py-2.5">
-              <TrendingDown size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300 leading-snug">
-                {insight.savings_estimate}
-              </p>
-            </div>
-          )}
+          {/* No savings_estimate badge here: the canonical InsightCard on
+              the Insights page (InsightsPage.tsx) never surfaces the raw
+              LLM-projected estimate as a callout, only verified_savings
+              (genuine, emerald) and the user's own transaction figure
+              (plain ink). Matching that, the spotlight drops the estimate
+              badge too, the body copy already carries the value story. */}
 
           <div className="flex items-center gap-1 mt-3.5 text-sm font-semibold text-violet-600 dark:text-violet-400">
             See all insights

@@ -50,14 +50,25 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   const { hideNetWorth: hidden } = usePreferences();
   const router = useRouter();
 
+  // Tiny negative floats (rounding/float artefacts, e.g. -£0.03) must never
+  // render as "−£0" or flip a verdict into the alarm state. Widened to < 1
+  // (not < 0.5) so it lines up exactly with the "genuine shortfall" remap
+  // threshold below (freeAmount > -1 ⇒ comfortable) — otherwise the
+  // (-1,-0.5] band survives zeroSafe as a small negative number, which
+  // fmt()'s Math.abs+round then displays as a positive "£1 to spare" on a
+  // GREEN comfortable card for a user who is actually short. Accepted side
+  // effect: raw values in +0.5..0.99 now also normalise to £0 instead of £1.
+  // Applied before every sign check, colour choice, and verdict branch.
+  const zeroSafe = (v: number) => (Math.abs(v) < 1 ? 0 : v);
+
   // Count-up targets for the NOW / BILLS / FREE tiles — computed unconditionally
   // (before any early return) since hooks can't be called conditionally. Falls
   // back to 0 when there's no "ok" data yet; the hook itself no-ops until the
   // card actually renders these values.
   const okData = data?.status === "ok" ? data : null;
   const nowTarget = okData?.spendable_now ?? 0;
-  const billsTarget = okData?.bills_total ?? 0;
-  const freeTarget = okData ? Math.abs(okData.safe_to_spend) : 0;
+  const billsTarget = zeroSafe(okData?.bills_total ?? 0);
+  const freeTarget = okData ? Math.abs(zeroSafe(okData.safe_to_spend)) : 0;
   const nowCounted = useCountUp(nowTarget);
   const billsCounted = useCountUp(billsTarget);
   const freeCounted = useCountUp(freeTarget);
@@ -85,7 +96,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
 
   const {
     safe_to_spend,
-    state,
+    state: rawState,
     next_payday,
     bills_total,
     estimated,
@@ -94,7 +105,15 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
     card_debt,
   } = data;
 
-  const gap = Math.abs(safe_to_spend); // used when short
+  // Normalised free-cash figure — see zeroSafe above. A backend "short"
+  // state only earns the alarm verdict/colour when the shortfall is real
+  // (≥ £1 after normalisation); anything smaller is rounding noise and
+  // falls through to the normal on-track ("comfortable") verdict path.
+  const freeAmount = zeroSafe(safe_to_spend);
+  const state: "comfortable" | "tight" | "short" =
+    rawState === "short" && freeAmount > -1 ? "comfortable" : rawState;
+
+  const gap = Math.abs(freeAmount); // used when short (guaranteed >= 1 here)
 
   // Distance-aware label for next payday — today/tomorrow/weekday name (2–6
   // days away)/short date (7+ days away). Prevents "Tight until Friday"
@@ -129,29 +148,31 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   // never coloured red/rose per the Red Is Risk rule.
   const cardDelta = cardDeltaSoFar ?? null;
   const showCardStrip =
-    cardDelta !== null && (card_debt ?? 0) > 0 && safe_to_spend > 0;
+    cardDelta !== null && (card_debt ?? 0) > 0 && freeAmount > 0;
   const cardsGrew = showCardStrip && (cardDelta as number) >= 10;
   const cardsDown = showCardStrip && (cardDelta as number) <= -10;
-  const netAfterCards = cardsGrew ? safe_to_spend - (cardDelta as number) : null;
+  const netAfterCards = cardsGrew ? freeAmount - (cardDelta as number) : null;
 
   // ── 1. Verdict headline ───────────────────────────────────────────────────
   let verdictText: string;
   if (state === "comfortable") {
-    verdictText = `You're okay — ${fmt(safe_to_spend)} to spare this pay period.`;
+    verdictText = `You're okay. ${fmt(freeAmount)} to spare this pay period.`;
     if (cardsGrew && netAfterCards !== null) {
       verdictText = netAfterCards > 0
-        ? `You're okay — ${fmt(safe_to_spend)} to spare, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `You're okay for bills — ${fmt(safe_to_spend)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+        ? `You're okay. ${fmt(freeAmount)} to spare, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `You're okay for bills. ${fmt(freeAmount)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else if (state === "tight") {
-    verdictText = `Tight until your pay period ends — ${fmt(safe_to_spend)} in hand.`;
+    verdictText = `Tight until your pay period ends. ${fmt(freeAmount)} in hand.`;
     if (cardsGrew && netAfterCards !== null) {
       verdictText = netAfterCards > 0
-        ? `Tight until period end — ${fmt(safe_to_spend)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `Tight until period end — ${fmt(safe_to_spend)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
+        ? `Tight until period end. ${fmt(freeAmount)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
+        : `Tight until period end. ${fmt(freeAmount)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
     }
   } else {
-    verdictText = `Short this pay period — ${fmt(gap)} to cover.`;
+    // Only reached when state === "short" AND freeAmount <= -1 (genuine
+    // shortfall) — see the remap above.
+    verdictText = `Short this pay period. ${fmt(gap)} to cover.`;
   }
 
   // ── Bridge figure colour ─────────────────────────────────────────────────
@@ -209,12 +230,14 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Now</span>
             <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{hidden ? "£••••" : fmt(nowCounted)}</span>
           </div>
-          {/* BILLS */}
+          {/* BILLS — minus sign only when there's a real bills figure to
+              subtract; a zero-normalised total never renders "−£0". */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Bills</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">−{hidden ? "£••••" : fmt(billsCounted)}</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{billsTarget > 0 ? "−" : ""}{hidden ? "£••••" : fmt(billsCounted)}</span>
           </div>
-          {/* FREE */}
+          {/* FREE — minus sign (and red, via freeClass) only for a genuine
+              shortfall (state === "short", already gated to <= −£1). */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Free</span>
             <span className={`text-base font-semibold tabular-nums num text-left ${freeClass}`}>
@@ -241,7 +264,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
             {cardsGrew && netAfterCards !== null ? (
               <>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
                 <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">−</span>
                 <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(cardDelta as number)}</span>
@@ -256,15 +279,12 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
               </>
             ) : cardsDown ? (
               <>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
-                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
                 <span className="text-base font-semibold tabular-nums num text-emerald-600 dark:text-emerald-400">{hidden ? "£••••" : fmt(Math.abs(cardDelta as number))}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">paid off credit cards</span>
               </>
             ) : (
               <>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(safe_to_spend)}</span>
+                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
                 <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">credit cards steady this month</span>
@@ -276,16 +296,22 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
       )}
       </div>
       <div className="space-y-1">
-      {/* Pace rate line — only for non-risk states with a valid sustainable rate */}
+      {/* Pace + payday line — merges the daily-rate pace and the pay-period-end/
+          expected-income facts into one muted line. Degrades gracefully: rate
+          and expected income are each independently optional; the period-end
+          date is always available for "ok" status, so it anchors the line. */}
       {(() => {
         const pace = data.status === "ok" ? data.pace : undefined;
         const showPace = pace != null &&
           (pace.state === "comfortable" || pace.state === "on_pace" || pace.state === "ahead" || pace.state === "early") &&
           pace.sustainable != null;
-        if (!showPace) return null;
+        const leadText = showPace
+          ? `${hidden ? "£••" : fmt2(pace!.sustainable!)}/day until ${paydayLabel}`
+          : `Pay period ends ${paydayLabel}`;
+        const incomeText = hasPaydayIncome ? `~${hidden ? "••" : fmt(payday_income!)} expected` : null;
         return (
-          <p className="text-[13px] text-slate-500 dark:text-slate-400 num">
-            {hidden ? "£••" : fmt2(pace!.sustainable!)}/day until pay period end
+          <p lang="en-GB" className="hero-prose text-[13px] text-slate-500 dark:text-slate-400 num">
+            {leadText}{incomeText ? ` · ${incomeText}` : ""}
           </p>
         );
       })()}
@@ -297,16 +323,14 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           aria-label="See the plans this is reserved for"
         >
           <span>
-            {hidden ? "£••" : fmt(data.commitments_reserved!)}/period reserved for {data.commitments_count ?? 1} plan{(data.commitments_count ?? 1) === 1 ? "" : "s"}
+            {hidden ? "£••" : fmt(data.commitments_reserved!)}{" "}
+            {data.commitments_reserved_period_label
+              ? `each pay period (${data.commitments_reserved_period_label})`
+              : "a period"}{" "}
+            reserved for {data.commitments_count ?? 1} plan{(data.commitments_count ?? 1) === 1 ? "" : "s"}
           </span>
           <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0" aria-hidden="true">›</span>
         </button>
-      )}
-      {/* Payday muted line — replaces emerald pill */}
-      {hasPaydayIncome && (
-        <p className="text-sm text-slate-500 dark:text-slate-400 num">
-          Pay period ends {paydayLabel} · ~{hidden ? "••" : fmt(payday_income!)} expected
-        </p>
       )}
       {/* Freshness caveat — only when sync is older than 3 hours */}
       {freshnessLabel && (

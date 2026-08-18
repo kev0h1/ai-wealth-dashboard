@@ -38,7 +38,7 @@ function adaptiveInsight(data: TransportSummary): string {
     return `Rideshare (£${fmt(rideshare.monthly)}/mo) is nearly as much as parking (£${fmt(parking.monthly)}/mo)`;
   }
   if (ridesharePct > 50 && data.car_total === 0 && rideshare) {
-    return `£${fmt(rideshare.monthly)}/mo on rideshare — could a monthly travelcard work out cheaper?`;
+    return `£${fmt(rideshare.monthly)}/mo on rideshare. Could a monthly travelcard work out cheaper?`;
   }
   if (carPct > 60) {
     return `Your car costs roughly £${Math.round(data.car_monthly * 12).toLocaleString("en-GB")} a year to run`;

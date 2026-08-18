@@ -158,7 +158,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
         finish(`Filed as ${category}.`, () => undoToSpend(category));
       }
     } catch {
-      setError("That didn't save — try again.");
+      setError("That didn't save, try again.");
     } finally {
       setBusy(false);
     }
@@ -187,7 +187,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       await addCategory(trimmed, namingKind);
       await commitSpend(trimmed);
     } catch {
-      setError("Couldn't save that name — try a different one.");
+      setError("Couldn't save that name, try a different one.");
       setBusy(false);
     }
   }
@@ -205,7 +205,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       onUpdated({ ...transaction, category: resolution === "someone-else" ? originalCategory : "Transfer" });
       finish(successMessage, undoMovement);
     } catch {
-      setError("That didn't save — try again.");
+      setError("That didn't save, try again.");
     } finally {
       setBusy(false);
     }
@@ -331,10 +331,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
             <>
               <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
                 {viaEscape
-                  ? "Money moved has a destination, not a category — where did it go?"
+                  ? "Money moved has a destination, not a category. Where did it go?"
                   : isAskHandoff
-                  ? "I can't place this one yet — I don't know enough to guess, so I'm asking."
-                  : "This looks like money you moved — it left for an account I can't see."}
+                  ? "I can't place this one yet. I don't know enough to guess, so I'm asking."
+                  : "This looks like money you moved. It left for an account I can't see."}
               </p>
               <p className="mt-3 text-[14px] font-semibold text-slate-900 dark:text-slate-100">
                 Is this account yours?
@@ -346,7 +346,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
                 >
                   <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Yes — it funds a goal
+                    Yes: it funds a goal
                   </span>
                 </button>
                 <button
@@ -355,7 +355,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
                 >
                   <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    Yes — just an account of mine elsewhere
+                    Yes: just an account of mine elsewhere
                   </span>
                   <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                     tracked as an offline pot
@@ -368,7 +368,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                     className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
                   >
                     <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                      No — this was spending
+                      No: this was spending
                     </span>
                     <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                       opens the category picker
@@ -381,7 +381,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
                 >
                   <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    No — it went to someone else
+                    No: it went to someone else
                   </span>
                 </button>
               </div>
@@ -403,7 +403,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               {goalsFailed ? (
                 <>
                   <p className="mt-3 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
-                    I couldn&apos;t check your goals just now — try again in a moment.
+                    I couldn&apos;t check your goals just now, try again in a moment.
                   </p>
                   <button
                     type="button"
@@ -416,7 +416,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               ) : goals === null ? (
                 <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-400">Loading your goals…</p>
               ) : goals.length === 0 ? (
-                <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-400">No active goals yet — name this pot below.</p>
+                <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-400">No active goals yet, name this pot below.</p>
               ) : (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {goals.map((g) => (
@@ -536,7 +536,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                     // resolve_movement's someone-else branch), so it still
                     // counts as spending. Promising otherwise there was a
                     // false-reassurance bug (fix-round MEDIUM finding).
-                    isMovementRead ? "Noted — it won't count as spending." : `Noted — still filed as ${originalCategory}.`,
+                    isMovementRead ? "Noted, it won't count as spending." : `Noted, still filed as ${originalCategory}.`,
                   )}
                   className="h-11 px-4 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
                 >
@@ -556,7 +556,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           {step === "spend-root" && (
             <>
               <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
-                I&apos;ve filed this as {originalCategory} — correct it and I learn.
+                I&apos;ve filed this as {originalCategory}, correct it and I learn.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {orderedSpend.map((c) => {
@@ -718,7 +718,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           {/* Footer whisper — every step, first person, never "the engine" */}
           {step !== "done" && (
             <p className="mt-4 text-center text-[11px] text-slate-600 dark:text-slate-400">
-              I learn from every correction — you shouldn&apos;t have to do this twice.
+              I learn from every correction, you shouldn&apos;t have to do this twice.
             </p>
           )}
         </div>

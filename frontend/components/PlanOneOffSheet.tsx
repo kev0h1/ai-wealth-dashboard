@@ -94,7 +94,7 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
       setImpact(result.impact ?? "none");
       onSaved();
     } catch {
-      setError("Couldn't save — please try again");
+      setError("Couldn't save, please try again");
     } finally {
       setSaving(false);
     }
@@ -114,9 +114,9 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
     const sts = impact.safe_to_spend_after;
     if (sts !== null) {
       if (sts > 0) {
-        confirmMessage = `Planned. You're still okay — £${sts.toLocaleString("en-GB", { maximumFractionDigits: 0 })} in hand after this.`;
+        confirmMessage = `Planned. You're still okay, £${sts.toLocaleString("en-GB", { maximumFractionDigits: 0 })} in hand after this.`;
       } else {
-        confirmMessage = `Planned. This tips your window £${Math.abs(sts).toLocaleString("en-GB", { maximumFractionDigits: 0 })} short — a cover plan will appear on Home.`;
+        confirmMessage = `Planned. This tips your window £${Math.abs(sts).toLocaleString("en-GB", { maximumFractionDigits: 0 })} short, a cover plan will appear on Home.`;
       }
     } else {
       confirmMessage = "Planned. It's now in your upcoming bills.";

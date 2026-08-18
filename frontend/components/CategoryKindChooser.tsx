@@ -27,19 +27,19 @@ const KIND_META: Record<CategoryKind, {
   discretionary: {
     label: "Everyday spending",
     icon: Wallet,
-    consequence: "counts as everyday spending — the money you choose to spend.",
+    consequence: "counts as everyday spending, the money you choose to spend.",
     tail: "Money you choose to spend",
   },
   commitment: {
     label: "A bill or commitment",
     icon: Receipt,
-    consequence: "counts as spending, but as something you've committed to — not everyday money.",
+    consequence: "counts as spending, but as something you've committed to, not everyday money.",
     tail: "Real spend, already committed",
   },
   movement: {
     label: "Money I move, not spend",
     icon: ArrowLeftRight,
-    consequence: "won't count towards your spending at all — it's money moving to your own pot or account.",
+    consequence: "won't count towards your spending at all, it's money moving to your own pot or account.",
     tail: "Won't count towards your spending",
   },
 };

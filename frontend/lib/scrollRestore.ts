@@ -46,9 +46,20 @@ function writeSaved(key: string, y: number) {
 let currentKey = "";
 let listenerAttached = false;
 let rafPending = false;
+// True for the duration of an in-flight restoreScroll() call. A route that
+// paints short-then-tall (e.g. Insights) gets auto-clamped by the browser
+// when the shorter content lands, which dispatches a genuine async `scroll`
+// event indistinguishable, to the continuous persist listener below, from
+// the user actually scrolling. Without this guard that clamp's near-zero
+// position gets written into the *new* route's just-claimed storage slot
+// (trackRoute's layout effect already flipped currentKey by the time the
+// clamp event fires), permanently destroying the saved position for every
+// future back-navigation to it. Suppressing persistence while a restore is
+// in flight keeps the clamp from ever being mistaken for a real position.
+let restoreInFlight = false;
 
 function persistCurrentScroll() {
-  if (!currentKey) return;
+  if (!currentKey || restoreInFlight) return;
   writeSaved(currentKey, window.scrollY);
 }
 
@@ -94,17 +105,44 @@ export function restoreScroll(targetY: number) {
   if (typeof window === "undefined" || targetY <= 0) return;
 
   const startY = window.scrollY;
-  console.debug("[scrollRestore] restoreScroll called targetY=" + targetY + " startY=" + startY);
   if (Math.abs(startY - targetY) < 2) return; // already there
 
   const viewportHeight = window.innerHeight;
   const deadline = Date.now() + RESTORE_TIMEOUT_MS;
   let done = false;
+  // Position `finish` last applied via window.scrollTo, if any — belt-and-
+  // braces against a stray scroll event reporting exactly that value (see
+  // isExplainedByClamp below).
+  let lastSetY: number | null = null;
+  restoreInFlight = true;
+
+  function currentMaxScroll(): number {
+    return Math.max(0, document.documentElement.scrollHeight - viewportHeight);
+  }
+
+  // A scroll event during restore can mean two very different things: the
+  // user actually scrolling (abandon, never yank them), or the browser
+  // auto-clamping the still-scrolled viewport down because the newly-routed
+  // page painted shorter than where they were (ignore it and keep polling —
+  // that's exactly the height-gated wait this function exists to do). The
+  // two are distinguished by whether the reported position is one the clamp
+  // could have produced: the document must still be too short to hold
+  // targetY, and the position must sit at (or past) the document's current
+  // max scroll, within a small tolerance for sub-pixel rounding.
+  function isExplainedByClamp(y: number): boolean {
+    const tallEnough = document.documentElement.scrollHeight >= targetY + viewportHeight;
+    if (tallEnough) return false;
+    const maxY = currentMaxScroll();
+    if (Math.abs(y - maxY) <= 2) return true;
+    if (lastSetY != null && Math.abs(y - lastSetY) <= 2) return true;
+    return false;
+  }
 
   const onUserScroll = () => {
     if (done) return;
-    console.debug("[scrollRestore] onUserScroll fired, abandoning. scrollY=" + window.scrollY);
+    if (isExplainedByClamp(window.scrollY)) return;
     done = true;
+    restoreInFlight = false;
     window.removeEventListener("scroll", onUserScroll);
   };
   window.addEventListener("scroll", onUserScroll, { passive: true });
@@ -112,9 +150,10 @@ export function restoreScroll(targetY: number) {
   function finish(y: number) {
     if (done) return;
     done = true;
+    restoreInFlight = false;
     window.removeEventListener("scroll", onUserScroll);
+    lastSetY = y;
     window.scrollTo(0, y);
-    console.debug("[scrollRestore] finish y=" + y + " postScrollY=" + window.scrollY);
   }
 
   function tick() {
@@ -125,8 +164,7 @@ export function restoreScroll(targetY: number) {
       return;
     }
     if (Date.now() >= deadline) {
-      const maxY = Math.max(0, document.documentElement.scrollHeight - viewportHeight);
-      finish(Math.min(targetY, maxY));
+      finish(Math.min(targetY, currentMaxScroll()));
       return;
     }
     requestAnimationFrame(tick);

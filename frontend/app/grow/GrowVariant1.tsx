@@ -263,7 +263,7 @@ function SplitGauge({ view }: { view: GrowView }) {
       </div>
       {!view.invest.has_investments && (
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 italic">
-          Nothing invested yet — this fills in once the ladder reaches that rung.
+          Nothing invested yet, this fills in once the ladder reaches that rung.
         </p>
       )}
     </div>
@@ -355,7 +355,7 @@ export default function GrowVariant1() {
         ) : error || !view ? (
           <div className="glass-card rounded-2xl p-5 space-y-3">
             <p className="text-sm text-slate-700 dark:text-slate-200">
-              Grow couldn&apos;t load — the instrument panel needs a live reading to show the ladder.
+              Grow couldn&apos;t load, the instrument panel needs a live reading to show the ladder.
             </p>
             <button
               onClick={load}
@@ -391,7 +391,7 @@ export default function GrowVariant1() {
                 <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">{view.verdict.sub}</p>
                 {view.debt.all_promo && view.debt.promo_cliff && (
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)} — the after-debt figure reflects those repayments.
+                    Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)}, the after-debt figure reflects those repayments.
                   </p>
                 )}
 
@@ -426,7 +426,7 @@ export default function GrowVariant1() {
             {!hasLadder && (
               <div className="glass-card rounded-2xl p-5">
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                  No ladder to show yet — connect an account so Grow has a live reading to work from.
+                  No ladder to show yet, connect an account so Grow has a live reading to work from.
                 </p>
               </div>
             )}

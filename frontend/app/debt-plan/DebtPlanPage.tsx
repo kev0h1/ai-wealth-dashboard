@@ -10,6 +10,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import BottomNav from "@/components/BottomNav";
+import PennyMark from "@/components/PennyMark";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -102,7 +103,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     } else {
       sentence = (
         <>
-          {amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)} — further out than five years.
+          {amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, further out than five years.
           {plan.history?.rising && (
             <> Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
           )}
@@ -111,7 +112,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     }
   } else if (totals.verdict === "drifting") {
     sentence = (
-      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)} — {fmtMoney(totals.interest_to_clear, hide)} of that will be interest.</>
+      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)}, {fmtMoney(totals.interest_to_clear, hide)} of that will be interest.</>
     );
   } else {
     // good
@@ -133,7 +134,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     const zero = buckets.carried_zero;
     let splitText: React.ReactNode;
     if (interest >= 1) {
-      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried — {hide ? "••••" : fmtMoney(interest, hide)} of it costing interest · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried, {hide ? "••••" : fmtMoney(interest, hide)} of it costing interest · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
     } else if (zero >= 0.9 * carried) {
       splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried on 0% deals · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
     } else {
@@ -163,6 +164,16 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       <p className="text-[15px] leading-relaxed mt-2 text-slate-700 dark:text-slate-200">
         {sentence}
       </p>
+      {plan.commitments_reserved && totals.debt_free_month && (
+        <p className="text-[11px] mt-2 text-slate-400 dark:text-slate-500 leading-snug">
+          Assumes your recent payment pace continues. Your plans reserve{" "}
+          {fmtMoney(plan.commitments_reserved.total_slice, hide)}{" "}
+          {plan.commitments_reserved.period_label
+            ? `each pay period (${plan.commitments_reserved.period_label})`
+            : "a period"}
+          , which can change this.
+        </p>
+      )}
     </div>
   );
 }
@@ -199,7 +210,7 @@ function AgencyBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         )}
         {wins.map(win => (
           <p key={win.account_id} className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-            {win.name} is on its way out — clearing{" "}
+            {win.name} is on its way out, clearing{" "}
             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
               {fmtMonth(win.payoff_month)}
             </span>{" "}
@@ -275,7 +286,8 @@ function PennyInsight({
           className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
           style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
         >
-          ✦ Penny
+          <PennyMark size={11} />
+          Penny
         </span>
       </div>
       <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 max-w-prose">
@@ -340,7 +352,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           : `${k} of those cards don’t clear at all`;
       dearestSentence = (
         <>
-          {`Same ${poolStr} a month, dearest card first — clears ${clearsWhat} by `}
+          {`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `}
           <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
           {` with ${fmtMoney(sb.total_interest, hide)} interest. As it stands, ${dontClear}; by ${byMonth} they’d have cost ${fmtMoney(sb.as_is_interest_over_window, hide)}.`}
         </>
@@ -352,7 +364,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           : "";
       dearestSentence = (
         <>
-          {`Same ${poolStr} a month, dearest card first — clears ${clearsWhat} by `}
+          {`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `}
           <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
           {` with ${fmtMoney(sb.total_interest, hide)} interest${soonerClause}. As it stands the same cards would have cost ${fmtMoney(sb.as_is_interest_over_window, hide)} by ${byMonth}.`}
         </>
@@ -470,7 +482,7 @@ function RatePill({
       return (
         <button
           onClick={onClick}
-          aria-label={`Edit rate for ${card.name}: ${label} — ending soon`}
+          aria-label={`Edit rate for ${card.name}: ${label}, ending soon`}
           className="rounded-full text-[12px] font-semibold px-2.5 py-2 border active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
         >
           {label}
@@ -550,7 +562,7 @@ function CardRows({
               {isCleared ? (
                 /* Cleared-monthly: no movement, no payoff projection */
                 <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                  Cleared monthly — this is spending, not carried debt.
+                  Cleared monthly: this is spending, not carried debt.
                 </p>
               ) : (
                 <>
@@ -584,7 +596,7 @@ function CardRows({
               {/* Usage conflict flag — amber, calm, not red */}
               {card.usage_conflict && (
                 <p className="text-[13px] text-amber-700 dark:text-amber-400">
-                  You said you clear this monthly, but interest charges are appearing — worth a look.
+                  You said you clear this monthly, but interest charges are appearing, worth a look.
                 </p>
               )}
 
@@ -735,7 +747,7 @@ export default function DebtPlanPage() {
         ) : fetchError || !plan ? (
           <div className="rise-in glass-card rounded-2xl p-5" style={{ "--rise-index": 1 } as React.CSSProperties}>
             <p className="text-sm text-slate-700 dark:text-slate-200">
-              The plan couldn&apos;t load — pull back and try again.
+              The plan couldn&apos;t load, pull back and try again.
             </p>
           </div>
         ) : (

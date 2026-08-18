@@ -122,7 +122,7 @@ function validateBtOffers(rows: BtOfferDraft[], btOffer: boolean | null, setErro
     if (r.fee.trim()) {
       const v = parseFloat(r.fee);
       if (!isFinite(v) || v < 0 || v > 15) {
-        setError("Fees are usually small — enter 0 to 15%.");
+        setError("Fees are usually small, enter 0 to 15%.");
         return false;
       }
     }
@@ -266,7 +266,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       onSaved();
       advance();
     } catch {
-      setError("Couldn't save — please try again.");
+      setError("Couldn't save, please try again.");
     } finally {
       setSaving(null);
     }
@@ -295,7 +295,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     if (promoOn === true) {
       for (const r of nonBlankRows) {
         if (r.kind == null) {
-          setError("Pick what each deal covers — purchases, balance transfers, or both.");
+          setError("Pick what each deal covers: purchases, balance transfers, or both.");
           return;
         }
         if (r.month == null || r.year == null) {
@@ -312,7 +312,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         if (r.rate.trim()) {
           const rv = parseFloat(r.rate);
           if (!isFinite(rv) || rv < 0 || rv > 30) {
-            setError("Deal rates are small — enter 0 to 30.");
+            setError("Deal rates are small, enter 0 to 30.");
             return;
           }
         }
@@ -406,17 +406,17 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
   const manualQuestion =
     manualPrompt === "notfound"
-      ? "Couldn't find this card's advertised rate — what does yours charge?"
+      ? "Couldn't find this card's advertised rate. What does yours charge?"
       : manualPrompt === "edit"
-      ? "Here's what you've told me — edit anything that's changed."
+      ? "Here's what you've told me. Edit anything that's changed."
       : "What's the rate on it?";
 
   const closingLine =
     startAccountId
-      ? "That's updated — your card picture stays sharp."
+      ? "That's updated, your card picture stays sharp."
       : total === 1
-      ? "That's your only card — your card picture is sharp."
-      : `That's all ${total} — your card picture is sharp.`;
+      ? "That's your only card, your card picture is sharp."
+      : `That's all ${total}, your card picture is sharp.`;
 
   const showFooterSave =
     !finished &&
@@ -428,7 +428,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const rateInput = (
     <div>
       <FieldLabel>What&apos;s the rate on it?</FieldLabel>
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">The card&apos;s standard rate — what it charges once no deal covers the balance.</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">The card&apos;s standard rate: what it charges once no deal covers the balance.</p>
       <div className="relative max-w-[160px]">
         <input
           type="text"
@@ -465,7 +465,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     <div className="space-y-3">
       <div>
         <FieldLabel>Is any of this {balanceStr} on a 0% deal?</FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Balance transfers you&apos;ve already made count here — add each one and when it ends.</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Balance transfers you&apos;ve already made count here, add each one and when it ends.</p>
         <div role="radiogroup" aria-label="Is any of this balance on a 0% deal?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={promoOn === true}
@@ -615,7 +615,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     <div className="space-y-3">
       <div>
         <FieldLabel>Any 0% offers you haven&apos;t used yet?</FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Offers the card is dangling — not ones you&apos;ve already taken.</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Offers the card is dangling, not ones you&apos;ve already taken.</p>
         <div role="radiogroup" aria-label="Any 0% offers you haven't used yet?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={btOffer === true}
@@ -762,7 +762,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     <div className="space-y-3">
       <div>
         <FieldLabel>How do you use this card?</FieldLabel>
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Optional — it helps me read this card&apos;s balance right.</p>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Optional, it helps me read this card&apos;s balance right.</p>
         <div role="radiogroup" aria-label="How do you use this card?" className="grid grid-cols-2 gap-2">
           <Chip
             selected={usage === "clear_monthly"}
@@ -873,7 +873,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
               /* No credit cards at all */
               <div className="space-y-4 py-2">
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-                  No credit cards connected — there&apos;s nothing to add here.
+                  No credit cards connected, there&apos;s nothing to add here.
                 </p>
                 <button
                   onClick={onClose}
@@ -894,7 +894,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
               <>
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   {foundName} advertises around {fmtApr(foundApr!)}%. That&apos;s the representative
-                  rate, so yours may differ — is it close?
+                  rate, so yours may differ. Is it close?
                 </p>
                 <div className="space-y-2">
                   <button

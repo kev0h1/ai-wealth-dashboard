@@ -2,18 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight, UserRound } from "lucide-react";
 import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
+import PennyMark from "@/components/PennyMark";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
+import { isPaydayWindowActive } from "@/lib/paydayWindow";
+import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 
 interface HomeBriefProps {
   items: CompanionItem[];
@@ -28,9 +31,23 @@ interface HomeBriefProps {
   onRefresh?: () => void;
   /** Which card, if any, should glow — resolved centrally in lib/attention.ts. */
   attnTarget?: AttentionTarget;
+  /**
+   * Home-only: advice/insight/ask cards get a quiet "hide on Home" control
+   * that persists to localStorage (lib/homeDismissedAdvice.ts) instead of
+   * the server-side /today/dismiss call, so the card disappears from Home
+   * but keeps showing on Penny (the permanent archive). Omitted on Penny.
+   */
+  dismissible?: boolean;
+  /**
+   * Home-only: forwarded to PaydayPlanSection's `hasAccounts` guard so the
+   * payday-plan entry row can never render once accounts have finished
+   * loading and there are none. Leave undefined while accounts are still
+   * loading.
+   */
+  hasAccounts?: boolean;
 }
 
-function BriefSkeleton() {
+export function BriefSkeleton() {
   return (
     <div className="space-y-2">
       <div className="h-4 w-3/4 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse" />
@@ -43,7 +60,7 @@ function SyncErrorBanner({ glow }: { glow?: boolean }) {
   return (
     <div role="alert" className={`flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2${glow ? " needs-you" : ""}`}>
       <AlertTriangle size={13} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0" />
-      <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete — try again in a moment.</p>
+      <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete, try again in a moment.</p>
     </div>
   );
 }
@@ -70,9 +87,13 @@ interface AskPaydayCardProps {
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Penny screen only — the page header already establishes Penny's voice,
+   * so the per-card "✦ Penny" chip is redundant branding there. Home keeps
+   * the chip exactly as before (prop omitted/false). */
+  hideAttribution?: boolean;
 }
 
-function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardProps) {
+function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }: AskPaydayCardProps) {
   const [busy, setBusy] = useState<null | "confirm" | "decline">(null);
   const [hidden, setHidden] = useState(false);
 
@@ -107,21 +128,24 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
 
   return (
     <div className="glass-card rounded-2xl p-4">
-      {/* Penny gradient chip */}
-      <div className="flex items-center gap-2 mb-3">
-        <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-        >
-          ✦ Penny
-        </span>
-      </div>
+      {/* Penny gradient chip — suppressed on the Penny screen itself */}
+      {!hideAttribution && (
+        <div className="flex items-center gap-2 mb-3">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+          >
+            <PennyMark size={11} />
+            Penny
+          </span>
+        </div>
+      )}
       {/* Headline */}
       <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
         <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
       </p>
       {/* Body */}
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
         {maskAmounts(item.body ?? "")}
       </p>
       {/* Actions */}
@@ -138,7 +162,7 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh }: AskPaydayCardPr
           disabled={busy !== null}
           className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
         >
-          {item.secondary_action?.label ?? "No — set it myself"}
+          {item.secondary_action?.label ?? "No, set it myself"}
         </button>
       </div>
     </div>
@@ -149,13 +173,20 @@ interface AskGenericCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+  /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
+  hideAttribution?: boolean;
 }
 
 // Generic ask card — same visual family as the payday ask (glass card, Penny
 // chip, headline + body ramp), but the primary action is a route push from
-// item.action and "Not now" quietly dismisses server-side. Used for any ask
-// item without bespoke handling (e.g. ask:card_terms).
-function AskGenericCard({ item, router, maskAmounts }: AskGenericCardProps) {
+// item.action. "Not now" dismisses server-side (globally, Penny included) by
+// default; on Home (`dismissible`) it instead hides Home-only via
+// localStorage, so the ask keeps showing on Penny's archive. Used for any
+// ask item without bespoke handling (e.g. ask:card_terms).
+function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState(false);
 
@@ -168,29 +199,36 @@ function AskGenericCard({ item, router, maskAmounts }: AskGenericCardProps) {
   async function handleNotNow() {
     if (busy) return;
     setBusy(true);
-    try {
-      await api.dismissTodayItem(item.id);
-    } catch { /* card still hides locally; the backend will re-surface next run */ }
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      try {
+        await api.dismissTodayItem(item.id);
+      } catch { /* card still hides locally; the backend will re-surface next run */ }
+    }
     setHidden(true);
   }
 
   return (
     <div className="glass-card rounded-2xl p-4">
-      {/* Penny gradient chip */}
-      <div className="flex items-center gap-2 mb-3">
-        <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-        >
-          ✦ Penny
-        </span>
-      </div>
+      {/* Penny gradient chip — suppressed on the Penny screen itself */}
+      {!hideAttribution && (
+        <div className="flex items-center gap-2 mb-3">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+          >
+            <PennyMark size={11} />
+            Penny
+          </span>
+        </div>
+      )}
       {/* Headline */}
       <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
         <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
       </p>
       {/* Body */}
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
         {maskAmounts(item.body ?? "")}
       </p>
       {/* Actions */}
@@ -220,21 +258,29 @@ interface CelebrationCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
 }
 
 // "Sorted" reward card — a proper glass card, not a pill. Emerald lives ONLY on
 // the ✦ mark (colour is information: verified-safe); the headline stays ink.
-// Tapping the card opens the Mirror; the ✕ dismisses server-side then locally.
-function CelebrationCard({ item, router, maskAmounts }: CelebrationCardProps) {
+// Tapping the card opens the Mirror; the ✕ dismisses — server-side + globally
+// on Penny, Home-only (localStorage) when `dismissible`.
+function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CelebrationCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
     setHidden(true);
-    api.dismissTodayItem(item.id).catch(() => {
-      /* card already removed locally; the backend will retry-surface next run */
-    });
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will retry-surface next run */
+      });
+    }
   }
 
   function handleOpen() {
@@ -261,14 +307,14 @@ function CelebrationCard({ item, router, maskAmounts }: CelebrationCardProps) {
             {item.headline}
           </p>
           {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
               {maskAmounts(item.body)}
             </p>
           )}
         </div>
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
           onClick={handleDismiss}
           className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
@@ -283,6 +329,9 @@ interface CliffCardProps {
   item: CompanionItem;
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
 }
 
 // Informational fact-card family — covers promo-cliff and debt-trajectory items.
@@ -290,7 +339,7 @@ interface CliffCardProps {
 // state facts). Amber mark only: approaching/projected risk, not materialised
 // risk — red stays strictly reserved for materialised risk (Red-is-Risk rule).
 // Icon varies by type: AlertTriangle for cliff, TrendingDown for trajectory.
-function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
+function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -298,9 +347,13 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
     setHidden(true);
-    api.dismissTodayItem(item.id).catch(() => {
-      /* card already removed locally; the backend will re-surface next run */
-    });
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
   }
 
   return (
@@ -312,7 +365,7 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
             {maskAmounts(item.headline)}
           </p>
           {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
               {maskAmounts(item.body)}
             </p>
           )}
@@ -327,7 +380,7 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
         </div>
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
           onClick={handleDismiss}
           className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
@@ -341,22 +394,29 @@ function CliffCard({ item, router, maskAmounts }: CliffCardProps) {
 interface IntentPaceCardProps {
   item: CompanionItem;
   maskAmounts: (text: string) => string;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
 }
 
 // Quiet pace note for a category the user chose to change in the Mirror.
 // Pure information — headline + body in ink/muted, no accent colour, no CTA
 // (the aim already lives in the Mirror). Dismissible like the other info cards.
 // NO red: pace against a self-chosen aim is never materialised risk.
-function IntentPaceCard({ item, maskAmounts }: IntentPaceCardProps) {
+function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
     setHidden(true);
-    api.dismissTodayItem(item.id).catch(() => {
-      /* card already removed locally; the backend will re-surface next run */
-    });
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
   }
 
   return (
@@ -367,14 +427,14 @@ function IntentPaceCard({ item, maskAmounts }: IntentPaceCardProps) {
             {maskAmounts(item.headline)}
           </p>
           {item.body && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
               {maskAmounts(item.body)}
             </p>
           )}
         </div>
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
           onClick={handleDismiss}
           className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
@@ -390,9 +450,11 @@ interface MoveCardProps {
   router: ReturnType<typeof useRouter>;
   hideNetWorth: boolean;
   maskAmounts: (text: string) => string;
+  /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
+  hideAttribution?: boolean;
 }
 
-function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
+function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: MoveCardProps) {
   type LegEntry = { provider: string; name: string; amount: number };
   const legs: LegEntry[] =
     item.moves && item.moves.length > 0
@@ -408,15 +470,19 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
 
   return (
     <div className="glass-card rounded-2xl p-4">
-      {/* Penny gradient chip — marks this as a proactive advice surface */}
-      <div className="flex items-center gap-2 mb-3">
-        <span
-          className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-          style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-        >
-          ✦ Penny
-        </span>
-      </div>
+      {/* Penny gradient chip — marks this as a proactive advice surface;
+          suppressed on the Penny screen itself */}
+      {!hideAttribution && (
+        <div className="flex items-center gap-2 mb-3">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+          >
+            <PennyMark size={11} />
+            Penny
+          </span>
+        </div>
+      )}
       {item.plan_dest ? (
         <>
           {/* Headline */}
@@ -514,10 +580,16 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts }: MoveCardProps) {
           })()}
         </>
       ) : (
-        <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-          <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}.</strong>{" "}
-          {item.body}
-        </p>
+        <>
+          {/* Headline */}
+          <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
+            <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+          </p>
+          {/* Body */}
+          <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+            {item.body}
+          </p>
+        </>
       )}
       {item.action && (
         <button
@@ -536,11 +608,17 @@ interface RhythmCardProps {
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. Only
+   * the quiet ✕ (not the one_off/new_normal intent answers) is affected. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
 }
 
-function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
+function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeDismiss }: RhythmCardProps) {
   const [hidden, setHidden] = useState(false);
   const [busy, setBusy] = useState<null | "one_off" | "new_normal">(null);
+  const [confirmed, setConfirmed] = useState<null | "one_off" | "new_normal">(null);
+  const [intentError, setIntentError] = useState(false);
   // Hooks that resolve per-user overrides — must be above any conditional return (React #310)
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
@@ -562,7 +640,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
   const isLarge = multiple >= 20;
 
   const headline = isLarge
-    ? `${fmtSpent} in ${category} — way above your usual`
+    ? `${fmtSpent} in ${category}, way above your usual`
     : `${category} ran ${fmtMultiple} your usual`;
 
   // ONE supporting line — collapses the redundant triple to a single statement
@@ -575,31 +653,38 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
     const dominantShare = spent > 0 ? dominant.amount / spent : 0;
     if (dominantShare >= 0.95) {
       // Dominant IS the spend — no need to repeat the £ figure
-      supportLine = `One payment — ${name}, ${dateStr}.`;
+      supportLine = `One payment: ${name}, ${dateStr}.`;
     } else {
       // Dominant is notable but not everything
-      supportLine = `Mostly one payment — ${name}, ${amt} on ${dateStr}.`;
+      supportLine = `Mostly one payment: ${name}, ${amt} on ${dateStr}.`;
     }
   } else {
     supportLine = `${fmtSpent} so far this period.`;
   }
 
   async function handleIntent(answer: "one_off" | "new_normal") {
-    if (busy) return;
+    if (busy || confirmed) return;
+    setIntentError(false);
     setBusy(answer);
-    setHidden(true);
     try {
       await api.recordTrendIntent(category, answer);
+      setConfirmed(answer);
       onRefresh?.();
     } catch {
-      // Card already removed locally; backend will re-surface next run
+      setIntentError(true);
+    } finally {
+      setBusy(null);
     }
   }
 
   function handleDismiss(e: React.MouseEvent) {
     e.stopPropagation();
     setHidden(true);
-    api.dismissTodayItem(item.id).catch(() => {});
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {});
+    }
   }
 
   function handleChangeThis() {
@@ -628,7 +713,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
           </p>
           {/* One supporting line */}
           {supportLine && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
               {maskAmounts(supportLine)}
             </p>
           )}
@@ -637,7 +722,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
         {/* Dismiss button */}
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
           onClick={handleDismiss}
           className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
@@ -648,24 +733,42 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
       {/* Answer pair — outside the icon-indented column, full width. The two
           real answers sit in a symmetric 50/50 grid; the softer "change this"
           escape hatch drops below as its own quiet, ghost-styled full-width row
-          so it reads as subordinate to the pair. */}
+          so it reads as subordinate to the pair. On success, the pair is
+          replaced by a quiet confirmation line (card stays mounted, no
+          instant-hide reflow); on failure, the buttons stay visible/enabled
+          with an inline error so the user can retry. "I'd like to change
+          this" stays available regardless of confirm state — it's an escape
+          hatch to Spend, not an intent-recording action. */}
       <div className="mt-3 flex flex-col gap-2">
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => handleIntent("one_off")}
-            disabled={busy !== null}
-            className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-          >
-            A one-off
-          </button>
-          <button
-            onClick={() => handleIntent("new_normal")}
-            disabled={busy !== null}
-            className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
-          >
-            My new normal
-          </button>
-        </div>
+        {confirmed ? (
+          <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
+            {confirmed === "one_off" ? "Noted, one-off." : "Noted, new normal."}
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleIntent("one_off")}
+                disabled={busy !== null}
+                className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+              >
+                {busy === "one_off" ? "Saving…" : "A one-off"}
+              </button>
+              <button
+                onClick={() => handleIntent("new_normal")}
+                disabled={busy !== null}
+                className="inline-flex items-center justify-center text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-[transform,background-color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+              >
+                {busy === "new_normal" ? "Saving…" : "My new normal"}
+              </button>
+            </div>
+            {intentError && (
+              <p className="mt-2 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
+                Couldn&apos;t save that, try again.
+              </p>
+            )}
+          </>
+        )}
         <button
           onClick={handleChangeThis}
           disabled={busy !== null}
@@ -678,36 +781,114 @@ function RhythmCard({ item, router, maskAmounts, onRefresh }: RhythmCardProps) {
   );
 }
 
-interface BriefBodyProps {
+/**
+ * Home-only dismissal — hydrates the localStorage store (lib/homeDismissedAdvice.ts)
+ * on mount, prunes stale/expired entries against the live (unfiltered) feed
+ * whenever it changes, and exposes a `dismiss` callback that persists +
+ * updates local state so a dismissed card disappears immediately and stays
+ * gone across remounts (e.g. navigating away and back to Home).
+ * No-ops entirely when `enabled` is false (Penny never calls dismiss).
+ */
+function useHomeDismissedAdvice(items: CompanionItem[], enabled: boolean) {
+  // Lazy-init straight from localStorage — BriefBody only ever mounts after
+  // `loading` has flipped false client-side (see HomeBrief's
+  // `{loading ? <BriefSkeleton /> : <BriefBody .../>}`), so there's no SSR
+  // markup to mismatch here. Reading synchronously on first render (instead
+  // of only in the effect below) avoids a one-frame flash of a previously
+  // hidden card before the effect catches up.
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() =>
+    enabled && typeof window !== "undefined" ? readHomeDismissedAdvice() : new Set()
+  );
+
+  // Belt-and-braces re-hydrate on mount/enable — covers the case where
+  // `enabled` flips from false to true after first render (e.g. a future
+  // caller toggling `dismissible` dynamically).
+  useEffect(() => {
+    if (!enabled) return;
+    setDismissedIds(readHomeDismissedAdvice());
+  }, [enabled]);
+
+  // Prune entries that are expired or no longer present in the live feed.
+  // Must run against the raw/unfiltered `items` — filtering already removes
+  // dismissed ids from the rendered list, so pruning against the filtered
+  // list would erase every dismissal the instant it's made. Guarded against
+  // an empty feed (a failed/still-settling /today fetch) so that can never
+  // wipe the whole dismissal store — the 7-day expiry already handles
+  // genuinely-empty feeds over time.
+  useEffect(() => {
+    if (!enabled) return;
+    if (items.length === 0) return;
+    pruneHomeDismissedAdvice(new Set(items.map(i => i.id)));
+  }, [enabled, items]);
+
+  const dismiss = useCallback((id: string) => {
+    dismissOnHome(id);
+    setDismissedIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  return { dismissedIds, dismiss };
+}
+
+export interface BriefBodyProps {
   items: CompanionItem[];
   safeToSpend: SafeToSpend | null;
   router: ReturnType<typeof useRouter>;
   hideNetWorth?: boolean;
   onRefresh?: () => void;
   attnTarget?: AttentionTarget;
+  /**
+   * Home-only: filters out advice/insight/ask items the user has hidden on
+   * Home (localStorage, 7-day expiry) and renders a "Hide on Home" control
+   * on those cards instead of the default server-side Dismiss. Penny omits
+   * this prop entirely, so it always shows the full, unfiltered feed.
+   */
+  dismissible?: boolean;
+  /**
+   * Penny-screen-only: suppresses the per-card "✦ Penny" gradient chip on
+   * the ask/move cards (the payday ask, the generic ask, and the move-money
+   * recommendation) — Penny's own page header already establishes whose
+   * voice this is, so the chip is redundant branding there. Home omits this
+   * prop entirely, so its chips render exactly as before.
+   */
+  hideAttribution?: boolean;
 }
 
-function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false }: BriefBodyProps) {
+  // Hooks must run unconditionally, before the items.length early return below.
+  const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
+  const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
+  const onHomeDismiss = dismissible ? homeDismiss : undefined;
+
   if (items.length === 0) {
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
-      fallbackText = "Nothing needs you today. I'm keeping an eye on the bills — just check back later.";
+      fallbackText = "Nothing needs you today. I'm keeping an eye on the bills, just check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
-      fallbackText = "Nothing needs you today — your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
+      fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
     } else if (safeToSpend.state === "tight") {
-      fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped — I'll flag anything that needs you.";
-    } else if (safeToSpend.state === "short") {
-      fallbackText = "One thing's worth a look below — otherwise I've got the rest mapped.";
+      fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped. I'll flag anything that needs you.";
+    } else if (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1) {
+      // Same genuine-shortfall threshold as SafeToSpendCard's remap — a
+      // near-zero "short" from the backend must not claim "one thing's
+      // worth a look" above a hero that's about to render as comfortable.
+      fallbackText = "One thing's worth a look below, otherwise I've got the rest mapped.";
     } else {
-      fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills — enjoy it.";
+      fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills, enjoy it.";
     }
     return (
-      <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">{fallbackText}</p>
+      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">{fallbackText}</p>
     );
   }
 
   const moveItems = items.filter(i => i.type === "move");
-  const paydayPlanItems = items.filter(i => i.type === "payday_plan");
+  // payday_plan items are NOT rendered here — PaydayPlanSection (below) owns
+  // that exclusively (live full card + entry/preview state) so a live plan
+  // never renders twice. otherItems still excludes the type explicitly so a
+  // payday_plan item never falls through to the bare-paragraph fallback.
   const needleItem = items.find(i => i.type === "needle");
   const askItem = items.find(i => i.type === "ask");
   const celebrationItems = items.filter(i => i.type === "celebration");
@@ -738,19 +919,19 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
   return (
     <div className="space-y-3">
         {celebrationItems.map(item => (
-          <CelebrationCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+          <CelebrationCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {cliffItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {trajectoryItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {rhythmItems.map(item => (
-          <RhythmCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} onRefresh={onRefresh} />
+          <RhythmCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} onRefresh={onRefresh} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Payload-less rhythm items (cliff/switch behaviour cards) — plain
@@ -758,16 +939,19 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
             there's no category/multiple/spent to anchor them to. Reuses the
             existing informational fact-card family (CliffCard). */}
         {rhythmInfoItems.map(item => (
-          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} />
+          <CliffCard key={item.id} item={item} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Intent-pace notes — quiet info cards, no accent, no CTA */}
         {intentPaceItems.map(item => (
-          <IntentPaceCard key={item.id} item={item} maskAmounts={maskAmounts} />
+          <IntentPaceCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
-        {/* Ask cards — payday keeps its bespoke confirm/decline; everything
-            else (e.g. ask:card_terms) renders the generic route-push ask */}
+        {/* Ask cards — payday keeps its bespoke confirm/decline (unaffected
+            by Home-only dismissal — it's a one-time detected-payday
+            confirmation, not archived advice); everything else (e.g.
+            ask:card_terms) renders the generic route-push ask, which does
+            respect Home-only dismissal so it can still be found on Penny. */}
         {askItem && (
           askItem.id === "ask:payday" ? (
             <AskPaydayCard
@@ -776,9 +960,10 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
               hideNetWorth={hideNetWorth}
               maskAmounts={maskAmounts}
               onRefresh={onRefresh}
+              hideAttribution={hideAttribution}
             />
           ) : (
-            <AskGenericCard item={askItem} router={router} maskAmounts={maskAmounts} />
+            <AskGenericCard item={askItem} router={router} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} hideAttribution={hideAttribution} />
           )
         )}
 
@@ -800,24 +985,26 @@ function BriefBody({ items, safeToSpend, router, hideNetWorth = false, onRefresh
         )}
 
         {otherItems.map(item => (
-          <p key={item.id} className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">
-            <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}.</strong>{" "}
-            {item.body}
-          </p>
-        ))}
-
-        {paydayPlanItems.map(item => (
-          <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} glow={attnTarget === "payday"} />
+          <div key={item.id}>
+            {/* Headline */}
+            <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
+              <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+            </p>
+            {/* Body */}
+            <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">
+              {item.body}
+            </p>
+          </div>
         ))}
 
         {moveItems.map(item => (
-          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} />
+          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} />
         ))}
     </div>
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts }: HomeBriefProps) {
   const router = useRouter();
   const { user } = useAuth();
   const name = firstName || "there";
@@ -849,65 +1036,6 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         : `Good evening, ${name}`
     );
   }, [name]);
-
-  // Payday plan preview — fetches /today?payday_preview=1 directly (this is
-  // where HomeBrief has fetch access, since items normally arrive as a prop
-  // from HomePage) and renders the returned preview item locally without
-  // touching server state. Toggled from the permanent entry row below; opens
-  // in place, no scroll-jump.
-  const [previewItem, setPreviewItem] = useState<CompanionItem | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-
-  // Hide the entry row entirely once a real payday_plan item is already
-  // surfaced in items (payday itself) — no duplication on payday.
-  const hasLivePlan = items.some(i => i.type === "payday_plan");
-
-  const paydaySubline = (() => {
-    if (!safeToSpend || safeToSpend.status !== "ok") return "See how I'd split your next salary";
-    const d = new Date(safeToSpend.next_payday);
-    d.setHours(0, 0, 0, 0);
-    const today0 = new Date();
-    today0.setHours(0, 0, 0, 0);
-    const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
-    // Distance-aware date convention (mirrors SafeToSpendCard.tsx): today/tomorrow/weekday/short-date.
-    if (daysAway <= 0) return "Pay period ends today — see how I'd split your next pay cheque";
-    if (daysAway === 1) return "Pay period ends tomorrow — see how I'd split your next pay cheque";
-    if (daysAway < 7) {
-      const wd = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "long" });
-      return `Pay period ends ${wd} — see how I'd split your next pay cheque`;
-    }
-    const short = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-    return `Pay period ends ${short} — see how I'd split your next pay cheque`;
-  })();
-
-  function maskAmountsTop(text: string): string {
-    if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
-  }
-
-  async function handleTogglePreview() {
-    if (previewItem) {
-      setPreviewItem(null);
-      setPreviewError(null);
-      return;
-    }
-    setPreviewLoading(true);
-    setPreviewError(null);
-    try {
-      const res = await api.getToday(true);
-      const found = res.items.find(i => i.type === "payday_plan") ?? null;
-      if (found) {
-        setPreviewItem(found);
-      } else {
-        setPreviewError("No payday plan to show yet.");
-      }
-    } catch {
-      setPreviewError("Couldn't build the plan just now — try again after a sync.");
-    } finally {
-      setPreviewLoading(false);
-    }
-  }
 
   return (
     <div className="rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
@@ -945,17 +1073,142 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} />
         )}
       </div>
 
-      {/* Payday plan entry row — permanent quiet affordance, positioned below
-          the brief/action cards so it never outranks genuine risk items.
-          Hidden once a real payday_plan item is already in items (payday
-          itself), since that would be a duplicate. Tapping toggles the
-          preview open in place directly beneath. */}
-      {!hasLivePlan && (
-        <div className="mt-3 space-y-2">
+      {/* Payday plan — live full card, or the quiet entry/preview affordance
+          when there's no live plan. Home-only: gated to the last 5 days
+          before period end (or the live execution window itself) so it
+          doesn't sit here year-round — that's Penny's job now (its permanent
+          home, ungated: PaydayPlanSection is reused there with `gate`
+          omitted). See lib/paydayWindow.ts for the shared rule. */}
+      <PaydayPlanSection
+        items={items}
+        safeToSpend={safeToSpend}
+        hideNetWorth={hideNetWorth}
+        onRefresh={onRefresh}
+        attnTarget={attnTarget}
+        gate
+        hasAccounts={hasAccounts}
+      />
+    </div>
+  );
+}
+
+export interface PaydayPlanSectionProps {
+  items: CompanionItem[];
+  safeToSpend: SafeToSpend | null;
+  hideNetWorth?: boolean;
+  onRefresh?: () => void;
+  /** Which card, if any, should glow — resolved centrally in lib/attention.ts. */
+  attnTarget?: AttentionTarget;
+  /**
+   * Home-only: also require the last-5-days-before-period-end/live-execution
+   * window (lib/paydayWindow.ts) before showing the (non-live) entry row.
+   * Omitted on Penny — the plan's permanent home — so the affordance is
+   * always available there, exactly like this used to behave unconditionally
+   * for everyone before the Home gating requirement.
+   */
+  gate?: boolean;
+  /**
+   * Home-only: when explicitly `false` (accounts have finished loading and
+   * there are none), this section renders nothing at all — no entry row,
+   * no live plan — regardless of what safeToSpend/items say. Leave
+   * `undefined` while accounts are still loading, or on Penny (which never
+   * passes it), to fall back to the normal gate/windowActive logic.
+   */
+  hasAccounts?: boolean;
+}
+
+// Extracted out of HomeBrief/BriefBody so both Home (gated to a timely
+// window) and the Penny screen (its permanent, ungated home) render the
+// exact same live-card + entry/preview logic — no forked copy to drift.
+export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, onRefresh, attnTarget, gate, hasAccounts }: PaydayPlanSectionProps) {
+  const router = useRouter();
+
+  // Payday plan preview — fetches /today?payday_preview=1 directly and
+  // renders the returned preview item locally without touching server state.
+  // Toggled from the entry row below; opens in place, no scroll-jump.
+  const [previewItem, setPreviewItem] = useState<CompanionItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // No-accounts guard — Home-only (gate is only ever true on Home). Once
+  // accounts have loaded and there genuinely are none, this section must
+  // never render, no matter what a stale/edge-case safeToSpend response says.
+  const noAccountsBlock = !!gate && hasAccounts === false;
+
+  const paydayPlanItems = items.filter(i => i.type === "payday_plan");
+  // Hide the entry row entirely once a real payday_plan item is already
+  // surfaced in items (payday itself) — no duplication on payday.
+  const hasLivePlan = paydayPlanItems.length > 0;
+
+  const windowActive = isPaydayWindowActive({
+    hasLivePlan,
+    daysUntilPayday: safeToSpend?.status === "ok" ? safeToSpend.days_until_payday : null,
+  });
+  const showEntryRow = !noAccountsBlock && !hasLivePlan && (!gate || windowActive);
+
+  function maskAmounts(text: string): string {
+    if (!hideNetWorth) return text;
+    return text.replace(/£[\d,]+/g, "£••••");
+  }
+
+  const paydaySubline = (() => {
+    if (!safeToSpend || safeToSpend.status !== "ok") return "See how I'd split your next salary";
+    const d = new Date(safeToSpend.next_payday);
+    d.setHours(0, 0, 0, 0);
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
+    // Distance-aware date convention (mirrors SafeToSpendCard.tsx): today/tomorrow/weekday/short-date.
+    if (daysAway <= 0) return "Pay period ends today. See how I'd split your next pay cheque";
+    if (daysAway === 1) return "Pay period ends tomorrow. See how I'd split your next pay cheque";
+    if (daysAway < 7) {
+      const wd = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "long" });
+      return `Pay period ends ${wd}. See how I'd split your next pay cheque`;
+    }
+    const short = new Date(safeToSpend.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    return `Pay period ends ${short}. See how I'd split your next pay cheque`;
+  })();
+
+  async function handleTogglePreview() {
+    if (previewItem) {
+      setPreviewItem(null);
+      setPreviewError(null);
+      return;
+    }
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const res = await api.getToday(true);
+      const found = res.items.find(i => i.type === "payday_plan") ?? null;
+      if (found) {
+        setPreviewItem(found);
+      } else {
+        setPreviewError("No payday plan to show yet.");
+      }
+    } catch {
+      setPreviewError("Couldn't build the plan just now, try again after a sync.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  // With zero accounts, never render — not the entry row, not a (spurious)
+  // live plan either.
+  if (noAccountsBlock) return null;
+  if (!hasLivePlan && !showEntryRow) return null;
+
+  return (
+    <div className="mt-3 space-y-3">
+      {paydayPlanItems.map(item => (
+        <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} glow={attnTarget === "payday"} />
+      ))}
+
+      {showEntryRow && (
+        <div className="space-y-2">
           <button
             type="button"
             onClick={handleTogglePreview}
@@ -991,7 +1244,7 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
               item={previewItem}
               router={router}
               hideNetWorth={!!hideNetWorth}
-              maskAmounts={maskAmountsTop}
+              maskAmounts={maskAmounts}
               onRefresh={onRefresh}
               onClose={() => setPreviewItem(null)}
             />

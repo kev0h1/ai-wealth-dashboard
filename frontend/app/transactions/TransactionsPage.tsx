@@ -223,7 +223,7 @@ export default function TransactionsPage() {
               <button
                 type="button"
                 onClick={clearPeriodFilter}
-                aria-label="Remove period filter — widen to all history"
+                aria-label="Remove period filter, widen to all history"
                 className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
               >
                 {formatPeriodChip(periodFrom, periodTo)}

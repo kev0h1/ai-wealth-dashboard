@@ -72,7 +72,7 @@ const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: 
   },
   transport_modes: {
     title: "Transport by mode",
-    description: "Where your transport spend goes — car, rideshare, public",
+    description: "Where your transport spend goes: car, rideshare, public",
     Icon: BarChart3,
   },
 };
@@ -750,7 +750,7 @@ export default function SpendTrends(props: {
       {prefsLoaded && widgets.length === 0 && (
         <div className="glass-card rounded-2xl p-8 text-center">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            No charts yet — add one below to start visualising your spending.
+            No charts yet, add one below to start visualising your spending.
           </p>
         </div>
       )}

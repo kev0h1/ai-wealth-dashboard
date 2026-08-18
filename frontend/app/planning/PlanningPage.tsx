@@ -208,6 +208,7 @@ function CommitmentsBlock({
   onAdd: () => void;
   onEdit: (c: Commitment) => void;
 }) {
+  const router = useRouter();
   const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
   const active = (commitments ?? []).filter((c) => c.status === "active");
 
@@ -228,6 +229,7 @@ function CommitmentsBlock({
   const renderGoalCard = (c: Commitment, className: string) => {
     const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
     const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+    const isCaution = c.feasibility_tone ? c.feasibility_tone === "caution" : c.feasibility === "stretch";
     return (
       <button
         key={c.id}
@@ -247,7 +249,9 @@ function CommitmentsBlock({
           {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
         </p>
         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
-          {fmtC(c.per_period_slice)}/period · {c.periods_left} {c.periods_left === 1 ? "period" : "periods"} left
+          {c.period_label
+            ? `${fmtC(c.per_period_slice)} each pay period (${c.period_label}) · ${c.periods_left} left`
+            : `${fmtC(c.per_period_slice)} a period · ${c.periods_left} left`}
         </p>
         {/* Shared pot — quiet, structural information, never a colour
             signal (a pound is claimed by only the oldest goal). */}
@@ -256,9 +260,37 @@ function CommitmentsBlock({
             Shares a pot with {c.shared_pot_goals.join(", ")}
           </p>
         )}
+        {/* Pace note (Spend -> Plan bridge) — a live, this-period signal:
+            spend is running ahead of usual by enough to squeeze what this
+            plan needs. Leads when present; the "stretch" feasibility line
+            below is suppressed alongside it (both are a full-amber "this is
+            at risk" read — one loud thing, not two stacked). */}
+        {c.pace_note && (
+          <p className="mt-1 flex items-start gap-1.5 min-w-0">
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500"
+              aria-hidden="true"
+            />
+            <span className="text-[12px] leading-snug text-amber-600 dark:text-amber-400">
+              {c.pace_note.text}{" "}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  router.push("/spend");
+                }}
+                className="font-semibold underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded"
+              >
+                See where ›
+              </button>
+            </span>
+          </p>
+        )}
         {/* Feasibility — surplus/funded: slate dot; savings: amber dot,
-            slate text; stretch: amber dot + amber text (attention, never red). */}
-        {c.feasibility && c.feasibility_note && (
+            slate text; stretch: amber dot + amber text (attention, never red).
+            Suppressed when pace_note already carries the loud amber line for
+            "stretch" — the two would otherwise restate the same risk twice. */}
+        {c.feasibility && c.feasibility_note && !(c.pace_note && isCaution) && (
           <p className="mt-1 flex items-start gap-1.5 min-w-0">
             <span
               className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
@@ -270,7 +302,7 @@ function CommitmentsBlock({
             />
             <span
               className={`text-[11px] line-clamp-2 leading-snug ${
-                c.feasibility === "stretch"
+                isCaution
                   ? "text-amber-600 dark:text-amber-400"
                   : "text-slate-500 dark:text-slate-400"
               }`}
@@ -942,8 +974,8 @@ export default function PlanningPage() {
                         <div>
                           <p className={`text-[11px] leading-snug ${isDebt ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
                             {isDebt
-                              ? `Expected ${pendingDateStr} — hasn't left. A missed card payment can mean fees, so worth checking today.`
-                              : `Expected ${pendingDateStr} — we haven't seen it leave. Worth checking with them.`}
+                              ? `Expected ${pendingDateStr}, hasn't left. A missed card payment can mean fees, so worth checking today.`
+                              : `Expected ${pendingDateStr}, we haven't seen it leave. Worth checking with them.`}
                           </p>
                           <button
                             type="button"
@@ -957,7 +989,7 @@ export default function PlanningPage() {
                     }
                     return (
                       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                        expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })} — hasn&apos;t left yet
+                        expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })}, hasn&apos;t left yet
                       </p>
                     );
                   })()}
@@ -988,7 +1020,7 @@ export default function PlanningPage() {
             const isNextPeriodGroup = groupItems.every(i => i.next_period);
             if (isNextPeriodGroup && !dividerInserted) {
               nodes.push(
-                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`New pay period ${paydayLabel} — next pay period begins`}>
+                <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`New pay period ${paydayLabel}, next pay period begins`}>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">New pay period · {paydayLabel}</span>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
@@ -1059,7 +1091,7 @@ export default function PlanningPage() {
                       </p>
                     )}
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
-                      Based on your typical spending — last 90 days
+                      Based on your typical spending, last 90 days
                     </p>
                   </div>
                   {accountShortfalls.length > 0 && (
@@ -1124,7 +1156,7 @@ export default function PlanningPage() {
                             Your {acct.bank} account is short before payday
                           </p>
                           <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                            {fmt(acct.shortfall)} short for bills due before payday — move money in, or change a payment date.
+                            {fmt(acct.shortfall)} short for bills due before payday. Move money in, or change a payment date.
                           </p>
                         </>
                       );

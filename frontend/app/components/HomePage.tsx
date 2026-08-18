@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, AlertTriangle, ScanFace } from "lucide-react";
+import { ChevronRight, AlertTriangle } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -27,6 +27,7 @@ import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import HomeBrief from "@/components/HomeBrief";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { resolveAttention } from "@/lib/attention";
+import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -90,6 +91,19 @@ export default function HomePage() {
         .catch(() => {})
         .finally(() => setStsLoading(false));
       todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
+      // Write-through for BottomNav's Penny dot (see lib/paydayWindow.ts) —
+      // Home already fetches both of these for its own brief, so once they
+      // resolve, hand the same boolean to the nav's cache instead of letting
+      // its hook fire a redundant copy of the same two requests.
+      Promise.all([todayP, safeP])
+        .then(([today, sts]) => {
+          const hasLivePlan = today.items.some((i) => i.type === "payday_plan");
+          writePaydayDotCache(isPaydayWindowActive({
+            hasLivePlan,
+            daysUntilPayday: sts.status === "ok" ? sts.days_until_payday : null,
+          }));
+        })
+        .catch(() => {});
       needleP
         .then((v) => { setNeedle(v); setNeedleStatus("ready"); })
         .catch(() => setNeedleStatus("failed"));
@@ -236,10 +250,29 @@ export default function HomePage() {
     } catch {}
   }
 
+  // ── Fresh-user (no connected data) detection ────────────────────────────
+  // Same condition the "Your estate" empty state already used
+  // (accounts.length === 0), extended to also require zero investment
+  // accounts, a settled load, AND no load error — this is the "nothing
+  // connected yet" state that leads with onboarding instead of empty
+  // account/Safe-to-Spend shells. Without the !loadError guard, a real
+  // user whose /accounts fetch simply failed would see the "Connect your
+  // first bank" hero and a blanked brief instead of the load-error retry UI.
+  const isFreshUser = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  // Undefined while accounts are still loading (so PaydayPlanSection's
+  // hasAccounts guard doesn't prematurely suppress a real user's entry row
+  // before their accounts have arrived) — settles to a real boolean once
+  // `loading` clears.
+  const hasAccountsForBrief = loading ? undefined : accounts.length > 0 || investmentAccounts.length > 0;
+
   // ── Attention glow — at most one card glows per screen; priority resolved
   // centrally so no component can independently decide to glow (lib/attention.ts).
+  // "short" is gated to a genuine shortfall (<= -£1) to match
+  // SafeToSpendCard's own zeroSafe remap — otherwise the hero could glow
+  // "needs you" on a card that's actually rendering green/comfortable.
   const heroNeedsAttention =
-    safeToSpend?.status === "ok" && (safeToSpend.state === "tight" || safeToSpend.state === "short");
+    safeToSpend?.status === "ok" &&
+    (safeToSpend.state === "tight" || (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1));
   const hasLivePlan = companionItems.some(i => i.type === "payday_plan");
   const attn = resolveAttention({
     hasExpiredProvider: expiredProviders.length > 0,
@@ -269,7 +302,7 @@ export default function HomePage() {
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-6 lg:px-0 lg:pt-0" ref={greetingRef}>
             <HomeBrief
-              items={companionItems}
+              items={isFreshUser ? [] : companionItems}
               firstName={firstName}
               safeToSpend={safeToSpend}
               loading={loading}
@@ -279,15 +312,41 @@ export default function HomePage() {
               hideNetWorth={hideNetWorth}
               onRefresh={loadData}
               attnTarget={attn}
+              dismissible
+              hasAccounts={hasAccountsForBrief}
             />
           </div>
+
+          {/* ── Fresh user (nothing connected yet): lead with onboarding ──
+              Directly under the greeting/brief. This is the single instance
+              of the "Connect your first bank" hero — the "Your estate"
+              section below is suppressed entirely in this state so it never
+              duplicates. */}
+          {isFreshUser && (
+            <div className="px-4 lg:px-0 mt-6">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+                  Connect your first bank
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+                  Read-only access through open banking, we can never move your money.
+                </p>
+                <button
+                  onClick={() => handleReconnect()}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                >
+                  Connect a bank
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Load error fallback */}
           {loadError && (
             <div className="px-4 lg:px-0 mt-4">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
-                  Couldn&apos;t load your data — check your connection.
+                  Couldn&apos;t load your data, check your connection.
                 </p>
                 <button
                   onClick={() => { setLoading(true); setStsLoading(true); setTxLoading(true); setLoadError(false); loadData(); }}
@@ -299,8 +358,10 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* ── WHERE YOU STAND ── */}
-          {!loadError && (
+          {/* ── WHERE YOU STAND ── suppressed for a fresh user: no accounts
+              means no real Safe-to-Spend data, and it must never render a
+              "£0" shell — the onboarding hero above is the whole story. */}
+          {!loadError && !isFreshUser && (
             <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
               {(() => {
@@ -320,27 +381,11 @@ export default function HomePage() {
                 return null;
               })()}
 
-              {/* Unified index block — savings + mirror */}
-              {!loading && (
-                <div className="mt-3 rounded-2xl glass-card px-4">
-                  <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
-                    {/* Row 1: Potential savings */}
-                    <ValueDeliveredStat />
-
-                    {/* Row 2: The Mirror */}
-                    <button
-                      onClick={() => router.push("/mirror")}
-                      className="w-full min-h-[44px] flex items-center justify-between hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset rounded-lg"
-                    >
-                      <div className="flex items-center gap-2">
-                        <ScanFace size={15} aria-hidden="true" className="text-slate-400 flex-shrink-0" />
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-300">How your money behaves</span>
-                      </div>
-                      <span className="text-sm text-slate-400 dark:text-slate-500">›</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Potential-savings index — "How your money behaves" (the
+                  Mirror row) relocated to its own rich entry card on the
+                  Penny screen (its permanent home now), reached via the
+                  nav's Penny button. */}
+              {!loading && <ValueDeliveredStat />}
             </div>
           )}
 
@@ -364,8 +409,9 @@ export default function HomePage() {
             </div>
           ))}
 
-          {/* ── YOUR MONEY ── */}
-          {!loadError && (
+          {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
+              strips have nothing to show without connected accounts). */}
+          {!loadError && !isFreshUser && (
             <div className="rise-in mt-8" style={{ "--rise-index": 2 } as React.CSSProperties}>
               <div className="px-4 lg:px-0 mb-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -383,7 +429,7 @@ export default function HomePage() {
           {/* ── Below zones: demoted supporting content ── */}
 
           {/* User-pinned insight cards (fuel prices, grocery baskets, chart widget) */}
-          {!loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
+          {!isFreshUser && !loading && (pinnedCards.includes("fuel") || pinnedCards.includes("groceries") || (homePinnedWidget && homeTxns.length > 0)) && (
             <div className="mt-8 space-y-3 px-4 lg:px-0">
               {pinnedCards.includes("fuel") && <FuelSavingsCard />}
               {pinnedCards.includes("groceries") && <GroceryBasketCard />}
@@ -404,79 +450,86 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Accounts — pinned/expired top picks in a grid, rest behind "+N more" */}
-          <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 3 } as React.CSSProperties}>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
-              <div className="flex items-center gap-2">
-                <button
-                  data-tutorial-id="tutorial-manage-link"
-                  onClick={() => router.push("/accounts")}
-                  className="min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-                >
-                  Manage <ChevronRight size={13} aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-            {loading ? (
-              <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-[60px] px-4 py-2.5 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" />
-                    <div className="flex-1 space-y-1.5">
-                      <div className="h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                      <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                    </div>
-                    <div className="h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
-                  </div>
-                ))}
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
-                  Connect your first bank
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
-                  Read-only access through open banking — we can never move your money.
-                </p>
-                <button
-                  onClick={() => handleReconnect()}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
-                >
-                  Connect a bank
-                </button>
-              </div>
-            ) : (
-              <div className="glass-card rounded-2xl overflow-hidden">
-                {topPickAccounts.map((acc, i) => (
-                  <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                    <AccountLedgerRow
-                      row={bankToRow(acc, pinnedIds)}
-                      onClick={() => router.push(`/accounts?id=${acc.id}`)}
-                    />
-                  </div>
-                ))}
-                {investmentAccounts.slice(0, 1).map((inv) => (
-                  <div key={inv.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
-                    <AccountLedgerRow
-                      row={investmentToRow(inv)}
-                      onClick={() => router.push("/accounts?tab=Investments")}
-                    />
-                  </div>
-                ))}
-                {hiddenAccountCount > 0 && (
+          {/* Accounts — pinned/expired top picks in a grid, rest behind
+              "+N more". Suppressed entirely for a fresh user: the single
+              "Connect your first bank" hero already rendered at the top of
+              the page owns that job, so this section (which would otherwise
+              render its own copy of the same empty state) is skipped rather
+              than duplicated. */}
+          {!isFreshUser && (
+            <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 3 } as React.CSSProperties}>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
+                <div className="flex items-center gap-2">
                   <button
+                    data-tutorial-id="tutorial-manage-link"
                     onClick={() => router.push("/accounts")}
-                    className={`w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
-                      topPickAccounts.length + Math.min(investmentAccounts.length, 1) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
-                    }`}
+                    className="min-h-[44px] text-xs font-semibold text-indigo-500 dark:text-indigo-400 flex items-center gap-1 hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
                   >
-                    +{hiddenAccountCount} more accounts <ChevronRight size={13} aria-hidden="true" />
+                    Manage <ChevronRight size={13} aria-hidden="true" />
                   </button>
-                )}
+                </div>
               </div>
-            )}
-          </div>
+              {loading ? (
+                <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-[60px] px-4 py-2.5 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                        <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                      </div>
+                      <div className="h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
+              ) : accounts.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
+                    Connect your first bank
+                  </p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4 leading-snug">
+                    Read-only access through open banking, we can never move your money.
+                  </p>
+                  <button
+                    onClick={() => handleReconnect()}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
+                  >
+                    Connect a bank
+                  </button>
+                </div>
+              ) : (
+                <div className="glass-card rounded-2xl overflow-hidden">
+                  {topPickAccounts.map((acc, i) => (
+                    <div key={acc.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                      <AccountLedgerRow
+                        row={bankToRow(acc, pinnedIds)}
+                        onClick={() => router.push(`/accounts?id=${acc.id}`)}
+                      />
+                    </div>
+                  ))}
+                  {investmentAccounts.slice(0, 1).map((inv) => (
+                    <div key={inv.id} className={topPickAccounts.length > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
+                      <AccountLedgerRow
+                        row={investmentToRow(inv)}
+                        onClick={() => router.push("/accounts?tab=Investments")}
+                      />
+                    </div>
+                  ))}
+                  {hiddenAccountCount > 0 && (
+                    <button
+                      onClick={() => router.push("/accounts")}
+                      className={`w-full min-h-[52px] flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-slate-400 dark:text-slate-500 active:bg-slate-50 dark:active:bg-white/5 transition-colors ${
+                        topPickAccounts.length + Math.min(investmentAccounts.length, 1) > 0 ? "border-t border-slate-100 dark:border-white/5" : ""
+                      }`}
+                    >
+                      +{hiddenAccountCount} more accounts <ChevronRight size={13} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
 

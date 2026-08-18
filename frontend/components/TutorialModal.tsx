@@ -14,7 +14,7 @@ const STEPS = [
     bg: "#ede9fe",
     title: "Welcome to Sorted",
     description:
-      "Track all your money in one place. This short tour walks you through everything the app can do — from connecting your bank to eliminating debt.",
+      "Track all your money in one place. This short tour walks you through everything the app can do, from connecting your bank to eliminating debt.",
     tip: undefined,
   },
   {
@@ -86,7 +86,7 @@ const STEPS = [
     bg: "#fef3c7",
     title: "AI Savings Insights",
     description:
-      "Insights analyses your actual spending and surfaces personalised tips — cheaper energy tariffs, subscription savings, remortgage opportunities and more.",
+      "Insights analyses your actual spending and surfaces personalised tips: cheaper energy tariffs, subscription savings, remortgage opportunities and more.",
     tip: "Tap Refresh to generate new insights from your latest transactions.",
   },
 ];

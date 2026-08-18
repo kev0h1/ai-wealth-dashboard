@@ -102,7 +102,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
       onSaved();
       onClose();
     } catch {
-      setError("Couldn't save — please try again");
+      setError("Couldn't save, please try again");
     } finally {
       setSaving(false);
     }
@@ -114,7 +114,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
       onSaved();
       onClose();
     } catch {
-      setError("Couldn't reset — please try again");
+      setError("Couldn't reset, please try again");
     }
   }
 
@@ -142,7 +142,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
         anchor_date: item.expected_date,
       });
       if (!resp.ok) {
-        setRuleError(resp.error || "Couldn't understand that — try something like 'every Sunday' or 'last Friday of the month'");
+        setRuleError(resp.error || "Couldn't understand that, try something like 'every Sunday' or 'last Friday of the month'");
       } else {
         setRulePreview({
           schedule: resp.schedule!,
@@ -151,7 +151,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
         });
       }
     } catch {
-      setRuleError("Couldn't reach server — please try again");
+      setRuleError("Couldn't reach server, please try again");
     } finally {
       setRulePreviewing(false);
     }
@@ -166,7 +166,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
       onSaved();
       onClose();
     } catch {
-      setRuleError("Couldn't save rule — please try again");
+      setRuleError("Couldn't save rule, please try again");
     } finally {
       setRuleApplying(false);
     }
@@ -180,7 +180,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
       onSaved();
       onClose();
     } catch {
-      setRuleError("Couldn't remove rule — please try again");
+      setRuleError("Couldn't remove rule, please try again");
     } finally {
       setRuleClearing(false);
     }

@@ -56,7 +56,7 @@ export default function SavingsPlanCard({
             {allDone ? "Plan complete! 🎉" : "Your savings plan"}
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {allDone ? "Every milestone done — incredible work." : `${plan.done_count} of ${plan.total_count} done${nextIdx >= 0 ? " — keep going!" : ""}`}
+            {allDone ? "Every milestone done, incredible work." : `${plan.done_count} of ${plan.total_count} done${nextIdx >= 0 ? ", keep going!" : ""}`}
           </p>
         </div>
       </div>

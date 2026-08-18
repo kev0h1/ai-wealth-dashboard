@@ -62,7 +62,7 @@ export default function LoginOverlay({ onAuthenticated }: Props) {
 
           {error && (
             <div className="flex items-center justify-center gap-1.5 text-red-400 text-sm mt-4">
-              <AlertCircle className="w-4 h-4" /> Incorrect PIN — try again
+              <AlertCircle className="w-4 h-4" /> Incorrect PIN, try again
             </div>
           )}
         </div>

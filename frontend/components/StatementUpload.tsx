@@ -150,7 +150,7 @@ export default function StatementUpload({ onSuccess, onClose }: StatementUploadP
                         {selectedFile.name}
                       </p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {(selectedFile.size / 1024).toFixed(0)} KB — tap to change
+                        {(selectedFile.size / 1024).toFixed(0)} KB, tap to change
                       </p>
                     </>
                   ) : (

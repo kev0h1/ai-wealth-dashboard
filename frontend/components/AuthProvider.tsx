@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         params.delete("token");
       }
       if (errParam) {
-        setAuthError(errParam === "unauthorized" ? "Access denied — this account is not authorised." : "Sign-in failed. Please try again.");
+        setAuthError(errParam === "unauthorized" ? "Access denied, this account is not authorised." : "Sign-in failed. Please try again.");
         params.delete("error");
       }
       if (urlToken || errParam) {

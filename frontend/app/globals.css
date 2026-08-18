@@ -224,6 +224,16 @@ a:focus-visible,
   font-feature-settings: "tnum" 1;
 }
 
+/* Hero-card flowing prose — justified body text (owner-picked treatment,
+   see /design/justify-check). text-align: justify leaves the LAST line
+   left-aligned per browser default, so single-line paragraphs render
+   unchanged; no conditional logic needed at call sites. Pair with
+   lang="en-GB" on the element for correct hyphenation dictionary. */
+.hero-prose {
+  text-align: justify;
+  hyphens: auto;
+}
+
 /* ── Accessibility: honour reduced-motion OS preference ─────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

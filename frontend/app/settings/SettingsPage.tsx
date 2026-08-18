@@ -245,7 +245,7 @@ export default function SettingsPage() {
       logout();
     } catch {
       setDeleting(false);
-      setProfileMsg({ text: "Deletion failed — try again", ok: false });
+      setProfileMsg({ text: "Deletion failed, try again", ok: false });
     }
   }
 
@@ -351,7 +351,7 @@ export default function SettingsPage() {
           if (result === "granted") {
             setNotifEnabled(true);
           } else if (result === "denied") {
-            setNotifError("Notifications are blocked — enable them in your phone's Settings app.");
+            setNotifError("Notifications are blocked, enable them in your phone's Settings app.");
           } else {
             setNotifError("Couldn't enable notifications on this device.");
           }
@@ -403,7 +403,7 @@ export default function SettingsPage() {
   const deleteDialogMessage = (
     <div className="space-y-3">
       <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-        This permanently erases everything — bank connections, transactions, budgets, plans,
+        This permanently erases everything: bank connections, transactions, budgets, plans,
         insights and chat history. It cannot be undone. Type{" "}
         <span className="font-bold text-slate-700 dark:text-slate-200">DELETE</span> to confirm.
       </p>
@@ -448,7 +448,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => jumpTo(SECTION_ACCOUNTS)}
-                  aria-label={`${coverAccounts.length} accounts connected — jump to Where money can come from`}
+                  aria-label={`${coverAccounts.length} accounts connected, jump to Where money can come from`}
                   className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Accounts</p>
@@ -461,7 +461,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => jumpTo(SECTION_SECURITY)}
-                  aria-label={`${bioLabel} — jump to Security`}
+                  aria-label={`${bioLabel}, jump to Security`}
                   className="glass-tile rounded-2xl px-2.5 py-3 text-left min-h-[44px] active:scale-[0.98] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Security</p>
@@ -526,7 +526,7 @@ export default function SettingsPage() {
               ) : (
                 <div className="flex items-center gap-3">
                   <Bell size={16} className="text-indigo-500 flex-shrink-0" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Notifications are delivered by the app — manage them in your phone&apos;s notification settings.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Notifications are delivered by the app, manage them in your phone&apos;s notification settings.</p>
                 </div>
               )
             ) : notifPermission === "unsupported" ? (
@@ -675,7 +675,7 @@ export default function SettingsPage() {
             icon={Landmark}
             hex={INDIGO}
             title="Financial profile"
-            subtitle="Self-declared — unlocks personalised tax insights"
+            subtitle="Self-declared: unlocks personalised tax insights"
           />
 
           <div className="px-4 py-3.5">
@@ -802,7 +802,7 @@ export default function SettingsPage() {
           <div className="px-4 py-3 border-b border-slate-50 dark:border-slate-700 space-y-3">
             <div>
               <label htmlFor="settings-name" className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
-                Full name <span className="opacity-70">— used to recognise transfers between your own accounts</span>
+                Full name <span className="opacity-70">(used to recognise transfers between your own accounts)</span>
               </label>
               <input
                 id="settings-name"
@@ -814,7 +814,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <label htmlFor="settings-postcode" className="text-xs text-slate-500 dark:text-slate-400 mb-1 block">
-                Home postcode <span className="opacity-70">— used for local fuel prices</span>
+                Home postcode <span className="opacity-70">(used for local fuel prices)</span>
               </label>
               <input
                 id="settings-postcode"

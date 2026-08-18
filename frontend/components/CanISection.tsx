@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Send, Loader2, ChevronRight, X } from "lucide-react";
 import { api, CanIOffer } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
+import PennyMark from "@/components/PennyMark";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
@@ -39,18 +40,29 @@ const VISIBLE_CAP = 4;
 /** Free-figure context threaded in from the page's runway hero. */
 export type CanIFreeHint = { free: number; daysLeft: number };
 
+// Tiny negative floats (rounding noise, e.g. -£0.4) must never render as a
+// phantom minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
+// `zeroSafe` (copied locally rather than imported: it's a one-line pure
+// helper and this component has no other dependency on that file).
+const zeroSafe = (v: number) => (Math.abs(v) < 1 ? 0 : v);
+
 function fmtWhole(n: number): string {
-  return `£${Math.round(n).toLocaleString("en-GB")}`;
+  const v = zeroSafe(n);
+  // Proper minus sign (−, U+2212) BEFORE the £, not a raw "-" after it —
+  // Math.round(-10).toLocaleString() on its own renders "£-10".
+  const sign = v < 0 ? "−" : "";
+  return `${sign}£${Math.abs(Math.round(v)).toLocaleString("en-GB")}`;
 }
 
-/** ✦ Penny gradient chip — same idiom as PaydayPlanCard/MiscategorisedReviewSheet. */
+/** Penny gradient chip — same idiom as PaydayPlanCard/MiscategorisedReviewSheet. */
 function PennyChip() {
   return (
     <span
       className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1 flex-shrink-0"
       style={{ background: BG }}
     >
-      ✦ Penny
+      <PennyMark size={11} />
+      Penny
     </span>
   );
 }
@@ -61,6 +73,9 @@ export default function CanISection({
   controlledOpen,
   onControlledClose,
   hideLauncher,
+  inline,
+  autoFocus,
+  hideAttribution,
 }: {
   /** Fires after the offer chip's sheet saves — lets the page refresh its commitments list. */
   onCommitmentSaved?: () => void;
@@ -81,6 +96,24 @@ export default function CanISection({
   onControlledClose?: () => void;
   /** Renders only the sheet (+ its CommitmentSheet round-trip) — no launcher row. For the nav's headless mount alongside `controlledOpen`. */
   hideLauncher?: boolean;
+  /**
+   * Renders the thread (chips + composer + conversation) directly in page
+   * flow — no launcher, no bottom-sheet portal/backdrop/drag-handle/close.
+   * For the Penny screen, where "Can I…?" is the page itself rather than an
+   * overlay. Shares the exact same ask/send/retry/offer state machine and
+   * CommitmentSheet round-trip as the sheet mode; only the chrome differs.
+   */
+  inline?: boolean;
+  /** Inline mode only — focus the composer on mount (no scroll: the caller
+   * owns scrolling the section into view, for a caller deep-linking in via
+   * /penny?focus=ask — a general-purpose entry point kept for future
+   * surfaces; Planning's own "Can I…? Ask Penny" row that used to use it
+   * was removed at the founder's request, 2026-08-17). */
+  autoFocus?: boolean;
+  /** Inline mode only — suppresses the "✦ Penny" chip in the section header.
+   * The Penny screen's own page header already establishes whose voice this
+   * is, so the chip is redundant branding there. */
+  hideAttribution?: boolean;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -152,8 +185,10 @@ export default function CanISection({
     <>
       {/* Launcher — the only idle footprint: value first, never a chat bubble.
           Skipped entirely in headless mode (hideLauncher) — the nav's Penny
-          button is the trigger instead, via controlledOpen. */}
-      {!hideLauncher && (
+          button is the trigger instead, via controlledOpen. Also skipped in
+          inline mode — there's no sheet to launch; the thread is already
+          on-page below. */}
+      {!hideLauncher && !inline && (
         <button
           onClick={() => setSheetOpen(true)}
           className="w-full glass-card rounded-2xl min-h-[44px] px-4 py-3 flex items-center gap-2 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -169,7 +204,7 @@ export default function CanISection({
         </button>
       )}
 
-      {sheetOpen && (
+      {sheetOpen && !inline && (
         <CanISheet
           freeHint={freeHint}
           messages={messages}
@@ -183,6 +218,26 @@ export default function CanISection({
           onRetry={retry}
           onOfferTap={openOfferSheet}
           onClose={dismissSheet}
+        />
+      )}
+
+      {/* Inline mode — same thread, no overlay/backdrop/sheet chrome. The
+          Penny screen's own bottom section IS the "Can I…?" surface. */}
+      {inline && (
+        <CanIInline
+          freeHint={freeHint}
+          messages={messages}
+          loading={loading}
+          error={error}
+          offer={offer}
+          input={input}
+          inputRef={inputRef}
+          onInput={setInput}
+          onSend={send}
+          onRetry={retry}
+          onOfferTap={openOfferSheet}
+          autoFocus={autoFocus}
+          hideAttribution={hideAttribution}
         />
       )}
 
@@ -204,7 +259,7 @@ export default function CanISection({
               ...prev,
               {
                 role: "assistant" as const,
-                content: `Set up — ${fmtWhole(item.per_period_slice)}/period reserved.`,
+                content: `Set up: ${fmtWhole(item.per_period_slice)} ${item.period_label ? `each pay period (${item.period_label})` : "a period"} reserved.`,
               },
             ].slice(-HISTORY_CAP));
             onCommitmentSaved?.();
@@ -346,7 +401,7 @@ function CanISheet({
               {error && !loading && (
                 <div className="flex justify-start">
                   <div className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[14px] leading-relaxed bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
-                    Couldn&apos;t check that just now — try again in a moment.
+                    Couldn&apos;t check that just now, try again in a moment.
                     <button
                       onClick={onRetry}
                       className="block mt-1.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400"
@@ -364,7 +419,7 @@ function CanISheet({
                     onClick={onOfferTap}
                     className="min-h-[44px] text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/20 rounded-full px-4 py-2 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
-                    Set this up — £{Math.round(offer.per_period).toLocaleString("en-GB")}/period ›
+                    Set this up: £{Math.round(offer.per_period).toLocaleString("en-GB")}/period ›
                   </button>
                 </div>
               )}
@@ -421,5 +476,171 @@ function CanISheet({
       </div>
     </>,
     document.body
+  );
+}
+
+// ── Inline mode — the Penny screen's own "Can I…?" section ─────────────────
+// Same thread rendering as CanISheet (header context line, bubbles, quick
+// chips, offer chip, composer, disclaimer) but as plain in-flow content: no
+// portal, no backdrop, no drag handle, no close button, no fixed positioning
+// or max-height clamp. Grows the page instead of a fixed-height sheet, so
+// there's no VISIBLE_CAP truncation — the full (HISTORY_CAP-bounded) thread
+// shows.
+
+function CanIInline({
+  freeHint,
+  messages,
+  loading,
+  error,
+  offer,
+  input,
+  inputRef,
+  onInput,
+  onSend,
+  onRetry,
+  onOfferTap,
+  autoFocus,
+  hideAttribution,
+}: {
+  freeHint?: CanIFreeHint | null;
+  messages: Msg[];
+  loading: boolean;
+  error: boolean;
+  offer: CanIOffer | null;
+  input: string;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  onInput: (v: string) => void;
+  onSend: (text: string) => void;
+  onRetry: () => void;
+  onOfferTap: () => void;
+  autoFocus?: boolean;
+  hideAttribution?: boolean;
+}) {
+  // preventScroll: the caller (PennyPage, via /penny?focus=ask) already owns
+  // scrolling this section into view with its own reduced-motion check;
+  // letting the browser's default focus-scroll fire too would fight it with
+  // a second, uncontrolled jump.
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus({ preventScroll: true });
+  }, [autoFocus, inputRef]);
+
+  return (
+    <div>
+      {/* Header — section title + a muted context subline directly below it
+          (context restated so the answer surface carries its own numbers).
+          The chip is suppressed via hideAttribution on the Penny screen,
+          whose own page header already establishes Penny's voice. */}
+      <div className="mb-3">
+        {!hideAttribution && (
+          <div className="flex items-center gap-2 mb-2">
+            <PennyChip />
+          </div>
+        )}
+        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">Can I…?</p>
+        {freeHint && (
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {fmtWhole(freeHint.free)} free · {freeHint.daysLeft} {freeHint.daysLeft === 1 ? "day" : "days"} left
+          </p>
+        )}
+      </div>
+
+      {/* Thread — full height, page-scrolled (no inner scroll container) */}
+      <div aria-live="polite" role="log" className={messages.length > 0 ? "space-y-2" : undefined}>
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div
+              className={`max-w-[80%] px-3 py-2 rounded-2xl text-[14px] leading-relaxed ${
+                m.role === "user"
+                  ? "bg-indigo-600 text-white rounded-br-sm"
+                  : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm"
+              }`}
+            >
+              {m.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-slate-100 dark:bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
+              {[0, 150, 300].map((d) => (
+                <span key={d} className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {error && !loading && (
+          <div className="flex justify-start">
+            <div className="max-w-[80%] px-3 py-2 rounded-2xl rounded-bl-sm text-[14px] leading-relaxed bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+              Couldn&apos;t check that just now, try again in a moment.
+              <button
+                onClick={onRetry}
+                className="block mt-1.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Commitment hand-off chip — under the last Penny bubble */}
+        {offer && !loading && !error && (
+          <div className="flex justify-start">
+            <button
+              onClick={onOfferTap}
+              className="min-h-[44px] text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/20 rounded-full px-4 py-2 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              Set this up: £{Math.round(offer.per_period).toLocaleString("en-GB")}/period ›
+            </button>
+          </div>
+        )}
+      </div>
+
+      {messages.length === 0 && !loading && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {QUICK.map((q) => (
+            <button
+              key={q}
+              onClick={() => onSend(q)}
+              className="text-[11px] font-medium px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:border-violet-300 hover:text-violet-700 dark:hover:text-violet-400 transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Composer — normal in-flow row, not fixed/pinned (there's no viewport
+          keyboard-avoidance concern; this sits at the bottom of the page). */}
+      <div className="mt-4">
+        <div className="flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => onInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && onSend(input)}
+            placeholder="Can I spend £200 this weekend?"
+            maxLength={160}
+            disabled={loading}
+            className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300"
+          />
+          <button
+            onClick={() => onSend(input)}
+            disabled={!input.trim() || loading}
+            aria-label="Ask"
+            className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
+            style={{ background: BG }}
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </button>
+        </div>
+
+        <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500 mt-2">
+          General information, not regulated financial advice.
+        </p>
+      </div>
+    </div>
   );
 }

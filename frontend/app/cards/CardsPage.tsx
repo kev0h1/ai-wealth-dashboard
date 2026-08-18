@@ -203,10 +203,10 @@ export default function CardsPage() {
             {/* Clarifying sentence — contextualises the headline */}
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 leading-snug">
               {deltaAbs < 20
-                ? `Your balances barely moved — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                ? `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
                 : delta >= 20
-                ? `Your balances grew by ${mask(fmtGBP(delta))} — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
-                : `Your balances shrank by ${mask(fmtGBP(deltaAbs))} — you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`}
+                ? `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                : `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`}
             </p>
           </div>
         </div>
