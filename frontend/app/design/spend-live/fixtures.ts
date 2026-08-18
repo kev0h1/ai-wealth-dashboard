@@ -9,7 +9,26 @@
 // and the `reading` string is hand-derived from the same template logic as
 // `spend_verdict.py`'s `build_reading` so this route shows exactly what a
 // real payload in that state would say.
-import type { Checkpoint, SpendVerdict, SpendVerdictState, Transaction } from "@/lib/api";
+import type { Checkpoint, SpendVerdict, SpendVerdictPaceEntry, SpendVerdictState, Transaction } from "@/lib/api";
+
+// Deterministic cumulative actual-vs-usual series for SpendHeader's pace
+// strip — linear interpolation from day 1 to `days`, endpoint-corrected so
+// the final day's `actual` always lands exactly on the fixture's
+// `pills.spent` (the strip's own reconciliation invariant). `usualFinal:
+// null` produces an all-null usual column, matching build_pace_series'
+// thin_history behaviour (still-learning baseline never fabricates a usual).
+function linearSeries(days: number, actualFinal: number, usualFinal: number | null): SpendVerdictPaceEntry[] {
+  const series: SpendVerdictPaceEntry[] = [];
+  for (let day = 1; day <= days; day++) {
+    series.push({
+      day,
+      actual: Math.round((actualFinal * day) / days),
+      usual: usualFinal === null ? null : Math.round((usualFinal * day) / days),
+    });
+  }
+  if (series.length > 0) series[series.length - 1] = { ...series[series.length - 1], actual: actualFinal };
+  return series;
+}
 
 // Income drill-down fixture — production builds this list client-side from
 // live transactions (SpendPage.tsx's `incomeTxns`); this route has none, so
@@ -67,7 +86,11 @@ const MOVED_FULL: SpendVerdict["moved"] = [
 
 const NORMAL: SpendVerdict = {
   state: "normal",
-  reading: "Three categories are running above your usual pace — mostly Bills. Everything else looks normal.",
+  // Matches the shipped compose_reading grammar: sentence 1 overrides to the
+  // pound-led pace fact (state "normal" + notables + excess > 0), sentence 2
+  // is the movement-reassurance fallback (moved_total 3,958 clears the £50
+  // material floor, no bills_risk/horizon/move consequence in this fixture).
+  reading: "Running about £1,301 ahead of usual, mostly Bills. You also moved £3,958 to savings and cards.",
   notables: [
     {
       category: "Bills", spent: 2028, multiple: 2.0, excess: 1028, payments_count: 14,
@@ -122,12 +145,21 @@ const NORMAL: SpendVerdict = {
   // unresolved.total 1020 = 4643 (reconciliation invariant, guarded below).
   pills: { spent: 4643, income: 253, net: -4390 },
   period: PERIOD_13,
+  // Established baseline (thin_history false) — real `usual` values.
+  // usualFinal 3,342 = actualFinal 4,643 - the 1,301 excess the reading names.
+  pace_series: linearSeries(13, 4643, 3342),
+  moved_total: 3958,
 };
 
 const NOTHING: SpendVerdict = {
   state: "nothing",
-  reading:
-    "Nothing crossed the line this period. Cash ran hotter than usual, just not by much yet. I don't have a usual yet for Golf.",
+  // compose_reading always caps at 2 sentences: the movement-reassurance
+  // fallback fires (moved_total 500 clears the £50 floor, no consequence in
+  // this fixture) and `_first_sentence` truncates the 3-sentence
+  // elevated/no-baseline base_reading down to its first sentence before
+  // appending it — the same trade the real composer makes, not a fixture
+  // shortcut.
+  reading: "Nothing crossed the line this period. You also moved £500 to savings and cards.",
   notables: [],
   quiet_flags: [],
   majority: [
@@ -148,16 +180,28 @@ const NOTHING: SpendVerdict = {
   // unresolved.total 45 = 1577.
   pills: { spent: 1577, income: 2100, net: 523 },
   period: PERIOD_13,
+  // Established baseline, running slightly hot overall (usualFinal 1,537 <
+  // actualFinal 1,577) — matches "ran hotter than usual, just not by much".
+  pace_series: linearSeries(13, 1577, 1537),
+  moved_total: 500,
 };
 
 const EVERYTHING: SpendVerdict = {
   state: "everything",
-  reading: "Spending is running high across the board — about £1,411 more than a typical 13 days in. The biggest three:",
+  // Matches the shipped compose_reading grammar: sentence 1 overrides to the
+  // pound-led pace fact (excess 1,411 = sum of notables + quiet_flags
+  // excess below, same figure the old reading named), sentence 2 is the
+  // movement-reassurance fallback (moved_total clears the £50 floor).
+  reading: "Running about £1,411 ahead of usual, mostly Bills. You also moved £3,958 to savings and cards.",
   notables: [
     {
       category: "Bills", spent: 2028, multiple: 2.0, excess: 1028, payments_count: 14,
       cause: [{ name: "British Gas", amount: 340 }, { name: "EDF", amount: 180 }, { name: "Council Tax", amount: 167 }],
       pace: { spent: 2028, usual_by_now: 1000 },
+      // The loudest notable's priced consequence — same share-of-total copy
+      // pattern as spend_verdict.py's compute_spend_verdict (1,028 / 1,411
+      // excess = 73% >= the 0.6 "accounts for most of that" threshold).
+      consequence_line: { text: "Bills alone accounts for most of that." },
     },
     {
       category: "Transport", spent: 449, multiple: 1.4, excess: 129, payments_count: 22,
@@ -207,12 +251,22 @@ const EVERYTHING: SpendVerdict = {
   // unresolved.total 9 = 3744.
   pills: { spent: 3744, income: 253, net: -3491 },
   period: PERIOD_13,
+  // Established baseline. usualFinal 2,333 = actualFinal 3,744 - the 1,411
+  // excess the reading names.
+  pace_series: linearSeries(13, 3744, 2333),
+  moved_total: 3958,
 };
 
 const NOBASELINE: SpendVerdict = {
   state: "nobaseline",
+  // compose_reading: no sentence-1 override (excess floors at 0 — no
+  // majority row has a baseline yet, so compute_pace_totals has nothing to
+  // sum), so sentence 1 stays build_reading's own template (comma, not the
+  // em-dash the old fixture had). The movement-reassurance fallback fires
+  // (moved_total 300 clears the £50 floor) and truncates the base template
+  // to its first sentence, same trade compose_reading always makes.
   reading:
-    "Still learning your usual — I need about two full pay periods before I can compare. Here's where this period's money went so far.",
+    "Still learning your usual, I need about two full pay periods before I can compare. You also moved £300 to savings and cards.",
   notables: [],
   quiet_flags: [],
   majority: [
@@ -228,11 +282,18 @@ const NOBASELINE: SpendVerdict = {
   // unresolved.total 0 = 970.
   pills: { spent: 970, income: 1800, net: 830 },
   period: PERIOD_13,
+  // thin_history true (baseline still learning) — usual is null every day,
+  // never a fabricated comparison.
+  pace_series: linearSeries(13, 970, null),
+  moved_total: 300,
 };
 
 const EARLY: SpendVerdict = {
   state: "early",
-  reading: "3 days in — too soon to compare against usual.",
+  // build_reading's own template, comma not em-dash (matches production);
+  // no sentence-2 fallback — moved_total 0 stays under the £50 material
+  // floor and the period is too young for any impact-engine consequence.
+  reading: "3 days in, too soon to compare against usual.",
   notables: [],
   quiet_flags: [],
   // Recut properly per the task: early = 3 days of genuinely sparse data —
@@ -249,6 +310,9 @@ const EARLY: SpendVerdict = {
   // unresolved.total 0 = 80.
   pills: { spent: 80, income: 0, net: -80 },
   period: PERIOD_3,
+  // thin_history true — usual null every day; nothing moved yet.
+  pace_series: linearSeries(3, 80, null),
+  moved_total: 0,
 };
 
 export const SPEND_VERDICT_FIXTURES: Record<SpendVerdictState, SpendVerdict> = {

@@ -153,13 +153,17 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 ### Hierarchy
 - **Display** (700, 30px, tight −0.025em): The one hero figure per screen — net worth, total debt, monthly surplus.
 - **Headline** (700, 20px): Page titles ("Spending", "Budgets", account names).
+- **Amount-on-card** (700, 19px): A card-level money figure, one step below Headline/Display. The Spend notable card's spend amount is the named example, heavy enough to lead the card without competing with a page's actual Display/Headline figure.
 - **Card/section title** (700, 16px, `text-base font-bold`): Card headers, section titles, verdict lines within content cards. The standard chosen for Savings and Tax tab content.
 - **Title** (600, 14px): Row primaries, button labels.
-- **Body** (400-500, 13-14px): Descriptions, chat text, explanatory copy.
+- **Body** (400-500, 13-14px): Descriptions, chat text, explanatory copy. The Spend instrument header's reading sits at Body 14px/400, a caption under the gauge rather than its own hero line.
+- **Caption** (400, 12px): The quiet step below Body, supporting text directly under a card's main line (pace sentences, consequence lines, cause lines on Spend notable cards). Not a Label, it is sentence case, not uppercase, and it is not tracked wide.
 - **Label** (600, 10-11px, +0.05em, UPPERCASE): Section markers ("PAY PERIOD", "YOUR GOALS"), metric captions. Always muted (#94a3b8), never ink.
 
 ### Named Rules
 **The Numbers Lead Rule.** On any card the money figure is the visually heaviest element; its label sits above or beside it in whisper-label style. If a label outweighs its number, the hierarchy is wrong.
+
+**Hero prose is justified.** Flowing multi-line paragraphs on hero cards, the Penny brief, Safe to Spend's supporting text, the Spend reading, set `text-align: justify` with `hyphens: auto` and `lang="en-GB"` for correct UK hyphenation. Headlines, labels, amounts, and any single-line string are never justified, justification is for prose that wraps, not for anything that reads as a figure or a tag. This is a deliberate house-style choice, not a browser default; it gives long explanatory copy a printed, considered edge instead of a ragged one.
 
 ## 4. Elevation
 
@@ -208,7 +212,25 @@ Soft, tactile, confident: generous radii, thumb-sized targets, immediate press f
 Mobile-first detail surfaces (transactions, categories, pay-period settings): full-width, `rounded-t-3xl`, slide up in 280ms with `cubic-bezier(0.32, 0.72, 0, 1)` over a fading black/40 backdrop; on ≥sm they become centred `rounded-3xl` modals. Body scroll locks while open.
 
 ### Progress Bars (signature)
-The app's verdict instrument: 4-10px tracks in slate-100/slate-700 with a rounded fill in the semantically correct colour (category colour, emerald when on-pace, amber when above pace, red when over). Pace markers are 2px slate ticks. Every budget, goal, and plan renders one.
+The verdict instrument for budgets, goals, and plans: 4-10px tracks in slate-100/slate-700 with a rounded fill in the semantically correct colour (category colour, emerald when on-pace, amber when above pace, red when over). Pace markers are 2px slate ticks. Every budget, goal, and plan renders one.
+
+**Retired on Spend.** The per-card pace bar that used to sit on each Spend notable card is retired. Spend's pace now reads through one instrument for the whole period, the header Pace Strip, not one bar per notable (see The Instrument Header below). Progress bars remain the correct instrument everywhere else; Spend is the one page whose pace lives in its header instead of on its cards.
+
+### The Instrument Header (Spend)
+Spend's glass-hero opens on a three-cell gauge, Out | In | Moved, not a single hero figure: each cell is a whisper label (11px/600, uppercase, tracking-wide, muted) over a 20px/700 tabular-nums figure. Out and In read in ink; Moved reads in Verified Emerald, money already put to work rather than spent. Moved only renders when the payload has a moved total; older payloads fall back to a two-cell Out | In row rather than showing a false zero.
+
+Below the cells, when a pace series is present, the Pace Strip sits nested in a `glass-tile` inset: a pure-SVG sparkline, solid indigo for cumulative actual against dotted slate for cumulative usual, a 4px dot marking today, no axes. It is a reading, not a chart, the same "instrument, not dashboard" restraint as the rest of the system.
+
+The reading itself sits under the instrument as a caption, not a hero line: Body 14px/400, `line-clamp-3`, slate voice, not the bold ink Numbers Lead Rule treatment. The instrument's figures carry the weight; the reading explains them.
+
+**The Instrument Glow Rule.** The bordered inset that houses the cells and the strip wears `.needs-you` only when the pace strip has a known usual AND today's cumulative actual has run past it. Never on an unconditional basis, never as permanent decoration, and never when there is no strip or no baseline yet to compare against. This is the same glow-as-attention contract as HomeBrief, SafeToSpendCard, and the Payday Plan card: a card glows because it needs the user, or it doesn't glow at all.
+
+### Card resolve lifecycle (Spend notables)
+Answering One-off or New normal resolves a Spend notable card in place; it never disappears or gets replaced by a different component. The amber "×usual" pace badge crossfades (200ms, opacity only) to a neutral slate chip reading "noted · one-off" or "usual updating". The question and its pace/consequence prose collapse together via a `grid-template-rows` 1fr→0fr transition (200ms, ease-out), never a hard cut. The compressed card keeps its chip, category name, amount, and "See the N payments" link, so Show Your Working survives resolution, the evidence stays one tap away even after the card goes quiet.
+
+Resolving fires a single toast with one Undo action, live for 5 seconds, matching the established toast-with-undo pattern (TeachingSheet.tsx). Undo restores the card to its open, asking state.
+
+New normal is never filed directly from the card. It always opens the Intent Consent Sheet first, which prices the change in plain language before saving, "here's what that changes" narration fetched fresh per category, with filing gated behind an explicit second confirmation ("File it"). The sheet follows the standard solid-surface sheet contract: bottom sheet with a top hairline on mobile, centred modal at the `lg:` breakpoint (the app's standard sheet breakpoint, not `sm:`), never backdrop-filter on the sheet itself.
 
 ## 6. Do's and Don'ts
 

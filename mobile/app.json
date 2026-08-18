@@ -13,15 +13,21 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Take photos of receipts to track your grocery prices.",
         "NSPhotoLibraryUsageDescription": "Choose receipt photos to track your grocery prices.",
-        "NSFaceIDUsageDescription": "Unlock your financial dashboard with Face ID."
+        "NSFaceIDUsageDescription": "Unlock your financial dashboard with Face ID.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "co.uk.auriqltd.wealth",
       "googleServicesFile": "./google-services.json",
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#6366f1",
