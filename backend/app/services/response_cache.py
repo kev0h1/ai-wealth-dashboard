@@ -33,9 +33,17 @@ def put(name: str, uid: str, payload: Any) -> None:
 
 
 def invalidate(uid: str, name: str | None = None) -> None:
-    """Drop cached responses for a user — one named cache, or all of them."""
+    """Drop cached responses for a user — one named cache, or all of them.
+
+    `name` also matches offset-keyed caches stored as "name:<offset>" (e.g.
+    "miscategorised_count:0", "miscategorised_count:-1", ...) so a caller
+    that just knows the logical cache name doesn't need to enumerate every
+    offset variant to force a fresh read on the next request."""
     if name is None:
         for cache in _caches.values():
             cache.pop(uid, None)
     else:
-        _caches.get(name, {}).pop(uid, None)
+        prefix = name + ":"
+        for cache_name, cache in _caches.items():
+            if cache_name == name or cache_name.startswith(prefix):
+                cache.pop(uid, None)

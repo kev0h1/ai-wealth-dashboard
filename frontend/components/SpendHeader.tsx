@@ -81,6 +81,11 @@ export interface SpendHeaderProps {
    *  this handler) only render when verdict.moved_total is present; older
    *  payloads without it fall back to a two-cell Out | In row. */
   onMovedTap?: () => void;
+  /** Show Your Working entry point for the OUT-pill footnote ("Includes
+   *  £X not yet placed ›", only rendered when `verdict.unresolved_material`
+   *  is true) — scrolls to the unresolved ask/whisper block in the body
+   *  (SpendVerdictView's id="spend-unresolved"). */
+  onUnresolvedTap?: () => void;
   /** Recent periods to jump to, and past periods to view — the period
    *  sheet's in-sheet row list (native pickers never appear, DESIGN.md). */
   recentPeriods?: RecentPeriodOption[];
@@ -396,7 +401,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
   const {
     verdict, isCurrentPeriod, canGoPrev, onPrev, onNext, periodLabel, swipeHandlers,
     onOpenSettings, onOpenRules, incomeTxns, onTransactionClick, onOutTap, onMovedTap,
-    recentPeriods = [], onSelectOffset, loading,
+    onUnresolvedTap, recentPeriods = [], onSelectOffset, loading,
   } = props;
   const [incomeExpanded, setIncomeExpanded] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -405,12 +410,17 @@ export default function SpendHeader(props: SpendHeaderProps) {
     return <div className="px-4 pt-6" style={{ minHeight: 220 }} />;
   }
 
-  const { reading, pills, period, pace_series, moved_total } = verdict;
+  const { reading, pills, period, pace_series, moved_total, unresolved_total, unresolved_material } = verdict;
   // Both are additive/optional on SpendVerdict (lib/api.ts) — older payloads
   // without them still render a correct, flat two-cell Out | In header with
   // no strip and no glow.
   const hasStrip = !!pace_series && pace_series.length > 0;
   const hasMoved = moved_total !== undefined;
+  // OUT-pill footnote — server-decided (spend_impact.is_unresolved_material)
+  // so this can never disagree with the reading's own hedge; absent on
+  // older payloads (unresolved_material undefined) just like hasStrip/
+  // hasMoved above.
+  const showUnresolvedFootnote = !!unresolved_material && unresolved_total !== undefined;
   // Glow only when the instrument actually needs the user (see isOverPace
   // above) — never unconditional. The bordered .glass-tile inset below
   // stays permanent; only this boolean gates `.needs-you`.
@@ -527,6 +537,21 @@ export default function SpendHeader(props: SpendHeaderProps) {
             </div>
           )}
         </div>
+
+        {/* OUT-pill footnote — sits below the instrument (not inside it,
+            so it never crowds the pace strip) and above the reading, since
+            it's an annotation on the Out figure specifically. 44px tap
+            target via the established invisible-pseudo-element pattern
+            (PennyConversation.tsx's SuggestionChip) around an 11px line. */}
+        {showUnresolvedFootnote && (
+          <button
+            type="button"
+            onClick={onUnresolvedTap}
+            className="relative mt-2 min-h-[28px] flex items-center before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] text-[11px] text-slate-500 dark:text-slate-400 active:opacity-60 transition-opacity"
+          >
+            Includes {fmt(unresolved_total!)} not yet placed ›
+          </button>
+        )}
 
         {/* The reading, now a caption under the instrument rather than the
             card's own 20px hero line. */}

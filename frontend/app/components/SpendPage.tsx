@@ -279,6 +279,12 @@ export default function SpendPage() {
     document.getElementById("spend-money-moved")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  // OUT-pill footnote tap's Show Your Working destination — the ask/whisper
+  // block for the unresolved bucket, id="spend-unresolved" (SpendVerdictView).
+  function handleUnresolvedTap() {
+    document.getElementById("spend-unresolved")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   // ── Spend card resolve-in-place lifecycle (approved spend-bridge spec) ──
   // `resolved` is the single source of truth for every notable card's
   // resolve state, whether it got there by an on-card "One-off" tap or a
@@ -372,14 +378,20 @@ export default function SpendPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
+  // Banner count is period-scoped server-side now (a series counts only if
+  // it has a transaction inside the requested period) — refetch whenever
+  // the viewed period changes, not just on mount.
+  const fetchMiscategorisedCount = useCallback((offset: number) => {
+    api.getMiscategorisedCount(offset)
+      .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
+      .catch(() => {});
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
       const accs = await api.accounts().catch(() => [] as Account[]);
       setAccounts(accs);
-      api.getMiscategorisedCount()
-        .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
-        .catch(() => {});
     } catch {}
     finally {
       setLoading(false);
@@ -389,6 +401,10 @@ export default function SpendPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    fetchMiscategorisedCount(periodOffset);
+  }, [periodOffset, fetchMiscategorisedCount]);
 
   useEffect(() => {
     api.getSubscription()
@@ -488,7 +504,12 @@ export default function SpendPage() {
 
 
   // Income transactions for drill-down — Income category only; other credits
-  // are refunds and live in their own category
+  // are refunds and live in their own category. Sorted amount-descending
+  // (largest first) rather than by date — a period's salary (often dated
+  // day 1) would otherwise sort to the bottom, buried under a run of small
+  // P2P credits dated later in the period. IncomeDrilldown (SpendHeader.tsx)
+  // just maps the list in order with no date-grouping assumption, so this
+  // reorder is safe.
   const incomeTxns = useMemo(
     () =>
       homeTxns
@@ -497,10 +518,7 @@ export default function SpendPage() {
             tx.transaction_type === "credit" &&
             (tx.category || "Other") === "Income"
         )
-        .sort(
-          (a, b) =>
-            new Date(b.date).getTime() - new Date(a.date).getTime()
-        ),
+        .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
     [homeTxns]
   );
 
@@ -611,9 +629,7 @@ export default function SpendPage() {
     );
     // A recategorise can clear (or add) a miscategorised flag — refresh the
     // chip's count/ids so it drops off once the flagged transfer is fixed.
-    api.getMiscategorisedCount()
-      .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
-      .catch(() => {});
+    fetchMiscategorisedCount(periodOffset);
     // A correction can move which categories are notable/majority this period.
     fetchVerdict(periodOffset);
   }
@@ -639,6 +655,7 @@ export default function SpendPage() {
         onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
         onOutTap={handleOutTap}
         onMovedTap={handleMovedTap}
+        onUnresolvedTap={handleUnresolvedTap}
         recentPeriods={recentPeriods}
         onSelectOffset={handleSelectOffset}
       />
@@ -814,9 +831,7 @@ export default function SpendPage() {
           onClose={() => setReviewOpen(false)}
           onRecategorise={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
           onChanged={() => {
-            api.getMiscategorisedCount()
-              .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
-              .catch(() => {});
+            fetchMiscategorisedCount(periodOffset);
             fetchVerdict(periodOffset);
           }}
         />

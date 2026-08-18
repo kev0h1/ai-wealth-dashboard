@@ -774,24 +774,27 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
       {/* Ask / unresolved — deliberately quieter than a notable card (see
           UnresolvedAskCard above); mt-5 (not mt-3) so it detaches from the
           notable stack's own 12px rhythm instead of filing as "notable
-          #4". */}
-      {showAskCard && unresolved.largest && (
-        <div className="mt-5">
-          <UnresolvedAskCard
-            largest={unresolved.largest}
-            paymentsCount={unresolved.payments_count}
-            periodOut={pills.spent}
-            weight={unresolved.weight}
-            onCorrect={() => (onAskCorrect ? onAskCorrect() : onOpenCategory("Other"))}
-            onDismiss={handleDismissAsk}
-          />
-        </div>
-      )}
-      {showUnresolvedWhisper && (
-        <p className="mt-3 px-1 text-[11px] text-slate-600 dark:text-slate-400">
-          Other · {fmt(unresolved.total)}, still working this one out
-        </p>
-      )}
+          #4". id="spend-unresolved" is the OUT-pill footnote's Show Your
+          Working scroll target (SpendHeader's onUnresolvedTap). */}
+      <div id="spend-unresolved">
+        {showAskCard && unresolved.largest && (
+          <div className="mt-5">
+            <UnresolvedAskCard
+              largest={unresolved.largest}
+              paymentsCount={unresolved.payments_count}
+              periodOut={pills.spent}
+              weight={unresolved.weight}
+              onCorrect={() => (onAskCorrect ? onAskCorrect() : onOpenCategory("Other"))}
+              onDismiss={handleDismissAsk}
+            />
+          </div>
+        )}
+        {showUnresolvedWhisper && (
+          <p className="mt-3 px-1 text-[11px] text-slate-600 dark:text-slate-400">
+            Other · {fmt(unresolved.total)}, still working this one out
+          </p>
+        )}
+      </div>
 
       {/* Majority — aboveMajority (the This period/Over time tablist) gets
           the same mt-5 rhythm the majority section itself uses everywhere

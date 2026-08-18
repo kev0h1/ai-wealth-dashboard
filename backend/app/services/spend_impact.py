@@ -162,6 +162,39 @@ MOVE_SOFTEN_FLOOR = 10.0            # £ — below this, "shrinks to about £X" 
 # it documents a different rule (causation, not overall-excess noise).
 BILLS_RISK_MATERIAL_FLOOR = 0.50
 
+# UNRESOLVED-MONEY HEDGE / SUPPRESS gate (owner-approved fix, 2026-08) —
+# spend_verdict.py's pills.spent (OUT) counts every unresolved/"Other"
+# transaction, but `total_excess` above (and therefore every consequence
+# this module prices) excludes it — "Other" never earns a baseline (the
+# ontology carve-out spend_verdict.py documents). A live case exposed the
+# gap: OUT included £1,293.54 unresolved (28% of OUT), and the reading still
+# claimed the payday move "could be about £1,092 bigger" as if the whole OUT
+# figure were known. Defined HERE (not in spend_verdict.py, which already
+# imports `compute_spend_impact` from this module at load time — importing
+# back the other way would be circular) and consumed by both this module's
+# own suppression check below and by spend_verdict.compose_reading (via the
+# `unresolved_hedge` flag this function's caller returns), so the two
+# surfaces — the reading's hedge and the frontend's OUT-pill footnote — can
+# never disagree about whether the unplaced money is material this period.
+#
+# MATERIAL: unresolved_total is at least a quarter of the period's signed
+# excess, with a flat floor so a big-excess period doesn't need an
+# implausibly large unresolved bucket before the reading hedges at all
+# (reference case this constant is tuned against: £30 of unplaced money
+# must never gag the verdict; £1,294 against a £1,092 claim must).
+UNRESOLVED_HEDGE_FRACTION = 0.25
+UNRESOLVED_HEDGE_FLOOR = 50.0
+
+
+def is_unresolved_material(unresolved_total: float, excess: float) -> bool:
+    """Whether the unresolved/"Other" bucket is large enough, relative to
+    the period's signed pace excess, that a claim built on `excess` needs
+    hedging. See UNRESOLVED_HEDGE_FRACTION/_FLOOR above for the rule."""
+    if unresolved_total <= 0:
+        return False
+    return unresolved_total >= max(UNRESOLVED_HEDGE_FLOOR, UNRESOLVED_HEDGE_FRACTION * abs(excess))
+
+
 _SALARY_LOOKBACK_DAYS = 60
 
 
@@ -608,8 +641,21 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
     actually at risk of going unpaid outranks a smaller payday move or a
     pushed-out horizon; see the module docstring's "bills_risk derivation"
     section.
+
+    Unresolved-money hedge/suppress (owner-approved fix, 2026-08) — see
+    `is_unresolved_material` above. `verdict_ctx["unresolved_total"]` is the
+    period's unresolved/"Other" bucket (already counted in the OUT figure
+    the user sees, excluded from `total_excess` here). Whenever it's
+    material relative to `total_excess` AND a MOVE/HORIZON-family
+    consequence was about to speak, `unresolved_hedge` comes back True (the
+    reading softens its verb and names the amount); if the bucket is as
+    large as the excess itself, the consequence is dropped outright — a
+    specific numeric promise ("your move could be about £X bigger") must
+    not be built on a slice of OUT this incomplete. bills_risk is never
+    touched here: it's a fact about an existing bill, not a promise about a
+    payday move or a pushed-out schedule.
     """
-    empty = {"consequence": None, "move": None, "horizon": None, "bills_risk": None}
+    empty = {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
 
     period = verdict_ctx.get("period") or {}
     if period.get("closed"):
@@ -637,7 +683,23 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
     else:
         consequence = None
 
-    return {"consequence": consequence, "move": move_out, "horizon": horizon_out, "bills_risk": bills_risk_out}
+    unresolved_total = verdict_ctx.get("unresolved_total") or 0.0
+    unresolved_hedge = consequence is not None and is_unresolved_material(unresolved_total, total_excess)
+    if unresolved_hedge and consequence in ("move_delta", "horizon", "permission") and unresolved_total >= abs(total_excess):
+        # Hard suppress — strictly a subset of `unresolved_hedge` (the
+        # material check above), so this never drops a consequence without
+        # also leaving the reading's hedge sentence behind to explain why.
+        consequence = None
+        move_out = None
+        horizon_out = None
+
+    return {
+        "consequence": consequence,
+        "move": move_out,
+        "horizon": horizon_out,
+        "bills_risk": bills_risk_out,
+        "unresolved_hedge": unresolved_hedge,
+    }
 
 
 # ── /spend/intent-preview — price the consent sheet before the user answers ──

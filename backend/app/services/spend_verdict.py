@@ -717,7 +717,7 @@ def _first_sentence(text: str) -> str:
 
 def compose_reading(
     *, state: str, base_reading: str, notables: list[dict], pace_totals: dict,
-    impact: dict, moved_total: float,
+    impact: dict, moved_total: float, unresolved_total: float = 0.0,
 ) -> str:
     """Recompose the verdict's `reading` as caption grammar: max 2 sentences,
     no em-dashes, always hedged, never "will".
@@ -728,6 +728,23 @@ def compose_reading(
     under-pace period paired with a live consequence, it's the plain "You're
     under usual pace." Otherwise the existing per-state template
     (`build_reading`'s output) already says the honest pace fact.
+
+    Unresolved-money hedge (owner-approved fix, 2026-08) — pills.spent (OUT)
+    counts every unresolved/"Other" transaction (bucket_transactions above),
+    but the pace comparison that produces `excess`, and everything the
+    impact engine prices off it, both exclude "Other" (the ontology
+    carve-out — it never earns a baseline). So a confidently-worded claim
+    built on `excess` can be sitting on top of a materially incomplete slice
+    of the real Out figure. `impact["unresolved_hedge"]` is computed ONCE,
+    in `spend_impact.compute_spend_impact` (single source of truth — the
+    same call also decides whether to drop a MOVE/HORIZON consequence
+    entirely when the unresolved bucket is as large as the excess itself,
+    see that function's docstring); this function only consumes the flag to
+    soften sentence 1's verb and name the unplaced amount — it never
+    re-derives either threshold. When suppression already fired upstream,
+    `consequence` here is already None, so sentence 2 falls through to the
+    movement-reassurance fallback (or nothing), exactly like any other
+    no-consequence period.
 
     Sentence 2 — the ONE consequence, by priority bills_risk > horizon >
     move_delta > permission, else the movement-reassurance fallback when
@@ -745,6 +762,27 @@ def compose_reading(
         sentence1 = f"Running about £{abs(excess):,.0f} ahead of usual, mostly {top}."
     elif excess < 0 and consequence in ("permission", "horizon"):
         sentence1 = "You're under usual pace."
+
+    if impact.get("unresolved_hedge"):
+        # Truncate to sentence 1's own first sentence BEFORE hedging — some
+        # per-state templates (`build_reading`'s "normal"/"nothing" cases)
+        # are already 2 sentences on their own account, and the hedge clause
+        # must survive the `_first_sentence` truncation below (which keeps
+        # only the material before the first ". ") once sentence 2 (the
+        # consequence or the movement fallback) is appended. Discarding the
+        # template's own second sentence here is deliberate — the hedge
+        # takes that slot instead, same 2-sentence budget either way.
+        base = _first_sentence(sentence1)
+        # (a) soften the verdict verb where sentence 1 is the plain "You're
+        # under usual pace." claim; every other sentence-1 form already
+        # reads as hedged/qualified ("Running about...", "Nothing unusual
+        # to report...") so it's left as-is bar the trailing full stop.
+        if base == "You're under usual pace.":
+            base = "You look under usual pace"
+        else:
+            base = base.rstrip(".")
+        # (b) name the unplaced amount, in the same clause — no em-dash.
+        sentence1 = f"{base}, though £{unresolved_total:,.0f} isn't placed yet, which could change this."
 
     sentence2: str | None = None
     if consequence == "bills_risk" and impact.get("bills_risk"):
@@ -903,13 +941,21 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         total_curve_fn=total_curve_fn, period_days=period.get("period_days"),
     )
     moved_total = round(sum(m["amount"] for m in result["moved"]), 2)
+    unresolved_total = result["unresolved"]["total"]
 
-    verdict_ctx = {"period": period, "total_excess": pace_totals["excess"]}
+    verdict_ctx = {
+        "period": period,
+        "total_excess": pace_totals["excess"],
+        # Fed to the impact engine's own unresolved-money hedge/suppress
+        # gate (spend_impact.compute_spend_impact) — see that function's
+        # docstring for why the decision lives there rather than here.
+        "unresolved_total": unresolved_total,
+    }
     try:
         impact = await compute_spend_impact(uid, verdict_ctx)
     except Exception:
         logger.exception("spend_verdict: impact engine failed for %s", uid)
-        impact = {"consequence": None, "move": None, "horizon": None, "bills_risk": None}
+        impact = {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
 
     # Per-notable prior_intent + consequence_line — attached to the matching
     # notable object (NOT a top-level field): frontend contract is
@@ -959,9 +1005,18 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         pace_totals=pace_totals,
         impact=impact,
         moved_total=moved_total,
+        unresolved_total=unresolved_total,
     )
     result["pace_series"] = pace_series
     result["moved_total"] = moved_total
     result["impact"] = impact
+    # Spend-page honesty fix (owner-approved, 2026-08) — the OUT pill's own
+    # footnote. `unresolved_material` is the SAME boolean the reading hedge
+    # above is keyed off (`impact["unresolved_hedge"]`, computed once in
+    # spend_impact.is_unresolved_material) so the footnote and the reading
+    # can never disagree about whether the unplaced money is material this
+    # period.
+    result["unresolved_total"] = unresolved_total
+    result["unresolved_material"] = bool(impact.get("unresolved_hedge"))
 
     return result

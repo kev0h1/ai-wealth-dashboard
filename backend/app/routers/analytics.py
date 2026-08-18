@@ -2165,6 +2165,34 @@ async def _flagged_miscategorised(uid: str) -> list:
     return kept
 
 
+async def _resolve_period_bounds(uid: str, offset: int) -> tuple[_date, _date]:
+    """Same pattern as pace.py's compute_pace_detail: walk back from today's
+    pay period `offset` times. offset is expected pre-clamped to [-60, 0]."""
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+    today = _date.today()
+    period_start, period_end = get_pay_period_for_date(today, pay_cfg)
+    for _ in range(-offset):
+        period_start, period_end = prev_pay_period(period_start, pay_cfg)
+    return period_start, period_end
+
+
+def _series_touching_period(txns: list, period_start: _date, period_end: _date) -> set:
+    """Series keys (see series_key/_series_key) that have at least one member
+    transaction dated inside [period_start, period_end] — used to scope the
+    Spend page's miscategorised banner to the current pay period without
+    losing a series' full history for grouping/display."""
+    keys = set()
+    for t in txns:
+        d = t.get("date")
+        if d is None:
+            continue
+        d_date = d.date() if hasattr(d, "date") else d
+        if period_start <= d_date <= period_end:
+            keys.add(t["_series_key"])
+    return keys
+
+
 def _group_miscategorised(txns: list) -> list:
     """Group flagged transactions by recurrence series (_series_key). Each
     group's representative is its most recent member."""
@@ -2205,18 +2233,34 @@ def _group_miscategorised(txns: list) -> list:
 
 
 @router.get("/transactions/miscategorised-count")
-async def get_miscategorised_count(user: dict = Depends(current_user)):
-    """Read-only guardrail: how many recurring-transfer SERIES look like
-    own-account transfers (matched via user_identity/is_own_transfer) but are
-    sitting in a spend category rather than one of the money-to-self
-    categories. Diagnostic only — does not write anything."""
+async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current_user)):
+    """Read-only guardrail feeding the Spend page's quiet banner: how many
+    recurring-transfer SERIES look like own-account transfers (matched via
+    user_identity/is_own_transfer) but are sitting in a spend category rather
+    than one of the money-to-self categories. Diagnostic only — does not
+    write anything.
+
+    Scoped to the requested pay period (offset: 0 = current, negative = prior
+    closed periods, clamped to [-60, 0] like /spend/verdict and friends) — a
+    series only counts here if at least one of its members falls inside that
+    period. Without this, mostly-historical series sat next to period-scoped
+    figures elsewhere on the Spend page and inflated the banner. The sibling
+    review-sheet endpoint (/transactions/miscategorised) deliberately stays
+    all-time — it's a standalone "clean up your history" surface, not
+    period-anchored."""
     uid = user["email"]
-    cache_name = "miscategorised_count"
+    off = max(-60, min(0, int(offset)))
+    cache_name = f"miscategorised_count:{off}"
     cached = response_cache.get(cache_name, uid)
     if cached is not None:
         return cached
 
-    groups = _group_miscategorised(await _flagged_miscategorised(uid))
+    txns = await _flagged_miscategorised(uid)
+    period_start, period_end = await _resolve_period_bounds(uid, off)
+    in_period_keys = _series_touching_period(txns, period_start, period_end)
+    period_txns = [t for t in txns if t["_series_key"] in in_period_keys]
+
+    groups = _group_miscategorised(period_txns)
     result = {"count": len(groups), "ids": [g["id"] for g in groups][:50]}
     response_cache.put(cache_name, uid, result)
     return result
