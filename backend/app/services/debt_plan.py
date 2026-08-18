@@ -196,7 +196,7 @@ def _compute_movement(
     if len(per_period) < 2:
         flags["thin_history"] = True
         flags["assumptions"].append(
-            "fewer than 2 closed pay periods of history — movement unknown, projected flat"
+            "fewer than 2 closed pay periods of history, movement unknown, projected flat"
         )
         covered_out = [{"start": p["start"], "end": p["end"], "net": p["net"], "credits": p["credits"], "debits": p["debits"]} for p in per_period]
         return {
@@ -297,7 +297,7 @@ def _compute_rate_schedule(
             standard_rate_missing_noted = True
             flags["standard_rate_missing"] = True
             flags["assumptions"].append(
-                f"no standard rate on file — interest after {seg_start.strftime('%b %Y')} isn't counted"
+                f"no standard rate on file, interest after {seg_start.strftime('%b %Y')} isn't counted"
             )
 
         seg_from = _month_label(seg_start)
@@ -635,7 +635,7 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
         return {
             "months_sooner": None,
             "interest_saved": None,
-            "note": "no cards with both debt and positive movement — pool is empty",
+            "note": "no cards with both debt and positive movement, pool is empty",
         }
 
     pool = sum(c["movement"]["monthly"] for c in pooled)
@@ -649,7 +649,7 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
         return {
             "months_sooner": None,
             "interest_saved": None,
-            "note": "no pooled card is being charged interest in your transactions — dearest-card-first saves nothing until a deal changes",
+            "note": "no pooled card is being charged interest in your transactions, dearest-card-first saves nothing until a deal changes",
         }
 
     balances: dict[str, float] = {c["account_id"]: c["debt"] for c in pooled}
@@ -749,8 +749,8 @@ def _compute_scenario_b(cards: list[dict], today: date) -> dict:
 
     covers_all_debt = len(pooled) == sum(1 for c in cards if c["debt"] > 0)
     assumption = (
-        "same total monthly movement, minimums elsewhere, remainder to the priciest rate "
-        "— a simplification of avalanche"
+        "same total monthly movement, minimums elsewhere, remainder to the priciest rate, "
+        "a simplification of avalanche"
     )
     if not covers_all_debt:
         assumption += (
@@ -1084,7 +1084,7 @@ def _compute_history(
             "trend_3m": 0.0,
             "trend_3m_all": 0.0,
             "rising": False,
-            "assumptions": ["no card transaction history found — debt history cannot be shown"],
+            "assumptions": ["no card transaction history found, debt history cannot be shown"],
         }
 
     points = [
@@ -1100,7 +1100,7 @@ def _compute_history(
         first_month_date = date.fromisoformat(f"{first_emitted_label}-01")
         first_mon_str = first_month_date.strftime("%b %Y")
         assumptions.append(
-            f"card history starts {first_mon_str} — earlier months aren't shown"
+            f"card history starts {first_mon_str}, earlier months aren't shown"
         )
 
     # Check if any within-range months have partial coverage
@@ -1122,7 +1122,7 @@ def _compute_history(
 
     if partial_cards > 0:
         assumptions.append(
-            f"{partial_cards} card(s) have shorter history and only count from their first observed month — earlier totals are partial"
+            f"{partial_cards} card(s) have shorter history and only count from their first observed month, earlier totals are partial"
         )
 
     # trend_3m: latest completed month-end L, anchor A = 3 months before L
@@ -1194,7 +1194,7 @@ def _compute_history(
         )
 
     if _float_ids:
-        assumptions.append("the 3-month trend counts carried cards only — monthly-cleared spending isn't debt")
+        assumptions.append("the 3-month trend counts carried cards only, monthly-cleared spending isn't debt")
 
     return {
         "points": points,
@@ -1279,7 +1279,7 @@ def _classify_card(
     # Rule 2: paying interest
     if paying_interest:
         usage_conflict = usage == "clear_monthly"
-        return ("carried_interest", [f"interest charges observed — about £{interest_observed_monthly}/month"], usage_conflict)
+        return ("carried_interest", [f"interest charges observed, about £{interest_observed_monthly}/month"], usage_conflict)
 
     # Aged-balance reconstruction (for silence_is_evidence)
     cutoff = today - timedelta(days=CYCLE_LAG_DAYS)
@@ -1350,7 +1350,7 @@ def _classify_card(
             pct = (sum(min_pay_periods) / count) * 100
             return (
                 "carried_zero",
-                [f"no interest lines · small fixed payments (≈{pct:.1f}% of the balance) across {count} periods — a minimum-payment pattern"],
+                [f"no interest lines · small fixed payments (≈{pct:.1f}% of the balance) across {count} periods, a minimum-payment pattern"],
                 False,
             )
 
@@ -1359,9 +1359,9 @@ def _classify_card(
     if not has_min_history:
         evidence.append("history too short to read yet")
     elif not silence_is_evidence:
-        evidence.append("this balance arose within the last statement cycle — no statement has had the chance to charge interest yet")
+        evidence.append("this balance arose within the last statement cycle, no statement has had the chance to charge interest yet")
     else:
-        evidence.append("no interest appears despite a rate on file — could be cleared in full each statement, or on a 0% deal not on file")
+        evidence.append("no interest appears despite a rate on file, could be cleared in full each statement, or on a 0% deal not on file")
 
     # Declaration resolves unclear
     if usage == "clear_monthly":
@@ -1456,7 +1456,7 @@ async def compute_debt_plan(uid: str) -> dict:
         movement = _compute_movement(today, pay_cfg, txns, flags)
         if movement["monthly"] is not None and movement["monthly"] < 0:
             flags["assumptions"].append(
-                "spending on this card currently outpaces payments — projected flat, not growing"
+                "spending on this card currently outpaces payments, projected flat, not growing"
             )
 
         # 2. Rate schedule
@@ -1529,7 +1529,7 @@ async def compute_debt_plan(uid: str) -> dict:
             for seg in rate_schedule
         ):
             flags["assumptions"].append(
-                "no interest seen in your transactions — projected without it until you tell me the deal behind it"
+                "no interest seen in your transactions, projected without it until you tell me the deal behind it"
             )
 
         # 3. Amortisation (only when there's debt)
@@ -1572,7 +1572,7 @@ async def compute_debt_plan(uid: str) -> dict:
             near_term_source = "upcoming bills"
             near_term_bills = bills_by_card.get(aid, [])
             flags["assumptions"].append(
-                "its usual payment is already in your upcoming bills — the projection's first month uses it"
+                "its usual payment is already in your upcoming bills, the projection's first month uses it"
             )
         else:
             near_term_source = None
@@ -1581,7 +1581,7 @@ async def compute_debt_plan(uid: str) -> dict:
         mapping_ambiguous = aid in ambiguous_card_ids
         if mapping_ambiguous:
             flags["assumptions"].append(
-                "an upcoming card payment could belong to more than one card — it isn't counted for either"
+                "an upcoming card payment could belong to more than one card, it isn't counted for either"
             )
 
         classification, classification_evidence, usage_conflict = _classify_card(

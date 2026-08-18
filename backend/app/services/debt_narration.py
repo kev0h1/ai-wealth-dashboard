@@ -13,11 +13,13 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+from app.db.collections import preferences_col
 from app.services.debt_plan import (
     MATERIAL_BALANCE,
     MOVEMENT_FLAT_EPS,
     get_debt_plan_cached,
 )
+from app.services.pay_period import period_rhythm_label
 
 log = logging.getLogger(__name__)
 
@@ -274,7 +276,7 @@ def _compose_narration(facts: dict, monthly_surplus: Optional[float]) -> str:
     if mi_now >= 1:
         sentences.append(f"The cards are costing about £{mi_now:,.0f} a month in interest right now.")
     elif carried_total >= 1 and carried_zero >= 0.9 * carried_total:
-        sentences.append("Nothing's accruing interest right now — your balances sit on 0% deals.")
+        sentences.append("Nothing's accruing interest right now, your balances sit on 0% deals.")
     else:
         sentences.append("No interest is hitting your cards right now.")
 
@@ -285,12 +287,12 @@ def _compose_narration(facts: dict, monthly_surplus: Optional[float]) -> str:
         spend = gc.get("spend_last_period", 0)
         pays = gc.get("payments_last_period", 0)
         sentences.append(
-            f"Most of the growth is {card_ref} — £{spend:,.0f} of spending against £{pays:,.0f} of payments last period."
+            f"Most of the growth is {card_ref}, £{spend:,.0f} of spending against £{pays:,.0f} of payments last period."
         )
         if gc.get("has_rate_on_file", True):
             sentences.append("Matching what goes onto it to what comes off is what stops it climbing.")
         else:
-            sentences.append("If that's deliberate, tell me its rate and I'll price it — if not, that's the lever.")
+            sentences.append("If that's deliberate, tell me its rate and I'll price it. If not, that's the lever.")
 
     # 4. Cliff — factual promo-expiry date and its consequence, never a moving-balance suggestion.
     if cliff:
@@ -300,7 +302,7 @@ def _compose_narration(facts: dict, monthly_surplus: Optional[float]) -> str:
         cliff_name = cliff.get("name", "the card")
         sentences.append(
             f"£{bafi:,.0f} will still be on {cliff_name} when its 0% ends in {cliff_human}"
-            f" — from then it'd cost about £{mif:,.0f} a month unless it's cleared first."
+            f", from then it'd cost about £{mif:,.0f} a month unless it's cleared first."
         )
 
     # 5. ask_card (NEVER dropped)
@@ -310,19 +312,19 @@ def _compose_narration(facts: dict, monthly_surplus: Optional[float]) -> str:
         if apr_pct is not None:
             sentences.append(
                 f"Your {prov} card shows no interest charges even though its rate on file is {apr_pct}%"
-                f" — that could mean you clear it in full each month, or it's on a 0% deal I don't have."
+                f", that could mean you clear it in full each month, or it's on a 0% deal I don't have."
                 f" Tell me how you use it and the picture sharpens."
             )
         else:
             sentences.append(
-                f"Your {prov} card's balance doesn't show me enough yet — tell me how you use it and the picture sharpens."
+                f"Your {prov} card's balance doesn't show me enough yet, tell me how you use it and the picture sharpens."
             )
 
     # 6. usage_conflict_card (NEVER dropped)
     if usage_conflict_card:
         uc_name = usage_conflict_card.get("name") or usage_conflict_card.get("provider") or "a card"
         sentences.append(
-            f"You've told me you clear {uc_name} monthly, but interest charges are appearing on it — worth a look."
+            f"You've told me you clear {uc_name} monthly, but interest charges are appearing on it, worth a look."
         )
 
     # Cap at 5 sentences: drop the cliff sentence first (it's the one situational
@@ -334,7 +336,7 @@ def _compose_narration(facts: dict, monthly_surplus: Optional[float]) -> str:
         cliff_name = cliff.get("name", "the card")
         cliff_sentence = (
             f"£{bafi:,.0f} will still be on {cliff_name} when its 0% ends in {cliff_human}"
-            f" — from then it'd cost about £{mif:,.0f} a month unless it's cleared first."
+            f", from then it'd cost about £{mif:,.0f} a month unless it's cleared first."
         )
         sentences = [s for s in sentences if s != cliff_sentence]
 
@@ -351,14 +353,34 @@ async def get_debt_plan_view(uid: str) -> dict:
     """
     plan = await get_debt_plan_cached(uid)
 
+    # Transparency ingredient — total £/period this user's active commitment
+    # plans reserve, so the clear-by claim below can honestly admit those
+    # plans can change it. Failure-tolerant; omitted (not even a null key)
+    # when the user has no active reserve. Deferred import — commitments.py
+    # is a router this service must never depend on at module load time.
+    commitments_extra: dict = {}
+    try:
+        from app.routers.commitments import total_reserved_slices
+        reserved, count = await total_reserved_slices(uid)
+        if reserved:
+            prefs = await preferences_col.find_one({"user_id": uid}) or {}
+            cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+            commitments_extra["commitments_reserved"] = {
+                "total_slice": reserved,
+                "count": count,
+                "period_label": period_rhythm_label(cfg),
+            }
+    except Exception:
+        pass
+
     totals = plan.get("totals") or {}
     if (totals.get("debt") or 0) < MATERIAL_BALANCE:
-        return {**plan, "narration": None}
+        return {**plan, "narration": None, **commitments_extra}
 
     # Build facts
     facts = _build_facts(plan)
     if facts is None:
-        return {**plan, "narration": None}
+        return {**plan, "narration": None, **commitments_extra}
 
     # Monthly surplus (Debt-tab semantic: does not subtract debt)
     monthly_surplus = await _get_monthly_surplus(uid)
@@ -371,7 +393,7 @@ async def get_debt_plan_view(uid: str) -> dict:
     memo = _narration_memo.get(uid)
     if memo and memo[0] == facts_hash:
         log.debug("debt_narration: memo hit for user")
-        return {**plan, "narration": memo[1]}
+        return {**plan, "narration": memo[1], **commitments_extra}
 
     text = _compose_narration(facts, monthly_surplus)
     narration_dict: dict = {"text": text, "source": "fallback"}
@@ -392,4 +414,4 @@ async def get_debt_plan_view(uid: str) -> dict:
     # Store in memo
     _narration_memo[uid] = (facts_hash, narration_dict)
 
-    return {**plan, "narration": narration_dict}
+    return {**plan, "narration": narration_dict, **commitments_extra}

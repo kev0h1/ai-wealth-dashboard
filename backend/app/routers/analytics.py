@@ -229,7 +229,7 @@ async def compute_insights(uid: str) -> List[Insight]:
                     id=f"sub-{merchant.lower().replace(' ', '-')}",
                     title=f"Review {merchant} subscription",
                     impact=int(avg_amount * 12), confidence=85,
-                    rationale=f"£{avg_amount:.2f}/mo to {merchant}. Last charge {last_days}d ago — possibly unused.",
+                    rationale=f"£{avg_amount:.2f}/mo to {merchant}. Last charge {last_days}d ago, possibly unused.",
                     action="Review subscription", category="spending",
                 ))
 
@@ -1129,7 +1129,7 @@ async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
         if new_date:
             _date.fromisoformat(new_date)
     except ValueError:
-        raise HTTPException(400, "invalid date format — use ISO 8601 (YYYY-MM-DD)")
+        raise HTTPException(400, "invalid date format, use ISO 8601 (YYYY-MM-DD)")
     if new_amount is not None:
         try:
             new_amount = float(new_amount)
@@ -1197,7 +1197,7 @@ async def skip_occurrence(body: dict, user: dict = Depends(current_user)):
     try:
         _date.fromisoformat(date_str)
     except ValueError:
-        raise HTTPException(400, "invalid date format — use ISO 8601 (YYYY-MM-DD)")
+        raise HTTPException(400, "invalid date format, use ISO 8601 (YYYY-MM-DD)")
 
     doc = {
         "uid": uid,
@@ -1259,7 +1259,7 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
         f"User description: \"{text}\""
     )
 
-    _soft_error = {"ok": False, "error": "Couldn't understand that — try something like 'every Sunday' or 'last Friday of the month'"}
+    _soft_error = {"ok": False, "error": "Couldn't understand that, try something like 'every Sunday' or 'last Friday of the month'"}
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
@@ -1886,6 +1886,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     from datetime import date as _date_cls, timedelta as _td
     from app.services.income import get_confirmed_payday as _gcp
     from app.services.pay_period import _next_payday as _calc_next_payday
+    from app.services.pay_period import period_rhythm_label as _period_rhythm_label
     from app.services.cashflow import monthly_cashflow_cached as _monthly_cashflow
     from app.services.region import get_user_region as _get_region
     from bson import ObjectId
@@ -2039,6 +2040,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "card_debt":           card_debt,
         "commitments_reserved": int(commitments_reserved),
         "commitments_count":   commitments_count,
+        "commitments_reserved_period_label": (
+            _period_rhythm_label(_pay_cfg) if commitments_reserved else None
+        ),
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
 
@@ -2281,6 +2285,13 @@ async def get_value_delivered(user: dict = Depends(current_user)):
          "verified_savings": 1, "verified_merchant": 1},
     ).to_list(None)
 
+    # Same house-style backstop as the main /savings-insights serializer
+    # (_serialize_insight in savings_insights.py) — this endpoint also
+    # surfaces raw stored title/savings_estimate text to the client, so it
+    # needs the same em/en-dash scrub for docs written before that guardrail
+    # existed.
+    from app.routers.savings_insights import _house_style
+
     verified_monthly = 0.0
     total_monthly = 0.0
     breakdown = []
@@ -2289,7 +2300,7 @@ async def get_value_delivered(user: dict = Depends(current_user)):
         if doc.get("verified_savings"):
             verified_monthly += float(doc["verified_savings"])
             breakdown.append({
-                "title":          f"Stopped paying {doc.get('verified_merchant', '')}".strip(),
+                "title":          _house_style(f"Stopped paying {doc.get('verified_merchant', '')}".strip()),
                 "monthly_saving": float(doc["verified_savings"]),
                 "estimate_label": "verified",
             })
@@ -2301,9 +2312,9 @@ async def get_value_delivered(user: dict = Depends(current_user)):
         if monthly > 0:
             total_monthly += monthly
             breakdown.append({
-                "title":          doc.get("title", "Insight"),
+                "title":          _house_style(doc.get("title", "Insight")),
                 "monthly_saving": monthly,
-                "estimate_label": doc.get("savings_estimate"),
+                "estimate_label": _house_style(doc.get("savings_estimate") or "") or None,
             })
 
     return {

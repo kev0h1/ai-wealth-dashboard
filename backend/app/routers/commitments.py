@@ -38,6 +38,10 @@ Derived (NEVER stored — always computed live):
     periods_left      pay-period starts from today through target_date
                       inclusive (>=1) — user pay config via preferences
     per_period_slice  ceil5(remaining / periods_left) when remaining>0 else 0
+    period_label      pay_period.period_rhythm_label(cfg) — "monthly",
+                      "weekly", "every 2 weeks", or null when the user's
+                      rhythm is "custom" (irregular — frontend falls back
+                      to unqualified copy rather than a wrong label)
     on_track          progress >= amount * elapsed_fraction, where
                       elapsed_fraction = periods elapsed since creation /
                       total periods, clamped 0..1
@@ -48,7 +52,15 @@ Derived (NEVER stored — always computed live):
                       the underlying maths is unavailable.
     feasibility_note  hedged one-liner matching feasibility; omitted when
                       feasibility is null.
+    pace_note         {"text", "link": "spend"} | null — list_commitments
+                      only (see `_apply_pace_notes`). Set only for ACTIVE
+                      plans when the current period's spend is running far
+                      enough ahead of usual (spend_impact.py's silence
+                      gates, PACE_NOTE_SLICE_RATIO of the plan's own
+                      per_period_slice) that it could plausibly squeeze
+                      what this plan needs this period.
 """
+import logging
 import math
 from datetime import date, datetime, timedelta, timezone
 
@@ -67,8 +79,12 @@ from app.db.collections import (
 )
 from app.routers.savings import _cashflow, _current_savings
 from app.services import response_cache
-from app.services.pay_period import get_pay_period_for_date
+from app.services.debt_narration import _month_label_to_human
+from app.services.debt_plan import DAYS_PER_MONTH, MATERIAL_BALANCE, _amortise, get_debt_plan_cached
+from app.services.pay_period import get_pay_period_for_date, period_rhythm_label
 from app.services.region import get_user_region
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["commitments"])
 
@@ -77,6 +93,9 @@ _SOURCES = {"manual", "can_i"}
 _MAX_NAME = 40
 _MAX_AMOUNT = 1_000_000
 _MAX_POTS = 8
+CONSENT_SLICE_FLOOR = 25.0  # £/period below which a plan never triggers debt-shortfall
+                             # consent on its own — same silence-threshold precedent as
+                             # spend_impact.py's MOVE_SILENCE_ABS (small amounts don't nag)
 
 
 def _ceil5(amount: float) -> int:
@@ -401,15 +420,40 @@ async def _feasibility_ctx(uid: str) -> tuple[float, float] | None:
         return None  # feasibility is decorative — never break the payload
 
 
+async def _debt_ctx(uid: str) -> dict | None:
+    """Cheap debt context for feasibility/consent: whether the user has
+    active material card debt, the current projected clear-by month, and
+    the cards list (movement + rate_schedule) needed to project a
+    slice-adjusted clear-by later via `_clear_by_with_slice`. Reuses the
+    already-cached deterministic debt plan (get_debt_plan_cached, 90s
+    in-process cache) — never the LLM-narrated view. Degrades to None on
+    any failure; feasibility/consent then simply omit debt facts."""
+    try:
+        plan = await get_debt_plan_cached(uid)
+    except Exception:
+        return None
+    cards = [
+        c for c in plan.get("cards", [])
+        if c.get("debt", 0) >= MATERIAL_BALANCE and c.get("classification") != "cleared_monthly"
+    ]
+    return {
+        "has_debt": len(cards) > 0,
+        "clear_by": (plan.get("totals") or {}).get("debt_free_month"),
+        "cards": cards,
+    }
+
+
 def _classify_feasibility(
     per_period_slice: float,
     remaining: float,
     fctx: tuple[float, float] | None,
     others_slice: float = 0.0,
     others_remaining: float = 0.0,
-) -> tuple[str | None, str | None]:
-    """(feasibility, feasibility_note) — (None, None) when context missing
-    and the goal isn't already funded.
+    period_label: str | None = None,
+    debt_shortfall: float = 0.0,
+) -> tuple[str | None, str | None, str | None]:
+    """(feasibility, feasibility_note, feasibility_tone) — (None, None, None)
+    when context missing and the goal isn't already funded.
 
     A finished goal (remaining <= 0) is always "funded", checked BEFORE
     anything else needs fctx — a goal with nothing left to save shouldn't
@@ -420,29 +464,103 @@ def _classify_feasibility(
     goal against what's left of the spare rate/savings after every other
     goal's own claim, never the household's full capacity as if this were
     the only goal in play.
+
+    `debt_shortfall` — this user's monthly card-plan shortfall
+    (max(0, -monthly_surplus)) when they have active material card debt,
+    else 0. >0 swaps the "savings"/"stretch" notes for debt-aware phrasing
+    and tone "caution", so the frontend can render amber without inferring
+    style from the verdict name (a "savings" verdict is normally slate).
     """
     if remaining <= 0:
-        return "funded", "Fully funded."
+        return "funded", "Fully funded.", "info"
     if fctx is None:
-        return None, None
+        return None, None, None
     surplus, savings_total = fctx
     spare = max(0.0, surplus - others_slice)
     available = max(0.0, savings_total - others_remaining)
     if per_period_slice <= spare:
-        return "surplus", "Likely coverable from your monthly spare rate."
+        return "surplus", "Likely coverable from your monthly spare rate.", "info"
     if remaining <= available:
-        gap = per_period_slice - spare
-        return (
-            "savings",
-            f"More than your spare rate — likely needs ~£{gap:,.0f}/period from savings.",
+        if debt_shortfall > 0:
+            note = (
+                "This would come from your savings while your month runs "
+                f"about £{debt_shortfall:,.0f} short after debt repayments."
+            )
+        else:
+            gap = per_period_slice - spare
+            qualifier = f"each pay period ({period_label})" if period_label else "a period"
+            note = f"More than your spare rate, likely needs ~£{gap:,.0f} {qualifier} from savings."
+        return "savings", note, ("caution" if debt_shortfall > 0 else "info")
+    if debt_shortfall > 0:
+        note = (
+            "At current pace this risks credit, and your month runs about "
+            f"£{debt_shortfall:,.0f} short after debt repayments. A later target month would ease it."
         )
-    return (
-        "stretch",
-        "At current pace this risks credit — a later target month would ease it.",
-    )
+    else:
+        note = "At current pace this risks credit, a later target month would ease it."
+    return "stretch", note, "caution"
 
 
-def _apply_joint_feasibility(items: list[dict], docs: list[dict], fctx) -> None:
+def _periods_per_month(cfg: dict) -> float | None:
+    """Multiply a per-period £ figure by this to get its monthly equivalent.
+    None for "custom" (irregular) rhythms — nothing to normalise against."""
+    t = (cfg or {}).get("type", "calendar_month")
+    if t in ("calendar_month", "monthly_pay_date", "last_friday", "last_weekday_of_month"):
+        return 1.0
+    if t == "weekly":
+        return DAYS_PER_MONTH / 7
+    if t == "biweekly":
+        return DAYS_PER_MONTH / 14
+    return None
+
+
+def _clear_by_with_slice(dctx: dict, per_period_slice: float, cfg: dict) -> str | None:
+    """Latest material-card payoff month ('YYYY-MM') if this draft's
+    per-period slice came out of card movement instead, spread across cards
+    in proportion to each one's own demonstrated movement. Pure re-projection
+    via `_amortise` — never touches the real debt-plan engine's own output.
+    None when not computable (custom pay rhythm, no material debt, no
+    positive movement to reduce, or a card stops clearing altogether under
+    the reduced pace — too coarse a signal to state a month for).
+
+    Safety invariant: callers only reach this when dctx["clear_by"] is
+    non-null (see the `has_debt and dctx.get("clear_by")` guard at the call
+    site in preview_commitment). compute_debt_plan already returns clear_by
+    = None whenever ANY material card never clears
+    (backend/app/services/debt_plan.py:1677), so the all-or-nothing
+    suppression here (one card stalling under the reduced pace blanks the
+    whole re-projection via the `return None` below) is safe by
+    construction. A refactor that changes that upstream guarantee must
+    revisit this function."""
+    cards = dctx.get("cards") or []
+    if not cards or per_period_slice <= 0:
+        return None
+    ppm = _periods_per_month(cfg)
+    if ppm is None:
+        return None
+    monthly_slice = per_period_slice * ppm
+    total_movement = sum(max(0.0, c["movement"].get("monthly") or 0.0) for c in cards)
+    if total_movement <= 0:
+        return None
+    today = date.today()
+    payoffs: list[str] = []
+    for c in cards:
+        if c.get("debt", 0) <= 0:
+            continue
+        own = max(0.0, c["movement"].get("monthly") or 0.0)
+        share = monthly_slice * (own / total_movement)
+        reduced = max(0.0, own - share)
+        result = _amortise(c["debt"], reduced, today, c.get("rate_schedule") or [])
+        if result["payoff_month"] is None:
+            return None
+        payoffs.append(result["payoff_month"])
+    return max(payoffs) if payoffs else None
+
+
+def _apply_joint_feasibility(
+    items: list[dict], docs: list[dict], fctx, period_label: str | None = None,
+    debt_shortfall: float = 0.0,
+) -> None:
     """Mutate `items` (index-aligned with `docs`) with feasibility fields,
     judging each active goal against the spare rate/savings left over after
     every OTHER active goal's own reserve (see `_classify_feasibility`)."""
@@ -450,15 +568,127 @@ def _apply_joint_feasibility(items: list[dict], docs: list[dict], fctx) -> None:
     for i in active_idx:
         others_slice = sum(items[j]["per_period_slice"] for j in active_idx if j != i)
         others_remaining = sum(items[j]["remaining"] for j in active_idx if j != i)
-        feasibility, note = _classify_feasibility(
+        feasibility, note, tone = _classify_feasibility(
             items[i]["per_period_slice"], items[i]["remaining"], fctx,
-            others_slice, others_remaining,
+            others_slice, others_remaining, period_label, debt_shortfall,
         )
         items[i]["feasibility"] = feasibility
         if note is not None:
             items[i]["feasibility_note"] = note
         else:
             items[i].pop("feasibility_note", None)
+        if tone is not None:
+            items[i]["feasibility_tone"] = tone
+        else:
+            items[i].pop("feasibility_tone", None)
+
+
+# ── Spend -> Plan bridge: pace-aware plan cards ──────────────────────────────
+# A plan needing £155/period doesn't care that today's drift is £8, but does
+# care about a projected £60+. "Care" is defined as at least a THIRD of the
+# plan's own per-period slice — small enough to catch a genuine squeeze,
+# big enough that a rounding-order drift never earns a warning.
+PACE_NOTE_SLICE_RATIO = 1 / 3
+
+
+async def _pace_note_ctx(uid: str) -> dict | None:
+    """This request's 'if this holds' excess figure, or None when
+    spend_impact's own silence gates would stay quiet.
+
+    Reuses spend_impact.py's MIN_DAYS_ELAPSED/EXCESS_SILENCE_FLOOR
+    constants (never duplicated here) and spend_verdict.py's pace
+    pipeline (kind map -> category signals -> period txns -> pace
+    totals) — the SAME inputs compute_spend_verdict already builds for
+    the Spend page's impact block, computed ONCE per request here (never
+    per-plan). The projected "if this holds" excess IS the current
+    period's already-accrued signed excess (spend_impact.py's module
+    docstring "Projection method" — the conservative floor, not a
+    forecast), so no separate projection step is needed.
+
+    Silent (None) whenever: the period is closed/still learning a
+    baseline, fewer than MIN_DAYS_ELAPSED days have elapsed, or the
+    period isn't running a genuine excess at all (under/at-usual pace
+    can never squeeze a plan) or that excess doesn't clear the
+    rounding-noise floor. Failure-tolerant — a pace note is decorative,
+    never worth breaking the plans list over.
+    """
+    try:
+        from app.services.categories import get_category_kinds
+        from app.services.pace import compute_category_signals, get_total_pace_curve_fn
+        from app.services.spend_impact import EXCESS_SILENCE_FLOOR, MIN_DAYS_ELAPSED
+        from app.services.spend_verdict import _load_period_txns, bucket_transactions, compute_pace_totals
+
+        kind_map = await get_category_kinds(uid)
+        signals_result = await compute_category_signals(uid, kind_map=kind_map)
+        period = signals_result["period"]
+        signals = signals_result["signals"]
+        if period.get("closed") or period.get("thin_history"):
+            return None
+        days_elapsed = period.get("days_elapsed") or 0
+        if days_elapsed < MIN_DAYS_ELAPSED:
+            return None
+
+        start = date.fromisoformat(period["start"])
+        end = date.fromisoformat(period["end"])
+        txns = await _load_period_txns(uid, start, end)
+        cat_agg, _moved_groups, _income_total = bucket_transactions(txns, kind_map)
+
+        # Same TOTAL-level shape curve compute_spend_verdict feeds into its
+        # own compute_pace_totals call, so this note's excess never diverges
+        # from the Spend page's headline figure for the same period.
+        usual_rate_total = sum(
+            (signals.get(cat) or {}).get("usual_rate_per_day") or 0.0
+            for cat in cat_agg
+            if cat != "Other" and (signals.get(cat) or {}).get("usual_rate_per_day") is not None
+        )
+        try:
+            total_curve_fn = await get_total_pace_curve_fn(uid, start, kind_map=kind_map)
+        except Exception:
+            logger.exception("commitments: total shape-curve lookup failed for %s", uid)
+            total_curve_fn = None
+
+        pace_totals = compute_pace_totals(
+            cat_agg, signals, days_elapsed,
+            period_days=period.get("period_days"),
+            thin_history=period["thin_history"],
+            usual_rate_total=usual_rate_total,
+            total_curve_fn=total_curve_fn,
+        )
+        excess = pace_totals["excess"]
+        if excess <= 0 or excess < EXCESS_SILENCE_FLOOR:
+            return None
+        return {"excess": excess}
+    except Exception:
+        logger.exception("commitments: pace-note context failed for %s", uid)
+        return None
+
+
+def _apply_pace_notes(items: list[dict], docs: list[dict], pace_ctx: dict | None) -> None:
+    """Mutate `items` (index-aligned with `docs`) with `pace_note` —
+    {"text", "link": "spend"} | None. Only ACTIVE plans with a real
+    per-period slice, whose plan needs enough that the projected excess
+    could plausibly squeeze it (>= PACE_NOTE_SLICE_RATIO of the slice),
+    get a note; every other plan gets None so the field is always present
+    and the frontend never has to distinguish "missing" from "quiet"."""
+    for i, item in enumerate(items):
+        item["pace_note"] = None
+        if pace_ctx is None:
+            continue
+        if docs[i].get("status", "active") != "active":
+            continue
+        slice_ = item.get("per_period_slice") or 0
+        if slice_ <= 0:
+            continue
+        excess = pace_ctx["excess"]
+        if excess < slice_ * PACE_NOTE_SLICE_RATIO:
+            continue
+        item["pace_note"] = {
+            "text": (
+                f"Spending is about £{round(excess):,} ahead of usual this period, "
+                f"which may squeeze the £{round(slice_):,} this plan needs."
+            ),
+            "link": "spend",
+        }
 
 
 # ── Serialisation (all derived fields computed here, never stored) ───────────
@@ -539,6 +769,7 @@ async def _serialise(
         "remaining":           remaining,
         "periods_left":        periods_left,
         "per_period_slice":    per_period_slice,
+        "period_label":        period_rhythm_label(cfg),
         "on_track":            on_track,
         "feasibility":         None,
         "shared_pot_goals":    [],
@@ -547,7 +778,7 @@ async def _serialise(
 
 async def _serialise_all(
     uid: str, docs: list[dict], cfg: dict, fctx: tuple[float, float] | None,
-    today: date | None = None,
+    today: date | None = None, debt_shortfall: float = 0.0,
 ) -> list[dict]:
     """Serialise many commitment docs sharing ONE pot ledger, joint
     feasibility and shared_pot_goals — every list/create/update response
@@ -556,7 +787,7 @@ async def _serialise_all(
     today = today or date.today()
     ledger = await compute_pot_ledger(uid, docs=docs)
     items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
-    _apply_joint_feasibility(items, docs, fctx)
+    _apply_joint_feasibility(items, docs, fctx, period_rhythm_label(cfg), debt_shortfall)
     overlap = _pot_account_overlap(docs)
     id_to_name = {str(d["_id"]): str(d.get("name") or "").strip() for d in docs}
     for i, doc in enumerate(docs):
@@ -680,11 +911,13 @@ async def _serialise_one_with_siblings(uid: str, doc: dict) -> dict:
     shared_pot_goals the list endpoint returns."""
     cfg = await _pay_cfg(uid)
     fctx = await _feasibility_ctx(uid)
+    dctx = await _debt_ctx(uid)
+    debt_shortfall = max(0.0, -fctx[0]) if (fctx and dctx and dctx.get("has_debt")) else 0.0
     siblings = await commitments_col.find(
         {"user_id": uid, "status": {"$ne": "cancelled"}, "_id": {"$ne": doc["_id"]}}
     ).to_list(None)
     docs = siblings + [doc]
-    items = await _serialise_all(uid, docs, cfg, fctx)
+    items = await _serialise_all(uid, docs, cfg, fctx, debt_shortfall=debt_shortfall)
     match = next((it for it in items if it["id"] == str(doc["_id"])), None)
     if match is not None:
         return match
@@ -713,9 +946,19 @@ async def list_commitments(user: dict = Depends(current_user)):
     ).to_list(None)
     cfg = await _pay_cfg(uid)
     fctx = await _feasibility_ctx(uid)
+    # dctx/pace_ctx are only ever consulted for ACTIVE plans downstream
+    # (_apply_joint_feasibility/_apply_pace_notes both skip non-active docs) —
+    # skip the debt-plan and pace-signal fetches entirely when there isn't a
+    # single active commitment to apply them to. Both already degrade to
+    # None on failure, so downstream consumers handle None unconditionally.
+    has_active = any((doc.get("status") or "active") == "active" for doc in docs)
+    dctx = await _debt_ctx(uid) if has_active else None
+    debt_shortfall = max(0.0, -fctx[0]) if (fctx and dctx and dctx.get("has_debt")) else 0.0
     for doc in docs:
         await _migrate_legacy(doc)  # write-once v1 → funding_pots
-    items = await _serialise_all(uid, docs, cfg, fctx)
+    items = await _serialise_all(uid, docs, cfg, fctx, debt_shortfall=debt_shortfall)
+    pace_ctx = await _pace_note_ctx(uid) if has_active else None
+    _apply_pace_notes(items, docs, pace_ctx)
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
     return {"items": items}
 
@@ -832,6 +1075,11 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     cfg = await _pay_cfg(uid)
     today = date.today()
     fctx = await _feasibility_ctx(uid)
+    dctx = await _debt_ctx(uid)
+    has_debt = bool(dctx and dctx.get("has_debt"))
+    monthly_shortfall = max(0.0, -fctx[0]) if fctx else 0.0
+    debt_shortfall = monthly_shortfall if has_debt else 0.0
+    period_label = period_rhythm_label(cfg)
 
     # One ledger WITH the draft in its rightful chronological slot — every
     # OTHER active goal's claims are correctly reduced by the draft's own
@@ -853,8 +1101,9 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
     periods_left = draft_info["periods_left"]
     per_period_slice = draft_info["per_period_slice"]
 
-    feasibility, feasibility_note = _classify_feasibility(
+    feasibility, feasibility_note, feasibility_tone = _classify_feasibility(
         per_period_slice, remaining, fctx, others_slice, others_remaining,
+        period_label, debt_shortfall,
     )
 
     draft_claims = full_ledger["commitments"].get(draft_id, {}).get("claims", {})
@@ -876,15 +1125,54 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
             also_funding = []
         pots_detail.append({"account_id": aid, "also_funding": also_funding, "free": free})
 
+    # Consent — CREATE-time debt-aware nudge (see module doctrine: inform +
+    # price, never advise or block). required only when this draft would run
+    # while the user's card plan is already short, or the draft itself is a
+    # "stretch". Computed here only, never persisted — create_commitment
+    # never reads or rejects on any of this.
+    required = bool(
+        feasibility == "stretch"
+        or (debt_shortfall > 0 and per_period_slice >= CONSENT_SLICE_FLOOR)
+    )
+    consent = None
+    if required:
+        title = "Plan this while your month is running short?" if debt_shortfall > 0 else "Plan this anyway?"
+        lines: list[str] = []
+        if per_period_slice > 0:
+            qualifier = f"each pay period ({period_label})" if period_label else "a period"
+            lines.append(f"This needs £{per_period_slice:,.0f} {qualifier}.")
+        if debt_shortfall > 0:
+            lines.append(f"After debt repayments, your month runs about £{debt_shortfall:,.0f} short.")
+        if has_debt and dctx.get("clear_by"):
+            clear_to = _clear_by_with_slice(dctx, per_period_slice, cfg)
+            if clear_to and clear_to != dctx["clear_by"]:
+                lines.append(
+                    "Funding this first likely moves your card clear-by from "
+                    f"{_month_label_to_human(dctx['clear_by'])} toward {_month_label_to_human(clear_to)}."
+                )
+        consent = {
+            "required": True,
+            "title": title,
+            "lines": lines,
+            "actions": {
+                "anyway": "Plan it anyway",
+                "later_date": "Pick a later date",
+                "debt_first": "Look at the card plan first",
+            },
+        }
+
     out = {
         "per_period_slice":  per_period_slice,
         "periods_left":      periods_left,
         "starting_progress": starting,
         "feasibility":       feasibility,
         "pots_detail":       pots_detail,
+        "consent":           consent,
     }
     if feasibility_note is not None:
         out["feasibility_note"] = feasibility_note
+    if feasibility_tone is not None:
+        out["feasibility_tone"] = feasibility_tone
     return out
 
 

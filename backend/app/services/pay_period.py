@@ -72,3 +72,26 @@ def _next_payday(today: _date, config: dict) -> _date:
     """Return the first day of the next pay period strictly after today."""
     _start, end = get_pay_period_for_date(today, config)
     return end + timedelta(days=1)
+
+
+def period_rhythm_label(config: dict) -> str | None:
+    """Human-readable pay-period rhythm, or None when it doesn't map to a
+    clean cadence (e.g. "custom") — callers should fall back to a concrete
+    date in that case rather than saying "/period" with no qualifier.
+
+    Mirrors the `type` values in `get_pay_period_for_date` above and the
+    frontend's PayPeriodConfig (lib/payPeriod.ts): the four month-anchored
+    types ("calendar_month", "monthly_pay_date", "last_friday",
+    "last_weekday_of_month") are all a once-a-month rhythm; "weekly" is
+    self-explanatory; "biweekly" is a strict 14-day cycle from a reference
+    date (labelled "Every two weeks" in PayPeriodSettingsSheet.tsx) — NOT
+    a 4-weekly or twice-a-month cadence, so it's labelled accordingly.
+    """
+    t = (config or {}).get("type", "calendar_month")
+    if t in ("calendar_month", "monthly_pay_date", "last_friday", "last_weekday_of_month"):
+        return "monthly"
+    if t == "weekly":
+        return "weekly"
+    if t == "biweekly":
+        return "every 2 weeks"
+    return None  # "custom" — irregular, no clean rhythm to name
