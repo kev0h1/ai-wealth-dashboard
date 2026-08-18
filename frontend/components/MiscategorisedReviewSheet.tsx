@@ -224,10 +224,10 @@ export default function MiscategorisedReviewSheet({
                           )}
                         </span>
                         <span
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full text-white"
-                          style={{ backgroundColor: colour }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor: `${colour}26`, color: colour }}
                         >
-                          <CategoryIcon size={10} className="text-white flex-shrink-0" />
+                          <CategoryIcon size={10} className="flex-shrink-0" style={{ color: colour }} />
                           {category}
                         </span>
                       </div>

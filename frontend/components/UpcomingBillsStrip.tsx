@@ -10,14 +10,7 @@ const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
 type Status = "loading" | "ready" | "failed";
 
-interface UpcomingBillsStripProps {
-  /** Glow this card — true only when the attention resolver targets "bill". */
-  glow?: boolean;
-  /** Fires whenever computed urgency (a bill due today or tomorrow) changes. */
-  onUrgentChange?: (urgent: boolean) => void;
-}
-
-export default function UpcomingBillsStrip({ glow, onUrgentChange }: UpcomingBillsStripProps = {}) {
+export default function UpcomingBillsStrip() {
   const { region } = usePreferences();
   const sym = SYM[region] ?? "£";
   const router = useRouter();
@@ -32,23 +25,6 @@ export default function UpcomingBillsStrip({ glow, onUrgentChange }: UpcomingBil
   }, []);
 
   useEffect(() => { fetch(); }, [fetch]);
-
-  // Urgency (a bill due today or tomorrow) computed unconditionally — before
-  // any early return — so the effect reporting it up to the attention
-  // resolver (HomePage → lib/attention.ts) obeys the Rules of Hooks. Safe
-  // over an absent/loading `data` since the filters just yield [].
-  const allForUrgency = data
-    ? [
-        ...data.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
-        ...data.upcoming_income.map(b => ({ ...b, type: "income" as const })),
-      ].filter(b => b.days_away <= 14)
-    : [];
-  const urgent = allForUrgency.some(b => b.days_away === 0 || b.days_away === 1);
-
-  useEffect(() => {
-    onUrgentChange?.(urgent);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urgent]);
 
   if (status === "loading") {
     return (
@@ -78,7 +54,10 @@ export default function UpcomingBillsStrip({ glow, onUrgentChange }: UpcomingBil
 
   // The backend projects ~35 days for the Spend page; the Home strip stays
   // a 14-day glance so the count doesn't balloon
-  const all = allForUrgency;
+  const all = [
+    ...data.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
+    ...data.upcoming_income.map(b => ({ ...b, type: "income" as const })),
+  ].filter(b => b.days_away <= 14);
 
   if (all.length === 0) return null;
 
@@ -97,7 +76,7 @@ export default function UpcomingBillsStrip({ glow, onUrgentChange }: UpcomingBil
   return (
     <div className="px-4 lg:px-0 fade-in">
       <button
-        className={`w-full glass-card rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500${glow ? " needs-you" : ""}`}
+        className="w-full glass-card rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         onClick={() => router.push("/planning")}
       >
         <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/25 flex items-center justify-center flex-shrink-0">

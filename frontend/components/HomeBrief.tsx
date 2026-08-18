@@ -307,7 +307,7 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
             {item.headline}
           </p>
           {item.body && (
-            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
               {maskAmounts(item.body)}
             </p>
           )}
@@ -365,7 +365,7 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
             {maskAmounts(item.headline)}
           </p>
           {item.body && (
-            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
               {maskAmounts(item.body)}
             </p>
           )}
@@ -427,7 +427,7 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
             {maskAmounts(item.headline)}
           </p>
           {item.body && (
-            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
               {maskAmounts(item.body)}
             </p>
           )}
@@ -713,7 +713,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           </p>
           {/* One supporting line */}
           {supportLine && (
-            <p lang="en-GB" className="hero-prose mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug">
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
               {maskAmounts(supportLine)}
             </p>
           )}

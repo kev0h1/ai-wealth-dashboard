@@ -310,7 +310,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           : `Pay period ends ${paydayLabel}`;
         const incomeText = hasPaydayIncome ? `~${hidden ? "••" : fmt(payday_income!)} expected` : null;
         return (
-          <p lang="en-GB" className="hero-prose text-[13px] text-slate-500 dark:text-slate-400 num">
+          <p className="text-[13px] text-slate-500 dark:text-slate-400 num text-pretty">
             {leadText}{incomeText ? ` · ${incomeText}` : ""}
           </p>
         );

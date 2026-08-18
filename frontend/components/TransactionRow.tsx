@@ -114,8 +114,8 @@ function MerchantIcon({ transaction, colour }: { transaction: Transaction; colou
 
   return (
     <div
-      className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold text-white"
-      style={{ background: colour }}
+      className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-sm font-semibold"
+      style={{ backgroundColor: `${colour}26`, color: colour }}
     >
       {initialFor(name)}
     </div>

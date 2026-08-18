@@ -211,10 +211,10 @@ export default function TransactionSheet({
 
           <div className="flex items-center gap-2 mb-3">
             <span
-              className="flex items-center gap-1.5 text-sm font-semibold pl-2.5 pr-3 py-1 rounded-full text-white"
-              style={{ backgroundColor: colour }}
+              className="flex items-center gap-1.5 text-sm font-semibold pl-2.5 pr-3 py-1 rounded-full"
+              style={{ backgroundColor: `${colour}26`, color: colour }}
             >
-              <CategoryIcon size={14} className="text-white flex-shrink-0" />
+              <CategoryIcon size={14} className="flex-shrink-0" style={{ color: colour }} />
               {category}
             </span>
           </div>

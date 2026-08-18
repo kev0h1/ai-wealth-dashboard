@@ -62,7 +62,6 @@ export default function HomePage() {
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
-  const [hasUrgentBill, setHasUrgentBill] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const { pinned: pinnedCards } = useHomePinnedCards();
@@ -277,7 +276,6 @@ export default function HomePage() {
   const attn = resolveAttention({
     hasExpiredProvider: expiredProviders.length > 0,
     syncError,
-    hasUrgentBill,
     hasLivePlan,
     heroNeedsAttention: !!heroNeedsAttention,
   });
@@ -419,7 +417,7 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="space-y-3">
-                <UpcomingBillsStrip glow={attn === "bill"} onUrgentChange={setHasUrgentBill} />
+                <UpcomingBillsStrip />
                 <ThisMonthStrip summary={needle} summaryStatus={needleStatus} />
                 <HomeInsightSpotlight />
               </div>

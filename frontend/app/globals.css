@@ -224,11 +224,18 @@ a:focus-visible,
   font-feature-settings: "tnum" 1;
 }
 
-/* Hero-card flowing prose — justified body text (owner-picked treatment,
-   see /design/justify-check). text-align: justify leaves the LAST line
-   left-aligned per browser default, so single-line paragraphs render
-   unchanged; no conditional logic needed at call sites. Pair with
-   lang="en-GB" on the element for correct hyphenation dictionary. */
+/* Hero-card flowing prose — justified body text, narrow scope (see
+   DESIGN.md "Hero prose is justified, narrowly"). Reserved for genuine
+   multi-sentence narrative that reliably wraps 2+ lines on a generous
+   measure: the Penny brief's headline+body cards and the Spend reading
+   caption. NOT for number/brand-dense captions, line-clamped or JS-
+   truncated text, or anything effectively single-line — those use
+   text-pretty instead, justification on them produced visible word-gap
+   rivers with no benefit (mortgage-card Insights regression, 2026-08).
+   text-align: justify leaves the LAST line left-aligned per browser
+   default, so single-line paragraphs render unchanged; no conditional
+   logic needed at call sites. Pair with lang="en-GB" on the element for
+   correct hyphenation dictionary. */
 .hero-prose {
   text-align: justify;
   hyphens: auto;
