@@ -266,18 +266,14 @@ export default function HomePage() {
 
   // ── Attention glow — at most one card glows per screen; priority resolved
   // centrally so no component can independently decide to glow (lib/attention.ts).
-  // "short" is gated to a genuine shortfall (<= -£1) to match
-  // SafeToSpendCard's own zeroSafe remap — otherwise the hero could glow
-  // "needs you" on a card that's actually rendering green/comfortable.
-  const heroNeedsAttention =
-    safeToSpend?.status === "ok" &&
-    (safeToSpend.state === "tight" || (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1));
+  // No fallback rung: Safe-to-Spend no longer glows on its own tight/short
+  // verdict (removed 2026-08-18, see lib/attention.ts doctrine comment) —
+  // when reconnect/sync/payday are all clear, nothing glows.
   const hasLivePlan = companionItems.some(i => i.type === "payday_plan");
   const attn = resolveAttention({
     hasExpiredProvider: expiredProviders.length > 0,
     syncError,
     hasLivePlan,
-    heroNeedsAttention: !!heroNeedsAttention,
   });
 
   return (
@@ -372,7 +368,6 @@ export default function HomePage() {
                       loading={stsLoading}
                       suppressCTA={hasMoveItem}
                       cardDeltaSoFar={needle?.current?.card_delta_so_far ?? null}
-                      glow={attn === "hero"}
                     />
                   );
                 }
