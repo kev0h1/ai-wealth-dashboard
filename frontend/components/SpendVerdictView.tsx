@@ -61,32 +61,6 @@ function causeLine(cause: SpendVerdictCause[]): string | null {
   return `Biggest: ${cause.map((c) => `${c.name} ${fmt(c.amount)}`).join(" · ")}.`;
 }
 
-// Slate fill up to "usual", amber only for the overage beyond it — the
-// re-encoded pace bar (approved-spec fix: amber used to mean "any spend",
-// now it means "over usual", the only place amber belongs per DESIGN.md).
-function paceGeometry(spent: number, usualByNow: number) {
-  const total = Math.max(spent, usualByNow, 1) * 1.15;
-  const tickPct = Math.min(100, (usualByNow / total) * 100);
-  const slateFillPct = Math.min(spent, usualByNow) / total * 100;
-  const amberFillPct = Math.max(0, spent - usualByNow) / total * 100;
-  return { tickPct, slateFillPct, amberFillPct };
-}
-
-function PaceBar({ spent, usualByNow, daysElapsed }: { spent: number; usualByNow: number; daysElapsed: number }) {
-  const { tickPct, slateFillPct, amberFillPct } = paceGeometry(spent, usualByNow);
-  return (
-    <div
-      role="img"
-      aria-label={`${fmt(spent)} spent, usual for day ${daysElapsed} is ${fmt(usualByNow)}`}
-      className="relative h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden"
-    >
-      <div className="absolute inset-y-0 left-0 rounded-full bg-slate-400 dark:bg-slate-500" style={{ width: `${slateFillPct}%` }} />
-      <div className="absolute inset-y-0 rounded-full bg-amber-500" style={{ left: `${slateFillPct}%`, width: `${amberFillPct}%` }} />
-      <div className="absolute top-0 bottom-0 w-px bg-slate-500 dark:bg-slate-300" style={{ left: `${tickPct}%` }} />
-    </div>
-  );
-}
-
 function IconChip({
   name,
   colours,
@@ -277,30 +251,54 @@ interface NotableCardProps {
   suggestedAim: number | null;
   checkpoint: Checkpoint | null;
   onAimChanged: () => void;
+  // ── Resolve-in-place lifecycle (approved spend-bridge spec, ported) ──────
+  // resolved — controlled resolved status for THIS card's category, mirrored
+  // into local state below (same sync-from-prop pattern AimBlock already
+  // uses for `checkpoint`/`localCheckpoint`). null/undefined = unanswered.
+  // Driven from SpendPage's resolved map, which an Undo tap clears back to
+  // null — that's what re-expands this card after an undo.
+  resolved?: "one_off" | "new_normal" | null;
+  // onResolved — fired only when the card resolves ITSELF (a successful
+  // "One-off" post). SpendPage uses this to add the category to its resolved
+  // map and show the undo toast. "New normal" never fires this directly —
+  // see onNewNormalRequest below, it always defers to the consent sheet,
+  // which resolves the card by updating the same controlled map instead.
+  onResolved?: (category: string, answer: "one_off" | "new_normal") => void;
+  // onNewNormalRequest — "New normal" never posts from the card itself; it
+  // always asks the parent to open the consent sheet (which prices the
+  // filing before it saves). The card takes no other action on this tap.
+  onNewNormalRequest?: (category: string) => void;
 }
 
-function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged }: NotableCardProps) {
-  const [answered, setAnswered] = useState<"one_off" | "new_normal" | null>(null);
-  // In-flight + failure state for the intent pair — the write is real (goes
-  // through `post<T>()`, which throws on non-2xx), so the card must actually
-  // observe the result instead of flipping to "Got it" optimistically.
-  const [pending, setPending] = useState<"one_off" | "new_normal" | null>(null);
+function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest }: NotableCardProps) {
+  // Mirrors AimBlock's localCheckpoint/checkpoint pattern above: local state
+  // seeded from (and re-synced to) the controlled `resolved` prop, so the
+  // card reflects both its own resolve tap AND the parent clearing it back
+  // to null on an "Undo".
+  const [localResolved, setLocalResolved] = useState<"one_off" | "new_normal" | null>(resolved ?? null);
+  useEffect(() => { setLocalResolved(resolved ?? null); }, [resolved]);
+  // In-flight + failure state for the "One-off" post — the write is real
+  // (goes through `post<T>()`, which throws on non-2xx), so the card must
+  // actually observe the result instead of flipping to "Got it" optimistically.
+  const [pending, setPending] = useState<"one_off" | null>(null);
   const [intentError, setIntentError] = useState(false);
   const cause = causeLine(notable.cause);
   const s = notable.payments_count === 1 ? "" : "s";
 
-  async function handleIntent(answer: "one_off" | "new_normal") {
+  async function handleOneOff() {
     setIntentError(false);
-    setPending(answer);
+    setPending("one_off");
     try {
-      await onIntent(notable.category, answer);
-      setAnswered(answer);
+      await onIntent(notable.category, "one_off");
+      setLocalResolved("one_off");
+      onResolved?.(notable.category, "one_off");
     } catch {
       setIntentError(true);
     } finally {
       setPending(null);
     }
   }
+
   return (
     <div className="glass-card-flat rounded-2xl p-4">
       <div className="flex items-center gap-2.5">
@@ -308,77 +306,132 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1 min-w-0 truncate">
           {notable.category}
         </p>
-        <span className="flex-shrink-0 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-          {notable.multiple.toFixed(1)}× usual
-        </span>
+        {/* Resolve-in-place: the amber pace badge crossfades (200ms, opacity
+            only) to a neutral "resolved" chip. Both spans share one grid
+            cell (col-start-1 row-start-1) so the swap never reflows — the
+            track sizes to the wider of the two, and only opacity animates. */}
+        <div className="relative grid flex-shrink-0">
+          <span
+            className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 transition-opacity duration-200 ${
+              localResolved ? "opacity-0 pointer-events-none" : "opacity-100"
+            }`}
+          >
+            {notable.multiple.toFixed(1)}× usual
+          </span>
+          <span
+            className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 transition-opacity duration-200 ${
+              localResolved ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+            aria-hidden={!localResolved}
+          >
+            {localResolved === "one_off" ? "noted · one-off" : "usual updating"}
+          </span>
+        </div>
       </div>
 
-      <p className="mt-3 text-xl font-bold text-slate-900 dark:text-slate-100">{fmt(notable.spent)}</p>
-      <p className="mt-0.5 text-[13px] text-slate-700 dark:text-slate-300">
-        {paceLine(notable.multiple, notable.excess, daysElapsed)}
-      </p>
-      {cause && <p className="mt-0.5 text-[13px] text-slate-600 dark:text-slate-400">{cause}</p>}
+      <p className="mt-2 text-[19px] font-bold text-slate-900 dark:text-slate-100">{fmt(notable.spent)}</p>
 
+      {/* Pace sentence + consequence line + Biggest line — collapse away
+          together on resolve via grid-template-rows 1fr→0fr (+ opacity).
+          Transition only, no keyframes; the global prefers-reduced-motion
+          rule in globals.css already zeroes all durations. */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
+          localResolved ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        }`}
+        aria-hidden={!!localResolved}
+      >
+        <div className="overflow-hidden">
+          <p className="mt-1 text-[12px] text-slate-700 dark:text-slate-300">
+            {paceLine(notable.multiple, notable.excess, daysElapsed)}
+          </p>
+          {/* The priced consequence, directly below the pace line. Visually
+              distinct from that muted pace line (stronger ink, font-medium)
+              but deliberately NOT amber/red/bold-shouting — it is the
+              "price", not a warning. */}
+          {notable.consequence_line?.text && (
+            <p className="mt-1 text-[12px] font-medium text-slate-700 dark:text-slate-200">
+              {notable.consequence_line.text}
+            </p>
+          )}
+          {cause && <p className="mt-0.5 text-[12px] text-slate-600 dark:text-slate-400 line-clamp-2">{cause}</p>}
+        </div>
+      </div>
+
+      {/* Retained even compressed — Show Your Working Rule, this must stay
+          tappable regardless of resolve state. */}
       <button
         type="button"
         onClick={() => onOpenCategory(notable.category)}
-        className="mt-2 inline-flex items-center gap-0.5 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400"
+        className="mt-2 inline-flex items-center gap-0.5 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400"
       >
         See the {notable.payments_count} payment{s}
         <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
       </button>
 
-      <div className="mt-3">
-        <PaceBar spent={notable.pace.spent} usualByNow={notable.pace.usual_by_now} daysElapsed={daysElapsed} />
-      </div>
-
-      {answered == null ? (
-        <>
-          <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-400">
-            Was this a one-off, or the new normal?
+      {/* The question + buttons — collapses on resolve via the same
+          grid-rows/opacity technique above; always rendered (never swapped
+          for a "Got it" paragraph), it just clips to zero height. Undo (from
+          the toast) restores `resolved` to null, which re-syncs
+          localResolved and expands this back open.
+          `inert` (not aria-hidden) when resolved — aria-hidden only hides
+          from assistive tech, it does NOT remove descendants from the tab
+          order, so a keyboard user could still Tab onto the invisible
+          buttons below and re-fire the intent on a resolved card. `inert`
+          removes focus, hit-testing, and AT exposure together. The buttons'
+          own `disabled` conditions below also OR in `localResolved` as a
+          second, independent belt. */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
+          localResolved ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        }`}
+        inert={!!localResolved}
+      >
+        <div className="overflow-hidden">
+          <p className="mt-2 text-[12px] text-slate-600 dark:text-slate-400">
+            {notable.prior_intent?.question ?? "Was this a one-off, or the new normal?"}
           </p>
           <div className="mt-1.5 flex items-center gap-2">
             <button
               type="button"
-              disabled={pending !== null}
-              onClick={() => handleIntent("one_off")}
+              disabled={pending !== null || !!localResolved}
+              onClick={handleOneOff}
               className="flex-1 min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform disabled:opacity-50"
             >
               {pending === "one_off" ? "Saving…" : "One-off"}
             </button>
             <button
               type="button"
-              disabled={pending !== null}
-              onClick={() => handleIntent("new_normal")}
+              disabled={pending !== null || !!localResolved}
+              onClick={() => onNewNormalRequest?.(notable.category)}
               className="flex-1 min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-xs font-semibold active:scale-95 transition-transform disabled:opacity-50"
             >
-              {pending === "new_normal" ? "Saving…" : "New normal"}
+              New normal
             </button>
           </div>
           {intentError && (
             <p className="mt-2 text-[12px] font-semibold text-red-600 dark:text-red-400" role="alert">
-              Couldn&apos;t save that — try again.
+              Couldn&apos;t save that, try again.
             </p>
           )}
-        </>
-      ) : (
-        <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-400">
-          Got it — {answered === "one_off" ? "filed as a one-off." : "noted as your new normal."}
-        </p>
-      )}
+        </div>
+      </div>
 
       {/* The aim/checkpoint mechanism — a separate question from the intent
           pair above (do not merge: "was this expected" vs "what do I do
           about it"), so it renders in its own always-visible slot regardless
-          of whether intent has been answered yet. */}
-      <AimBlock
-        category={notable.category}
-        multiple={notable.multiple}
-        suggestedAim={suggestedAim}
-        checkpoint={checkpoint}
-        sym={sym}
-        onChanged={onAimChanged}
-      />
+          of whether intent has been answered yet. Hidden once resolved — the
+          compressed row has nothing left to set an aim against. */}
+      {!localResolved && (
+        <AimBlock
+          category={notable.category}
+          multiple={notable.multiple}
+          suggestedAim={suggestedAim}
+          checkpoint={checkpoint}
+          sym={sym}
+          onChanged={onAimChanged}
+        />
+      )}
     </div>
   );
 }
@@ -505,7 +558,7 @@ function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
         className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-2xl"
       >
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-          Money you moved · {fmt(total)} — not counted in spending
+          Money you moved · {fmt(total)}, not counted in spending
         </p>
         {open ? (
           <ChevronUp size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2" />
@@ -614,9 +667,21 @@ export interface SpendVerdictViewProps {
   // quiet, absent at zero, never an inbox.
   miscategorisedCount?: number;
   onMiscategorisedTap?: () => void;
+  // ── Resolve-in-place lifecycle (approved spend-bridge spec, ported) ──────
+  // resolved — category → answer map, the controlled source of truth for
+  // every card's resolve state (see NotableCardProps.resolved above). A
+  // category with no entry is unanswered. Threaded straight through to
+  // every notable card.
+  resolved?: Record<string, "one_off" | "new_normal">;
+  // onResolved — see NotableCardProps.onResolved above; threaded straight
+  // through to every notable card.
+  onResolved?: (category: string, answer: "one_off" | "new_normal") => void;
+  // onNewNormalRequest — see NotableCardProps.onNewNormalRequest above;
+  // threaded straight through to every notable card.
+  onNewNormalRequest?: (category: string) => void;
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, resolved, onResolved, onNewNormalRequest }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -698,6 +763,9 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
               suggestedAim={signals?.[n.category]?.suggested_aim ?? null}
               checkpoint={signals?.[n.category]?.checkpoint ?? null}
               onAimChanged={onAimChanged ?? (() => {})}
+              resolved={resolved?.[n.category] ?? null}
+              onResolved={onResolved}
+              onNewNormalRequest={onNewNormalRequest}
             />
           ))}
         </div>
@@ -721,7 +789,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
       )}
       {showUnresolvedWhisper && (
         <p className="mt-3 px-1 text-[11px] text-slate-600 dark:text-slate-400">
-          Other · {fmt(unresolved.total)} — still working this one out
+          Other · {fmt(unresolved.total)}, still working this one out
         </p>
       )}
 
@@ -767,8 +835,9 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
         )}
       </div>
 
-      {/* Money you moved */}
-      <div className="mt-3">
+      {/* Money you moved — id is the "Moved" tap's Show Your Working
+          scroll target (SpendHeader's onMovedTap, once that prop lands). */}
+      <div className="mt-3" id="spend-money-moved">
         <MoneyYouMoved moved={moved} />
       </div>
     </div>

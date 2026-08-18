@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { Check, Undo2 } from "lucide-react";
 import { api, Account, Transaction, CategorySignal, SpendVerdict } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { useColours } from "@/components/ColourProvider";
@@ -24,10 +25,64 @@ import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import SpendTrends from "@/components/SpendTrends";
 import SpendVerdictView from "@/components/SpendVerdictView";
+import IntentConsentSheet from "@/components/IntentConsentSheet";
 import SpendHeader, { SpendPatternsToggle, RecentPeriodOption } from "@/components/SpendHeader";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 
 async function ensureAuth() {}
+
+// ── Resolve toast, with Undo — mirrors components/TeachingSheet.tsx's
+// established toast-with-undo pattern (its `step === "done" && toast` block:
+// emerald check-circle, message, an indigo "Undo" link) rather than
+// inventing a new one, and matches the approved
+// app/design/spend-bridge/SpendBridgeClient.tsx port exactly. Auto-dismisses
+// after 5s via a timer kept in a ref so it survives parent re-renders and is
+// cleared cleanly on Undo or unmount. One toast for both answers (One-off on
+// a card, or "File it" from the consent sheet) — both funnel through the
+// same resolve-in-place lifecycle and the same toast.
+function ResolveToast({
+  category, answer, onUndo, onDone,
+}: {
+  category: string;
+  answer: "one_off" | "new_normal";
+  onUndo: () => void;
+  onDone: () => void;
+}) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    timerRef.current = setTimeout(() => onDoneRef.current(), 5000);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
+
+  const message = answer === "one_off" ? `${category} noted as a one-off.` : `${category} filed as your new normal.`;
+
+  return (
+    <div
+      role="status"
+      className="fixed left-1/2 -translate-x-1/2 z-[80] w-[calc(100%-24px)] max-w-[406px] glass-card-flat rounded-2xl p-3 flex items-center gap-3 shadow-sm"
+      style={{ bottom: "76px" }}
+    >
+      <span className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+        <Check size={15} className="text-emerald-600 dark:text-emerald-400" />
+      </span>
+      <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">{message}</p>
+      <button
+        type="button"
+        onClick={() => {
+          if (timerRef.current) clearTimeout(timerRef.current);
+          onUndo();
+        }}
+        className="flex-shrink-0 min-h-[44px] px-2 -mr-2 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+      >
+        <Undo2 size={13} />
+        Undo
+      </button>
+    </div>
+  );
+}
 
 const SKIP_FROM_SPEND = new Set(["Transfer"]);
 
@@ -216,6 +271,98 @@ export default function SpendPage() {
   function handleOutTap() {
     setExpandSignal((s) => (s ?? 0) + 1);
     document.getElementById("spend-majority-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // "Moved" tap's Show Your Working destination — scroll to the "Money you
+  // moved" block, which now carries id="spend-money-moved" (SpendVerdictView).
+  function handleMovedTap() {
+    document.getElementById("spend-money-moved")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  // ── Spend card resolve-in-place lifecycle (approved spend-bridge spec) ──
+  // `resolved` is the single source of truth for every notable card's
+  // resolve state, whether it got there by an on-card "One-off" tap or a
+  // consent-sheet "File it" — both funnel through handleResolved below,
+  // which also drives the single ResolveToast instance. `toast` uses
+  // key={category+answer} at the render site to force a clean remount
+  // (fresh 5s timer) if a different answer fires while one is already
+  // showing. `undoError` is a brief, separate banner for when the undo POST
+  // itself fails (rare — the resolved state was already restored by then).
+  const [resolved, setResolved] = useState<Record<string, "one_off" | "new_normal">>({});
+  const [toast, setToast] = useState<{ category: string; answer: "one_off" | "new_normal" } | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const undoErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "New normal" consent sheet — declared alongside resolved/toast above
+  // since the period-reset effect below needs to close it too. A notable
+  // card's "New normal" never posts directly — it always asks to open this
+  // sheet, which prices the filing before it saves. Filing itself (the real
+  // POST /trends/intent write) is owned here, not by the sheet, so a failed
+  // write keeps the sheet open with an inline error instead of resolving
+  // the card optimistically.
+  const [consentFor, setConsentFor] = useState<string | null>(null);
+  const [filing, setFiling] = useState(false);
+  const [fileError, setFileError] = useState(false);
+
+  // resolved/toast/consentFor are period-scoped — a stale entry from a
+  // previous period must never bleed into the next one's cards (same
+  // category name, unrelated answer).
+  useEffect(() => {
+    setResolved({});
+    setToast(null);
+    setUndoError(null);
+    setConsentFor(null);
+  }, [periodOffset]);
+
+  function handleResolved(category: string, answer: "one_off" | "new_normal") {
+    setResolved((r) => ({ ...r, [category]: answer }));
+    setToast({ category, answer });
+  }
+
+  async function handleUndo(category: string) {
+    const prevAnswer = resolved[category];
+    setResolved((r) => {
+      const next = { ...r };
+      delete next[category];
+      return next;
+    });
+    setToast(null);
+    try {
+      await api.deleteIntent(category);
+      refetchSignals();
+      fetchVerdict(periodOffset);
+    } catch {
+      // The delete didn't actually land server-side — put the card back to
+      // resolved (existing error style: red-600/role=alert, same as the
+      // card's own inline intent error) rather than silently losing the
+      // undo request.
+      if (prevAnswer) setResolved((r) => ({ ...r, [category]: prevAnswer }));
+      setUndoError(category);
+      if (undoErrorTimerRef.current) clearTimeout(undoErrorTimerRef.current);
+      undoErrorTimerRef.current = setTimeout(() => setUndoError(null), 4000);
+    }
+  }
+
+  function closeConsentSheet() {
+    setConsentFor(null);
+    setFileError(false);
+  }
+
+  async function handleFileNewNormal() {
+    if (!consentFor) return;
+    const category = consentFor;
+    setFileError(false);
+    setFiling(true);
+    try {
+      await api.recordTrendIntent(category, "new_normal");
+      refetchSignals();
+      fetchVerdict(periodOffset);
+      handleResolved(category, "new_normal");
+      setConsentFor(null);
+    } catch {
+      setFileError(true);
+    } finally {
+      setFiling(false);
+    }
   }
 
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -491,6 +638,7 @@ export default function SpendPage() {
         incomeTxns={incomeTxns}
         onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
         onOutTap={handleOutTap}
+        onMovedTap={handleMovedTap}
         recentPeriods={recentPeriods}
         onSelectOffset={handleSelectOffset}
       />
@@ -533,10 +681,15 @@ export default function SpendPage() {
               onIntent={(category, answer) => {
                 // Returns the request promise (no swallowed .catch()) so the
                 // card can await the real result and only claim success once
-                // the write has actually landed — see SpendVerdictView.
+                // the write has actually landed — see SpendVerdictView. Only
+                // ever called for "one_off" now — "new_normal" always routes
+                // through onNewNormalRequest below instead.
                 return api.recordTrendIntent(category, answer)
                   .then(() => { refetchSignals(); fetchVerdict(periodOffset); });
               }}
+              resolved={resolved}
+              onResolved={handleResolved}
+              onNewNormalRequest={(category) => { setFileError(false); setConsentFor(category); }}
               onAskCorrect={() => {
                 // "Tell me what this was" opens the teaching sheet directly
                 // on the unresolved transaction — no detour through a
@@ -684,6 +837,52 @@ export default function SpendPage() {
             setSettingsOpen(false);
           }}
         />
+      )}
+
+      {/* "New normal" consent sheet — opened by a notable card's "New
+          normal" tap (onNewNormalRequest above). "File it" runs the real
+          intent write here (handleFileNewNormal) and only resolves the card
+          + shows the toast once that succeeds; a failed write keeps the
+          sheet open with its own inline error. "Keep as one-off for now"
+          and the close X both just dismiss the sheet, leaving the card's
+          own intent pair untouched for a later tap. */}
+      {consentFor && (
+        <IntentConsentSheet
+          category={consentFor}
+          onFile={handleFileNewNormal}
+          onKeepOneOff={closeConsentSheet}
+          onClose={closeConsentSheet}
+          filing={filing}
+          fileError={fileError}
+        />
+      )}
+
+      {/* Resolve toast — one instance for both "One-off" (on-card) and
+          "New normal" (via the consent sheet) resolves. key={category+answer}
+          forces a fresh remount (and fresh 5s timer) if a different resolve
+          fires while one is already showing. */}
+      {toast && (
+        <ResolveToast
+          key={`${toast.category}-${toast.answer}`}
+          category={toast.category}
+          answer={toast.answer}
+          onUndo={() => handleUndo(toast.category)}
+          onDone={() => setToast(null)}
+        />
+      )}
+
+      {/* Undo failure — brief, separate from the resolve toast above (the
+          resolved state has already been restored by the time this shows). */}
+      {undoError && (
+        <div
+          role="alert"
+          className="fixed left-1/2 -translate-x-1/2 z-[80] w-[calc(100%-24px)] max-w-[406px] glass-card-flat rounded-2xl p-3 text-center shadow-sm"
+          style={{ bottom: "76px" }}
+        >
+          <p className="text-[12px] font-semibold text-red-600 dark:text-red-400">
+            Couldn&apos;t undo that, try again.
+          </p>
+        </div>
       )}
 
       <BottomNav />

@@ -297,6 +297,17 @@ export type SpendVerdictNotable = {
   payments_count: number;
   cause: SpendVerdictCause[];
   pace: { spent: number; usual_by_now: number };
+  // ── Spend card lifecycle additions (optional, additive — an old payload
+  // without these renders exactly as before, minus the retired pace bar). ──
+  // consequence_line — the priced consequence of this category running over
+  // usual, one plain sentence, rendered directly below the pace line.
+  // Absent when the engine has nothing priced for this category yet.
+  consequence_line?: { text: string } | null;
+  // prior_intent — set when this category was already filed "new normal" in
+  // an earlier period and is running over usual again: carries a softened
+  // repeat-ask question that replaces the default "Was this a one-off, or
+  // the new normal?" prompt.
+  prior_intent?: { question: string } | null;
 };
 
 // Qualifying categories that overflowed past the NOTABLE_CAP (3) — never
@@ -350,6 +361,14 @@ export type SpendVerdictPeriod = {
   closed: boolean;
 };
 
+// One point on the SpendHeader pace strip: cumulative spend by day `day`,
+// `actual` always known, `usual` null when there's no baseline yet.
+export type SpendVerdictPaceEntry = {
+  day: number;
+  actual: number;
+  usual: number | null;
+};
+
 export type SpendVerdict = {
   state: SpendVerdictState;
   reading: string;
@@ -360,6 +379,24 @@ export type SpendVerdict = {
   moved: SpendVerdictMoved[];
   pills: SpendVerdictPills;
   period: SpendVerdictPeriod;
+  /** Cumulative actual-vs-usual series for SpendHeader's pace-strip
+   *  instrument. Optional/additive: absent on older payloads, in which case
+   *  the header renders with no strip (see components/SpendHeader.tsx). */
+  pace_series?: SpendVerdictPaceEntry[];
+  /** Server-computed sum of `moved`, for SpendHeader's Moved cell. Optional/
+   *  additive: absent on older payloads, in which case the header falls
+   *  back to a two-cell Out | In row. */
+  moved_total?: number;
+  /** The period-level priced consequence the backend now ships. Optional/
+   *  additive, unread by any consumer yet — typed here so future work
+   *  (a period-level consequence surface) doesn't need to touch this file
+   *  again. `move`/`horizon` are populated only for the matching
+   *  `consequence` kind; both null for "bills_risk"/"permission"/null. */
+  impact?: {
+    consequence: "bills_risk" | "move_delta" | "horizon" | "permission" | null;
+    move?: { usual: number; projected: number } | null;
+    horizon?: { kind: "debt" | "goal"; name: string; from_month: string; to_month: string } | null;
+  } | null;
 };
 
 export type PaceDetail =
@@ -421,6 +458,11 @@ export type SafeToSpend =
       /** £/period reserved for active commitments — absent or 0 when none. */
       commitments_reserved?: number;
       commitments_count?: number;
+      /** Pay-period rhythm ("monthly", "weekly", "every 2 weeks") backing
+       * commitments_reserved, so the line can say "each pay period
+       * (monthly)" instead of the ambiguous "/period". Null/absent when
+       * the user's rhythm is custom/irregular — render unqualified. */
+      commitments_reserved_period_label?: string | null;
     };
 
 // ── Commitments — named future big expenses (holiday, car, fees) ─────────────
@@ -457,15 +499,27 @@ export type Commitment = {
   remaining: number;
   periods_left: number;
   per_period_slice: number;
+  /** Pay-period rhythm ("monthly", "weekly", "every 2 weeks") backing
+   * per_period_slice — null when the user's rhythm is custom/irregular,
+   * in which case surfaces should render unqualified ("a period"). */
+  period_label?: string | null;
   on_track: boolean;
   /** Feasibility class — null when the underlying maths is unavailable. */
   feasibility?: CommitmentFeasibility | null;
   /** Hedged one-liner matching feasibility; absent when feasibility is null. */
   feasibility_note?: string;
+  /** "caution" renders amber (debt-aware note); "info" is the normal slate
+   * read. Falls back to feasibility === "stretch" when absent/null on older
+   * payloads. */
+  feasibility_tone?: "info" | "caution" | null;
   /** Sorted unique names of other ACTIVE goals sharing >=1 funding pot with
    * this one (the pot ledger — a pound is claimed by only the oldest goal).
    * Empty when this goal shares no pot with anything else. */
   shared_pot_goals: string[];
+  /** Spend -> Plan bridge: set only when this period's spend is running far
+   * enough ahead of usual that it could plausibly squeeze this plan's own
+   * per-period slice. null otherwise (list_commitments only). */
+  pace_note?: { text: string; link: "spend" } | null;
 };
 
 /** "surplus" fits the monthly spare rate; "savings" likely dips into savings;
@@ -481,6 +535,17 @@ export type CommitmentPreviewPot = {
   free: number;
 };
 
+/** Soft, non-blocking debt-aware consent step shown before a CREATE saves,
+ * when the draft would run while the user's card plan is short or the draft
+ * itself is a "stretch". Inform and price, never advise or block — the
+ * backend never rejects a save based on this; it's purely a UI gate. */
+export type CommitmentConsent = {
+  required: boolean;
+  title: string;
+  lines: string[];
+  actions: { anyway: string; later_date: string; debt_first: string };
+};
+
 /** Live verdict for a draft commitment — POST /commitments/preview. */
 export type CommitmentPreview = {
   per_period_slice: number;
@@ -489,8 +554,10 @@ export type CommitmentPreview = {
   starting_progress?: number;
   feasibility: CommitmentFeasibility | null;
   feasibility_note?: string;
+  feasibility_tone?: "info" | "caution" | null;
   /** One entry per submitted funding pot — live pot-ledger conflicts. */
   pots_detail: CommitmentPreviewPot[];
+  consent: CommitmentConsent | null;
 };
 
 /** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
@@ -1124,6 +1191,7 @@ export type DebtPlanView = {
   extra_to_clear?: DebtPlanExtraToClear | null;
   history?: DebtPlanHistory;
   narration?: DebtPlanNarration | null;
+  commitments_reserved?: { total_slice: number; count: number; period_label: string | null } | null;
 };
 
 // Lightweight summary variant of DebtPlanView (GET /debt-plan/summary) — totals buckets + per-card rate schedule only.
@@ -1437,6 +1505,7 @@ export const api = {
     home_pinned_widget?: string | null;
     cover_plan_excluded_accounts?: string[];
   }>("/preferences"),
+  getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
     hide_net_worth: boolean;
     dark_mode: boolean;
@@ -1932,4 +2001,16 @@ export const api = {
     }).then((r) => toJson<{ ok: boolean }>(r)),
   recordTrendIntent: (category: string, answer: "one_off" | "new_normal") =>
     post<{ ok: boolean }>("/trends/intent", { category, answer }),
+  // ── Spend card lifecycle — the consent sheet's pre-file preview, and the
+  // undo path for a filed "new normal" intent. Both additive/new; a backend
+  // that hasn't shipped them yet 404s, which the callers handle gracefully
+  // (IntentConsentSheet falls back to a generic line; SpendPage's undo
+  // restores local state and shows an inline error). ─────────────────────
+  intentPreview: (category: string) =>
+    post<{ title: string; lines: string[] }>("/spend/intent-preview", { category }),
+  deleteIntent: (category: string) =>
+    fetch(`${API_BASE}/spend/intent/${encodeURIComponent(category)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ ok: boolean }>(r)),
 };
