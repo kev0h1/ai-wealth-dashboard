@@ -7,6 +7,7 @@ per grow.py: facts only, never "you should".
 """
 import math
 import re
+import statistics
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -15,9 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
-from app.db.collections import cashflow_cache_col, savings_goals_col
+from app.db.collections import cashflow_cache_col, commitments_col, savings_goals_col
 from app.routers.analytics import compute_safe_to_spend, _build_cashflow_response
 from app.routers.savings import _cashflow, _current_savings
+from app.services.categories import BUILTIN_CATEGORIES, get_category_kinds, is_discretionary
 from app.services.region import get_user_region
 
 router = APIRouter(tags=["can-i"])
@@ -43,12 +45,233 @@ CATEGORY_SYNONYMS: dict[str, list[str]] = {
 }
 
 
-def _extract_amount(question: str) -> float | None:
-    """Largest plausible £ figure mentioned in the question, or None."""
-    candidates = []
-    for m in re.findall(r"£?\s?(\d[\d,]*(?:\.\d{1,2})?)", question):
+def _fmt_gbp(amount: float, decimals: int = 0) -> str:
+    """£ format matching the app-wide convention: a Unicode minus (−), never
+    a hyphen, for negative money (see SpendHeader.tsx / SafeToSpendCard.tsx)."""
+    amount = amount or 0.0
+    return f"−£{abs(amount):,.{decimals}f}" if amount < 0 else f"£{amount:,.{decimals}f}"
+
+
+# House-style guardrail (same pattern as savings_insights.py's _house_style):
+# the system prompt already tells the model never to use an em-dash or
+# en-dash, but live testing shows Haiku can still slip one into the short
+# HEADLINE line. Post-hoc backstop, not a replacement for the instruction —
+# replace with a comma so a stray dash never reaches a client. The facts
+# array always spells a negative amount with the app's Unicode minus (see
+# _fmt_gbp), but the model composes its own prose from the raw numeric facts
+# and reaches for a plain hyphen ("-£184") — normalised to match here too.
+_DASH_RE = re.compile(r"\s*[—–]\s*")
+_HYPHEN_MINUS_GBP_RE = re.compile(r"-£")
+
+
+def _house_style(text: str) -> str:
+    """Replace any em-dash/en-dash with a comma, and any hyphen-minus
+    directly before £ with the app's Unicode minus, per house copy rules."""
+    text = _HYPHEN_MINUS_GBP_RE.sub("−£", text)
+    return _DASH_RE.sub(", ", text).strip()
+
+
+def _round5(value: float) -> int:
+    """Round to the nearest £5 — the "round" figure the chip-seeding rules ask
+    for, never a jagged pence amount in a tappable suggestion."""
+    return int(round(value / 5.0)) * 5
+
+
+# ── Out-of-scope detection (deterministic, no LLM) ───────────────────────────
+# A cheap keyword/amount classifier, not a Haiku call: scope must be a hard
+# rule, not the model's free-form judgement, so the refusal text is never
+# LLM-authored and never varies run-to-run. Errs toward IN scope (a false
+# negative just means the existing envelope-and-ask path handles it) rather
+# than refusing a real affordability question it doesn't recognise the
+# phrasing of.
+_SCOPE_KEYWORDS = {
+    "afford", "affordable", "spend", "spending", "spent", "save", "saving",
+    "savings", "budget", "buy", "buying", "book", "booking", "pay", "paying",
+    "cost", "costs", "price", "priced", "weekend", "holiday", "trip", "gift",
+    "treat", "takeaway", "take-away", "extra", "top up", "topup", "subscribe",
+    "subscription", "upgrade", "session", "splurge", "indulge",
+    "safe to spend", "free until", "this week",
+    "this month", "payday", "afford it",
+}
+# Category vocabulary is also a scope signal, but "Other" is too generic a
+# substring (matches "another", "mother", ...) to trust — excluded on purpose.
+_SCOPE_CATEGORY_WORDS = {c.lower() for c in BUILTIN_CATEGORIES if c != "Other"} | {
+    syn for syns in CATEGORY_SYNONYMS.values() for syn in syns
+}
+
+# "put toward Japan" was originally matched as the adjacent phrase "put
+# toward", which misses "put MORE toward Japan" or "put toward the Japan
+# pot" — anything with a word between "put" and its target. Token-level
+# instead: "put" plus ANY of these words anywhere in the question is enough
+# ("put", "aside", "£50" is a real sentence; the false-negative risk of a
+# broader match is lower than refusing a real "put ... toward a goal"
+# question).
+_PUT_RE = re.compile(r"\bput\b")
+_PUT_TARGET_RE = re.compile(r"\b(toward|towards|into|to|aside|by)\b")
+
+
+def _is_out_of_scope(question: str, amount_asked: float | None, active_goal_names: list[str] | None = None) -> bool:
+    """True when the question carries neither an extractable £ figure, any
+    recognisable affordability/spend vocabulary, a "put ... toward/aside/..."
+    contribution phrasing, nor a mention of one of the user's own active
+    commitment/goal names — the engine has nothing to ground an answer in.
+    """
+    if amount_asked is not None:
+        return False
+    q = question.lower()
+    if any(kw in q for kw in _SCOPE_KEYWORDS):
+        return False
+    if any(word in q for word in _SCOPE_CATEGORY_WORDS):
+        return False
+    if _PUT_RE.search(q) and _PUT_TARGET_RE.search(q):
+        return False
+    if active_goal_names:
+        if any(name and name.lower() in q for name in active_goal_names):
+            return False
+    return True
+
+
+async def _active_goals_summary(uid: str) -> list[dict]:
+    """Name + amount + target_date for the user's own active commitments/
+    goals. Two jobs: (1) a scope signal ("can I add to japan?", "more for
+    the japan pot?" both name a real goal even though they carry no spend
+    keyword) and (2) grounding CONTEXT for the LLM once a question is let
+    through — without this, _is_out_of_scope correctly says "in scope" for
+    "can I add to Japan?" but the LLM has no "Japan" fact anywhere and falls
+    back to its OWN out-of-scope refusal anyway, which is a false refusal by
+    a different route. One cheap projected query (no pot-ledger maths —
+    that's a heavier read Chip C needs for an exact slice figure, not
+    needed just to name-check a goal), same collection Chip C reads."""
+    try:
+        goals = []
+        async for doc in commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "amount": 1, "target_date": 1},
+        ):
+            name = str(doc.get("name") or "").strip()
+            if name:
+                goals.append({
+                    "name": name,
+                    "amount": doc.get("amount"),
+                    "target_date": doc.get("target_date"),
+                })
+        return goals
+    except Exception:
+        return []
+
+
+_EMPTY_COMPLETION_FALLBACK = "Couldn't work that one out, try rephrasing with an amount."
+
+
+def _parse_headline_reply(raw: str) -> tuple[str, str]:
+    """Split the model's structured ``HEADLINE:``/``REPLY:`` output.
+
+    Defensive: if the model didn't follow the format (rare at temperature 0,
+    but never assume), the whole reply is used for both fields rather than
+    surfacing a blank headline. If the completion itself was empty (provider
+    hiccup — status 200 with no usable content), both fields fall back to a
+    fixed, non-empty message rather than ever returning "".
+    """
+    headline: str | None = None
+    reply_lines: list[str] = []
+    mode: str | None = None
+    for line in (raw or "").strip().splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("HEADLINE:"):
+            headline = stripped.split(":", 1)[1].strip()
+            mode = "headline"
+            continue
+        if stripped.upper().startswith("REPLY:"):
+            reply_lines.append(stripped.split(":", 1)[1].strip())
+            mode = "reply"
+            continue
+        if mode == "reply" and stripped:
+            reply_lines.append(stripped)
+    reply = " ".join(l for l in reply_lines if l).strip() or (raw or "").strip()
+    if not reply:
+        reply = _EMPTY_COMPLETION_FALLBACK
+    if not headline:
+        m = re.match(r"(.+?[.!?])(\s|$)", reply)
+        headline = m.group(1).strip() if m else reply
+    if not headline:
+        headline = _EMPTY_COMPLETION_FALLBACK
+    return headline, reply
+
+
+def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
+    """2-3 grounding lines, server-composed from the SAME figures the verdict
+    used — never re-derived, never LLM-authored. Always the free-until-payday
+    line and the per-day rate; the third line is whichever precomputed
+    what-if is most relevant to what was actually asked."""
+    lines: list[str] = []
+    free = facts.get("safe_to_spend") or 0.0
+    next_payday = facts.get("next_payday")
+    payday_label = None
+    if next_payday:
         try:
-            val = float(m.replace(",", ""))
+            payday_label = date.fromisoformat(str(next_payday)[:10]).strftime("%a %-d %b")
+        except ValueError:
+            payday_label = None
+    lines.append(
+        f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
+        else f"{_fmt_gbp(free)} free until payday"
+    )
+
+    per_day = facts.get("per_day")
+    if per_day is not None:
+        lines.append(f"That's about {_fmt_gbp(per_day, decimals=2)} a day")
+
+    what_ifs = facts.get("what_ifs") or {}
+    third: str | None = None
+
+    if offer and what_ifs.get("savable_by_target") is not None:
+        try:
+            target = date.fromisoformat(str(offer["target_date"])[:10])
+            target_label = f"{MONTH_NAMES[target.month - 1].capitalize()} {target.year}"
+        except (KeyError, ValueError, IndexError):
+            target_label = None
+        if target_label:
+            third = f"Saving at this pace, about {_fmt_gbp(what_ifs['savable_by_target'])} by {target_label}"
+
+    if third is None and what_ifs.get("amount_asked") is not None and what_ifs.get("free_after_spend") is not None:
+        amt = what_ifs["amount_asked"]
+        after = what_ifs["free_after_spend"]
+        third = (
+            f"£{amt:,.0f} leaves {_fmt_gbp(after)} free" if after >= 0
+            else f"£{amt:,.0f} would take you {_fmt_gbp(after)}"
+        )
+
+    if third is None:
+        mentioned = next(
+            (ci for ci in facts.get("change_intents", []) if ci.get("mentioned_in_question")),
+            None,
+        )
+        if mentioned and mentioned.get("usual_30d") is not None:
+            third = f"{mentioned['category']} usual pace is about {_fmt_gbp(mentioned['usual_30d'])} this period"
+        elif facts.get("bills_total"):
+            third = f"{_fmt_gbp(facts['bills_total'])} of bills due before payday"
+
+    if third:
+        lines.append(third)
+    return lines[:3]
+
+
+def _extract_amount(question: str) -> float | None:
+    """Largest plausible £ figure mentioned in the question, or None.
+
+    A digit run immediately followed by a letter with no separator (a typo
+    like "£2OO", an ordinal like "3rd", a unit like "50p"/"10am") is NOT a
+    monetary figure — extracting the leading digits anyway (e.g. "£2OO" ->
+    2) produces a confidently wrong verdict, which is worse than asking for
+    the amount again. Rejected rather than best-effort parsed.
+    """
+    candidates = []
+    for m in re.finditer(r"£?\s?(\d[\d,]*(?:\.\d{1,2})?)", question):
+        end = m.end()
+        if end < len(question) and question[end].isalpha():
+            continue
+        try:
+            val = float(m.group(1).replace(",", ""))
         except ValueError:
             continue
         if 1 <= val <= 100_000:
@@ -110,10 +333,44 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     uid = user["email"]
     await check_ai_chat_limit(uid)
 
+    # ── Out-of-scope gate — deterministic, no free-form LLM judgement ───────
+    # Two cheap projected reads (active goals for the scope check itself and
+    # for LLM grounding below, then safe-to-spend for a live worked-example
+    # figure) — never the full fact pack (change_intents, cashflow, upcoming
+    # bills) below when the question turns out to be out of scope.
+    amount_asked = _extract_amount(question)
+    active_goals = await _active_goals_summary(uid)
+    active_goal_names = [g["name"] for g in active_goals]
+    if _is_out_of_scope(question, amount_asked, active_goal_names):
+        example_amount = 50
+        timeframe = _weekend_or_week()
+        try:
+            sts_preview = await compute_safe_to_spend(uid)
+            if sts_preview.get("status") != "insufficient_data":
+                preview_chip = _headroom_chip(float(sts_preview.get("safe_to_spend") or 0.0))
+                if preview_chip:
+                    m = re.search(r"£(\d+)", preview_chip["label"])
+                    if m:
+                        example_amount = int(m.group(1))
+        except Exception:
+            pass
+        worked_example = f"Can I spend £{example_amount} {timeframe}?"
+        return {
+            "reply": f'I can answer spending questions, try "{worked_example}".',
+            "headline": "That one's outside what I can work out from your numbers.",
+            "facts": [
+                "I answer spending and affordability questions from your live balances.",
+                "For tax questions, the Tax tab has its own chat.",
+                f"Try: {worked_example}",
+            ],
+            "out_of_scope": True,
+        }
+
     # ── Deterministic fact pack ──────────────────────────────────────────
     sts = await compute_safe_to_spend(uid)
     if sts.get("status") == "insufficient_data":
-        return {"reply": "I don't have enough account data yet, connect an account and try again."}
+        msg = "I don't have enough account data yet, connect an account and try again."
+        return {"reply": msg, "headline": msg, "facts": [], "out_of_scope": False}
 
     facts: dict = {
         "safe_to_spend":     sts.get("safe_to_spend"),
@@ -126,6 +383,12 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     days_until_payday = sts.get("days_until_payday") or 1
     safe_to_spend = sts.get("safe_to_spend") or 0.0
     facts["per_day"] = round(safe_to_spend / max(1, days_until_payday), 2)
+    # Named goals the user might ask about by name ("can I add to Japan?")
+    # without ever saying "spend" or a price — fetched above for the scope
+    # gate, reused here so the LLM has something to ground the answer in
+    # instead of falling back to its own out-of-scope refusal.
+    if active_goals:
+        facts["active_goals"] = active_goals
 
     monthly_surplus = 0.0
     try:
@@ -266,8 +529,8 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         pass
 
     # ── Deterministic what-ifs (LLM never does arithmetic) ──────────────
+    # amount_asked was already extracted for the out-of-scope gate above.
     what_ifs: dict = {}
-    amount_asked = _extract_amount(question)
     if amount_asked is not None:
         free_after_spend = round(safe_to_spend - amount_asked)
         what_ifs["amount_asked"] = amount_asked
@@ -284,14 +547,18 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     today = date.today()
     q_lower = question.lower()
-    for month_name in MONTH_NAMES:
-        if month_name in q_lower:
-            months_until = _months_until_target(month_name, today)
-            what_ifs["months_until_target"] = months_until
-            what_ifs["savable_by_target"] = (
-                round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
-            )
-            break
+    # Earliest-in-the-QUESTION match, not Jan->Dec iteration order — "save
+    # for the December trip before November" must resolve November (the
+    # month actually named first), not December just because it sorts
+    # earlier in MONTH_NAMES.
+    month_hits = [(q_lower.index(m), m) for m in MONTH_NAMES if m in q_lower]
+    if month_hits:
+        _, month_name = min(month_hits)
+        months_until = _months_until_target(month_name, today)
+        what_ifs["months_until_target"] = months_until
+        what_ifs["savable_by_target"] = (
+            round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+        )
 
     facts["what_ifs"] = what_ifs
 
@@ -332,6 +599,12 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "invent a figure; the what_ifs are precomputed for you. If they name a thing "
         "but no price and you'd need one, give the envelope from the facts (free "
         "until payday, or per-day rate) and ask for a number in the same sentence. "
+        "active_goals (when present) lists the user's OWN active savings/commitment "
+        "goals by name, with their target amount and target_date — a question naming "
+        "one of these (e.g. 'can I add to Japan?', 'more for the japan pot?') IS a "
+        "real affordability question about the user's own money, even with no "
+        "spend/save verb and no price: treat it exactly like 'name a thing, no price' "
+        "above (give the envelope, ask how much), NEVER as out of scope. "
         "For future-month questions use months_until_target and savable_by_target. "
         "Entries in change_intents with mentioned_in_question=true MUST be "
         "acknowledged in the answer, using ONLY the provided figures — when such "
@@ -340,14 +613,20 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "would_take_to figure of your usual_30d usual pace — still inside the "
         "change you asked for). Entries without mentioned_in_question=true may be "
         "ignored unless clearly relevant. Never moralise. "
-        "If the question is not about the user's own spending or affordability, reply "
-        'exactly: I can answer spending questions, try "Can I spend £50 this '
-        'weekend?". General cost knowledge may be used ONLY as a clearly rough range '
+        "General cost knowledge may be used ONLY as a clearly rough range "
         "(say 'roughly'), never as their figure. Follow-up questions may reference "
         "earlier turns, use the conversation for context but ALWAYS ground figures "
         "in the current facts JSON. Write in plain, human punctuation: no em-dashes "
         "(—) or en-dashes (–); use a comma, a full stop, or a plain conjunction "
         "instead. A plain hyphen is fine only inside a compound word or a range.\n\n"
+        "OUTPUT FORMAT — respond with EXACTLY two lines, nothing before or after:\n"
+        "HEADLINE: <the verdict ONLY — Yes / Tight / No / or the number they asked "
+        "for, under 8 words, no explanation>\n"
+        "REPLY: <your normal answer as instructed above, AT MOST 2 short sentences>\n"
+        "If, despite everything above, this question truly is not about the user's "
+        "own spending or affordability, respond with exactly:\n"
+        "HEADLINE: That one's outside what I can work out from your numbers.\n"
+        'REPLY: I can answer spending questions, try "Can I spend £50 this weekend?".\n\n'
         f"FACTS: {json.dumps(facts, default=str)}"
     )
 
@@ -359,7 +638,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
             json={
                 "model": "anthropic/claude-haiku-4-5",
-                "max_tokens": 120,
+                "max_tokens": 160,
                 "temperature": 0,
                 "messages": messages,
                 "provider": OPENROUTER_PROVIDER_PREFS,
@@ -368,8 +647,235 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")
 
+    try:
+        raw_content = r.json()["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, ValueError, TypeError):
+        raise HTTPException(500, "AI unavailable")
+
     await increment_ai_chat_usage(uid)
-    resp_body: dict = {"reply": r.json()["choices"][0]["message"]["content"]}
+    headline, reply_text = _parse_headline_reply(raw_content)
+    resp_body: dict = {
+        "reply": _house_style(reply_text),
+        "headline": _house_style(headline),
+        "facts": _compose_facts(facts, offer),
+        "out_of_scope": False,
+    }
     if offer:
         resp_body["offer"] = offer
     return resp_body
+
+
+# ── GET /can-i/suggestions — personalised chip seeding ───────────────────────
+# Every chip below is engine-owned and deterministic: no LLM call, no new
+# heavy queries — Chip A reuses the cached safe-to-spend path Can-I already
+# calls, Chip B reuses pace.load_spend_txns (the same helper the
+# change_intents block above uses), Chip C reuses commitments.py's own
+# pot-ledger/slice maths so a chip can never quote a number Planning would
+# disagree with. Every chip's phrasing is answerable by the /can-i machinery
+# above (an amount that _extract_amount can find, or a "name a thing, no
+# price" question the envelope-and-ask path already handles).
+
+_CHIP_B_LOOKBACK_DAYS = 90
+_CHIP_B_MIN_COUNT = 3        # occurrences needed to call a category "recurring"
+_CHIP_B_MAX_MAD_RATIO = 0.5  # median absolute deviation / median — the
+                             # "stable typical amount" bar; Golf (~0.37 on
+                             # real data) passes, Eating Out's long tail
+                             # (~0.52) does not.
+_CHIP_B_EXCLUDE = {"Subscriptions"}  # fixed recurring cost, not a spend
+                                     # DECISION — "can I afford another
+                                     # subscription" doesn't fit the
+                                     # weekend-spend framing.
+SESSION_STYLE_CATEGORIES = {
+    "golf", "padel", "tennis", "squash", "gym", "yoga", "pilates",
+    "swimming", "football", "climbing", "boxing", "spin", "crossfit",
+}
+
+_FALLBACK_CHIPS = [
+    "How much can I spend on a gift?",
+    "Can I afford a takeaway this week?",
+    "How much could I put toward savings this month?",
+]
+
+# Below this, free is too tight (or negative) to suggest ANY new spend or
+# top-up — a "£117 on health?" chip at −£144 free is temptation, not
+# reassurance. Shared by every spend-shaped chip candidate (headroom,
+# discretionary-vocabulary, commitment top-up, cold-start padding) so the
+# gate can never drift between them.
+_CHIP_SPEND_FLOOR = 20
+
+# Below _CHIP_SPEND_FLOOR: no spend chip is offered at all. Both of these
+# are answerable by the existing /can-i machinery with no amount needed
+# (they're plain "payday" facts questions — safe_to_spend/per_day/bills_total
+# are always in the fact pack) and both pass _is_out_of_scope on the
+# "payday" keyword, so neither can produce a refusal.
+_REASSURANCE_CHIPS = [
+    "How am I doing until payday?",
+    "What's still due before payday?",
+]
+
+
+def _weekend_or_week() -> str:
+    """"this week" early in the pay-week (Mon-Wed), "this weekend" once it's
+    close enough to be the natural next spend occasion (Thu-Sun)."""
+    return "this week" if date.today().weekday() < 3 else "this weekend"
+
+
+def _headroom_chip(free: float) -> dict | None:
+    """Chip A — a round 15-25% (fixed at 20%) of current free, £5-rounded.
+    Only offered when free > £20 (seeding rule)."""
+    if free <= _CHIP_SPEND_FLOOR:
+        return None
+    amount = max(5, _round5(free * 0.20))
+    return {"label": f"Can I spend £{amount} {_weekend_or_week()}?"}
+
+
+def _scaled_fallback_chip(free: float) -> dict | None:
+    """Cold-start padding chip — same shape as Chip A. Gated behind the same
+    _CHIP_SPEND_FLOOR as every other spend-shaped chip: a tight or negative
+    `free` gets a reassurance chip instead of a floored-at-£10 spend
+    suggestion (see BLOCKER 2 — a spend chip at negative headroom is
+    temptation, not reassurance)."""
+    if free <= _CHIP_SPEND_FLOOR:
+        return None
+    amount = max(10, _round5(free * 0.20))
+    return {"label": f"Can I spend £{amount} {_weekend_or_week()}?"}
+
+
+async def _discretionary_chip_candidate(uid: str, kind_map) -> tuple[str, float] | None:
+    """Chip B's "their vocabulary" source: the top discretionary category by
+    recent recurrence whose amounts are stable enough to call "typical".
+    Ranks by (count desc, stability asc) so the most frequent stable category
+    wins outright, and the tightest-spread category wins any count tie."""
+    from app.services.pace import load_spend_txns
+
+    end = date.today()
+    start = end - timedelta(days=_CHIP_B_LOOKBACK_DAYS)
+    txns = await load_spend_txns(uid, start, end, kind_map=kind_map)
+
+    by_cat: dict[str, list[float]] = {}
+    for t in txns:
+        if t["amount"] <= 0:
+            continue  # refunds/credits net negative — not a spend occurrence
+        cat = t["category"]
+        if cat in _CHIP_B_EXCLUDE or not is_discretionary(kind_map, cat):
+            continue
+        by_cat.setdefault(cat, []).append(t["amount"])
+
+    best: tuple[str, float] | None = None
+    best_key: tuple[int, float] | None = None
+    for cat, amounts in by_cat.items():
+        if len(amounts) < _CHIP_B_MIN_COUNT:
+            continue
+        med = statistics.median(amounts)
+        if med <= 0:
+            continue
+        mad = statistics.median([abs(a - med) for a in amounts])
+        ratio = mad / med
+        if ratio > _CHIP_B_MAX_MAD_RATIO:
+            continue
+        key = (-len(amounts), ratio)
+        if best_key is None or key < best_key:
+            best_key, best = key, (cat, round(med))
+    return best
+
+
+def _chip_b_label(category: str, typical_amount: float) -> str:
+    cat_lower = category.strip().lower()
+    if cat_lower in SESSION_STYLE_CATEGORIES:
+        return f"Can I book another {cat_lower} session?"
+    return f"Can I spend £{typical_amount:,.0f} on {cat_lower}?"
+
+
+async def _commitment_chip_candidate(uid: str) -> tuple[str, float] | None:
+    """Chip C's "their plan" source: the oldest active commitment's name and
+    a round ~20-30% (fixed at 25%) top-up on its per_period_slice, floored at
+    £10. Reuses commitments.py's own pot-ledger + slice maths (a single-doc
+    ledger is exact for that one doc) so this can never disagree with what
+    Planning shows for the same plan."""
+    from app.routers.commitments import (
+        _pay_cfg as _commitments_pay_cfg,
+        _pot_progress_and_slice,
+        compute_pot_ledger,
+    )
+
+    doc = await commitments_col.find_one(
+        {"user_id": uid, "status": "active"}, sort=[("created_at", 1)]
+    )
+    if not doc:
+        return None
+    cfg = await _commitments_pay_cfg(uid)
+    ledger = await compute_pot_ledger(uid, docs=[doc])
+    info = await _pot_progress_and_slice(doc, cfg, ledger, date.today())
+    slice_amount = float(info.get("per_period_slice") or 0)
+    if slice_amount <= 0:
+        return None
+    top_up = max(10, _round5(slice_amount * 0.25))
+    name = str(doc.get("name") or "").strip() or "your plan"
+    return name, top_up
+
+
+@router.get("/can-i/suggestions")
+async def can_i_suggestions(user: dict = Depends(current_user)):
+    uid = user["email"]
+    sts = await compute_safe_to_spend(uid)
+    if sts.get("status") == "insufficient_data":
+        return {
+            "chips": [
+                {"label": "Can I spend £50 this weekend?"},
+                {"label": "How much can I spend on a gift?"},
+            ],
+            "context_line": "Connect an account to see your numbers",
+        }
+
+    free = float(sts.get("safe_to_spend") or 0.0)
+    days_left = int(sts.get("days_until_payday") or 0)
+    context_line = f"{_fmt_gbp(free)} free · {days_left} day{'s' if days_left != 1 else ''} left"
+
+    chips: list[dict] = []
+
+    if free > _CHIP_SPEND_FLOOR:
+        # ── Comfortable headroom — the normal spend-shaped chip set ─────────
+        headroom = _headroom_chip(free)
+        if headroom:
+            chips.append(headroom)
+
+        try:
+            kind_map = await get_category_kinds(uid)
+            candidate = await _discretionary_chip_candidate(uid, kind_map)
+            if candidate:
+                cat, typical = candidate
+                chips.append({"label": _chip_b_label(cat, typical)})
+        except Exception:
+            pass
+
+        try:
+            commitment = await _commitment_chip_candidate(uid)
+            if commitment:
+                name, top_up = commitment
+                chips.append({"label": f"Can I put £{top_up:,.0f} extra toward {name}?"})
+        except Exception:
+            pass
+
+        # ── Cold start — pad with neutral, assumption-free fallbacks ────────
+        if len(chips) < 2:
+            seen = {c["label"] for c in chips}
+            fallback_chip = _scaled_fallback_chip(free)
+            pool = ([fallback_chip["label"]] if fallback_chip else []) + _FALLBACK_CHIPS
+            for label in pool:
+                if len(chips) >= 2:
+                    break
+                if label in seen:
+                    continue
+                chips.append({"label": label})
+                seen.add(label)
+    else:
+        # ── Tight or negative headroom — reassurance, never temptation ──────
+        # BLOCKER 2: no headroom/discretionary/commitment-top-up chip below
+        # the floor — those all suggest NEW spend or an extra commitment
+        # contribution, which is exactly wrong when the user is already
+        # short. Both reassurance chips are answerable from the always-present
+        # safe_to_spend/per_day/bills_total facts, no amount required.
+        for label in _REASSURANCE_CHIPS:
+            chips.append({"label": label})
+
+    return {"chips": chips[:3], "context_line": context_line}

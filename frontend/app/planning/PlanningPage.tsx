@@ -17,6 +17,7 @@ import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CommitmentSheet from "@/components/CommitmentSheet";
+import { PennyPromptBar } from "@/components/PennyConversation";
 
 function isCliffSoon(until: string): boolean {
   const y = parseInt(until.slice(0, 4), 10);
@@ -779,6 +780,11 @@ export default function PlanningPage() {
                 onAdd={() => setCommitmentSheet({ editing: null })}
                 onEdit={(c) => setCommitmentSheet({ editing: c })}
               />
+              <PennyPromptBar
+                onCompose={() => router.push("/penny?compose=1")}
+                onAsk={(q) => router.push(`/penny?ask=${encodeURIComponent(q)}`)}
+                showChips={false}
+              />
             </div>
           );
         }
@@ -1114,6 +1120,11 @@ export default function PlanningPage() {
               commitments={commitments}
               onAdd={() => setCommitmentSheet({ editing: null })}
               onEdit={(c) => setCommitmentSheet({ editing: c })}
+            />
+            <PennyPromptBar
+              onCompose={() => router.push("/penny?compose=1")}
+              onAsk={(q) => router.push(`/penny?ask=${encodeURIComponent(q)}`)}
+              showChips={false}
             />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (

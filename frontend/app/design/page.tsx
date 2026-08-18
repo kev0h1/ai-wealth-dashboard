@@ -15,6 +15,12 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "penny-chat",
+    name: "penny-chat",
+    description: "One Penny · prompt bar + verdict answers",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "penny-glyph",
     name: "penny-glyph",
     description: "Sparkle replacement · 3 settle-mark-derived glyph candidates",

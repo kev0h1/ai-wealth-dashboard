@@ -387,6 +387,15 @@ export type SpendVerdict = {
    *  additive: absent on older payloads, in which case the header falls
    *  back to a two-cell Out | In row. */
   moved_total?: number;
+  /** Same figure as `unresolved.total` (always counted inside `pills.spent`,
+   *  the OUT figure), duplicated at the top level for symmetry with
+   *  `moved_total` — SpendHeader's OUT-pill footnote reads this directly. */
+  unresolved_total?: number;
+  /** Whether `unresolved_total` is material enough, relative to the
+   *  period's pace excess, to footnote the OUT pill and hedge the reading.
+   *  Server-computed (spend_impact.is_unresolved_material) so the footnote
+   *  and the reading text can never disagree. */
+  unresolved_material?: boolean;
   /** The period-level priced consequence the backend now ships. Optional/
    *  additive, unread by any consumer yet — typed here so future work
    *  (a period-level consequence surface) doesn't need to touch this file
@@ -396,6 +405,10 @@ export type SpendVerdict = {
     consequence: "bills_risk" | "move_delta" | "horizon" | "permission" | null;
     move?: { usual: number; projected: number } | null;
     horizon?: { kind: "debt" | "goal"; name: string; from_month: string; to_month: string } | null;
+    /** Whether the reading's unresolved-money hedge fired this request —
+     *  see `unresolved_material` above, the field actually meant for
+     *  frontend use; this is the raw backend flag, unread by any consumer. */
+    unresolved_hedge?: boolean;
   } | null;
 };
 
@@ -566,6 +579,26 @@ export type CanIOffer = {
   amount: number;
   target_date: string;
   per_period: number;
+};
+
+/** GET /can-i/suggestions — persistent, personalised chips for the bounded
+ * Penny oracle conversation + prompt bar. Backend contract (may not be live
+ * yet — every call site degrades to an empty/omitted read). */
+export type CanISuggestionChip = { label: string };
+export type CanISuggestions = {
+  chips: CanISuggestionChip[];
+  context_line: string;
+};
+
+/** POST /can-i response. `headline`/`facts`/`out_of_scope` are additive —
+ * an older backend returns only `reply`/`offer`, and callers must degrade
+ * gracefully (render `reply` as plain body text) when they're absent. */
+export type CanIResponse = {
+  reply: string;
+  offer?: CanIOffer | null;
+  headline?: string;
+  facts?: string[];
+  out_of_scope?: boolean;
 };
 
 export type MoneyBasic = {
@@ -1355,7 +1388,10 @@ export const api = {
   taxChat: (messages: { role: string; content: string }[]) =>
     post<{ reply: string }>("/chat/tax", { messages }),
   canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>) =>
-    post<{ reply: string; offer?: CanIOffer | null }>("/can-i", { question, history }),
+    post<CanIResponse>("/can-i", { question, history }),
+  // May 404 until the backend ships it — every caller wraps this in .catch()
+  // and treats a failure as "no suggestions yet" (empty chips, no context line).
+  canISuggestions: () => get<CanISuggestions>("/can-i/suggestions"),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
   createCommitment: (body: {
     name: string;
@@ -1407,7 +1443,11 @@ export const api = {
     }),
   getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
   getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
-  getMiscategorisedCount: () => get<{ count: number; ids: string[] }>("/transactions/miscategorised-count"),
+  // offset: 0 = current pay period (default), negative = prior closed
+  // periods — scopes the Spend page banner's count to the requested period
+  // (a series counts only if at least one of its transactions falls inside
+  // it). The review-sheet list (getMiscategorised, below) stays all-time.
+  getMiscategorisedCount: (offset = 0) => get<{ count: number; ids: string[] }>(`/transactions/miscategorised-count?offset=${offset}`),
   getMiscategorised: () =>
     get<{
       items: {

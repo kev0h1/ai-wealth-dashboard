@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, ScanFace } from "lucide-react";
 import { api, CompanionItem, SafeToSpend } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
+import PennyConversation from "@/components/PennyConversation";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
 import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
@@ -13,7 +14,15 @@ import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 
 export default function PennyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { hideNetWorth } = usePreferences();
+  // ?ask=<question> submits once on mount; ?compose=1 just focuses the
+  // docked composer. Read once — PennyConversation only consumes the first
+  // value it sees (initialFiredRef), so a later param change on the same
+  // mount wouldn't resubmit anyway.
+  const askParam = searchParams.get("ask");
+  const composeParam = searchParams.get("compose") === "1";
+  const [contextLine, setContextLine] = useState<string | null>(null);
   const [items, setItems] = useState<CompanionItem[]>([]);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,12 +80,15 @@ export default function PennyPage() {
 
   return (
     <div
-      className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 rise-in"
+      className="relative isolate min-h-dvh pb-[calc(15rem+env(safe-area-inset-bottom,0px))] lg:pb-40 rise-in"
       style={{ "--rise-index": 0, paddingTop: "env(safe-area-inset-top, 0px)" } as React.CSSProperties}
     >
       <div className="px-4 pt-6 lg:px-0 lg:pt-6 lg:max-w-2xl lg:mx-auto">
         {/* a. Header — Penny's own gradient mark, the only gradient surface
-            on this screen besides the nav button that led here. */}
+            on this screen besides the nav button that led here. The context
+            line ("£251 free · 10 days left") comes from the conversation's
+            suggestions fetch below and is decorative only — its absence
+            (old/unreachable backend) just leaves the header without it. */}
         <div className="flex items-center gap-2.5 mb-6">
           <span
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -84,9 +96,14 @@ export default function PennyPage() {
           >
             <PennyMark size={16} className="text-white" />
           </span>
-          <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-            Penny
-          </h1>
+          <div className="min-w-0">
+            <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+              Penny
+            </h1>
+            {contextLine && (
+              <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{contextLine}</p>
+            )}
+          </div>
         </div>
 
         {/* b. Penny's brief — the exact same verdict/greeting content Home
@@ -133,9 +150,18 @@ export default function PennyPage() {
           <ChevronRight size={16} aria-hidden="true" className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
         </button>
 
-        {/* Can I…? removed from Penny 2026-08-18 — owner's IA rule: it lives
-            on Planning. Reinstate by restoring CanISection here if that was
-            wrong. */}
+        {/* e. The conversation — structured cards above stay put (cash
+            moves, payday, Mirror, per the owner's Penny hub IA rule); this
+            is the bounded oracle itself. Deep-linkable: ?ask=<question>
+            submits on mount and scrolls to the answer, ?compose=1 focuses
+            the docked composer without submitting anything. */}
+        <div className="mt-6">
+          <PennyConversation
+            initialQuestion={askParam}
+            autoFocusComposer={composeParam}
+            onContextLine={setContextLine}
+          />
+        </div>
       </div>
 
       <BottomNav />
