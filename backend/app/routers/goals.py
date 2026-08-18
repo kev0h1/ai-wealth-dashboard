@@ -125,7 +125,7 @@ def goals_context_text(goals: list[dict]) -> str:
     """Compact blob for Penny's system prompts — every chat sees every goal."""
     if not goals:
         return ""
-    lines = [f"- {g['label']}: {g['detail']} ({g['pct']}%{' — done' if g.get('done') else ''})"
+    lines = [f"- {g['label']}: {g['detail']} ({g['pct']}%{', done' if g.get('done') else ''})"
              for g in goals]
     return (
         "\n\nTheir headline goals across the app (all auto-tracked; you can reference any of them in any conversation):\n"

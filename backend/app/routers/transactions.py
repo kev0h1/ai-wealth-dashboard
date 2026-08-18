@@ -415,9 +415,12 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     # A user's own custom category (Padel, Golf, ...) is accepted here too —
     # not just VALID_CATEGORIES — so the Two Inputs Rule holds for exactly the
     # categories the user cared enough to create. Custom-category writes are
-    # scoped to this user (uid=...); VALID_CATEGORIES stay global, unchanged
-    # from today's behaviour (the Firewall Rule: a custom name is one user's
-    # private vocabulary and must never leak into another user's global cache).
+    # always scoped to this user (uid=...); a VALID_CATEGORIES write MAY go
+    # global, unchanged from today's behaviour, but only after cache_merchant's
+    # own KIND and PERSON/REFERENCE gates both pass (the Firewall Rule: a
+    # custom name is one user's private vocabulary and must never leak into
+    # another user's global cache; the 2026-08-17 MAINGI KM incident: a
+    # built-in category is not, by itself, proof the text is safe to share).
     is_valid = category in VALID_CATEGORIES
     is_custom = False
     if not is_valid:
@@ -428,11 +431,10 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
             {"_id": {"$in": [transaction_id, *additional_ids]}, "user_id": user["email"]},
             {"merchant_name": 1, "description": 1},
         ).to_list(None)
-        cache_uid = None if is_valid else user["email"]
         for d in touched:
             key = canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")
             if len(key) >= 3:  # a blank key would "learn" a match-anything entry
-                await cache_merchant(key, category, "user", uid=cache_uid)
+                await cache_merchant(key, category, "user", uid=user["email"], prefer_global=is_valid)
 
     # ENGINE.md "Input Contract" — the propagation payload. Read the stored
     # sync-time identity field (stream 1's merchant_key; verified merged and
@@ -646,7 +648,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                  "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
             )
             if len(merchant_key) >= 3:
-                await cache_merchant(merchant_key, category, "user", uid=None if is_valid else uid)
+                # A built-in category MAY go global, but only after
+                # cache_merchant's KIND and PERSON/REFERENCE gates both pass.
+                await cache_merchant(merchant_key, category, "user", uid=uid, prefer_global=is_valid)
             category_changed = True
             result["custom_category"] = category
         else:

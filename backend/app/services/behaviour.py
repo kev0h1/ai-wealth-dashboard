@@ -354,7 +354,7 @@ async def compute_portrait(uid: str) -> dict:
             evidence = [ev_line1, ev_line2]
             if external_setaside > 0:
                 evidence.append(f"£{external_setaside:.0f} of it went to investments or external destinations")
-            fallback = "You set money aside almost every day — some builds up, some works as a buffer you draw on through the month."
+            fallback = "You set money aside almost every day. Some builds up, some works as a buffer you draw on through the month."
         elif saving_freq >= 0.5 or weeks_with_saving >= 8:
             title = "Regular Saver"
             ev_line1 = f"{len(saving_list)} deposits over {span_days} days · {max_streak}-week streak"
@@ -365,7 +365,7 @@ async def compute_portrait(uid: str) -> dict:
             evidence = [ev_line1, ev_line2]
             if external_setaside > 0:
                 evidence.append(f"£{external_setaside:.0f} of it went to investments or external destinations")
-            fallback = f"You save regularly — across {weeks_with_saving} of the {total_weeks} weeks tracked."
+            fallback = f"You save regularly, across {weeks_with_saving} of the {total_weeks} weeks tracked."
         else:
             title = None
 
@@ -419,7 +419,7 @@ async def compute_portrait(uid: str) -> dict:
                 f"{disc_counts[top_cat]} {top_cat.lower()} transactions in the window",
                 f"£{disc_totals[top_cat]:.0f} total · ~{monthly_count:.1f}× per month",
             ]
-            fallback = f"{top_cat} is clearly something you love — it's your most frequent discretionary category."
+            fallback = f"{top_cat} is clearly something you love: it's your most frequent discretionary category."
             traits.append({
                 "id": "signature_pleasure",
                 "title": f"Your Signature: {top_cat}",
@@ -459,7 +459,7 @@ async def compute_portrait(uid: str) -> dict:
     if cash_pct >= 10:
         hygiene_issues.append(f"{cash_pct:.0f}% of spending is cash or ATM withdrawals")
     else:
-        hygiene_positives.append("Mostly digital — minimal cash use")
+        hygiene_positives.append("Mostly digital: minimal cash use")
 
     if bnpl_txns:
         hygiene_issues.append(f"{len(bnpl_txns)} buy-now-pay-later transaction(s) detected")
@@ -470,7 +470,7 @@ async def compute_portrait(uid: str) -> dict:
 
     if not hygiene_issues:
         evidence = hygiene_positives + ["No BNPL, gambling, or returned payments detected"]
-        fallback = "Your financial hygiene is clean — no missed payments, BNPL, or cash dependency."
+        fallback = "Your financial hygiene is clean: no missed payments, BNPL, or cash dependency."
         title = "Clean Record"
         traits.append({
             "id": "hygiene",
@@ -483,7 +483,7 @@ async def compute_portrait(uid: str) -> dict:
     elif len(spend_txns) >= 10:
         # Only surface hygiene issues if there's enough data to be confident
         evidence = hygiene_issues
-        fallback = "A few patterns worth keeping an eye on — described above, without judgement."
+        fallback = "A few patterns worth keeping an eye on: described above, without judgement."
         title = "A Few Things to Note"
         traits.append({
             "id": "hygiene",

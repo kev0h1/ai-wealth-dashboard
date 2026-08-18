@@ -232,7 +232,7 @@ async def _maybe_bill_shortfall(user_id: str, region: str) -> None:
         account_label = b.get("account_bank") or "your account"
         body = (
             f"{name} ({sym}{b['amount']:,.2f}) is due {timing}"
-            f" — {account_label} only has {sym}{b['account_balance']:,.2f}."
+            f", {account_label} only has {sym}{b['account_balance']:,.2f}."
         )
         await send_push_to_user(user_id, "Bill may not clear", body, "/spend?view=upcoming")
         newly.append(name)
@@ -295,7 +295,7 @@ async def send_period_digest(user_id: str) -> None:
     body = " · ".join(parts)
     if len(body) > 175:
         body = body[:172] + "…"
-    await send_push_to_user(user_id, "New pay period — fresh start", body, "/")
+    await send_push_to_user(user_id, "New pay period: fresh start", body, "/")
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"last_digest_period": start.isoformat()}}, upsert=True,
     )

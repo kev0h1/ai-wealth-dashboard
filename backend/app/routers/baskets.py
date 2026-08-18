@@ -139,18 +139,18 @@ async def _extract_receipt(image_uri: str) -> dict:
     data = r.json()
     if "choices" not in data:
         logging.warning("Receipt scan: no choices in response: %s", str(data)[:300])
-        raise HTTPException(502, "Couldn't read the receipt — please try again.")
+        raise HTTPException(502, "Couldn't read the receipt, please try again.")
     raw = data["choices"][0]["message"]["content"].strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```\s*$", "", raw).strip()
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if not m:
-        raise HTTPException(422, "Couldn't read that receipt — try a clearer photo.")
+        raise HTTPException(422, "Couldn't read that receipt, try a clearer photo.")
     try:
         return json.loads(m.group())
     except json.JSONDecodeError:
-        raise HTTPException(422, "Couldn't read that receipt — try a clearer photo.")
+        raise HTTPException(422, "Couldn't read that receipt, try a clearer photo.")
 
 
 @router.post("/baskets/scan-receipt")
@@ -163,7 +163,7 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
     parsed = await _extract_receipt(_data_uri(image))
     items = _clean_items(parsed.get("items"))
     if not items:
-        raise HTTPException(422, "No items found — make sure the whole receipt is in shot.")
+        raise HTTPException(422, "No items found, make sure the whole receipt is in shot.")
 
     # No legible date on the receipt: fall back to the scan date, flagged as
     # estimated so the UI can say so instead of showing "Date unknown".
@@ -300,8 +300,8 @@ def _compute_insights(docs: list[dict]) -> dict:
         # Aggregate beats single-item trivia: "your basket" not "your salmon"
         top = store_prices[0]
         headline = (
-            f"{len(store_prices)} of your regular items are {sym}{total_saving:.2f} cheaper elsewhere "
-            f"— biggest: {top['name']} at {top['cheapest_store']}"
+            f"{len(store_prices)} of your regular items are {sym}{total_saving:.2f} cheaper elsewhere. "
+            f"Biggest: {top['name']} at {top['cheapest_store']}"
         )
     elif len(docs) < 5:
         # Single-item callouts from a handful of receipts are trivia, not insight

@@ -453,7 +453,10 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
         "KEEPING:\n"
         "CLOSE:\n"
         "SELF:\n"
-        "Each section: 1-3 short sentences only. No bullet points. No extra headings."
+        "Each section: 1-3 short sentences only. No bullet points. No extra headings. "
+        "Write in plain, human punctuation: no em-dashes (—) or en-dashes (–) anywhere. Use a comma, "
+        "a full stop, or a plain conjunction ('and', 'but', 'so') instead. A plain hyphen (-) is fine "
+        "only inside a compound word or a number range."
     )
 
     if facts.get("partial_view"):
@@ -476,7 +479,7 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
     if is_partial and opening_data.get("income_in", 0) == 0:
         spending_data_temp = facts.get("spending", {})
         fallback_opening = (
-            f"Only part of your money is visible here — this view saw "
+            f"Only part of your money is visible here, this view saw "
             f"£{spending_data_temp.get('total_spend', 0):,.2f} of spending this period."
         )
     else:
@@ -512,7 +515,7 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
             f"You closed the month with £{close_data.get('month_end_cash', 0):,.2f} in current accounts."
         )
     else:
-        fallback_close = "The period is still open — closing figures will appear when it ends."
+        fallback_close = "The period is still open, closing figures will appear when it ends."
 
     self_data = facts.get("self_facts", {})
     trait_count = len(self_data.get("traits", []))
@@ -737,7 +740,7 @@ async def get_cycle_story(uid: str, which: str = "current", preview_close: bool 
         count = opening_data.get("count", 0)
         if income_in > 0:
             opening_narrative = (
-                f"£{income_in:,.2f} landed across {count} deposit(s) — "
+                f"£{income_in:,.2f} landed across {count} deposit(s), "
                 f"your new cycle has started."
             )
         else:

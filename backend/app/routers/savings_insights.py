@@ -85,7 +85,14 @@ INSIGHT_CATEGORIES: dict[str, dict] = {
 # v4: savings_estimate must now be derivable from the supplied sources/facts
 # (see _savings_estimate_is_derivable) — previously-generated estimates may
 # be fabricated and need to pass through the new guard.
-PROMPT_VERSION = 4
+# v5: trigger merchants are now grouped on a normalised key (see
+# _normalize_merchant_key) instead of the raw bank descriptor, and a
+# duplicate-payment claim ("paying N times") is rejected unless the data
+# shows genuinely overlapping same-month charges (see
+# _duplicate_claim_is_supported) — previously-generated insights may carry a
+# fragmented trigger list or an unsupported duplicate claim from before this
+# fix and need to regenerate through the new logic.
+PROMPT_VERSION = 5
 
 # In-app destination per category — the screen where the user can act on the
 # insight with their own data (frontend renders this as the primary action).
@@ -150,6 +157,78 @@ _CARD_DEBT_MOVE_RE = re.compile(
     r"|0%\s*(?:purchase|balance transfer)\s*card",
     re.IGNORECASE,
 )
+
+# House-style guardrail: rule 7 in the prompt above tells the model never to
+# use an em-dash or en-dash, but live testing showed the model can still
+# produce one (search-result text it's summarising often carries them, and
+# instructions alone aren't a hard guarantee). Post-hoc backstop, same
+# pattern as _NON_UK_RE / _CARD_DEBT_MOVE_RE: replace rather than reject, so
+# a single stray dash doesn't burn a regeneration attempt or drop an
+# otherwise-good insight. A plain hyphen (compound words, numeric ranges) is
+# untouched.
+#
+# Two different jobs share the "no em/en-dash" rule and need two different
+# replacements. A dash BETWEEN numeric-ish tokens (£15–£30, 4–8×, 50–100
+# Mbps) is a range — collapsing it to a comma reads as nonsense ("£15,
+# £30"), so that case is normalised to a plain hyphen instead (matches the
+# CATEGORY_WORKFLOWS dropdown labels above, e.g. "50-100 Mbps"). A dash in
+# prose (Tuesday–Friday, "you pay X — try Y") is a clause break, not a
+# range, so that case becomes a comma as before. Numeric-range detection
+# runs FIRST so those dashes are already plain hyphens (no longer matched
+# by _DASH_RE) by the time the prose rule runs on what's left.
+_NUMERIC_RANGE_DASH_RE = re.compile(r"(?<=[0-9×%])\s*[–—]\s*(?=[£0-9])")
+_DASH_RE = re.compile(r"\s*[—–]\s*")
+
+
+# Duplicate-payment guardrail: the model can read several trigger lines for
+# the same brand and narrate it as "you're paying N times" / "N separate
+# charges". That's only true if the charges genuinely overlap (2+ similar
+# amounts landing in the SAME calendar month) — a merchant billed once a
+# month under a rotating bank descriptor is one subscription, not several.
+# Checked post-generation like _NON_UK_RE/_CARD_DEBT_MOVE_RE: one
+# regeneration attempt, then the insight is dropped rather than stored.
+_DUPLICATE_CLAIM_RE = re.compile(
+    r"\btwice\b"
+    r"|\b(?:two|three|four|five|six|\d+)\s*(?:times|x)\b"
+    r"|\b(?:two|three|four|five|six|\d+)\s+separate\b"
+    r"|duplicat\w*\s+(?:charge|payment|subscription)s?"
+    r"|(?:charged|billed)\s+(?:twice|multiple\s+times)",
+    re.IGNORECASE,
+)
+
+
+def _duplicate_claim_is_supported(text: str, triggered_by: Optional[list[dict]]) -> bool:
+    """True unless `text` accuses the user of a duplicate/repeat payment
+    ("paying twice", "three times", "N separate charges", "duplicate
+    payments"...) that the underlying transaction data doesn't back up.
+
+    A genuine duplicate needs 2+ charges of similar amount landing close
+    together in time (within ~20 days — comfortably shorter than any normal
+    monthly cycle) somewhere in `triggered_by` (see the `overlapping_charge`
+    flag set by `_find_triggered_transactions`, which is computed on
+    merchant-normalised buckets using a day-gap test, not a calendar-month
+    one — a monthly subscription billed near a month boundary can land on,
+    say, 1 Jul and 31 Jul, which is the same calendar month but 30 days
+    apart and perfectly normal). A merchant billed once a month under a
+    rotating bank descriptor (e.g. "NETFLIX.COM 18665797172" one month,
+    "NETFLIX.COM LONDON" the next, "NETFLIX.COM 203832 LND" the month after)
+    is ONE subscription, not several — even if merchant normalisation
+    somehow failed to collapse the descriptor variants into a single trigger
+    bucket, this check still refuses to store the false claim. Belt and
+    braces alongside the normaliser, not a replacement for it."""
+    if not _DUPLICATE_CLAIM_RE.search(text):
+        return True
+    return any(t.get("overlapping_charge") for t in (triggered_by or []))
+
+
+def _house_style(text: str) -> str:
+    """Replace any em-dash/en-dash with a comma (prose) so the house "no
+    em-dashes" rule holds even when the model doesn't follow it unprompted,
+    except a dash between numeric-ish tokens (£15–£30, 4–8×), which is a
+    range and becomes a plain hyphen instead of a comma."""
+    text = _NUMERIC_RANGE_DASH_RE.sub("-", text)
+    return _DASH_RE.sub(", ", text).strip()
+
 
 # Savings-estimate guardrail: the prompt tells the model savings_estimate may
 # only be a figure lifted straight from the sources or the arithmetic
@@ -277,14 +356,14 @@ CATEGORY_WORKFLOWS: dict[str, dict] = {
         "cta": "Add your broadband details",
         "steps": [
             {"id": "contract_end", "label": "Contract end date", "type": "text",   "placeholder": "e.g. Aug 2026 or Rolling"},
-            {"id": "speed",        "label": "Download speed",    "type": "select", "options": ["Under 50 Mbps", "50–100 Mbps", "100–500 Mbps", "500 Mbps+", "Not sure"]},
+            {"id": "speed",        "label": "Download speed",    "type": "select", "options": ["Under 50 Mbps", "50-100 Mbps", "100-500 Mbps", "500 Mbps+", "Not sure"]},
         ],
     },
     "mobile": {
         "cta": "Add your plan details",
         "steps": [
             {"id": "contract_end", "label": "Contract end date",  "type": "text",   "placeholder": "e.g. Dec 2026 or Rolling"},
-            {"id": "data",         "label": "Monthly data usage", "type": "select", "options": ["Under 5 GB", "5–20 GB", "20–50 GB", "50 GB+", "Unlimited"]},
+            {"id": "data",         "label": "Monthly data usage", "type": "select", "options": ["Under 5 GB", "5-20 GB", "20-50 GB", "50 GB+", "Unlimited"]},
         ],
     },
     "car_insurance": {
@@ -315,13 +394,83 @@ CATEGORY_WORKFLOWS: dict[str, dict] = {
     "eating_out": {
         "cta": "Add your dining habits",
         "steps": [
-            {"id": "frequency", "label": "How often do you eat out?", "type": "select", "options": ["Daily", "2–3× per week", "Once a week", "Few times a month", "Rarely"]},
+            {"id": "frequency", "label": "How often do you eat out?", "type": "select", "options": ["Daily", "2-3× per week", "Once a week", "Few times a month", "Rarely"]},
         ],
     },
 }
 
 BILL_CATEGORIES = {"bills", "housing", "utilities", "insurance"}
 _ALL_TRIGGERS: set[str] = {t for cfg in INSIGHT_CATEGORIES.values() for t in cfg.get("triggers", [])}
+
+
+# Merchant-key normalisation for insight grouping: bank descriptors for one
+# merchant routinely rotate a trailing token (a card-processor reference
+# code, a phone number, a branch/location word) while the brand prefix stays
+# fixed. Left ungrouped, `_find_triggered_transactions` below treats each
+# variant as a different merchant, which both fragments the monthly-spend
+# maths (a single £12.99/mo charge split across 3 descriptor variants reads
+# as three £4.33/mo charges) and can read to a downstream LLM as "you're
+# paying for this three times" — a false duplicate-payment claim.
+#
+# Real corpus examples (kevin.maingi12@gmail.com, one £12.99/mo Netflix
+# subscription, six months, three rotating descriptors):
+#   "NETFLIX.COM 18665797172"   -> "netflix.com"   (trailing phone-number run)
+#   "NETFLIX.COM 203832 LND"    -> "netflix.com"   (refcode + location word)
+#   "NETFLIX.COM LONDON"        -> "netflix.com"   (bare location word)
+# Also seen in the same corpus, a legitimate Amazon Prime subscription whose
+# card-processor reference code changes every charge:
+#   "Amazon Prime*OO3WG21W5"              -> "amazon prime"
+#   "AMAZON PRIME*NL8WS29I4 AMZN.CO.UK/PM" -> "amazon prime"
+#
+# Conservative by design: every rule only strips a trailing token, never
+# touches the leading brand token(s), and only commits the strip if a
+# non-trivial prefix (>=3 chars) remains. Grouping itself is still an exact
+# string match on the *normalised* key, so merchants that only share a brand
+# word but differ earlier in the string stay distinct — "SAINSBURYS S/MKT
+# 1234" and "SAINSBURYS PETROL 5678" normalise to "sainsburys s/mkt" and
+# "sainsburys petrol" respectively, not to a shared "sainsburys" bucket.
+_MERCHANT_REFCODE_STAR_RE = re.compile(r"\*\S*\d\S*.*$")           # "*OO3WG21W5 AMZN.CO.UK/PM"
+_MERCHANT_TRAILING_PHONE_RE = re.compile(r"\s+\(?\d[\d ]{5,}\d\)?$")  # " 18665797172"
+_MERCHANT_TRAILING_LOCATION_RE = re.compile(r"\s+(?:LND|LDN|LONDON)$", re.IGNORECASE)  # " LND" / " LONDON"
+_MERCHANT_TRAILING_REFCODE_RE = re.compile(r"\s+\d{3,}$")          # " 203832"
+_MERCHANT_MIN_PREFIX_LEN = 3
+
+
+def _normalize_merchant_key(key: str) -> str:
+    """Collapse rotating-descriptor variants of one merchant into a single
+    grouping key. See the module comment above for the corpus this was built
+    from and the exact examples it targets."""
+    raw = (key or "").strip()
+    if not raw:
+        return raw
+    normalized = raw
+
+    # Card-processor reference codes are introduced with "*" and always carry
+    # a digit (e.g. "*OO3WG21W5"); everything from "*" to the end — including
+    # any trailing "AMZN.CO.UK/PM"-style suffix — is noise, not brand.
+    m = _MERCHANT_REFCODE_STAR_RE.search(normalized)
+    if m and m.start() >= _MERCHANT_MIN_PREFIX_LEN:
+        normalized = normalized[:m.start()].strip()
+
+    # Some descriptors stack more than one trailing token (a reference code
+    # AND a location word, e.g. "NETFLIX.COM 203832 LND") — strip repeatedly
+    # until nothing more matches.
+    changed = True
+    while changed:
+        changed = False
+        for pat in (
+            _MERCHANT_TRAILING_PHONE_RE,
+            _MERCHANT_TRAILING_LOCATION_RE,
+            _MERCHANT_TRAILING_REFCODE_RE,
+        ):
+            mm = pat.search(normalized)
+            if mm:
+                candidate = normalized[:mm.start()].rstrip()
+                if len(candidate) >= _MERCHANT_MIN_PREFIX_LEN:
+                    normalized = candidate
+                    changed = True
+
+    return normalized.lower()
 
 
 async def _detect_insight_categories(user_id: str) -> list[str]:
@@ -362,12 +511,20 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
     label       = await savings_labels_col.find_one({"user_id": user_id, "category": category_key})
     labelled_key = label["merchant_key"] if label else None
 
-    buckets: dict[str, list[float]] = defaultdict(list)
+    # Bucketed on the *normalised* merchant key so descriptor-rotation
+    # variants of one merchant (see _normalize_merchant_key) merge into a
+    # single trigger instead of fragmenting into several — that fragmentation
+    # is what previously produced both an undercounted monthly_amount (one
+    # £12.99/mo charge split 3 ways reads as £4.33/mo each) and a false
+    # "you're paying N times" narrative downstream. Raw per-transaction keys
+    # and dates are kept alongside so a display name and a same-month
+    # duplicate-cadence flag can be derived per bucket below.
+    buckets: dict[str, list[tuple[float, Optional[datetime], str]]] = defaultdict(list)
     for col in [transactions_col, yapily_transactions_col, statement_transactions_col, mono_transactions_col]:
         try:
             txns = await col.find(
                 {"user_id": user_id, "date": {"$gte": cutoff}, "transaction_type": "debit"},
-                {"merchant_name": 1, "description": 1, "amount": 1},
+                {"merchant_name": 1, "description": 1, "amount": 1, "date": 1},
             ).to_list(None)
         except Exception:
             continue
@@ -377,13 +534,43 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
                 continue
             key_lower = key.lower()
             if (labelled_key and key == labelled_key) or any(tr in key_lower for tr in cfg.get("triggers", [])):
-                buckets[key].append(float(t.get("amount", 0)))
+                norm_key = _normalize_merchant_key(key)
+                buckets[norm_key].append((float(t.get("amount", 0)), t.get("date"), key))
 
     result = []
-    for key, amounts in sorted(buckets.items(), key=lambda x: -sum(x[1])):
+    for norm_key, entries in sorted(buckets.items(), key=lambda x: -sum(e[0] for e in x[1])):
+        amounts = [e[0] for e in entries]
+        # Display name is derived from the NORMALISED key, not one raw
+        # descriptor variant — "Netflix.Com" (not "Netflix.Com
+        # 18665797172") so that _merchant_scoped_route's substring match
+        # against /transactions still finds every rotating-descriptor
+        # variant of the merchant, not just the one that happened to win a
+        # tie-break.
+        display_name = norm_key.title()
+
+        # Duplicate-cadence test (belt-and-braces alongside the normaliser —
+        # see _duplicate_claim_is_supported): true only if two charges of
+        # similar amount land close enough together in time that they can't
+        # both be one merchant's normal monthly cycle. Deliberately a
+        # day-gap test, NOT a calendar-month bucket: a monthly subscription
+        # billed near a month boundary can land on, say, 1 Jul and 31 Jul —
+        # 30 days apart, textbook monthly, but the SAME calendar month — so
+        # bucketing by (year, month) would misfire on ordinary billing-date
+        # drift. A real duplicate (two live subscriptions to the same
+        # service) shows charges close together in days, not just in the
+        # same named month; monthly cycles are never shorter than ~28 days,
+        # so a 20-day threshold gives comfortable margin against drift while
+        # still catching genuine overlap.
+        dated = sorted((dt, amt) for amt, dt, _raw in entries if dt is not None)
+        overlapping_charge = any(
+            (d2 - d1).days <= 20 and abs(a2 - a1) <= 0.1 * max(a1, a2) + 0.5
+            for (d1, a1), (d2, a2) in zip(dated, dated[1:])
+        )
+
         result.append({
-            "merchant_key": key, "display_name": key.title(),
+            "merchant_key": norm_key, "display_name": display_name,
             "monthly_amount": round(sum(amounts) / 3, 2), "occurrences": len(amounts),
+            "overlapping_charge": overlapping_charge,
         })
         if len(result) >= 4:
             break
@@ -456,6 +643,14 @@ async def _generate_savings_insight_content(
         "null is a correct, expected, and common answer here, not a failure — a hedge word like '~' "
         "does not make an invented number acceptable, because the number itself must be real, not "
         "just softly worded.\n"
+        "6. savings_estimate is always on a MONTHLY basis ('~£15/mo' style) — never annualise it to "
+        "'/yr', even if a source figure is yearly (convert it down to monthly first). A monthly figure "
+        "reads as a smaller, more honest number than its yearly multiple; the app shows the yearly "
+        "total elsewhere if the user wants it.\n"
+        "7. Write in plain, human punctuation: no em-dashes (—) or en-dashes (–) anywhere in title or "
+        "body. Use a comma, a full stop, a colon, or a plain conjunction ('and', 'but', 'so') instead. "
+        "A plain hyphen (-) is fine only inside a compound word (e.g. 'zero-percent') or a number range "
+        "(e.g. '15-30').\n"
     )
 
     facts_block  = ""
@@ -474,8 +669,8 @@ async def _generate_savings_insight_content(
         verdict_rule = (
             "RULE — verdict first: the title or the opening sentence of the body MUST lead with the "
             "user's own figure from their spending above, e.g. "
-            '"You pay EE £46/mo — SIM-only could cut that to ~£12". '
-            "Their spending figures are facts; any saving is an estimate — hedge it with '~' or 'could'.\n"
+            '"You pay EE £46/mo, SIM-only could cut that to ~£12". '
+            "Their spending figures are facts; any saving is an estimate, hedge it with '~' or 'could'.\n"
         )
 
     if user_context:
@@ -489,8 +684,8 @@ async def _generate_savings_insight_content(
             f"{verdict_rule}"
             "JSON: title (max 10 words, specific to their situation), "
             "body (2–3 sentences, direct advice referencing their details), "
-            "savings_estimate (per rule 5 above: a stated figure or a subtraction of two stated "
-            "figures, else null — null is expected and fine)\n\n"
+            "savings_estimate (per rules 5–6 above: a stated figure or a subtraction of two stated "
+            "figures, always /mo, else null — null is expected and fine)\n\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
     else:
@@ -500,16 +695,18 @@ async def _generate_savings_insight_content(
             "Write a concise savings insight card in JSON with three fields:\n"
             "- title: max 10 words, punchy, present tense\n"
             "- body: 1–2 sentences, specific deal or tip, no filler\n"
-            "- savings_estimate: per rule 5 above — e.g. '~£200/yr' ONLY if that figure or its two "
+            "- savings_estimate: per rules 5–6 above — e.g. '~£15/mo' ONLY if that figure or its two "
             "source numbers are stated above, else null (null is expected and fine)\n"
             f"{verdict_rule}\n"
             'Respond ONLY with valid JSON: {"title":"...","body":"...","savings_estimate":"..."}'
         )
 
-    # Two attempts: if the model names a non-UK product (Hulu, Venmo, 401(k)…)
-    # or suggests moving/transferring/consolidating credit card debt, we
+    # Two attempts: if the model names a non-UK product (Hulu, Venmo, 401(k)…),
+    # suggests moving/transferring/consolidating credit card debt, or claims
+    # a duplicate/repeat payment the transaction data doesn't back up, we
     # regenerate once with a sharper instruction, then drop the insight —
-    # never store garbage, and never store regulated-sounding debt advice.
+    # never store garbage, never store regulated-sounding debt advice, and
+    # never store a false "you're paying twice" accusation.
     violation: Optional[str] = None
     for attempt in range(2):
         if attempt == 0:
@@ -522,6 +719,17 @@ async def _generate_savings_insight_content(
                   "product — remove any card balance-transfer or debt-consolidation suggestion "
                   "entirely. You may still suggest switching a mortgage or car finance deal to a "
                   "new lender; that is fine."
+            )
+        elif violation == "duplicate_claim":
+            attempt_prompt = (
+                prompt
+                + "\n\nIMPORTANT: your previous answer claimed the user is being charged twice, "
+                  "multiple times, or N separate times for the same thing. Their transaction data "
+                  "does not show genuinely overlapping charges (similar-amount payments landing in "
+                  "the same month) — the merchant lines above may just be one subscription or bill "
+                  "billed once a month under slightly different bank descriptor text each time. Do "
+                  "not claim duplicate, repeat or multiple billing; describe it as a single "
+                  "recurring payment instead."
             )
         else:
             attempt_prompt = (
@@ -550,8 +758,8 @@ async def _generate_savings_insight_content(
                 parsed = None
         if not isinstance(parsed, dict):
             continue
-        title    = str(parsed.get("title", cfg["label"]))
-        body     = str(parsed.get("body", ""))
+        title    = _house_style(str(parsed.get("title", cfg["label"])))
+        body     = _house_style(str(parsed.get("body", "")))
         estimate = str(parsed.get("savings_estimate") or "")
         combined = f"{title} {body} {estimate}"
         if _NON_UK_RE.search(combined):
@@ -559,6 +767,9 @@ async def _generate_savings_insight_content(
             continue
         if _CARD_DEBT_MOVE_RE.search(combined):
             violation = "card_debt"
+            continue
+        if not _duplicate_claim_is_supported(combined, triggered_by):
+            violation = "duplicate_claim"
             continue
 
         savings_estimate = parsed.get("savings_estimate") or None
@@ -725,21 +936,31 @@ def _serialize_insight(d: dict) -> dict:
     # Always resolve icon/label from the live config so stale cached docs
     # automatically pick up any correction — never trust the stored copy.
     _cfg = INSIGHT_CATEGORIES.get(cat) or LABEL_OPTIONS.get(cat) or {}
+    # House-style at SERVE time, not just generation time: _house_style() is
+    # applied when new content is written (_generate_savings_insight_content),
+    # but docs written before that guardrail existed (prompt_version < 4, or
+    # even some prompt_version 4 docs generated in the gap before the dash
+    # guardrail landed — content_hash isn't versioned on copy-only fixes)
+    # still carry raw em/en-dashes. Sanitising here is cheap (regex, no LLM
+    # call) and retroactively cleans every stored doc without a migration or
+    # forcing a regen — the DB keeps the original text, only the API response
+    # is scrubbed.
+    savings_estimate = d.get("savings_estimate")
     return {
         "id":              d.get("insight_id", str(d["_id"])),
         "category":        cat,
         "icon":            _cfg.get("icon") or d.get("icon", "💡"),
         "label":           _cfg.get("label") or d.get("label", cat.replace("_", " ").title()),
-        "title":           d.get("title", ""),
-        "body":            d.get("body", ""),
-        "savings_estimate": d.get("savings_estimate"),
+        "title":           _house_style(d.get("title", "")),
+        "body":            _house_style(d.get("body", "")),
+        "savings_estimate": _house_style(savings_estimate) if savings_estimate else savings_estimate,
         "pinned":          d.get("pinned", False),
         "is_new":          d.get("is_new", False),
         # Stored naive-UTC; the Z suffix makes browsers parse it as UTC, not local
         "refreshed_at":    d["refreshed_at"].isoformat() + "Z" if d.get("refreshed_at") else None,
-        "return_reason":   d.get("_return_reason"),
+        "return_reason":   _house_style(d["_return_reason"]) if d.get("_return_reason") else d.get("_return_reason"),
         "verified_savings": d.get("verified_savings"),
-        "verified_merchant": d.get("verified_merchant"),
+        "verified_merchant": _house_style(d["verified_merchant"]) if d.get("verified_merchant") else d.get("verified_merchant"),
         "deadline_at":     d["deadline_at"].isoformat() + "Z" if d.get("deadline_at") else None,
         "triggered_by":    d.get("triggered_by", []),
         "user_context":    d.get("user_context"),
@@ -793,8 +1014,9 @@ def _material_change_reason(d: dict) -> Optional[str]:
     old = d.get("estimate_at_dismissal")
     new = _parse_saving_amount(d.get("savings_estimate"))
     if old and new and abs(new - old) >= max(10.0, 0.2 * old):
-        direction = "up" if new > old else "down"
-        return f"Estimated saving {direction}: ~£{old:,.0f}/mo → ~£{new:,.0f}/mo"
+        # Self-explanatory sentence, no arrow/direction word — the frontend
+        # renders this verbatim with no "Back because:" prefix added.
+        return f"Updated: estimated saving now ~£{new:,.0f}/mo"
 
     dismissed = d.get("spotlight_dismissed_at")
     if dismissed is None or dismissed < datetime.utcnow() - timedelta(days=30):
@@ -815,6 +1037,12 @@ async def _check_verified_saving(user_id: str, existing: dict) -> Optional[dict]
     key, amt = top.get("merchant_key"), float(top.get("monthly_amount") or 0)
     if not key or amt < 5:
         return None
+    # Normalise both sides before comparing: `key` may be a pre-fix raw
+    # descriptor (older stored docs, not yet regenerated) or a post-fix
+    # normalised key — _normalize_merchant_key is idempotent on an
+    # already-normalised key, so this compares like-for-like either way and
+    # still matches every rotating-descriptor variant of the merchant.
+    key_norm = _normalize_merchant_key(key)
     now = datetime.utcnow()
     recent, before = 0, 0
     for col in [transactions_col, yapily_transactions_col, statement_transactions_col, mono_transactions_col]:
@@ -827,7 +1055,7 @@ async def _check_verified_saving(user_id: str, existing: dict) -> Optional[dict]
             continue
         for t in txns:
             k = (t.get("merchant_name") or t.get("description", "")[:30]).strip()
-            if k != key:
+            if _normalize_merchant_key(k) != key_norm:
                 continue
             if t["date"] >= now - timedelta(days=45):
                 recent += 1
@@ -904,6 +1132,14 @@ async def get_savings_insights(user: dict = Depends(current_user), _sub=Depends(
             if triggered_by:
                 await savings_insights_col.update_one({"_id": d["_id"]}, {"$set": {"triggered_by": triggered_by}})
                 d["triggered_by"] = triggered_by
+        # A retired (dismissed-from-spotlight) insight that has since earned
+        # a legitimate return_reason (_material_change_reason — same check
+        # _spotlight_candidates uses) is about to resurface on the Home
+        # spotlight. It must carry that same reason here too, so the /insights
+        # page can keep showing it instead of the spotlight-dedup rule below
+        # hiding a resurfaced card the user can no longer find anywhere else.
+        if d.get("spotlight_retired"):
+            d["_return_reason"] = _material_change_reason(d) or None
 
     # Biggest-impact card first: pinned, then verified wins, then the largest
     # parsed £ estimate, then the largest triggering monthly spend.

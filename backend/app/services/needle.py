@@ -186,11 +186,11 @@ def _card_movement_line(delta: float, delta_prev: float | None) -> str:
       - Cards grew (delta > 0): calm, factual, neutral tone — never advice.
     """
     if abs(delta) < 20:
-        return "Credit cards held steady — balance barely moved this month."
+        return "Credit cards held steady, balance barely moved this month."
 
     if delta < 0:
         # Cards shrank — positive direction
-        line = f"Credit cards down {_fmt(abs(delta))} — your balance fell this period."
+        line = f"Credit cards down {_fmt(abs(delta))}, your balance fell this period."
         if delta_prev is not None and abs(delta_prev) >= 20:
             if delta_prev > 0:
                 # Last month grew, this month shrank — improvement
@@ -243,7 +243,7 @@ def _cash_line(cash: float, history: list[float], history_credible: bool = True)
     all_vals = history + [cash]
     if cash == max(all_vals) and len(history) >= 2:
         n = len(all_vals)
-        base += f" — the most in {n} months."
+        base += f", the most in {n} months."
     return base
 
 
@@ -259,7 +259,7 @@ def _headline(delta: float, cash: float, cash_history: list[float], history_cred
     """
     cards_shrank = delta < -20
     if cards_shrank:
-        return "Your month closed — and the needle moved."
+        return "Your month closed, and the needle moved."
 
     if history_credible:
         all_vals = cash_history + [cash]
@@ -368,7 +368,7 @@ async def _compute_needle_facts(uid: str, period_start: date, period_end: date) 
         "cash": cash_line_text,
     }
     if streak_weeks and streak_weeks >= 4:
-        lines["streak"] = f"Saving streak intact — {streak_weeks} weeks."
+        lines["streak"] = f"Saving streak intact: {streak_weeks} weeks."
 
     doc = {
         "_id": f"{uid}:{period_end.isoformat()}",

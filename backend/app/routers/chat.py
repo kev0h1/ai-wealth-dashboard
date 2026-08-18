@@ -36,7 +36,7 @@ async def tax_chat(body: dict, user: dict = Depends(current_user)):
     elif over > 0:
         lost   = int(over / 2)
         needed = int(over)
-        allowance_line = f"Personal allowance: £{12570 - lost:,} remaining — needs £{needed:,} more pension to restore in full"
+        allowance_line = f"Personal allowance: £{12570 - lost:,} remaining, needs £{needed:,} more pension to restore in full"
     else:
         allowance_line = "Full personal allowance intact (£12,570)"
 
@@ -49,7 +49,7 @@ async def tax_chat(body: dict, user: dict = Depends(current_user)):
 - Pension contributions this year: £{pension_annual:,.0f}
 - Adjusted net income: £{adjusted:,.0f}
 - {allowance_line}
-- Receiving Child Benefit: {"Yes — high income charge applies" if has_cb else "No"}
+- Receiving Child Benefit: {"Yes, high income charge applies" if has_cb else "No"}
 
 UK tax facts:
 - Personal allowance tapers above £100,000, lost entirely at £125,140
@@ -62,7 +62,9 @@ UK tax facts:
 - Self-assessment is mandatory above £100,000
 - Child benefit high income charge starts at £60,000 adjusted income
 
-Answer in 2-3 sentences. Bold key numbers. No bullet lists unless listing 3+ items."""
+Answer in 2-3 sentences. Bold key numbers. No bullet lists unless listing 3+ items.
+
+Write in plain, human punctuation: no em-dashes (—) or en-dashes (–); use a comma, a full stop, or a plain conjunction instead. A plain hyphen is fine only inside a compound word or a range."""
 
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(

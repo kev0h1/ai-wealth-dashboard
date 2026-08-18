@@ -87,7 +87,7 @@ async def add_category(body: dict, user: dict = Depends(current_user), _sub=Depe
     # Names that only *some* code paths recognise — creating one yields two
     # different totals for the same category depending on which screen you're on.
     if (ghost := reserved_conflict(name)):
-        raise HTTPException(400, f"'{ghost}' is a reserved name — please pick a different one")
+        raise HTTPException(400, f"'{ghost}' is a reserved name, please pick a different one")
 
     norm = normalise_name(name)
 
@@ -207,7 +207,7 @@ async def _cas_update(uid: str, mutate) -> list[dict]:
         if result.matched_count or result.upserted_id is not None:
             return new_custom
         # else: `categories` changed under us between read and write — retry
-    raise HTTPException(409, "Category list changed concurrently — please retry")
+    raise HTTPException(409, "Category list changed concurrently, please retry")
 
 
 @router.get("/rules")

@@ -62,7 +62,7 @@ async def mpesa_upload(
     if filename.endswith(".pdf") or content[:4] == b"%PDF":
         raw_text = await extract_pdf_text(content, password=password)
         if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text — check the PDF password")
+            raise HTTPException(422, "Could not extract text, check the PDF password")
     else:
         try:
             raw_text = content.decode("utf-8-sig")
@@ -179,7 +179,7 @@ async def statement_upload(
     if filename.endswith(".pdf") or content[:4] == b"%PDF":
         raw_text = await extract_pdf_text(content, password=password)
         if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text — wrong PDF password or unsupported format")
+            raise HTTPException(422, "Could not extract text, wrong PDF password or unsupported format")
     else:
         try:
             raw_text = content.decode("utf-8-sig")

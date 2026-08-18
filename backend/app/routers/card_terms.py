@@ -34,7 +34,7 @@ router = APIRouter(tags=["card-terms"])
 # Honest phrasing hook for the frontend — a product's advertised figure, not
 # the user's own rate.
 _RATE_NOTE = (
-    "Representative APR — the advertised rate at least 51% of accepted "
+    "Representative APR: the advertised rate at least 51% of accepted "
     "applicants get. Yours may be different; you can correct it."
 )
 

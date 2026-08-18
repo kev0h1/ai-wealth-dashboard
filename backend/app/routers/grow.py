@@ -87,14 +87,14 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
             match_detail = (
                 f"Your income ({_money(income)}) and pension contributions "
                 f"(~{_money(pension_annual)}/year) are on file. An employer match is a "
-                "guaranteed 100% return on the matched amount — some people check "
+                "guaranteed 100% return on the matched amount, some people check "
                 "their scheme's match ceiling first."
             )
         else:
             match_resolved = "not_done"
             match_detail = (
                 f"Your income is on file ({_money(income)}). An employer match is a "
-                "guaranteed 100% return on the matched amount — some people check "
+                "guaranteed 100% return on the matched amount, some people check "
                 "their scheme's match ceiling first."
             )
 
@@ -108,12 +108,12 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
             restored = _taper_loss(adjusted)
             topup_detail = (
                 f"Contributing {_money(extra)} more this tax year would restore "
-                f"{_money(restored)} of personal allowance — effective relief ~60%."
+                f"{_money(restored)} of personal allowance, effective relief ~60%."
             )
         elif high_bracket and adjusted >= TAPER_END:
             topup_detail = (
                 f"Your personal allowance is fully lost to the taper at an adjusted "
-                f"income of {_money(adjusted)} — pension contributions attract "
+                f"income of {_money(adjusted)}, pension contributions attract "
                 "~45% relief."
             )
         elif adjusted > HIGHER_RATE_THRESHOLD:
@@ -137,7 +137,7 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
             else:
                 headroom = max(0.0, PENSION_ANNUAL_ALLOWANCE - pension_annual)
                 topup_detail += (
-                    f" You contribute ~{_money(pension_annual)}/yr — around "
+                    f" You contribute ~{_money(pension_annual)}/yr, around "
                     f"{_money(headroom)} of this year's "
                     f"{_money(PENSION_ANNUAL_ALLOWANCE)} annual allowance remains."
                 )
@@ -283,9 +283,9 @@ async def grow_view(user: dict = Depends(current_user)):
         essentials_gap = round(monthly_income - monthly_spending, 2)
         essentials_resolved = "done" if essentials_gap >= 0 else "not_done"
         essentials_detail = (
-            f"Your everyday spending fits within your income, with about {_money(essentials_gap)}/month to spare — this excludes savings, investments and debt repayments"
+            f"Your everyday spending fits within your income, with about {_money(essentials_gap)}/month to spare. This excludes savings, investments and debt repayments"
             if essentials_gap >= 0
-            else f"Your everyday spending is about {_money(-essentials_gap)}/month more than your income — this excludes savings, investments and debt repayments"
+            else f"Your everyday spending is about {_money(-essentials_gap)}/month more than your income. This excludes savings, investments and debt repayments"
         )
 
     # pension_match: personalised from stored income preferences when present,
@@ -377,7 +377,7 @@ async def grow_view(user: dict = Depends(current_user)):
             "key": "expensive_debt", "title": "Expensive debt",
             "resolved": expensive_resolved, "detail": expensive_detail,
             "options": [
-                "Overpaying debt is a guaranteed return equal to the rate — investing may return more or less and your capital is at risk",
+                "Overpaying debt is a guaranteed return equal to the rate, investing may return more or less and your capital is at risk",
                 "Some people keep a small cash buffer alongside expensive debt rather than putting every spare pound towards it",
             ],
         },
@@ -386,7 +386,7 @@ async def grow_view(user: dict = Depends(current_user)):
             "resolved": full_fund_resolved, "detail": full_fund_detail,
             "options": [
                 "Some people hold 3-6 months of essential spending in cash before investing more",
-                "Others invest sooner and treat other credit as a backstop — that carries its own risk",
+                "Others invest sooner and treat other credit as a backstop, that carries its own risk",
             ],
         },
         {
@@ -433,7 +433,7 @@ async def grow_view(user: dict = Depends(current_user)):
         ladder.append(entry)
 
     notes = [
-        "Investing can lose money as well as gain it, and past performance isn't a guide to future returns — your capital is at risk.",
+        "Investing can lose money as well as gain it, and past performance isn't a guide to future returns. Your capital is at risk.",
         "The cash-ISA limit drops to £12,000 for under-65s from April 2027.",
     ]
 

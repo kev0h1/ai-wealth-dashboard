@@ -14,7 +14,7 @@ from app.db.collections import (
     merchant_categories_col,
     statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
 )
-from app.services.categories import get_category_kinds, MOVEMENT
+from app.services.categories import get_category_kinds, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
 
 RAW_TRUELAYER_CATEGORIES = {
     "BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE",
@@ -561,17 +561,78 @@ async def user_allowed_categories(uid: str) -> list[str]:
     return VALID_CATEGORIES + customs
 
 
-async def cache_merchant(key: str, category: str, source: str, uid: str | None = None) -> None:
+# PERSON/REFERENCE GATE — structural shapes for a cache KEY that names or
+# addresses a person rather than a business (2026-08-17 incident: "MAINGI KM"
+# -> Income was cached globally because Income is a built-in category, so the
+# account owner's OWN standing-order text poisoned categorisation for any
+# other user whose bank narrative happened to collide with those tokens).
+# Examples pulled from this VPS's own transaction corpus during the incident
+# sweep — all previously cached GLOBALLY under a spend-kind category, which
+# the kind gate alone would NOT have caught:
+#   "kevin maingi coscto via mobile pymt fp 10"  (cached as Shopping)
+#   "to travel eur xfer via mobile eur 55 19 fxrate 1 1296 n s trn fee 0" (Travel)
+#   "c c gondwe bed sheets" (Shopping) — initials + surname faster-payment
+#   narrative, the same shape documented at _GLUED_CHANNEL_CODE_RE above.
+# Conservative on purpose: a false positive here only costs a merchant its
+# global-cache slot (cheap — it re-learns per user on the next correction);
+# a false negative leaks one person's bank narrative into every other user's
+# categorisation, which is the actual incident. Bias per-user.
+_PERSON_PAYMENT_RE = re.compile(
+    r'^to\s+[a-z]'          # payment-TO wording: "to daniel maingi", "to travel eur xfer ..."
+    r'|\bvia\s+mobile\b'    # "via mobile pymt", "via mobile eur ... xfer"
+    r'|\bfp\s*\d'           # faster-payment reference: "fp 10", "fp01"
+    r'|\bstanding\s+order\b',
+    re.I,
+)
+
+
+async def _key_looks_user_relative(key: str, uid: str) -> bool:
+    """PERSON/REFERENCE GATE check for a candidate GLOBAL cache write.
+
+    True when the key either carries the acting user's own name (reusing
+    `name_matches_owner`, the same check the LLM prompts already use to keep
+    a user's own-name text out of Income) or matches one of the structural
+    person-payment shapes in `_PERSON_PAYMENT_RE`. See that pattern's comment
+    for the incident this closes and real examples from the corpus."""
+    if _PERSON_PAYMENT_RE.search(key):
+        return True
+    identity = await user_identity(uid)
+    return name_matches_owner(key, identity["name_tokens"])
+
+
+async def cache_merchant(
+    key: str, category: str, source: str, uid: str | None = None, *, prefer_global: bool = False,
+) -> None:
     """Persist a merchant->category decision. 'user' entries win: an 'llm' write
     will not overwrite a category a user has explicitly corrected.
-    When uid is given the entry is scoped to that user (id = uid::key) so that
-    name-based decisions don't leak between users.
 
-    Category gate: VALID_CATEGORIES always qualify. A uid-scoped write may ALSO
-    use one of THAT user's own custom categories (Padel, Golf, ...) — never a
-    global (uid=None) write, per the Firewall Rule: a custom category name is
-    one user's private vocabulary and must never leak into another user's
-    global-cache lookup (Pass 3.4's `cache` dict, shared by everyone)."""
+    `uid` is the acting user and is always used to scope a per-user write
+    (id = uid::key) so that name-based decisions don't leak between users.
+    `prefer_global` is the caller's request to ALSO consider a uid-less global
+    write (shared by everyone) instead of a per-user one — but that request is
+    only ever honoured after two gates both pass; either one silently
+    downgrades the write to per-user rather than raising, so a gated call
+    behaves exactly like an ordinary per-user learn:
+
+    1. KIND GATE — only a built-in SPEND-kind category (discretionary or
+       commitment: Groceries, Bills, Eating Out, ...) may go global. Income
+       and every MOVEMENT-kind built-in (Transfer, Savings, Debt, Investment)
+       always stay per-user, however routine the merchant text looks, because
+       those are exactly the categories a person's own name or payment
+       reference tends to get filed under (derived from
+       `BUILTIN_CATEGORY_KINDS` / `NON_SPEND_KINDS` — never hardcode this set,
+       see `app/services/categories.py` module docs on drifted hardcoded sets).
+    2. PERSON/REFERENCE GATE — even a spend-kind category is forced per-user
+       when the key itself looks like it names or addresses a person rather
+       than a business. See `_key_looks_user_relative` / `_PERSON_PAYMENT_RE`.
+
+    Category gate (unchanged): VALID_CATEGORIES always qualify. A uid-scoped
+    write may ALSO use one of THAT user's own custom categories (Padel,
+    Golf, ...) — never a global write, per the Firewall Rule: a custom
+    category name is one user's private vocabulary and must never leak into
+    another user's global-cache lookup (Pass 3.4's `cache` dict, shared by
+    everyone). A custom category therefore always forces `prefer_global` off.
+    """
     if not key:
         return
     if category not in VALID_CATEGORIES:
@@ -580,13 +641,24 @@ async def cache_merchant(key: str, category: str, source: str, uid: str | None =
         allowed = await user_allowed_categories(uid)
         if category not in allowed:
             return
-    store_id = f"{uid}::{key}" if uid else key
+        prefer_global = False  # Firewall Rule — custom vocabulary is never global.
+
+    write_global = prefer_global
+    if write_global and BUILTIN_CATEGORY_KINDS.get(category) in NON_SPEND_KINDS:
+        write_global = False  # KIND GATE
+    if write_global and uid and await _key_looks_user_relative(key, uid):
+        write_global = False  # PERSON/REFERENCE GATE
+
+    if not write_global and not uid:
+        return  # nothing to scope a per-user write to
+
+    store_id = key if write_global else f"{uid}::{key}"
     if source != "user":
         existing = await merchant_categories_col.find_one({"_id": store_id}, {"source": 1})
         if existing and existing.get("source") == "user":
             return
     doc = {"category": category, "source": source, "updated_at": datetime.utcnow()}
-    if uid:
+    if not write_global:
         doc["uid"] = uid
     await merchant_categories_col.update_one(
         {"_id": store_id},
@@ -1033,10 +1105,13 @@ async def categorise_others_bg(uid: str) -> int:
     cat_list = ", ".join(c for c in allowed_cats if c not in {"Transfer", "Savings", "Debt", "Investment"})
     _name_clause = (
         f"- The account owner's name is {owner_name}. "
-        "A credit into a bank account whose text does NOT reference the owner's name → Income.\n"
+        "A credit into a bank account whose text does NOT reference the owner's name → Income. "
+        "A credit that DOES reference the owner's own name is their own money moving, never Income.\n"
     ) if owner_name else ""
     prompt_prefix = (
         "You are a UK personal finance assistant categorising bank transactions.\n"
+        "Each line is tagged [OUT] (a debit, money leaving the account) or [IN] (a credit, money "
+        "entering the account).\n"
         f"Assign each to exactly one of: {cat_list}.\n"
         "Rules:\n"
         "- Eating Out: restaurants, cafes, takeaways, delivery apps\n"
@@ -1046,7 +1121,8 @@ async def categorise_others_bg(uid: str) -> int:
         "- Subscriptions: streaming, software, recurring digital memberships\n"
         "- Health: hospitals, pharmacies, gyms, dentists, medical services\n"
         "- Travel: flights, hotels, holidays\n"
-        "- Income: salary, refunds, cashback, money received from people\n"
+        "- Income: salary, refunds, cashback, money received from people. An [OUT] line can NEVER "
+        "be Income, no matter what the text says\n"
         f"{_name_clause}"
         "- Other: only if genuinely unclassifiable\n"
         "Reply ONLY with JSON: {\"1\": \"Category\", \"2\": \"Category\", ...}\n\nTransactions:\n"
@@ -1063,13 +1139,18 @@ async def categorise_others_bg(uid: str) -> int:
         if not batch:
             continue
 
-        seen: dict[str, list] = {}
+        # Keyed on (label, direction) rather than label alone — the same merchant
+        # text can legitimately appear as both a debit and a credit (e.g. a
+        # refund vs. the original purchase), and collapsing them would hide the
+        # direction signal the model needs (see prompt_prefix above).
+        seen: dict[tuple[str, str], list] = {}
         for t in batch:
             label = ((t.get("merchant_name") or "") + " " + (t.get("description") or "")).strip()[:100]
-            seen.setdefault(label, []).append(t["_id"])
+            direction = "IN" if t.get("transaction_type") == "credit" else "OUT"
+            seen.setdefault((label, direction), []).append(t["_id"])
 
-        unique_labels = list(seen.keys())
-        lines = "\n".join(f"{i+1}. {lbl}" for i, lbl in enumerate(unique_labels))
+        unique_keys = list(seen.keys())
+        lines = "\n".join(f"{i+1}. [{d}] {lbl}" for i, (lbl, d) in enumerate(unique_keys))
 
         try:
             async with httpx.AsyncClient(timeout=30) as http:
@@ -1098,7 +1179,8 @@ async def categorise_others_bg(uid: str) -> int:
             )
             continue
 
-        for i, label in enumerate(unique_labels):
+        for i, key in enumerate(unique_keys):
+            label, _direction = key
             cat = classifications.get(str(i + 1))
             if cat in {"Transfer", "Savings", "Debt", "Investment"}:
                 # Defensive: these are structural/money-to-self categories the LLM was
@@ -1109,12 +1191,17 @@ async def categorise_others_bg(uid: str) -> int:
             update: dict = {"ai_attempted": True}
             if final and final != "Other":
                 update["category"] = final
-                total_updated += len(seen[label])
+                total_updated += len(seen[key])
                 # A custom category (Padel, ...) is this user's private
                 # vocabulary — scope the cache write to them (Firewall Rule).
-                cache_uid = uid if final not in VALID_CATEGORIES else None
-                await cache_merchant(canonical_merchant_key("", label), final, "llm", uid=cache_uid)
-            await col.update_many({"_id": {"$in": seen[label]}}, {"$set": update})
+                # A built-in category MAY go global, but only after the KIND
+                # and PERSON/REFERENCE gates inside cache_merchant both pass
+                # (see its docstring — the MAINGI KM incident this closes).
+                await cache_merchant(
+                    canonical_merchant_key("", label), final, "llm",
+                    uid=uid, prefer_global=final in VALID_CATEGORIES,
+                )
+            await col.update_many({"_id": {"$in": seen[key]}}, {"$set": update})
 
         reached_ids = {_id for ids in seen.values() for _id in ids}
         all_ids = {t["_id"] for t in batch}

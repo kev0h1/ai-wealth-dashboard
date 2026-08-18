@@ -76,7 +76,7 @@ async def _extract_and_parse_note(file: UploadFile, password: str) -> tuple[str,
     if filename.endswith(".pdf") or content[:4] == b"%PDF":
         raw_text = await extract_pdf_text(content, password=password)
         if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text — wrong PDF password or unsupported format")
+            raise HTTPException(422, "Could not extract text, wrong PDF password or unsupported format")
     else:
         try:
             raw_text = content.decode("utf-8-sig")
@@ -91,7 +91,7 @@ async def _extract_and_parse_note(file: UploadFile, password: str) -> tuple[str,
     if parsed.get("doc_type") == "statement":
         raise HTTPException(
             422,
-            "This looks like a statement, not a contract note — use Upload statement instead. Statements set the value; contract notes add trades on top.",
+            "This looks like a statement, not a contract note, use Upload statement instead. Statements set the value; contract notes add trades on top.",
         )
 
     return raw_text, parsed
@@ -118,7 +118,7 @@ async def investment_upload(
     if filename.endswith(".pdf") or content[:4] == b"%PDF":
         raw_text = await extract_pdf_text(content, password=password)
         if not raw_text.strip():
-            raise HTTPException(422, "Could not extract text — wrong PDF password or unsupported format")
+            raise HTTPException(422, "Could not extract text, wrong PDF password or unsupported format")
     else:
         try:
             raw_text = content.decode("utf-8-sig")
@@ -132,7 +132,7 @@ async def investment_upload(
 
     # Guard: contract note uploaded to statement flow
     if parsed.get("doc_type") == "contract_note":
-        raise HTTPException(422, "This looks like a contract note, not a statement — use Add contract note instead. A contract note only adds one trade; a statement sets the whole value.")
+        raise HTTPException(422, "This looks like a contract note, not a statement, use Add contract note instead. A contract note only adds one trade; a statement sets the whole value.")
 
     provider          = str(parsed.get("provider") or "Unknown")
     account_type      = str(parsed.get("account_type") or "")
@@ -247,11 +247,11 @@ async def upload_contract_note(
     # Parse trade date
     trade_date_str = parsed.get("trade_date")
     if not trade_date_str:
-        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+        raise HTTPException(422, "Couldn't read a trade date from this document, it's needed to place the note against your statements.")
     try:
         trade_date = datetime.fromisoformat(trade_date_str)
     except (ValueError, TypeError):
-        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+        raise HTTPException(422, "Couldn't read a trade date from this document, it's needed to place the note against your statements.")
 
     # Invariant 1: trade_date must be after statement_date (skip when None)
     if stmt_date:
@@ -259,7 +259,7 @@ async def upload_contract_note(
         if trade_date <= sd:
             raise HTTPException(
                 422,
-                f"This contract note is dated {trade_date.strftime('%-d %b %Y')} — on or before your latest statement ({sd.strftime('%-d %b %Y')}), so its value is already counted. Only notes newer than the statement can be added.",
+                f"This contract note is dated {trade_date.strftime('%-d %b %Y')}, on or before your latest statement ({sd.strftime('%-d %b %Y')}), so its value is already counted. Only notes newer than the statement can be added.",
             )
 
     # Extract other fields
@@ -338,11 +338,11 @@ async def upload_contract_note_global(
     # Parse trade date
     trade_date_str = parsed.get("trade_date")
     if not trade_date_str:
-        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+        raise HTTPException(422, "Couldn't read a trade date from this document, it's needed to place the note against your statements.")
     try:
         trade_date = datetime.fromisoformat(trade_date_str)
     except (ValueError, TypeError):
-        raise HTTPException(422, "Couldn't read a trade date from this document — it's needed to place the note against your statements.")
+        raise HTTPException(422, "Couldn't read a trade date from this document, it's needed to place the note against your statements.")
 
     # Extract fields
     kind              = str(parsed.get("kind") or "purchase").lower()
@@ -375,7 +375,7 @@ async def upload_contract_note_global(
             if trade_date <= sd:
                 raise HTTPException(
                     422,
-                    f"This contract note is dated {trade_date.strftime('%-d %b %Y')} — on or before your latest statement ({sd.strftime('%-d %b %Y')}), so its value is already counted. Only notes newer than the statement can be added.",
+                    f"This contract note is dated {trade_date.strftime('%-d %b %Y')}, on or before your latest statement ({sd.strftime('%-d %b %Y')}), so its value is already counted. Only notes newer than the statement can be added.",
                 )
     else:
         # Create or find provisional account
@@ -531,6 +531,6 @@ async def refresh_investment_prices(account_id: str, user: dict = Depends(curren
     if not acc:
         raise HTTPException(404, "Investment account not found")
     if not TAVILY_API_KEY:
-        raise HTTPException(422, "Tavily API key not configured — add TAVILY_API_KEY to backend/.env")
+        raise HTTPException(422, "Tavily API key not configured, add TAVILY_API_KEY to backend/.env")
     result = await refresh_account_prices(acc)
     return result

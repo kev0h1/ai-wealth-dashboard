@@ -75,7 +75,7 @@ async def fuel_nearby(
         lng = (doc or {}).get("lng")
         if lat is None or lng is None:
             raise HTTPException(
-                422, "No location set — add your postcode in your profile or share your location.",
+                422, "No location set, add your postcode in your profile or share your location.",
             )
 
     snap = load_snapshot()

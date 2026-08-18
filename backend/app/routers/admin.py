@@ -54,4 +54,4 @@ async def fix_card_transactions(user: dict = Depends(current_user)):
         {"account_id": {"$in": cc_ids}, "transaction_type": "_fixing"},
         {"$set": {"transaction_type": "debit"}},
     )
-    return {"message": "Card transactions fixed — run auto-categorise next", "fixed": result.modified_count}
+    return {"message": "Card transactions fixed, run auto-categorise next", "fixed": result.modified_count}
