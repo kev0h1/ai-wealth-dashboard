@@ -1,10 +1,15 @@
 # Android Push Notifications (FCM) Setup
 
-The iOS build gets push via APNs, wired directly into `capacitor-spike/ios`
-project files that are committed to the repo. Android is different:
-`capacitor-spike/android/` is **gitignored** — it's regenerated every time
-someone runs `npx cap add android` — so the FCM/Firebase wiring can't live
-as direct edits to that directory. Instead it's captured as a **script**,
+The iOS build gets push via APNs. Like Android, `capacitor-spike/ios/` is
+**gitignored** and does not exist in the repo: `codemagic.yaml` regenerates
+it with `npx cap add ios` on every CI build. The push entitlement
+(`aps-environment`, wired into `App.entitlements` and `CODE_SIGN_ENTITLEMENTS`)
+is applied to that freshly-generated project by a `codemagic.yaml` build
+step, gated behind the `IOS_PUSH_ENABLED` environment variable (default
+false, so today's TestFlight builds ship without push until the Apple
+Developer portal prerequisites in that file's header comment are done).
+Android is handled differently because there's no Android CI: instead of a
+build-step, the FCM/Firebase wiring is captured as a **script**,
 `capacitor-spike/scripts/setup-android-push.sh`, committed to the repo, that
 patches a freshly-generated Android project into working order. This doc is
 the full flow, start to finish.
@@ -16,29 +21,39 @@ APKs are built locally using the steps below.
 
 ## One-time Firebase project setup
 
-1. Go to the [Firebase console](https://console.firebase.google.com/) and
-   create (or reuse) a Firebase project for this app.
-2. Add an **Android app** to that project:
-   - Package name: `co.uk.auriqltd.wealth` (must match exactly —
-     `capacitor-spike/capacitor.config.json` `appId`).
-3. Download the generated **`google-services.json`**. This is the
-   app-side credential — it goes in the Android build, not in git.
-4. In the same Firebase project, go to **Project settings → Service
-   accounts → Generate new private key**. This produces a service-account
-   JSON — this is the **backend**'s credential (used to call the FCM HTTP
-   v1 API to actually send pushes). Hand it to the backend as:
-   - `FCM_PROJECT_ID` — the Firebase project ID, and
-   - `FCM_SERVICE_ACCOUNT_JSON` (or `FCM_SERVICE_ACCOUNT_PATH`) — the
-     service-account key JSON contents (or a path to it) — mirroring
-     however `APNS_*` secrets are configured today.
-   Neither file should ever be committed.
+The Firebase project and Android app registration are **already done**:
+project `auriq-wealth` (project number `106155458816`) has an Android app
+registered under package name `co.uk.auriqltd.wealth`, matching
+`capacitor-spike/capacitor.config.json` `appId` exactly. The resulting
+**`google-services.json`** (the app-side credential) is committed at
+`capacitor-spike/google-services.json`. This file is not a secret: it ships
+inside every APK built from this config and is trivially extractable from
+any installed app, so committing it is safe and follows the precedent
+already set by the identical copy at `mobile/google-services.json` (from
+the retired Expo app).
 
-These are the **two runtime prerequisites** — without both, FCM push does
+The only outstanding step is generating the backend's credential:
+
+1. In the Firebase console, open the `auriq-wealth` project, then go to
+   **Project settings → Service accounts → Generate new private key**.
+   This produces a service-account JSON, the **backend**'s credential
+   (used to call the FCM HTTP v1 API to actually send pushes). Hand it to
+   the backend as:
+   - `FCM_PROJECT_ID`, the Firebase project ID (`auriq-wealth`), and
+   - `FCM_SERVICE_ACCOUNT_JSON` (or `FCM_SERVICE_ACCOUNT_PATH`), the
+     service-account key JSON contents (or a path to it), mirroring
+     however `APNS_*` secrets are configured today.
+   This key **must never be committed**. Do not confuse it with
+   `google-services.json` above: the service-account key can mint
+   credentials to send pushes on the project's behalf, `google-services.json`
+   cannot.
+
+These are the **two runtime prerequisites**. Without both, FCM push does
 not work end-to-end:
 
 | Prerequisite | Used by | Where it lives |
 |---|---|---|
-| `google-services.json` | Android app build | `capacitor-spike/android/app/google-services.json` (gitignored, local only) |
+| `google-services.json` | Android app build | `capacitor-spike/google-services.json` (committed, canonical) and `capacitor-spike/android/app/google-services.json` (gitignored working copy, restored from the canonical file by `setup-android-push.sh`) |
 | Service-account key (`FCM_PROJECT_ID` + `FCM_SERVICE_ACCOUNT_JSON`/`_PATH`) | Backend, to send pushes via FCM | Backend env/secrets (not in git) |
 
 ## Build flow
@@ -60,7 +75,8 @@ cd ../frontend
 npm run build:mobile
 
 # 4. Copy the export into the Capacitor shell
-cp -r out/* ../capacitor-spike/www/
+# Prune stale content-hashed chunks from prior builds (they persist across copies and can ship old bugs)
+rm -rf ../capacitor-spike/www/* && cp -r out/* ../capacitor-spike/www/
 cd ../capacitor-spike
 
 # 5. Sync the web assets + native deps into the Android project
@@ -87,9 +103,9 @@ Applying the `com.google.gms.google-services` Gradle plugin without the
 JSON file present is a hard config-time error on every subsequent Gradle
 run, and because plugin application is grep-guarded, that broken state
 would otherwise persist across re-runs. Checking first keeps the script
-atomic: if the JSON is missing, only the harmless steps (classpath,
-manifest permission) apply, the plugin is never touched, and the script
-exits non-zero.
+atomic: if neither copy of the JSON exists, only the harmless steps
+(classpath, manifest permission) apply, the plugin is never touched, and
+the script exits non-zero.
 
 1. **`android/build.gradle`** (project-level `buildscript`) — adds the
    `classpath 'com.google.gms:google-services:4.4.4'` line if no
@@ -99,11 +115,15 @@ exits non-zero.
    `<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
    if missing (required at runtime on Android 13+ for notifications to
    show at all). Also harmless without `google-services.json`.
-3. **`android/app/google-services.json`** — checked, not created. If it's
-   missing, the script prints the Firebase setup steps above and exits
-   non-zero **before** touching `app/build.gradle`'s plugin block. This is
-   a deliberate hard stop: nothing about FCM will work without this file,
-   and the script will never fabricate one.
+3. **`android/app/google-services.json`**, checked first, and restored if
+   missing. `android/` is gitignored and wiped by every `npx cap add
+   android`, so this working copy never survives regeneration. If it's
+   absent but the canonical, committed `capacitor-spike/google-services.json`
+   exists, the script copies it into place and proceeds. Only if **neither**
+   copy exists does the script print the Firebase setup steps above and
+   exit non-zero **before** touching `app/build.gradle`'s plugin block,
+   since nothing about FCM can work without the file and the script will
+   never fabricate one.
 4. **`android/app/build.gradle`** — applies the
    `com.google.gms.google-services` plugin, only once step 3 has confirmed
    the JSON exists. Detects whether the file uses a modern `plugins { }`

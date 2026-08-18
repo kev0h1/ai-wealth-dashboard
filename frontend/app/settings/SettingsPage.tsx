@@ -311,17 +311,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     // Capacitor (iOS/Android app shell): push goes through our own APNs/FCM
-    // client (frontend/lib/capacitorPush.ts) — neither the Expo bridge nor
-    // Web Push APIs exist in this WKWebView, so this must come first.
+    // client (frontend/lib/capacitorPush.ts) — Web Push APIs don't exist in
+    // this WKWebView, so this must come first.
     if (isNativePlatform()) {
       setNotifPermission("native");
       isCapacitorPushRegistered().then(setNotifEnabled).catch(() => {});
-      return;
-    }
-    // Inside the Expo mobile app's WebView, push is handled natively —
-    // web push APIs are absent but notifications still work.
-    if (typeof window !== "undefined" && (window as unknown as { ReactNativeWebView?: unknown }).ReactNativeWebView) {
-      setNotifPermission("native");
       return;
     }
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -501,34 +495,27 @@ export default function SettingsPage() {
           <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
-              isNativePlatform() ? (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Bell size={16} className={notifEnabled ? "text-indigo-500" : "text-slate-400"} />
-                    <div>
-                      <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Push notifications</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are delivered by the app</p>
-                    </div>
-                  </div>
-                  {notifLoading ? (
-                    <div className="relative w-12 h-6 flex items-center justify-center">
-                      <Loader2 size={12} className="animate-spin text-slate-400" />
-                    </div>
-                  ) : (
-                    <Toggle
-                      checked={notifEnabled}
-                      onChange={handleToggleNotifications}
-                      label="Push notifications"
-                      disabled={notifLoading}
-                    />
-                  )}
-                </div>
-              ) : (
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Bell size={16} className="text-indigo-500 flex-shrink-0" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Notifications are delivered by the app, manage them in your phone&apos;s notification settings.</p>
+                  <Bell size={16} className={notifEnabled ? "text-indigo-500" : "text-slate-400"} />
+                  <div>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Push notifications</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are delivered by the app</p>
+                  </div>
                 </div>
-              )
+                {notifLoading ? (
+                  <div className="relative w-12 h-6 flex items-center justify-center">
+                    <Loader2 size={12} className="animate-spin text-slate-400" />
+                  </div>
+                ) : (
+                  <Toggle
+                    checked={notifEnabled}
+                    onChange={handleToggleNotifications}
+                    label="Push notifications"
+                    disabled={notifLoading}
+                  />
+                )}
+              </div>
             ) : notifPermission === "unsupported" ? (
               <div className="flex items-center gap-3">
                 <BellOff size={16} className="text-slate-400 flex-shrink-0" />

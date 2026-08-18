@@ -1,4 +1,4 @@
-"""Push notification helpers — Web Push (PWA) + Expo push (native app) + APNs (native iOS)."""
+"""Push notification helpers — Web Push (PWA) + APNs (native iOS) + FCM (native Android)."""
 import json
 import time
 import asyncio
@@ -16,12 +16,10 @@ from app.core.config import (
     FCM_PROJECT_ID, FCM_SERVICE_ACCOUNT_JSON, FCM_CONFIGURED,
 )
 from app.db.collections import (
-    push_subscriptions_col, expo_push_tokens_col, apns_tokens_col, fcm_tokens_col,
+    push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
 )
 
 _vapid = Vapid.from_pem(VAPID_PRIVATE_KEY_PEM.encode())
-
-EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 APNS_HOST_PROD    = "https://api.push.apple.com"
 APNS_HOST_SANDBOX = "https://api.development.push.apple.com"
@@ -186,38 +184,7 @@ async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> 
         logging.warning("FCM push error for %s: %s", user_id, e)
 
 
-async def send_expo_push(user_id: str, title: str, body: str, url: str = "/") -> None:
-    """Deliver to the user's native (Expo) push tokens. Prunes dead tokens."""
-    tokens = await expo_push_tokens_col.find({"user_id": user_id}).to_list(None)
-    if not tokens:
-        return
-    messages = [
-        {"to": t["_id"], "title": title, "body": body, "data": {"url": url}}
-        for t in tokens
-    ]
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                EXPO_PUSH_URL, json=messages,
-                headers={"Content-Type": "application/json", "Accept": "application/json"},
-            )
-        results = resp.json().get("data", [])
-    except Exception as e:
-        logging.warning("Expo push send error for %s: %s", user_id, e)
-        return
-    dead = []
-    for msg, res in zip(messages, results):
-        if isinstance(res, dict) and res.get("status") == "error":
-            if (res.get("details") or {}).get("error") == "DeviceNotRegistered":
-                dead.append(msg["to"])
-            else:
-                logging.warning("Expo push error for %s: %s", user_id, res.get("message"))
-    if dead:
-        await expo_push_tokens_col.delete_many({"_id": {"$in": dead}})
-
-
 async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/") -> None:
-    await send_expo_push(user_id, title, body, url)
     await send_apns_push(user_id, title, body, url)
     await send_fcm_push(user_id, title, body, url)
     subs = await push_subscriptions_col.find({"user_id": user_id}).to_list(None)

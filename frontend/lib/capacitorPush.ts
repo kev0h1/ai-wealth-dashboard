@@ -5,6 +5,32 @@ import { api } from "./api";
 // can tell the server which token to drop without re-reading it from the OS.
 const TOKEN_STORAGE_KEY = "wd_push_token";
 
+// Guards `pushNotificationActionPerformed` registration so calling
+// `initCapacitorPush()` more than once (e.g. re-toggling the Settings switch)
+// never stacks a second listener and double-navigates on a single tap.
+let actionListenerRegistered = false;
+
+// Resolves a push payload's `url` to a safe, app-relative path — mirrors
+// `public/sw.js`'s `notificationclick` handler (`data.url || "/"`), plus a
+// same-origin guard so a tampered/absolute-external url can never navigate
+// the app off-domain.
+function resolveNotificationPath(rawUrl: unknown): string {
+  const url = typeof rawUrl === "string" && rawUrl.length > 0 ? rawUrl : "/";
+  // App-relative ("/spend?view=list") — the common case sent by the backend
+  // (see send_push_to_user/notify_new_transactions in backend/app/core/push.py).
+  // Reject protocol-relative ("//evil.com") which browsers treat as absolute.
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin === window.location.origin) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    /* not a parseable URL — fall through to the safe default */
+  }
+  return "/";
+}
+
 function isNative(): boolean {
   try {
     return Capacitor.isNativePlatform();
@@ -63,6 +89,20 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
     await PushNotifications.addListener("registrationError", (error) => {
       console.error("[capacitorPush] registration error", error.error);
     });
+
+    // Tapping a delivered notification (iOS: `notification.data.url` via
+    // `request.content.userInfo` — the APNs payload's top-level `url` key
+    // set by `send_apns_push` in backend/app/core/push.py; Android: same
+    // `notification.data.url` path, populated from the FCM message's
+    // `data.url` by `send_fcm_push`) should land on that url, not wherever
+    // the app happened to be left.
+    if (!actionListenerRegistered) {
+      actionListenerRegistered = true;
+      await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+        const path = resolveNotificationPath(action?.notification?.data?.url);
+        window.location.href = path;
+      });
+    }
 
     await PushNotifications.register();
     return "granted";

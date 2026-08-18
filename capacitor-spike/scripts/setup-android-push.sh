@@ -31,6 +31,7 @@ PROJECT_GRADLE="${ANDROID_DIR}/build.gradle"
 APP_GRADLE="${ANDROID_DIR}/app/build.gradle"
 MANIFEST="${ANDROID_DIR}/app/src/main/AndroidManifest.xml"
 GOOGLE_SERVICES_JSON="${ANDROID_DIR}/app/google-services.json"
+CANONICAL_GOOGLE_SERVICES_JSON="${SPIKE_DIR}/google-services.json"
 
 GOOGLE_SERVICES_CLASSPATH_VERSION="4.4.4"
 
@@ -105,10 +106,18 @@ fi
 # would otherwise persist across re-runs once the plugin block is written.
 if [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
   echo "[3/4] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
+elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
+  # android/ is gitignored and wiped by `cap add android`, so the working
+  # copy won't survive a regeneration. The canonical copy at
+  # capacitor-spike/google-services.json is committed and survives that,
+  # so restore the working copy from it instead of hard-stopping.
+  cp "${CANONICAL_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
+  echo "[3/4] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
 else
   cat >&2 <<EOF
 
-ERROR: ${GOOGLE_SERVICES_JSON} is missing.
+ERROR: neither ${GOOGLE_SERVICES_JSON}
+nor ${CANONICAL_GOOGLE_SERVICES_JSON} exists.
 
 FCM push notifications cannot work without it, and the google-services
 Gradle plugin will NOT be applied until it's present (applying it without
@@ -117,7 +126,7 @@ this file breaks every subsequent Gradle build). To fix:
      open (or create) the Firebase project used for this app.
   2. Add an Android app with package name: co.uk.auriqltd.wealth
   3. Download the generated google-services.json.
-  4. Place it at: ${GOOGLE_SERVICES_JSON}
+  4. Place it at: ${CANONICAL_GOOGLE_SERVICES_JSON}
   5. Re-run this script.
 
 See ${SPIKE_DIR}/ANDROID_PUSH.md for the full setup guide.

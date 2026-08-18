@@ -7,7 +7,7 @@ from arq.connections import RedisSettings
 from app.core.config import REDIS_URL
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col, mono_connections_col,
-    webhook_events_col, expo_push_tokens_col, push_subscriptions_col,
+    webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
     finexer_consents_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
@@ -170,9 +170,10 @@ async def task_period_digests(ctx):
     """Fresh-start digest: one push per user on the first day of their pay
     period. send_period_digest itself checks the boundary, the user's
     notification pref, and de-duplicates per period — this cron just fans out
-    over everyone with a push target."""
-    uids = set(await expo_push_tokens_col.distinct("user_id"))
-    uids |= set(await push_subscriptions_col.distinct("user_id"))
+    over everyone with a push target (web push, APNs, or FCM)."""
+    uids = set(await push_subscriptions_col.distinct("user_id"))
+    uids |= set(await apns_tokens_col.distinct("user_id"))
+    uids |= set(await fcm_tokens_col.distinct("user_id"))
     sent = 0
     for uid in uids:
         try:
