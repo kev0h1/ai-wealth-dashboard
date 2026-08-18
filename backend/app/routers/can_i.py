@@ -113,7 +113,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # ── Deterministic fact pack ──────────────────────────────────────────
     sts = await compute_safe_to_spend(uid)
     if sts.get("status") == "insufficient_data":
-        return {"reply": "I don't have enough account data yet — connect an account and try again."}
+        return {"reply": "I don't have enough account data yet, connect an account and try again."}
 
     facts: dict = {
         "safe_to_spend":     sts.get("safe_to_spend"),
@@ -163,13 +163,18 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # ── Change intents (Mirror traits marked "change" → category pace) ──
     try:
         from app.db.collections import behaviour_portrait_col
-        from app.services.checkpoints import checkpoint_map_for_period, current_period
+        from app.services.checkpoints import (
+            _pay_cfg,
+            checkpoint_map_for_period,
+            current_period,
+        )
         from app.services.pace import (
             _BASELINE_DAYS,
             _read_cached_baseline,
             _total_baseline,
             _write_cached_baseline,
             load_spend_txns,
+            shaped_fraction,
         )
 
         portrait = await behaviour_portrait_col.find_one({"_id": uid}) or {}
@@ -192,8 +197,9 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             # here previously caused this surface's period window (and
             # therefore spent_this_period) to silently diverge from the
             # companion's intent_pace figure for the same category/period.
-            ci_today = date.today()
+            pay_cfg = await _pay_cfg(uid)
             period_start, period_end = await current_period(uid)
+            period_days = (period_end - period_start).days + 1
 
             # Baseline: same cache key + fallback path pace/companion use.
             baseline_key = period_start.isoformat()
@@ -215,7 +221,6 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 if period_start <= t["date"] <= period_end:
                     cat_spent[t["category"]] = cat_spent.get(t["category"], 0.0) + t["amount"]
 
-            days_elapsed = max(1, (ci_today - period_start).days)
             thin_history = baseline_months < 2
 
             aim_map = await checkpoint_map_for_period(
@@ -231,14 +236,23 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 mentioned_in_question = cat.lower() in question_lower or any(
                     syn in question_lower for syn in synonyms
                 )
+                pro_rata_usual = None
+                if usual_30d:
+                    # Shaped fraction (pace.py's shared S(f_now)) instead of
+                    # the linear usual_30d/30*days_elapsed — so this never
+                    # contradicts the shaped Spend page for the same
+                    # category/period.
+                    shaped_frac = await shaped_fraction(
+                        uid, period_start, pay_cfg, category=cat
+                    )
+                    pro_rata_usual = round(
+                        float(usual_30d) / 30 * period_days * shaped_frac, 2
+                    )
                 change_intents.append({
                     "category": cat,
                     "usual_30d": round(float(usual_30d), 2) if usual_30d else None,
                     "spent_this_period": round(cat_spent.get(cat, 0.0), 2),
-                    "pro_rata_usual": (
-                        round(float(usual_30d) / 30 * days_elapsed, 2)
-                        if usual_30d else None
-                    ),
+                    "pro_rata_usual": pro_rata_usual,
                     "active_aim": (
                         round(float(aim_doc["aim_amount"]), 2)
                         if aim_doc and aim_doc.get("aim_amount") is not None
@@ -327,11 +341,13 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "change you asked for). Entries without mentioned_in_question=true may be "
         "ignored unless clearly relevant. Never moralise. "
         "If the question is not about the user's own spending or affordability, reply "
-        'exactly: I can answer spending questions — try "Can I spend £50 this '
+        'exactly: I can answer spending questions, try "Can I spend £50 this '
         'weekend?". General cost knowledge may be used ONLY as a clearly rough range '
         "(say 'roughly'), never as their figure. Follow-up questions may reference "
-        "earlier turns — use the conversation for context but ALWAYS ground figures "
-        "in the current facts JSON.\n\n"
+        "earlier turns, use the conversation for context but ALWAYS ground figures "
+        "in the current facts JSON. Write in plain, human punctuation: no em-dashes "
+        "(—) or en-dashes (–); use a comma, a full stop, or a plain conjunction "
+        "instead. A plain hyphen is fine only inside a compound word or a range.\n\n"
         f"FACTS: {json.dumps(facts, default=str)}"
     )
 

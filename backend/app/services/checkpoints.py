@@ -35,7 +35,7 @@ from app.db.collections import (
     preferences_col,
 )
 from app.services.categories import get_category_kinds, is_non_spend
-from app.services.pace import _total_baseline, load_spend_txns
+from app.services.pace import _total_baseline, load_spend_txns, shaped_fraction
 from app.services.pay_period import get_pay_period_for_date
 
 logger = logging.getLogger(__name__)
@@ -142,11 +142,12 @@ async def create_checkpoint(
     kind_map = await get_category_kinds(uid)
     if is_non_spend(kind_map, ref):
         raise ValueError(
-            f"'{ref}' is not a spending category — the Door is for spending "
+            f"'{ref}' is not a spending category, the Door is for spending "
             "categories only (not Transfer, Savings, Debt, or Income)"
         )
 
-    period_start, period_end = await current_period(uid)
+    pay_cfg = await _pay_cfg(uid)
+    period_start, period_end = get_pay_period_for_date(date.today(), pay_cfg)
 
     # Reject duplicate active checkpoint for this category+period
     existing = await checkpoints_col.find_one({
@@ -170,7 +171,7 @@ async def create_checkpoint(
         usual_30d = baseline.get(ref)
         if not usual_30d:
             raise ValueError(
-                f"No spending history for '{ref}' — cannot derive an aim. "
+                f"No spending history for '{ref}', cannot derive an aim. "
                 "Please provide an aim_amount instead."
             )
 
@@ -207,10 +208,12 @@ async def create_checkpoint(
     # Attach live progress
     spent = await category_total_spend(uid, ref, period_start, period_end, kind_map=kind_map)
     today = date.today()
-    total_days   = (period_end - period_start).days + 1
-    days_elapsed = max(1, min(total_days, (today - period_start).days))
     days_left    = max(0, (period_end - today).days + 1)
-    on_track = spent <= aim * (days_elapsed / total_days)
+    # Shaped fraction (pace.py's shared S(f_now)) instead of the linear
+    # days_elapsed/total_days fraction, so the Door's on_track verdict never
+    # contradicts the shaped Spend page reading for the same category/period.
+    shaped_frac = await shaped_fraction(uid, period_start, pay_cfg, category=ref, kind_map=kind_map)
+    on_track = spent <= aim * shaped_frac
 
     progress = {
         "spent_so_far": spent,
@@ -229,7 +232,8 @@ async def list_active(uid: str) -> list[dict]:
     kind_map = await get_category_kinds(uid)
     await resolve_due(uid, kind_map=kind_map)
 
-    _, period_end = await current_period(uid)
+    pay_cfg = await _pay_cfg(uid)
+    _, period_end = get_pay_period_for_date(date.today(), pay_cfg)
     today = date.today()
     cursor = checkpoints_col.find({
         "user_id":    uid,
@@ -245,10 +249,13 @@ async def list_active(uid: str) -> list[dict]:
         spent        = await category_total_spend(
             uid, doc["ref"], period_start, period_end_d, kind_map=kind_map
         )
-        total_days   = (period_end_d - period_start).days + 1
-        days_elapsed = max(1, min(total_days, (today - period_start).days))
         days_left    = max(0, (period_end_d - today).days + 1)
-        on_track     = spent <= doc["aim_amount"] * (days_elapsed / total_days)
+        # Shaped fraction instead of linear days_elapsed/total_days — see
+        # create_checkpoint's comment above.
+        shaped_frac  = await shaped_fraction(
+            uid, period_start, pay_cfg, category=doc["ref"], kind_map=kind_map
+        )
+        on_track     = spent <= doc["aim_amount"] * shaped_frac
         progress = {"spent_so_far": spent, "days_left": days_left, "on_track": on_track}
         out.append(_serialise(doc, progress))
     return out
@@ -285,6 +292,25 @@ async def record_intent(uid: str, category: str, answer: str) -> dict:
         "answer":     answer,
         "created_at": now.isoformat(),
     }
+
+
+async def delete_intent(uid: str, category: str) -> bool:
+    """Undo a recorded one_off/new_normal answer for THIS period — the 5s
+    undo toast's real reversal. Answering, undoing, then re-answering must
+    round-trip cleanly: this simply removes the stored doc so the next
+    `record_intent` call for the same (uid, category, period) is a fresh
+    upsert, not an update of stale state."""
+    category = (category or "").strip()
+    if not category:
+        raise ValueError("category must be a non-empty string")
+
+    _, period_end = await current_period(uid)
+    result = await category_intent_col.delete_one({
+        "user_id":    uid,
+        "category":   category,
+        "period_end": period_end.isoformat(),
+    })
+    return result.deleted_count > 0
 
 
 async def resolve_due(uid: str, kind_map: dict[str, str] | None = None) -> list[dict]:
@@ -387,8 +413,6 @@ async def checkpoint_map_for_period(
                one, since a supplied `cat_spent` requires no further DB read.
     """
     today = date.today()
-    if cat_spent is None and kind_map is None:
-        kind_map = await get_category_kinds(uid)
 
     cursor = checkpoints_col.find({
         "user_id":    uid,
@@ -397,14 +421,21 @@ async def checkpoint_map_for_period(
     })
     docs = await cursor.to_list(None)
 
-    total_days = (period_end - period_start).days + 1
+    # kind_map and pay_cfg are only needed once there's at least one active
+    # checkpoint to score — fetched here (lazily, ONCE regardless of how many
+    # checkpoints are in this period) rather than unconditionally, since most
+    # calls for most users/periods have zero active checkpoints.
+    if docs:
+        if kind_map is None:
+            kind_map = await get_category_kinds(uid)
+        pay_cfg = await _pay_cfg(uid)
+    else:
+        pay_cfg = None
 
     if days_left is None:
         days_left_computed = max(0, (period_end - today).days + 1)
     else:
         days_left_computed = days_left
-
-    days_elapsed = max(1, min(total_days, total_days - days_left_computed))
 
     out: dict[str, dict] = {}
     for doc in docs:
@@ -418,7 +449,12 @@ async def checkpoint_map_for_period(
                 uid, cat, period_start, period_end, kind_map=kind_map
             )
 
-        on_track = spent <= aim * (days_elapsed / total_days)
+        # Shaped fraction instead of linear days_elapsed/total_days — see
+        # create_checkpoint's comment above.
+        shaped_frac = await shaped_fraction(
+            uid, period_start, pay_cfg, category=cat, kind_map=kind_map
+        )
+        on_track = spent <= aim * shaped_frac
 
         out[cat] = {
             "id":           str(doc["_id"]),

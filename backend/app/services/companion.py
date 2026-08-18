@@ -125,6 +125,45 @@ def _humanise_bill_name(name: str) -> str:
     return cleaned or "bill"
 
 
+# Small allowlist of known acronyms/initialisms that must stay upper-case
+# when humanising an account/product display name (e.g. "NW World
+# Mastercard" should keep "NW", not become "Nw"). Deliberately tiny and
+# scoped to humanise_account_name only — not shared with the broader
+# _humanise_bill_name pipeline above.
+_ACCOUNT_NAME_ACRONYMS = {"NW", "HSBC", "ISA", "AMEX"}
+
+
+def humanise_account_name(name: str) -> str:
+    """Title-case a shouty ALL-CAPS account/product name for display, e.g.
+    "THE NUMBER ONE REWARD PLATINUM" -> "The Number One Reward Platinum".
+    Words already in `_ACCOUNT_NAME_ACRONYMS` are left upper-case; mixed-case
+    names (already human-formatted) pass through untouched. This only
+    re-cases — it never repairs upstream truncation/spelling issues (e.g. a
+    provider-supplied "Mastercar").
+
+    Used only in the payday-gap/cliff/trajectory message templates below —
+    does not globally rewrite account names anywhere else in the app. Every
+    one of those templates interpolates the result immediately before a
+    sentence-ending "." (e.g. "...gap before {name} payday.", "...carried on
+    {name}."); a provider-supplied name that itself ends in "." (seen live —
+    "THE NUMBER ONE REWARD PLATINUM" style names occasionally arrive with a
+    trailing full stop) would otherwise render as a double period. Stripped
+    here, once, so every calling template gets exactly one terminator.
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return raw
+    raw = raw.rstrip(".").rstrip()
+
+    def _title_word(m: re.Match) -> str:
+        w = m.group(0)
+        if w.upper() in _ACCOUNT_NAME_ACRONYMS:
+            return w.upper()
+        return w.title() if len(w) >= 2 and w.isupper() else w
+
+    return re.sub(r"[A-Za-z]+", _title_word, raw)
+
+
 def _ceil5(amount: float) -> int:
     """Round up to nearest £5."""
     return math.ceil(amount / 5) * 5
@@ -274,11 +313,12 @@ async def _per_account_everyday_spend(uid: str, recurring_keys: set) -> dict[str
         return {}
 
 
-async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> dict[str, int]:
-    """Historical median amount moved OUT of the salary account, per destination
-    account, on the 4 most recent paydays — matched by amount + timing against a
-    credit landing elsewhere. Surfaces "usual" alongside the freshly computed
-    `move` on each payday-plan destination card."""
+async def _usual_payday_moves_raw(uid: str, salary_acct_id: str, pay_cfg: dict) -> dict[str, list[float]]:
+    """Shared body behind `_usual_payday_moves` / `_usual_payday_moves_with_counts`
+    — per destination, the list of matched transfer amounts across the 4 most
+    recent paydays (one entry per payday that actually matched). Kept as its
+    own function so neither caller re-runs the debit/credit matching query
+    twice for the same request."""
     try:
         from app.services.pay_period import get_pay_period_for_date, prev_pay_period
         from app.services.categories import get_category_kinds, is_non_spend, is_income
@@ -364,13 +404,40 @@ async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> d
                         dest_amounts.setdefault(dest_id, []).append(c_amt)
                         break
 
-        return {
-            dest_id: int(round(_median(amounts)))
-            for dest_id, amounts in dest_amounts.items()
-            if amounts
-        }
+        return dest_amounts
     except Exception:
         return {}
+
+
+async def _usual_payday_moves(uid: str, salary_acct_id: str, pay_cfg: dict) -> dict[str, int]:
+    """Historical median amount moved OUT of the salary account, per destination
+    account, on the 4 most recent paydays — matched by amount + timing against a
+    credit landing elsewhere. Surfaces "usual" alongside the freshly computed
+    `move` on each payday-plan destination card."""
+    dest_amounts = await _usual_payday_moves_raw(uid, salary_acct_id, pay_cfg)
+    return {
+        dest_id: int(round(_median(amounts)))
+        for dest_id, amounts in dest_amounts.items()
+        if amounts
+    }
+
+
+async def _usual_payday_moves_with_counts(
+    uid: str, salary_acct_id: str, pay_cfg: dict
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Same historical medians as `_usual_payday_moves`, plus — per
+    destination — how many of the 4 most recent paydays actually contributed
+    a matched transfer. Used by spend_impact.py's move-consequence confidence
+    gate: a single lucky match should never be read as an established habit.
+    Shares `_usual_payday_moves_raw`'s query rather than re-deriving it."""
+    dest_amounts = await _usual_payday_moves_raw(uid, salary_acct_id, pay_cfg)
+    medians = {
+        dest_id: int(round(_median(amounts)))
+        for dest_id, amounts in dest_amounts.items()
+        if amounts
+    }
+    counts = {dest_id: len(amounts) for dest_id, amounts in dest_amounts.items() if amounts}
+    return medians, counts
 
 
 async def _active_commitment_slices(
@@ -467,6 +534,53 @@ def _is_offline(acc: dict) -> bool:
     moves by hand. Flagged on the normalised dicts built in compute_today_items;
     they never carry the type/subtype fields the other two classifiers read."""
     return bool(acc.get("_offline"))
+
+
+def _walk_events(
+    events: list[tuple[int, str, float, bool, dict]],
+    balances: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float], dict[str, dict]]:
+    """The per-account running-balance walk at the heart of the at-risk/
+    shortfall simulation — extracted so `spend_impact._bills_risk` can run
+    the exact same walk (once at usual pace, once with an extra projected
+    outflow layered in) rather than re-implementing it. Behaviour is
+    byte-identical to the inline loop this replaces inside
+    `compute_today_items` — the only change is that the `bal >= amount` /
+    "bill bounces" branches collapsed into one, since both computed the
+    same `new_bal = bal - amount` either way; the old split only mattered
+    for *deciding* whether to touch `shortfall_bill`, which the `new_bal < 0`
+    check below still does identically.
+
+    `events` — (days_away, acct, amount, is_income, item) tuples, already
+    sorted by the caller (days_away, then bills-before-income same-day —
+    conservative: an on-payday debit must be covered by balance, not that
+    day's income).
+    `balances` — starting balance per account; an account absent from this
+    dict defaults to £0 the first time an event references it (matches the
+    prior inline behaviour, where `running` only ever held keys for
+    accounts that had at least one assessable bill).
+
+    Returns (running, min_running, shortfall_bill):
+      running        — final balance per account after every event.
+      min_running    — the lowest point each account's balance touched.
+      shortfall_bill — first bill (by walk order) that drove each account
+                        negative, keyed by account id.
+    """
+    running: dict[str, float] = dict(balances)
+    min_running: dict[str, float] = dict(balances)
+    shortfall_bill: dict[str, dict] = {}
+
+    for _days_away, acct, amount, is_income, item in events:
+        if is_income:
+            running[acct] = running.get(acct, 0.0) + amount
+        else:
+            new_bal = running.get(acct, 0.0) - amount
+            running[acct] = new_bal
+            min_running[acct] = min(min_running.get(acct, new_bal), new_bal)
+            if new_bal < 0 and acct not in shortfall_bill:
+                shortfall_bill[acct] = item
+
+    return running, min_running, shortfall_bill
 
 
 async def compute_today_items(uid: str, payday_preview: bool = False) -> list[dict]:
@@ -617,26 +731,10 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
 
     events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # same-day: bills before income (conservative — an on-payday debit must be covered by balance, not that day's income)
 
-    # Track minimum running balance per account
-    min_running: dict[str, float] = {k: v for k, v in running.items()}
-    # Track the first bill that caused a shortfall per account
-    shortfall_bill: dict[str, dict] = {}
-
-    for days_away, acct, amount, is_income, item in events:
-        if is_income:
-            running[acct] = running.get(acct, 0.0) + amount
-        else:
-            bal = running.get(acct, 0.0)
-            if bal >= amount:
-                running[acct] = bal - amount
-                min_running[acct] = min(min_running.get(acct, bal - amount), bal - amount)
-            else:
-                # Bill bounces — ALWAYS debit running balance so next bill accumulates deficit
-                new_bal = bal - amount
-                running[acct] = new_bal
-                min_running[acct] = min(min_running.get(acct, new_bal), new_bal)
-                if new_bal < 0 and acct not in shortfall_bill:
-                    shortfall_bill[acct] = item
+    # Walk shared with spend_impact._bills_risk (see _walk_events docstring) —
+    # same events, same starting balances, same result as the inline loop
+    # this replaced.
+    running, min_running, shortfall_bill = _walk_events(events, running)
 
     # ── 5. Source-selection helpers (accounts already loaded in step 3) ─────
     # _is_savings, _is_current, _is_offline are module-level (above compute_today_items)
@@ -947,13 +1045,13 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         if str(_inc.get("account_id") or "") and _landing:
             income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
-                f"around {_when} — it has landed in {_landing}, not {_dest_nm.strip()}. "
+                f"around {_when}. It has landed in {_landing}, not {_dest_nm.strip()}. "
                 f"If it does arrive, you'll simply need less."
             )
         else:
             income_note_by_dest[_dest] = (
                 f"This plan doesn't count the £{int(round(_amt)):,} that sometimes arrives "
-                f"around {_when} — it hasn't been steady enough to plan around. "
+                f"around {_when}. It hasn't been steady enough to plan around. "
                 f"If it lands, you'll simply need less."
             )
 
@@ -1227,9 +1325,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
 
             if total > 0:
-                headline = f"Payday plan — split £{salary_amount:,} across {n_moves} accounts"
+                headline = f"Payday plan: split £{salary_amount:,} across {n_moves} accounts"
             else:
-                headline = "Payday plan — every account is already set"
+                headline = "Payday plan: every account is already set"
 
             _salary_acc_obj = next((a for a in all_uk_accounts if a["_str_id"] == salary_acct), None)
             _salary_name = _clean_name(_salary_acc_obj.get("name") if _salary_acc_obj else None, salary_acct)
@@ -1238,7 +1336,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             if covered:
                 body = f"£{total:,} distributed, £{stays:,} stays in {_salary_name}."
             elif trimmed:
-                body = f"A tight month — buffers trimmed so every payment is covered. £{total:,} distributed."
+                body = f"A tight month: buffers trimmed so every payment is covered. £{total:,} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
 
@@ -1332,11 +1430,15 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             if emitted_dests >= _MOVE_CARD_CAP:
                 capped_out += 1
                 continue
-            headline = f"£{int(round(u['shortfall']))} gap before {u['dest_name']} payday"
+            # Humanise once — the destination's ALL-CAPS product name is
+            # shown in the headline, then referred to as "it" on second
+            # mention in the body (no repeated full name, no shouting caps).
+            _dest_display = humanise_account_name(u["dest_name"])
+            headline = f"£{int(round(u['shortfall']))} gap before {_dest_display} payday."
             body = (
-                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} is expected "
-                f"{u['bill_weekday']}, but {u['dest_name']} is £{int(round(u['shortfall']))} "
-                f"short and there's no easy transfer source right now."
+                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} payment is expected "
+                f"{u['bill_weekday']}, but it's £{int(round(u['shortfall']))} short of cover, "
+                f"and there's no easy transfer source right now."
             )
             item_doc = {
                 "_id": item_id,
@@ -1431,7 +1533,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 _all_phrase = "covers all of them" if dest_covered else "covers most of it"
                 body = (
                     f"{len(_ds_bills)} payments (£{_ds.get('needs_total', 0):,}) leave {dest_name} "
-                    f"before period end and it holds £{int(round(_ds.get('balance', 0)))} — "
+                    f"before period end and it holds £{int(round(_ds.get('balance', 0)))}. "
                     f"£{_shortfall_i} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_all_phrase}{_spare_phrase}"
                 )
@@ -1451,7 +1553,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         if dest_gap > 0.5:
             residual = (
                 f"These moves cover £{total:,}, but {dest_name} is still "
-                f"£{int(round(dest_gap))} short — one payment may need a different plan."
+                f"£{int(round(dest_gap))} short, so one payment may need a different plan."
             )
 
         assumed_incomes = [
@@ -1526,9 +1628,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # are waiting behind the cap, on the last card that did render.
     if capped_out and items:
         overflow_note = (
-            "One more account is short this window — it'll show here once these are cleared."
+            "One more account is short this window. It'll show here once these are cleared."
             if capped_out == 1
-            else f"{capped_out} more accounts are short this window — they'll show here once these are cleared."
+            else f"{capped_out} more accounts are short this window. They'll show here once these are cleared."
         )
         items[-1]["overflow_note"] = overflow_note
         await companion_items_col.update_one(
@@ -1575,9 +1677,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         bill_count = int(stored.get("_dest_bill_count") or 0)
         needs_total = stored.get("_dest_needs_total")
         headline = (
-            f"Sorted — {dest_name} is covered"
+            f"Sorted: {dest_name} is covered"
             if dest_name
-            else "Sorted — those payments are covered"
+            else "Sorted: those payments are covered"
         )
         _at_clause = f" at {dest_name}" if dest_name else ""
         if needs_total and bill_count > 1:
@@ -1667,7 +1769,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "item": {
                         "id": f"celebrate:{stored_id}",
                         "type": "celebration",
-                        "headline": "Sorted — this week's payments are covered",
+                        "headline": "Sorted: this week's payments are covered",
                         "body": f"£{stored_total:,} of payments are safe.",
                         "action": None,
                         "estimated": False,
@@ -1784,9 +1886,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             _win_amt_str = f"{_win_amt:,.2f}".removesuffix(".00")
             _win_merchant = str(_ins.get("verified_merchant") or "").strip()
             _win_body = (
-                f"{_win_merchant} hasn't taken a payment in over 6 weeks — that change stuck."
+                f"{_win_merchant} hasn't taken a payment in over 6 weeks. That change stuck."
                 if _win_merchant
-                else "That payment hasn't gone out in over 6 weeks — that change stuck."
+                else "That payment hasn't gone out in over 6 weeks. That change stuck."
             )
             celebration_items.append({
                 "id": _win_id,
@@ -1879,7 +1981,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 headline = "Card season"
                 body = (
                     f"This is the week your credit cards usually take over {card_desc}. "
-                    f"Nothing to do — just so it doesn't sneak up."
+                    f"Nothing to do, just so it doesn't sneak up."
                 )
                 # Personalise with the real month-to-date card delta, when available.
                 # Falls back to the generic body above on any error or if the
@@ -1903,8 +2005,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     if _cs_delta >= 10:
                         body = (
                             f"This is the week your credit cards usually take over {card_desc}. "
-                            f"£{int(round(_cs_delta))} has gone on credit cards so far this month — "
-                            f"nothing to do now, it just joins your card plan."
+                            f"£{int(round(_cs_delta))} has gone on credit cards so far this month. "
+                            f"Nothing to do now, it just joins your card plan."
                         )
                 except Exception:
                     pass
@@ -1996,7 +2098,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "headline": "Is this your payday?",
                     "body": f"Looks like £{_amt:,.0f} from {_merchant} is expected on {_phrase}.",
                     "action": {"label": "Yes, that's it", "route": "/income/confirm-payday", "kind": "confirm_payday"},
-                    "secondary_action": {"label": "No — set it myself", "route": "/spend", "kind": "set_payday"},
+                    "secondary_action": {"label": "No, set it myself", "route": "/spend", "kind": "set_payday"},
                     "estimated": False,
                     "proposal": proposal,
                 })
@@ -2030,9 +2132,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 if _eligible:
                     _n = len(_eligible)
                     _ct_body = (
-                        "Tell me the rate on your card and I can plan around it — takes a minute."
+                        "Tell me the rate on your card and I can plan around it. Takes a minute."
                         if _n == 1 else
-                        f"Tell me the rates on your {_n} cards and I can plan around them — takes a minute."
+                        f"Tell me the rates on your {_n} cards and I can plan around them. Takes a minute."
                     )
                     ask_items.append({
                         "id": "ask:card_terms",
@@ -2090,16 +2192,16 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     _cliff_id = f"cliff:{_sid}:{_until_d.isoformat()}"
                     if _cliff_id in dismissed:
                         continue   # try the next-soonest promo on this card
-                    _card_name = _clean_name(
+                    _card_name = humanise_account_name(_clean_name(
                         _acc.get("nickname") or _acc.get("display_name") or _acc.get("name")
-                    ) or "Credit card"
+                    ) or "Credit card")
                     _when = _until_d.strftime("%-d %b")
                     _bal_str = f"£{int(round(_bal_mag)):,}"
                     _promo_rate = f"{float(_p.get('apr_pct') or 0.0):g}%"
                     if _p.get("kind") == "balance_transfer":
-                        _headline = f"{_promo_rate} on balance transfers at {_card_name} ends {_when} — {_bal_str} is on it."
+                        _headline = f"{_promo_rate} on balance transfers at {_card_name} ends {_when}, {_bal_str} is on it."
                     else:
-                        _headline = f"{_promo_rate} on {_card_name} ends {_when} — {_bal_str} is on it."
+                        _headline = f"{_promo_rate} on {_card_name} ends {_when}, {_bal_str} is on it."
                     _apr = _doc.get("apr_pct")
                     if _apr:
                         _monthly = int(round(_bal_mag * float(_apr) / 1200))
@@ -2189,8 +2291,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         _bafi = _promo_cliff_card["balance_at_first_interest"]
                         _mif = _promo_cliff_card["monthly_interest_at_first"]
                         _traj_headline = (
-                            f"At your current pace the cards clear in {_fmt_month(_debt_free_month)}"
-                            f" — £{int(round(_bafi)):,} would still be on the {_promo_cliff_card['name']}"
+                            f"At your current pace the cards clear in {_fmt_month(_debt_free_month)},"
+                            f" £{int(round(_bafi)):,} would still be on the {humanise_account_name(_promo_cliff_card['name'])}"
                             f" when its 0% ends in {_fmt_month(_promo_cliff_month)}."
                         )
                         _cliff_body = f"From then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
@@ -2199,8 +2301,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         _dfm_str = _fmt_month(_debt_free_month) if _debt_free_month else "unknown"
                         if _monthly_interest_now >= 1:
                             _traj_headline = (
-                                f"At your current pace the cards clear in {_dfm_str}"
-                                f" — {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
+                                f"At your current pace the cards clear in {_dfm_str},"
+                                f" {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
                             )
                         else:
                             _traj_headline = (
@@ -2219,25 +2321,25 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         if _n_mat == 1:
                             _solo = _material_cards[0]
                             _traj_headline = (
-                                f"The cards aren't coming down at your current pace"
-                                f" — £{int(round(_solo['debt'])):,} carried on {_solo['name']}."
+                                f"The cards aren't coming down at your current pace,"
+                                f" £{int(round(_solo['debt'])):,} carried on {humanise_account_name(_solo['name'])}."
                             )
                         else:
                             _carried_total = _plan["totals"]["buckets"]["carried_total"]
                             _traj_headline = (
-                                f"The cards aren't coming down at your current pace"
-                                f" — £{int(round(_carried_total)):,} carried across {_n_mat} cards."
+                                f"The cards aren't coming down at your current pace,"
+                                f" £{int(round(_carried_total)):,} carried across {_n_mat} cards."
                             )
                         _cliff_body = (
-                            f"£{int(round(_bafi)):,} will still be on the {_promo_cliff_card['name']}"
-                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}"
-                            f" — from then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
+                            f"£{int(round(_bafi)):,} will still be on the {humanise_account_name(_promo_cliff_card['name'])}"
+                            f" when its 0% ends in {_fmt_month(_promo_cliff_month)}."
+                            f" From then it'd cost about £{int(round(_mif)):,} a month unless it's cleared or moved."
                         )
                     elif _monthly_interest_now >= 1:
                         _cliff_body = ""
                         _traj_headline = (
-                            f"The cards aren't coming down at your current pace"
-                            f" — {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
+                            f"The cards aren't coming down at your current pace,"
+                            f" {_fmt_gbp(_monthly_interest_now)} a month in interest right now."
                         )
                     else:
                         _cliff_body = ""
@@ -2245,15 +2347,15 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         if _n_mat == 1:
                             _solo = _material_cards[0]
                             _traj_headline = (
-                                f"Your card isn't coming down at your current pace"
-                                f" — {_fmt_gbp(_solo['debt'])} carried on {_solo['name']}."
+                                f"Your card isn't coming down at your current pace,"
+                                f" {_fmt_gbp(_solo['debt'])} carried on {humanise_account_name(_solo['name'])}."
                             )
                         else:
                             _buckets = (_plan["totals"].get("buckets") or {})
                             _carried_total_fallback = _buckets.get("carried_total") or sum(c["debt"] for c in _material_cards)
                             _traj_headline = (
-                                f"The cards aren't coming down at your current pace"
-                                f" — £{int(round(_carried_total_fallback)):,} carried across {_n_mat} cards."
+                                f"The cards aren't coming down at your current pace,"
+                                f" £{int(round(_carried_total_fallback)):,} carried across {_n_mat} cards."
                             )
 
                 # Body: combine cliff sentence + honest note when any material card has no rate on file
@@ -2294,6 +2396,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             _write_cached_baseline,
             _total_baseline,
             load_spend_txns as _load_spend_txns,
+            shaped_fraction as _shaped_fraction,
         )
         from app.services.categories import (
             get_category_kinds as _get_category_kinds,
@@ -2357,8 +2460,17 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             if _rc_thin or not _usual_30d:
                 continue
             _usual_rate = _usual_30d / 30
-            _rate = _spent / max(_rc_days_elapsed, 1)
-            _multiple = round(_rate / _usual_rate, 1)
+            # Shaped "usual by now" (pace.py's shared S(f_now)) instead of the
+            # linear rate*days_elapsed — so this multiple never contradicts
+            # the shaped Spend page's own multiple for the same category.
+            _rc_period_days = (_rc_period_end - _rc_period_start).days + 1
+            _rc_shaped_frac = await _shaped_fraction(
+                uid, _rc_period_start, pay_cfg, category=_cat, kind_map=_rc_kinds
+            )
+            _usual_by_now = _usual_rate * _rc_period_days * _rc_shaped_frac
+            if _usual_by_now <= 0.01:
+                continue
+            _multiple = round(_spent / _usual_by_now, 1)
             if _multiple < 2.0:
                 continue
             if _spent < 40.0:
@@ -2476,7 +2588,14 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     if _ip_id in dismissed:
                         continue
                     _ip_spent = _rc_cat_spent.get(_ip_cat, 0.0)
-                    _ip_pro_rata = _ip_usual_30d / 30 * _rc_days_elapsed
+                    # Shaped "usual by now" instead of the linear
+                    # rate*days_elapsed — see the rhythm-checkpoint multiple
+                    # above for the same rationale.
+                    _ip_period_days = (_rc_period_end - _rc_period_start).days + 1
+                    _ip_shaped_frac = await _shaped_fraction(
+                        uid, _rc_period_start, pay_cfg, category=_ip_cat, kind_map=_rc_kinds
+                    )
+                    _ip_pro_rata = _ip_usual_30d / 30 * _ip_period_days * _ip_shaped_frac
                     intent_pace_items.append({
                         "id": _ip_id,
                         "type": "intent_pace",
@@ -2484,7 +2603,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                             f"{_ip_cat}: £{int(round(_ip_spent))} so far "
                             f"vs £{int(round(_ip_pro_rata))} usual by now"
                         ),
-                        "body": "Tracking the change you asked for — no action needed.",
+                        "body": "Tracking the change you asked for, no action needed.",
                         "action": None,
                         "estimated": False,
                     })

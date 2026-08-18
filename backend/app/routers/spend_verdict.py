@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.db.collections import preferences_col
 from app.services import response_cache
+from app.services.checkpoints import delete_intent
+from app.services.spend_impact import compute_intent_preview
 from app.services.spend_verdict import compute_spend_verdict
 
 router = APIRouter(tags=["spend-verdict"])
@@ -55,3 +57,41 @@ async def dismiss_unresolved_ask(body: dict, user: dict = Depends(current_user))
     )
     response_cache.invalidate(uid)
     return {"ok": True}
+
+
+@router.post("/spend/intent-preview")
+async def post_intent_preview(body: dict, user: dict = Depends(current_user)):
+    """Server-composed price lines for the "file as new normal" consent
+    sheet — shown BEFORE the user answers, so the sheet can price the
+    consequence up front instead of asking them to answer blind. Reuses the
+    same impact engine `GET /spend/verdict` uses, with the category's
+    current excess treated as if it recurs every period.
+    """
+    uid = user["email"]
+    category = (body.get("category") or "").strip()
+    if not category:
+        raise HTTPException(400, "Provide 'category'")
+
+    try:
+        preview = await compute_intent_preview(uid, category)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return preview
+
+
+@router.delete("/spend/intent/{category}")
+async def delete_intent_answer(category: str, user: dict = Depends(current_user)):
+    """Undo — the 5s undo toast's real reversal for a just-recorded
+    one_off/new_normal answer this period (`POST /trends/intent`).
+    Idempotent: undoing twice, or undoing an answer that was never
+    recorded, is a no-op, not an error, so the toast's undo button can
+    never surface a confusing failure.
+    """
+    uid = user["email"]
+    try:
+        await delete_intent(uid, category)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    response_cache.invalidate(uid)
+    return {"ok": True, "category": category}

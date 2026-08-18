@@ -34,7 +34,7 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 
-from app.db.collections import preferences_col, transactions_col, yapily_transactions_col
+from app.db.collections import category_intent_col, preferences_col, transactions_col, yapily_transactions_col
 from app.services.categories import (
     INCOME,
     MOVEMENT,
@@ -42,8 +42,9 @@ from app.services.categories import (
     kind_of,
 )
 from app.services.categorisation import canonical_merchant_key
-from app.services.pace import compute_category_signals
+from app.services.pace import compute_category_signals, get_total_pace_curve_fn
 from app.services.region import get_user_region
+from app.services.spend_impact import compute_spend_impact
 
 logger = logging.getLogger(__name__)
 
@@ -346,10 +347,9 @@ def build_notables_and_majority(
             continue
         sig = signals.get(cat) or {}
         multiple = sig.get("multiple")
-        usual_rate_per_day = sig.get("usual_rate_per_day")
-        if multiple is None or usual_rate_per_day is None:
+        usual_by_now = sig.get("usual_by_now")
+        if multiple is None or usual_by_now is None:
             continue
-        usual_by_now = usual_rate_per_day * days_elapsed
         excess = row["spent"] - usual_by_now
         if excess <= 0:
             continue  # under-usual NEVER qualifies
@@ -464,19 +464,19 @@ def build_reading(
     no_baseline = [m["category"] for m in majority if not m.get("has_baseline", True)]
 
     if state == "early":
-        return f"{days_elapsed} day{'s' if days_elapsed != 1 else ''} in — too soon to compare against usual."
+        return f"{days_elapsed} day{'s' if days_elapsed != 1 else ''} in, too soon to compare against usual."
     if state == "nobaseline":
         return (
-            "Still learning your usual — I need about two full pay periods "
+            "Still learning your usual, I need about two full pay periods "
             "before I can compare. Here's where this period's money went so far."
         )
     if state == "nothing":
         if majority_count == 0:
             if unresolved_total > 0:
-                return "No spend categories to compare yet this period — everything so far is still unreviewed."
+                return "No spend categories to compare yet this period, everything so far is still unreviewed."
             return "No spending logged for this period yet."
         base = (
-            f"Nothing unusual to report — all {majority_count} "
+            f"Nothing unusual to report, all {majority_count} "
             f"categor{'y' if majority_count == 1 else 'ies'} "
             f"{'is' if majority_count == 1 else 'are'} running close to usual."
         )
@@ -490,7 +490,7 @@ def build_reading(
         return "Nothing crossed the line this period. " + " ".join(f"{n[0].upper()}{n[1:]}." for n in notes)
     if state == "everything":
         return (
-            f"Spending is running high across the board — about "
+            f"Spending is running high across the board, about "
             f"£{round(total_excess):,} more than a typical {days_elapsed} days in. "
             f"The three biggest are below."
         )
@@ -507,7 +507,7 @@ def build_reading(
             notes.append(f"still building a usual for {_join_names(no_baseline)}")
         joined = "; ".join(notes)
         tail = f"{joined[0].upper()}{joined[1:]}."
-    return f"{word} running above your usual pace — mostly {top_name}. {tail}"
+    return f"{word} running above your usual pace, mostly {top_name}. {tail}"
 
 
 def assemble_verdict(
@@ -577,7 +577,228 @@ def assemble_verdict(
     }
 
 
+# ── Spend -> Plan bridge — pure helpers ──────────────────────────────────────
+# Reading-composer materiality: below this, "you also moved £X" isn't worth a
+# sentence.
+MOVED_MATERIAL_FLOOR = 50.0
+
+
+def compute_pace_totals(
+    cat_agg: dict[str, dict],
+    signals: dict[str, dict],
+    days_elapsed: int,
+    *,
+    period_days: int | None = None,
+    thin_history: bool = False,
+    usual_rate_total: float | None = None,
+    total_curve_fn: object | None = None,
+) -> dict:
+    """Signed pace fact across every BASELINED spend category (Other
+    excluded, same ontology carve-out as build_notables_and_majority):
+    actual spend so far vs what "usual" would put you at by today.
+    `excess` is signed — positive means running ahead of usual, negative
+    means under it. This is the input the impact engine floor-projects from
+    (`spend_impact.compute_spend_impact`'s `total_excess`), independent of
+    which categories individually qualify as "notable".
+
+    The headline `usual_by_now` is now derived from the TOTAL-level shape
+    curve (`pace.get_total_pace_curve_fn`, floor `_SHAPE_MIN_PERIODS` = 2 —
+    NOT the per-category floor) as `usual_total_for_period * S_total(f_now)`,
+    passed in as `total_curve_fn`/`usual_rate_total`/`period_days` — rather
+    than summing each category's OWN `usual_by_now`. Rationale (the audit
+    finding this revises): the headline reading and spend_impact's
+    `total_excess` floor-projection must be immune to any single category
+    falling back to linear (a thin-history category's fallback shouldn't
+    contaminate the one number every other surface anchors to), and
+    aggregating across every category is exactly what washes out a single
+    category's noise — so the total deserves its own (looser, n=2) floor
+    rather than inheriting whichever categories individually cleared
+    `_SHAPE_MIN_PERIODS_CATEGORY`. Falls back to the ORIGINAL per-category
+    sum (unchanged maths) whenever the total curve is unavailable or the
+    baseline is still thin — same "never crash, always degrade to the
+    existing linear-safe path" discipline as the rest of pace.py.
+
+    Per-category `usual_by_now`/`multiple` (notables, badges) are untouched
+    by this — those still read straight from `signals[cat]["usual_by_now"]`,
+    each category's own shaped-or-linear figure.
+    """
+    actual = 0.0
+    fallback_usual_by_now = 0.0
+    for cat, row in cat_agg.items():
+        if cat == "Other":
+            continue
+        sig = signals.get(cat) or {}
+        ubn = sig.get("usual_by_now")
+        if ubn is None:
+            continue
+        actual += row["spent"]
+        fallback_usual_by_now += ubn
+
+    usual_by_now = fallback_usual_by_now
+    if (
+        not thin_history
+        and total_curve_fn is not None
+        and period_days
+        and usual_rate_total is not None
+    ):
+        f_now = (days_elapsed / period_days) if period_days > 0 else 1.0
+        usual_total_for_period = usual_rate_total * period_days
+        usual_by_now = usual_total_for_period * total_curve_fn(f_now)
+
+    return {
+        "actual":       round(actual, 2),
+        "usual_by_now": round(usual_by_now, 2),
+        "excess":       round(actual - usual_by_now, 2),
+    }
+
+
+def build_pace_series(
+    txns: list[dict], kind_map: dict, start: date, days_elapsed: int,
+    usual_rate_per_day_total: float, thin_history: bool,
+    total_curve_fn: object | None = None, period_days: int | None = None,
+) -> list[dict]:
+    """Cumulative total spend by day (day 1..days_elapsed, TOTAL basis — same
+    income/movement carve-out as `bucket_transactions`) vs cumulative usual.
+
+    `usual` on day d is `usual_total_for_period * S(d/period_days)` when
+    `total_curve_fn` (pace.py's shaped TOTAL-level S(f), see
+    `pace.get_total_pace_curve_fn`) and `period_days` are both given —
+    replacing the old linear `usual_rate_per_day_total * day` with the
+    learned shape, so a day early in the period whose historical spend
+    front-loads (e.g. bills) shows a correspondingly higher "usual" line
+    instead of a uniform ramp. Falls back to the linear maths whenever the
+    shape is unavailable (thin history) or the caller omits it — `usual` is
+    None on every day only while the baseline itself is still learning,
+    never a fabricated number.
+    """
+    daily: dict[int, float] = {}
+    for t in txns:
+        if t["category"] == "Other":
+            # "Other" never earns a baseline (ontology carve-out) — the usual
+            # line and the shape training both exclude it, so the actual line
+            # must too, or an unplaced/unresolved transfer landing in "Other"
+            # spikes the actual line against a usual line that never counted
+            # it in the first place.
+            continue
+        kind = kind_of(kind_map, t["category"])
+        if kind in (INCOME, MOVEMENT):
+            continue
+        day = (t["date"] - start).days + 1
+        if day < 1 or day > days_elapsed:
+            continue
+        signed = t["amount"] if t["debit"] else -t["amount"]
+        daily[day] = daily.get(day, 0.0) + signed
+
+    usual_total_for_period = None
+    if not thin_history and total_curve_fn is not None and period_days:
+        usual_total_for_period = usual_rate_per_day_total * period_days
+
+    series: list[dict] = []
+    running = 0.0
+    for day in range(1, days_elapsed + 1):
+        running += daily.get(day, 0.0)
+        if thin_history:
+            usual_val = None
+        elif usual_total_for_period is not None:
+            usual_val = round(usual_total_for_period * total_curve_fn(day / period_days), 2)
+        else:
+            usual_val = round(usual_rate_per_day_total * day, 2)
+        series.append({"day": day, "actual": round(running, 2), "usual": usual_val})
+    return series
+
+
+def _first_sentence(text: str) -> str:
+    """Truncate a (possibly 2-sentence) template string to its first
+    sentence, so appending a consequence sentence never produces more than
+    the caption grammar's 2-sentence budget."""
+    idx = text.find(". ")
+    return text[: idx + 1] if idx != -1 else text
+
+
+def compose_reading(
+    *, state: str, base_reading: str, notables: list[dict], pace_totals: dict,
+    impact: dict, moved_total: float,
+) -> str:
+    """Recompose the verdict's `reading` as caption grammar: max 2 sentences,
+    no em-dashes, always hedged, never "will".
+
+    Sentence 1 — the pace fact. For "normal"/"everything" states with a
+    genuine aggregate overspend, this leads with the pound figure ("Running
+    about £1,411 ahead of usual, mostly Bills."). For a materially
+    under-pace period paired with a live consequence, it's the plain "You're
+    under usual pace." Otherwise the existing per-state template
+    (`build_reading`'s output) already says the honest pace fact.
+
+    Sentence 2 — the ONE consequence, by priority bills_risk > horizon >
+    move_delta > permission, else the movement-reassurance fallback when
+    `moved_total` is material, else nothing (sentence 1 stands alone).
+    bills_risk only ever fires alongside a genuine excess (`excess > 0` —
+    see spend_impact.py's causation test), so it never interacts with the
+    excess < 0 branch below.
+    """
+    excess = pace_totals.get("excess", 0.0)
+    sentence1 = base_reading
+
+    consequence = impact.get("consequence")
+    if state in ("normal", "everything") and notables and excess > 0:
+        top = notables[0]["category"]
+        sentence1 = f"Running about £{abs(excess):,.0f} ahead of usual, mostly {top}."
+    elif excess < 0 and consequence in ("permission", "horizon"):
+        sentence1 = "You're under usual pace."
+
+    sentence2: str | None = None
+    if consequence == "bills_risk" and impact.get("bills_risk"):
+        br = impact["bills_risk"]
+        sentence2 = f"At this pace, your {br['bill']} bill on {br['date']} gets tight. Worth a look."
+    elif consequence == "horizon" and impact.get("horizon"):
+        h = impact["horizon"]
+        if h["kind"] == "debt":
+            sentence2 = f"If this holds, your card clear-by moves from {h['from_month']} to {h['to_month']}."
+        else:
+            sentence2 = f"If this holds, your {h['name']} moves from {h['from_month']} to {h['to_month']}."
+    elif consequence == "move_delta" and impact.get("move"):
+        _projected = impact["move"]["projected"]
+        if _projected < 10:
+            # Softened per the house rule against bleak fake-precise £0s
+            # (spend_impact.MOVE_SOFTEN_FLOOR mirrors this threshold).
+            sentence2 = "If this holds, there may be nothing spare to move this payday."
+        else:
+            sentence2 = f"If this holds, your payday move shrinks to about £{_projected:,.0f}."
+    elif consequence == "permission" and impact.get("move"):
+        bigger = impact["move"]["projected"] - impact["move"]["usual"]
+        sentence2 = f"Your move could be about £{bigger:,.0f} bigger this payday."
+    elif moved_total >= MOVED_MATERIAL_FLOOR:
+        sentence2 = f"You also moved £{moved_total:,.0f} to savings and cards."
+
+    if sentence2:
+        return f"{_first_sentence(sentence1)} {sentence2}"
+    return sentence1
+
+
 # ── I/O orchestrator ──────────────────────────────────────────────────────
+
+async def _prior_one_off_categories(uid: str, categories: set[str], current_period_end: date) -> set[str]:
+    """Categories in `categories` the user has already answered "one_off"
+    for in a PRIOR (not this) period — the repeat-nag guard behind each
+    notable card's `prior_intent`."""
+    if not categories:
+        return set()
+    try:
+        cursor = category_intent_col.find(
+            {
+                "user_id":    uid,
+                "category":   {"$in": list(categories)},
+                "period_end": {"$lt": current_period_end.isoformat()},
+                "answer":     "one_off",
+            },
+            {"category": 1},
+        )
+        docs = await cursor.to_list(None)
+        return {d["category"] for d in docs}
+    except Exception:
+        logger.exception("spend_verdict: prior-intent lookup failed for %s", uid)
+        return set()
+
 
 async def _active_goal_names(uid: str) -> list[str]:
     """Distinct active-goal names, oldest-goal-first, via a read-only reuse of
@@ -633,7 +854,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
     goal_names = await _active_goal_names(uid)
     dismissed_unresolved_ids = await _dismissed_unresolved_ids(uid)
 
-    return assemble_verdict(
+    result = assemble_verdict(
         cat_agg=cat_agg,
         moved_groups=moved_groups,
         income_total=income_total,
@@ -644,3 +865,103 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         period=period,
         dismissed_unresolved_ids=dismissed_unresolved_ids,
     )
+
+    # ── Spend -> Plan bridge additions ────────────────────────────────────
+    # pace_series, moved_total, impact (the consequence engine),
+    # consequence_line, per-notable prior_intent, and the recomposed
+    # 2-sentence reading. All derived from data this function already
+    # loaded/computed above — no second transaction fetch.
+    days_elapsed = period["days_elapsed"]
+    usual_rate_total = sum(
+        (signals.get(cat) or {}).get("usual_rate_per_day") or 0.0
+        for cat in cat_agg
+        if cat != "Other" and (signals.get(cat) or {}).get("usual_rate_per_day") is not None
+    )
+    # TOTAL-level shape function — used for BOTH the chart's cumulative
+    # "usual" line (pace.get_total_pace_curve_fn) AND, below, compute_pace_totals'
+    # headline usual_by_now. A Python callable, so it's fetched separately
+    # rather than via compute_category_signals's return value (that dict is
+    # returned verbatim by /spend/category-signals and must stay
+    # JSON-serialisable). Reads the same memoised bundle
+    # compute_category_signals already populated above, so this is a cache
+    # hit in the common case. Fetched ONCE, shared by both consumers below —
+    # never two separate lookups for the same curve in one request.
+    try:
+        total_curve_fn = await get_total_pace_curve_fn(uid, start, kind_map=kind_map)
+    except Exception:
+        logger.exception("spend_verdict: total shape-curve lookup failed for %s", uid)
+        total_curve_fn = None
+    pace_totals = compute_pace_totals(
+        cat_agg, signals, days_elapsed,
+        period_days=period.get("period_days"),
+        thin_history=period["thin_history"],
+        usual_rate_total=usual_rate_total,
+        total_curve_fn=total_curve_fn,
+    )
+    pace_series = build_pace_series(
+        txns, kind_map, start, days_elapsed, usual_rate_total, period["thin_history"],
+        total_curve_fn=total_curve_fn, period_days=period.get("period_days"),
+    )
+    moved_total = round(sum(m["amount"] for m in result["moved"]), 2)
+
+    verdict_ctx = {"period": period, "total_excess": pace_totals["excess"]}
+    try:
+        impact = await compute_spend_impact(uid, verdict_ctx)
+    except Exception:
+        logger.exception("spend_verdict: impact engine failed for %s", uid)
+        impact = {"consequence": None, "move": None, "horizon": None, "bills_risk": None}
+
+    # Per-notable prior_intent + consequence_line — attached to the matching
+    # notable object (NOT a top-level field): frontend contract is
+    # notable.prior_intent = {"question": str, ...} | None and
+    # notable.consequence_line = {"text": str} | None, the latter non-null
+    # on only the single loudest notable (notables[0] — already excess-desc
+    # sorted by build_notables_and_majority).
+    notables = result["notables"]
+    if notables:
+        categories = {n["category"] for n in notables}
+        prior_one_off = await _prior_one_off_categories(uid, categories, end)
+        for n in notables:
+            cat = n["category"]
+            if cat in prior_one_off:
+                n["prior_intent"] = {
+                    "repeat":   True,
+                    "question": f"{cat} is over usual again this period. One-off, or is this the new normal now?",
+                }
+            else:
+                n["prior_intent"] = None
+            n["consequence_line"] = None
+
+        if impact.get("consequence") in ("move_delta", "horizon"):
+            loudest = notables[0]
+            excess_total = pace_totals["excess"]
+            # "...of that" only has an antecedent when the AGGREGATE excess
+            # is itself positive (sentence 1 is the "running ahead" pace
+            # fact). When the aggregate is flat/negative — a notable over-
+            # pace category offset by bigger under-pace elsewhere, sentence
+            # 1 becomes "You're under usual pace." — "that" would dangle, so
+            # this falls back to a self-contained line naming the category's
+            # own excess instead of its share of a total that isn't shown.
+            if excess_total > 0:
+                share = loudest["excess"] / excess_total
+                if share >= 0.6:
+                    text = f"{loudest['category']} alone accounts for most of that."
+                else:
+                    text = f"{loudest['category']} is about £{loudest['excess']:,.0f} of that."
+            else:
+                text = f"{loudest['category']} is about £{loudest['excess']:,.0f} over its usual."
+            loudest["consequence_line"] = {"text": text}
+
+    result["reading"] = compose_reading(
+        state=result["state"],
+        base_reading=result["reading"],
+        notables=notables,
+        pace_totals=pace_totals,
+        impact=impact,
+        moved_total=moved_total,
+    )
+    result["pace_series"] = pace_series
+    result["moved_total"] = moved_total
+    result["impact"] = impact
+
+    return result

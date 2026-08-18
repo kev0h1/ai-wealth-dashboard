@@ -19,6 +19,7 @@ computes it itself. Pass it from the HTTP handler to avoid a second round-trip.
 """
 import logging
 import statistics
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
 from app.db.collections import (
@@ -964,6 +965,370 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
         }
 
 
+# ── G2. Shaped baseline profile ───────────────────────────────────────────────
+#
+# The linear baseline (`_total_baseline`'s usual_rate_per_day, applied as
+# rate * days_elapsed) assumes spend lands uniformly across the period. Real
+# spend doesn't — bills front-load in the first few days, discretionary
+# spend is back-weighted toward weekends/paydays. Comparing "spent so far"
+# against a UNIFORM expectation overstates "ahead of usual" early in every
+# period (and understates it late). This section learns the actual SHAPE of
+# cumulative spend from the user's own closed-period history and uses it to
+# scale the baseline total, instead of assuming a flat rate.
+#
+# S(f) is a monotone non-decreasing curve on [0,1] -> [0,1]: f = fraction of
+# the period elapsed, S(f) = fraction of the period's usual total that is
+# normally spent by that point. usual_by_now = usual_total_for_period * S(f).
+# S(0) = 0 and S(1) = 1 are always pinned, so the shaped baseline never
+# diverges from the linear one at a period's boundaries — only the INTERIOR
+# shape changes. Every entry point degrades to the existing linear maths
+# (None back to the caller) when history is thin or absent — never crashes.
+
+_SHAPE_LOOKBACK_PERIODS = 6
+_SHAPE_MIN_PERIODS = 2
+# Per-category curves at the TOTAL floor's n=2 are noise — a 2-sample
+# "median" can manufacture tens of pounds of fake excess from nothing more
+# than which of two periods happened to front-load. The TOTAL-level curve
+# keeps the n=2 floor (aggregation across every category washes out a
+# single category's noise); per-category curves need a deeper floor before
+# they're trusted to shape anything. Categories that don't clear this fall
+# back to linear (existing fallback path) rather than going unshaped.
+#
+# Calibration (revised): originally set to 4. That guarded against noise in
+# the RAW sampled curves — before the S(f) clamp below existed, an n=2 or
+# n=3 median could sit outside [0, 1] entirely (a signed-refund period
+# pushing the "cumulative share" curve past "all of it spent" or negative),
+# which is real, unbounded noise no sample count fixes. Now that
+# `_period_cumulative_curve` and `_combine_shape_curves` both clamp every
+# sample to [0, 1], the failure mode a deeper floor was defending against
+# can no longer happen — an n=3 curve can still be a slightly-off shape, but
+# it can't be an unbounded fabrication. n=3 is restored to trusted; n=2
+# remains excluded, since two periods is the audit's original concern case
+# (a straight median of two curves with no smoothing signal to lean on).
+_SHAPE_MIN_PERIODS_CATEGORY = 3
+_SHAPE_MIN_TOTAL_FLOOR = 50.0   # total-level: a closed period needs >= this to count
+_SHAPE_MIN_CAT_FLOOR = 10.0     # per-category: a closed period needs >= this to count
+_SHAPE_SAMPLE_COUNT = 20        # sample grid has SAMPLE_COUNT+1 points (incl. 0 and 1)
+_SHAPE_TTL_SECONDS = 6 * 3600   # same memo discipline as the total-baseline cache
+
+
+def _shape_sample_grid() -> list[float]:
+    n = _SHAPE_SAMPLE_COUNT
+    return [i / n for i in range(n + 1)]
+
+
+def _period_cumulative_curve(
+    txns_in_period: list[dict], period_start: date, period_length: int,
+) -> tuple[list[float], float] | None:
+    """Sample one closed period's normalised cumulative-spend curve at the
+    fixed fraction grid. Returns (sampled_ys, period_total) or None when the
+    period's total is <= 0 (nothing to normalise by — a net-refund period,
+    or no spend at all)."""
+    daily: dict[int, float] = {}
+    for t in txns_in_period:
+        offset = (t["date"] - period_start).days + 1  # 1-based day index
+        if offset < 1 or offset > period_length:
+            continue
+        daily[offset] = daily.get(offset, 0.0) + t["amount"]
+
+    total = sum(daily.values())
+    if total <= 0:
+        return None
+
+    cum = [0.0] * (period_length + 1)  # cum[0] = 0 (start of period, nothing spent yet)
+    running = 0.0
+    for day in range(1, period_length + 1):
+        running += daily.get(day, 0.0)
+        cum[day] = running
+
+    ys: list[float] = []
+    for f in _shape_sample_grid():
+        x = f * period_length
+        lo = int(x)
+        hi = min(lo + 1, period_length)
+        lo = min(lo, period_length)
+        frac = x - lo
+        val = cum[lo] if hi == lo else cum[lo] + (cum[hi] - cum[lo]) * frac
+        y = val / total
+        # `daily`/`cum` are SIGNED sums (refunds netted negative) — a period
+        # with a big refund partway through can push the running total above
+        # the period's final (net) total, or negative, at some interior
+        # fraction. Clamp each sample to [0, 1]: a normalised cumulative-share
+        # curve must never claim more than "all of it" or less than "none of
+        # it" spent so far, whatever the signed running total does.
+        y = 0.0 if y < 0.0 else (1.0 if y > 1.0 else y)
+        ys.append(y)
+    return ys, total
+
+
+def _combine_shape_curves(
+    curves: list[list[float]], min_periods: int = _SHAPE_MIN_PERIODS,
+) -> list[float] | None:
+    """Median-across-periods, monotone non-decreasing, lightly smoothed,
+    clamped to [0, 1]. None unless at least `min_periods` curves qualify —
+    callers pass `_SHAPE_MIN_PERIODS_CATEGORY` for per-category curves and
+    rely on the default `_SHAPE_MIN_PERIODS` for the total curve."""
+    if len(curves) < min_periods:
+        return None
+    n_points = len(curves[0])
+    medians = [statistics.median(c[i] for c in curves) for i in range(n_points)]
+
+    # Light smoothing (3-point moving average on interior points) BEFORE the
+    # monotone pass, so smoothing can never reintroduce a dip.
+    smoothed = medians[:]
+    for i in range(1, n_points - 1):
+        smoothed[i] = (medians[i - 1] + medians[i] + medians[i + 1]) / 3.0
+
+    for i in range(1, n_points):
+        if smoothed[i] < smoothed[i - 1]:
+            smoothed[i] = smoothed[i - 1]
+
+    # Belt-and-braces clamp: the per-sample clamp in `_period_cumulative_curve`
+    # already bounds every input curve to [0, 1], but the median + smoothing
+    # passes above are new arithmetic on top of that — clamp the RESULT too so
+    # a combined curve can never end up outside [0, 1] regardless of how the
+    # inputs or the smoothing interact. The monotone pass above only forces
+    # non-decreasing, it never bounds.
+    for i in range(n_points):
+        if smoothed[i] < 0.0:
+            smoothed[i] = 0.0
+        elif smoothed[i] > 1.0:
+            smoothed[i] = 1.0
+
+    smoothed[0] = 0.0
+    smoothed[-1] = 1.0
+    return smoothed
+
+
+def _make_shape_fn(ys: list[float] | None) -> Callable[[float], float] | None:
+    """Wrap a sampled curve (fixed fraction grid) as a callable S(f), linearly
+    interpolated between grid points. None in, None out — the caller's
+    fallback is always "use linear maths", never a crash."""
+    if not ys:
+        return None
+    xs = _shape_sample_grid()
+
+    def S(f: float) -> float:
+        f = 0.0 if f < 0 else (1.0 if f > 1 else f)
+        for i in range(1, len(xs)):
+            if f <= xs[i]:
+                x0, x1 = xs[i - 1], xs[i]
+                y0, y1 = ys[i - 1], ys[i]
+                if x1 == x0:
+                    return y1
+                t = (f - x0) / (x1 - x0)
+                return y0 + (y1 - y0) * t
+        return ys[-1]
+
+    return S
+
+
+def _closed_periods_before(
+    period_start: date, pay_cfg: dict, n: int,
+) -> list[tuple[date, date]]:
+    """The `n` closed pay periods immediately BEFORE `period_start`, oldest
+    first. Pure date math — safe to call even when no data exists yet for
+    those periods."""
+    periods: list[tuple[date, date]] = []
+    cursor = period_start
+    for _ in range(n):
+        cursor, p_end = prev_pay_period(cursor, pay_cfg)
+        periods.append((cursor, p_end))
+    periods.reverse()
+    return periods
+
+
+async def _compute_shape_bundle(
+    uid: str, period_start: date, pay_cfg: dict, kind_map: _KindMap,
+) -> dict:
+    """{"total": ys|None, "categories": {cat: ys}} learned from up to the
+    last `_SHAPE_LOOKBACK_PERIODS` CLOSED periods before `period_start`. One
+    transaction load covers every period (same source `load_spend_txns` used
+    elsewhere — total basis, non-spend kinds already excluded). Never raises
+    — DB failures degrade to "no shape data" (caller falls back to linear).
+
+    "Total" curves exclude category "Other" (the ontology carve-out — Other
+    never earns a baseline) so this matches exactly the category set
+    `spend_verdict.compute_pace_totals` sums over.
+    """
+    periods = _closed_periods_before(period_start, pay_cfg, _SHAPE_LOOKBACK_PERIODS)
+    if not periods:
+        return {"total": None, "categories": {}}
+
+    earliest = periods[0][0]
+    latest_end = periods[-1][1]
+    try:
+        txns = await load_spend_txns(uid, earliest, latest_end, kind_map=kind_map)
+    except Exception:
+        logger.exception("_compute_shape_bundle: txn load failed for %s", uid)
+        return {"total": None, "categories": {}}
+
+    total_curves: list[list[float]] = []
+    cat_curves: dict[str, list[list[float]]] = {}
+
+    for p_start, p_end in periods:
+        length = (p_end - p_start).days + 1
+        in_period = [t for t in txns if p_start <= t["date"] <= p_end]
+        if not in_period:
+            continue
+
+        total_in = [t for t in in_period if t["category"] != "Other"]
+        curve = _period_cumulative_curve(total_in, p_start, length)
+        if curve is not None:
+            ys, total = curve
+            if total >= _SHAPE_MIN_TOTAL_FLOOR:
+                total_curves.append(ys)
+
+        by_cat: dict[str, list[dict]] = {}
+        for t in total_in:
+            by_cat.setdefault(t["category"], []).append(t)
+        for cat, cat_txns in by_cat.items():
+            cat_curve = _period_cumulative_curve(cat_txns, p_start, length)
+            if cat_curve is None:
+                continue
+            cat_ys, cat_total = cat_curve
+            if cat_total >= _SHAPE_MIN_CAT_FLOOR:
+                cat_curves.setdefault(cat, []).append(cat_ys)
+
+    total_ys = _combine_shape_curves(total_curves)
+    categories = {
+        cat: combined
+        for cat, curves in cat_curves.items()
+        if (combined := _combine_shape_curves(
+            curves, min_periods=_SHAPE_MIN_PERIODS_CATEGORY,
+        )) is not None
+    }
+    return {"total": total_ys, "categories": categories}
+
+
+async def _read_cached_shape(uid: str, window_key: str) -> dict | None:
+    """Fresh memoised shape bundle, or None. Same staleness rules as
+    `_read_cached_baseline` (TTL + synced_at)."""
+    try:
+        doc = await cashflow_cache_col.find_one(
+            {"_id": uid}, {"shape_profiles": 1, "synced_at": 1}
+        ) or {}
+    except Exception:
+        logger.exception("_read_cached_shape: read failed for %s", uid)
+        return None
+
+    blob = (doc.get("shape_profiles") or {}).get(window_key)
+    if not isinstance(blob, dict):
+        return None
+
+    at = blob.get("computed_at")
+    if not isinstance(at, datetime):
+        return None
+    if (datetime.now() - at).total_seconds() >= _SHAPE_TTL_SECONDS:
+        return None
+
+    synced_at = doc.get("synced_at")
+    if isinstance(synced_at, datetime) and synced_at > at:
+        return None
+
+    data = blob.get("data")
+    if not isinstance(data, dict):
+        return None
+    return {"total": data.get("total"), "categories": data.get("categories") or {}}
+
+
+async def _write_cached_shape(uid: str, window_key: str, bundle: dict) -> None:
+    """Memoise a freshly computed shape bundle. Never raises."""
+    try:
+        await cashflow_cache_col.update_one(
+            {"_id": uid},
+            {"$set": {f"shape_profiles.{window_key}": {
+                "data": bundle, "computed_at": datetime.now(),
+            }}},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("_write_cached_shape: write failed for %s", uid)
+
+
+async def get_shape_profile_fns(
+    uid: str, period_start: date, pay_cfg: dict, kind_map: _KindMap,
+) -> tuple[Callable[[float], float] | None, dict[str, Callable[[float], float]]]:
+    """(total_fn, cat_fns) — S(f) callables built from the last
+    `_SHAPE_LOOKBACK_PERIODS` closed periods before `period_start`, memoised
+    per user per period (6 h TTL, invalidated by a sync — same discipline as
+    `_read_cached_baseline`). `total_fn` is None, and `cat_fns` is missing a
+    category, whenever that scope's history is too thin — callers always
+    fall back to the existing linear maths in that case, never crash.
+    """
+    window_key = period_start.isoformat()
+    cached = await _read_cached_shape(uid, window_key)
+    if cached is None:
+        bundle = await _compute_shape_bundle(uid, period_start, pay_cfg, kind_map)
+        await _write_cached_shape(uid, window_key, bundle)
+    else:
+        bundle = cached
+
+    total_fn = _make_shape_fn(bundle.get("total"))
+    cat_fns = {
+        cat: fn
+        for cat, ys in (bundle.get("categories") or {}).items()
+        if (fn := _make_shape_fn(ys)) is not None
+    }
+    return total_fn, cat_fns
+
+
+async def shaped_fraction(
+    uid: str, period_start: date, pay_cfg: dict,
+    category: str | None = None, kind_map: _KindMap | None = None,
+) -> float:
+    """S(f_now) — the shaped fraction of a period's usual total that's
+    expected by today. The single shared source of truth for "usual so far"
+    that every consumer OUTSIDE this module (checkpoints.py's Door on_track,
+    can_i.py's pro_rata_usual, companion.py's rhythm-checkpoint multiple and
+    intent-pace pro-rata) must go through, so none of them can show a linear
+    expectation that contradicts the shaped Spend page in the same session.
+
+    Uses `category`'s own shape curve when given and its history clears
+    `_SHAPE_MIN_PERIODS_CATEGORY`; else the TOTAL curve; else the linear
+    fallback f_now itself — the same three-tier fallback
+    `compute_category_signals` already uses for the Spend tiles. Cheap: reads
+    the same memoised shape-bundle cache (6 h TTL) that endpoint populates,
+    so this is a cache hit in the common case. Never raises — any failure
+    degrades to the plain linear f_now, so every caller's existing "pace data
+    unavailable" fallback still fires exactly as before.
+    """
+    today = date.today()
+    _, period_end = get_pay_period_for_date(period_start, pay_cfg)
+    total_days = (period_end - period_start).days + 1
+    days_elapsed = max(1, min(total_days, (today - period_start).days))
+    f_now = (days_elapsed / total_days) if total_days > 0 else 1.0
+
+    try:
+        if kind_map is None:
+            kind_map = await get_category_kinds(uid)
+        total_fn, cat_fns = await get_shape_profile_fns(uid, period_start, pay_cfg, kind_map)
+        shape_fn = (cat_fns.get(category) if category else None) or total_fn
+        return shape_fn(f_now) if shape_fn is not None else f_now
+    except Exception:
+        logger.exception("shaped_fraction: failed for %s", uid)
+        return f_now
+
+
+async def get_total_pace_curve_fn(
+    uid: str, period_start: date, kind_map: _KindMap | None = None,
+) -> Callable[[float], float] | None:
+    """Public accessor for `spend_verdict.build_pace_series` — the
+    TOTAL-level shape function only. Deliberately NOT part of
+    `compute_category_signals`'s return value: that dict is returned
+    verbatim by the `/spend/category-signals` endpoint, and a Python
+    callable can't be JSON-serialised. Reads the same memoised bundle
+    `compute_category_signals` already populated for this uid/period_start,
+    so this is a cache hit in the common case (one extra cheap doc read).
+    """
+    if kind_map is None:
+        kind_map = await get_category_kinds(uid)
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+    total_fn, _cat_fns = await get_shape_profile_fns(uid, period_start, pay_cfg, kind_map)
+    return total_fn
+
+
 # ── H. Per-category Spend-tile signals (total basis) ─────────────────────────
 
 async def compute_category_signals(
@@ -1040,13 +1405,26 @@ async def compute_category_signals(
     if not closed:
         days_elapsed = max(1, (today - period_start).days)
         days_left: int | None = max(0, (period_end - today).days + 1)
+        period_days = days_elapsed + days_left
     else:
         days_elapsed = (period_end - period_start).days + 1
         days_left = None
+        period_days = days_elapsed
 
     suppress_multiple = days_elapsed < 5
 
     thin_history = baseline_months < 2
+
+    # ── Shaped baseline (see "G2. Shaped baseline profile" above) ─────────────
+    # f_now = how far through the period "today" sits, 0..1. usual_by_now for
+    # a category = usual_total_for_period * S_cat(f_now) when that category's
+    # own shape history is deep enough, else the linear fallback
+    # usual_total_for_period * f_now (identical to the old rate*days_elapsed
+    # maths, since usual_total_for_period = usual_rate_per_day * period_days).
+    f_now = (days_elapsed / period_days) if period_days > 0 else 1.0
+    _total_shape_fn, cat_shape_fns = await get_shape_profile_fns(
+        uid, period_start, pay_cfg, kind_map,
+    )
 
     # ── Door variables (current period only) ─────────────────────────────────
     if not closed:
@@ -1082,15 +1460,27 @@ async def compute_category_signals(
     # ── Build per-category signals ────────────────────────────────────────────
     signals: dict[str, dict] = {}
     for cat, spent in cat_spent.items():
-        rate_per_day = spent / max(days_elapsed, 1)
         usual_30d = baseline.get(cat)
 
         if thin_history or not usual_30d:
             usual_rate_per_day: float | None = None
+            usual_by_now: float | None = None
             multiple: float | None = None
         else:
             usual_rate_per_day = round(usual_30d / 30, 2)
-            multiple = None if suppress_multiple else round(rate_per_day / (usual_30d / 30), 1)
+            # usual_total_for_period is what "usual" adds up to across the
+            # WHOLE period at the flat rate — the shape curve then redistributes
+            # that same total across the period non-uniformly. This keeps the
+            # period-end total identical to the old linear maths; only the
+            # INTERIOR expectation (what's "usual by today") changes.
+            usual_total_for_period = usual_rate_per_day * period_days
+            cat_shape_fn = cat_shape_fns.get(cat)
+            shaped_frac = cat_shape_fn(f_now) if cat_shape_fn is not None else f_now
+            usual_by_now = round(usual_total_for_period * shaped_frac, 2)
+            if suppress_multiple or usual_by_now <= 0.01:
+                multiple = None
+            else:
+                multiple = round(spent / usual_by_now, 1)
 
         # suggested_aim always references the CURRENT period
         if usual_rate_per_day is not None:
@@ -1110,6 +1500,7 @@ async def compute_category_signals(
         if not closed:
             signals[cat] = {
                 "usual_rate_per_day": usual_rate_per_day,
+                "usual_by_now":       usual_by_now,
                 "multiple":           multiple,
                 "suggested_aim":      suggested_aim,
                 "checkpoint":         cp_map.get(cat) or None,
@@ -1119,6 +1510,7 @@ async def compute_category_signals(
         else:
             signals[cat] = {
                 "usual_rate_per_day": usual_rate_per_day,
+                "usual_by_now":       usual_by_now,
                 "multiple":           multiple,
                 "suggested_aim":      suggested_aim,
                 "checkpoint":         None,
@@ -1132,6 +1524,7 @@ async def compute_category_signals(
             "end":               period_end.isoformat(),
             "days_elapsed":      days_elapsed,
             "days_left":         days_left,
+            "period_days":       period_days,
             "offset":            offset,
             "closed":            closed,
             "thin_history":      thin_history,
