@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Wallet, Sparkles, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
+import Image from "next/image";
+import { Wallet, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
+import PennyMark from "@/components/PennyMark";
 import { isNativePlatform } from "@/lib/nativeAuth";
 import {
   isAvailable as checkBiometryAvailability,
@@ -109,7 +111,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       const ok = await authenticateBiometrics("Enable biometric unlock");
       setBioVerifying(false);
       if (!ok) {
-        setBioError("Couldn't verify — try again, or skip for now.");
+        setBioError("Couldn't verify. Try again, or skip for now.");
         return;
       }
       setBiometricLockEnabled(true);
@@ -168,14 +170,11 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     return (
       <Shell dotIndex={dotIndex}>
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-xl mb-6">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-              <polyline points="17 6 23 6 23 12" />
-            </svg>
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl shadow-xl mb-6 overflow-hidden">
+            <Image src="/icons/icon-192.png" alt="Sorted" width={80} height={80} className="w-full h-full object-cover" />
           </div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-            Welcome to Wealth
+            Welcome to Sorted
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm leading-relaxed">
             Your money, all in one place. Set up takes 2 minutes.
@@ -186,7 +185,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           {[
             { icon: Building2, color: "bg-blue-50 dark:bg-blue-900/30",    iconColor: "text-blue-600 dark:text-blue-400",    text: "Connect all your banks automatically via open banking" },
             { icon: Wallet,    color: "bg-emerald-50 dark:bg-emerald-900/30", iconColor: "text-emerald-600 dark:text-emerald-400", text: "Track spending and set budgets that actually stick" },
-            { icon: Sparkles,  color: "bg-violet-50 dark:bg-violet-900/30", iconColor: "text-violet-600 dark:text-violet-400", text: "Get AI-powered insights to save more money" },
+            { icon: PennyMark, color: "bg-violet-50 dark:bg-violet-900/30", iconColor: "text-violet-600 dark:text-violet-400", text: "Get AI-powered insights to save more money" },
           ].map(({ icon: Icon, color, iconColor, text }) => (
             <div key={text} className="flex items-center gap-4 bg-white dark:bg-slate-800 rounded-2xl px-4 py-3.5 shadow-sm">
               <div className={`w-9 h-9 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
@@ -334,7 +333,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Protect your dashboard</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
             Your finances live here. Require your fingerprint or face every time
-            the app opens — you can change this any time in Settings.
+            the app opens, you can change this any time in Settings.
           </p>
         </div>
 
@@ -374,7 +373,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
           {bankAdded
             ? "Your transactions are syncing in the background."
-            : "Link your account in seconds via secure open banking. Wealth can only read data — it can never move your money."
+            : "Link your account in seconds via secure open banking. Wealth can only read data, it can never move your money."
           }
         </p>
       </div>
@@ -410,7 +409,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           onClick={bankDoneNext}
           className="w-full py-2.5 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
         >
-          Skip for now — I&apos;ll add banks later
+          Skip for now, I&apos;ll add banks later
         </button>
       )}
 

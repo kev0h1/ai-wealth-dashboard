@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, CalendarClock, Lightbulb, Wallet } from "lucide-react";
+import { Home, PieChart, Settings, CalendarClock, Lightbulb } from "lucide-react";
 
 const TABS = [
   { href: "/", label: "Home", Icon: Home },
@@ -19,12 +20,11 @@ export default function Sidebar() {
     <aside className="hidden lg:flex fixed top-0 left-0 h-full w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 z-40">
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-6 border-b border-slate-100 dark:border-slate-800">
-        <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
-          <Wallet size={18} color="#fff" strokeWidth={2} />
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
+          <Image src="/icons/icon-192.png" alt="Sorted" width={36} height={36} className="w-full h-full object-cover" />
         </div>
         <div>
-          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">Wealth</p>
-          <p className="text-xs text-slate-400 dark:text-slate-500 leading-tight">Dashboard</p>
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">Sorted</p>
         </div>
       </div>
 

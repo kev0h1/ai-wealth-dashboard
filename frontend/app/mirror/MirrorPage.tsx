@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, RefreshCw, Sparkles } from "lucide-react";
+import { ChevronLeft, RefreshCw } from "lucide-react";
 import { api, MirrorPortrait, MirrorTrait, ActiveAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import BottomNav from "@/components/BottomNav";
 import AimSheet from "@/components/AimSheet";
+import PennyMark from "@/components/PennyMark";
 
 // Kind → colour chip accent (Category Voice Rule: ~15% tint bg + full-strength icon)
 // chip text uses a dark hue-matched shade (not neutral gray) for contrast on the tinted bg
@@ -83,7 +84,7 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
           }`}
         >
-          This is me — keep it
+          This is me, keep it
         </button>
         <button
           onClick={() => handleChoice("change")}
@@ -103,15 +104,15 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
         <div className="px-4 pb-4 -mt-1">
           {trait.choice === "keep" ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Noted — we&apos;ll never nag you about this.
+              Noted, we&apos;ll never nag you about this.
             </p>
           ) : category && activeAim ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Aim set — Penny is tracking it with you.
+              Aim set, Penny is tracking it with you.
             </p>
           ) : category ? (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Noted — an aim gives Penny something to track.{" "}
+              Noted, an aim gives Penny something to track.{" "}
               <button
                 onClick={() => onSetAim(category)}
                 className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
@@ -121,7 +122,7 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
             </p>
           ) : (
             <p className="text-[13px] text-slate-500 dark:text-slate-400">
-              Noted — Penny will factor this in.
+              Noted, Penny will factor this in.
             </p>
           )}
         </div>
@@ -227,14 +228,14 @@ export default function MirrorPage() {
             </div>
             <div className="flex items-center gap-2 mt-1">
               <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
-                <Sparkles size={16} className="text-indigo-500" />
+                <PennyMark size={16} className="text-indigo-500" />
               </div>
             </div>
           </div>
 
           {/* Intro paragraph */}
           <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mt-3 mb-6">
-            Computed from your last {monthsLabel ?? "6 months"} of transactions. No judgement — just what the data says.
+            Computed from your last {monthsLabel ?? "6 months"} of transactions. No judgement, just what the data says.
           </p>
 
           {/* Refresh button */}
@@ -292,7 +293,7 @@ export default function MirrorPage() {
         ) : !portrait || portrait.status === "insufficient_data" ? (
           <div className="rounded-2xl glass-card p-6 text-center">
             <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center mx-auto mb-4">
-              <Sparkles size={22} className="text-slate-400" />
+              <PennyMark size={22} className="text-slate-400" />
             </div>
             <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-2">
               Not enough data yet
@@ -304,7 +305,7 @@ export default function MirrorPage() {
         ) : portrait.traits.length === 0 ? (
           <div className="rounded-2xl glass-card p-6 text-center">
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              No distinct patterns detected yet — check back after more transactions have been synced.
+              No distinct patterns detected yet, check back after more transactions have been synced.
             </p>
           </div>
         ) : (

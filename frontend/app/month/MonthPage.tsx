@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Bell, Sparkles, Play } from "lucide-react";
+import { ChevronLeft, Bell, Play } from "lucide-react";
 import {
   api,
   CycleStory,
   CycleStoryChapters,
 } from "@/lib/api";
+import PennyMark from "@/components/PennyMark";
 import { usePreferences } from "@/components/PreferencesContext";
 import SegmentedControl from "@/components/SegmentedControl";
 import BottomNav from "@/components/BottomNav";
@@ -316,7 +317,7 @@ export default function MonthPage() {
               {/* Brief/companion mock */}
               <div className="flex items-start gap-3 border-t border-slate-100 dark:border-slate-700/60 pt-4">
                 <div className="mt-0.5 flex-shrink-0">
-                  <Sparkles size={16} className="text-slate-400 dark:text-slate-500" />
+                  <PennyMark size={16} className="text-slate-400 dark:text-slate-500" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -329,7 +330,7 @@ export default function MonthPage() {
               </div>
             </div>
             <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">
-              Purely illustrative — based on today&apos;s figures.
+              Purely illustrative, based on today&apos;s figures.
             </p>
           </div>
         )}
@@ -368,7 +369,7 @@ export default function MonthPage() {
             <div className="glass-card rounded-2xl p-6 space-y-3">
               <Whisper>EARLY DAYS</Whisper>
               <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200">
-                The story builds as the month happens —{" "}
+                The story builds as the month happens,{" "}
                 {period.days_to_payday} day{period.days_to_payday !== 1 ? "s" : ""} to go.
               </p>
               <button

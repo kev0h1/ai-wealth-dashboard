@@ -7,6 +7,7 @@ import { api, Checkpoint } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import PennyMark from "@/components/PennyMark";
 
 interface AimSheetProps {
   category: string;
@@ -127,7 +128,7 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
           {saved ? (
             <div className="glass-card rounded-2xl p-4">
               <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">
-                Aim set — Penny will track it with you.
+                Aim set, Penny will track it with you.
               </p>
               <button
                 onClick={onClose}
@@ -144,7 +145,8 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
                   className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
                   style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
                 >
-                  ✦ Penny
+                  <PennyMark size={11} />
+                  Penny
                 </span>
               </div>
 
@@ -158,7 +160,7 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
                   <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
                     {usual != null
                       ? <>Your usual is about <strong className="font-semibold text-slate-900 dark:text-slate-100">{fmtWhole(usual)}/period</strong>. Set an aim to track against:</>
-                      : <>Set an aim for {category} to track against — leave it blank and I&apos;ll work one out from your own baseline:</>}
+                      : <>Set an aim for {category} to track against, leave it blank and I&apos;ll work one out from your own baseline:</>}
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2">

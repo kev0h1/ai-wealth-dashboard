@@ -3,8 +3,9 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
-import { MessageCircle, X, Send, Loader2, ChevronLeft, ChevronRight, Sparkles, RotateCcw } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { BRAND, BRAND_GRADIENT } from "@/lib/brand";
+import PennyMark from "@/components/PennyMark";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
@@ -307,7 +308,7 @@ export default function BudgetPage() {
   const whisperClass = "text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500";
 
   return (
-    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-24 lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a] pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Page title */}
       <div className="px-4 pt-6 pb-2">
         <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Trends</h1>
@@ -396,7 +397,7 @@ export default function BudgetPage() {
               const dayLabel = new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
               return (
                 <p className="text-[12px] text-slate-400 dark:text-slate-500 px-1">
-                  {dayLabel} was {hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)} — about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
+                  {dayLabel} was {hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)}, about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
                 </p>
               );
             })()}
@@ -511,7 +512,7 @@ export default function BudgetPage() {
             <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0" style={{ background: BRAND_GRADIENT }}>
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-4 h-4" />
+                  <PennyMark size={16} />
                 </div>
                 <div>
                   <p className="text-sm font-bold">Penny</p>

@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
+import PennyMark from "@/components/PennyMark";
 
 // Same resolver MoveCard uses in HomeBrief.tsx — kept local (not exported from
 // there) so this component doesn't reach into HomeBrief's module internals.
@@ -79,7 +80,8 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
           style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
         >
-          ✦ Penny
+          <PennyMark size={11} />
+          Penny
         </span>
         <button
           type="button"

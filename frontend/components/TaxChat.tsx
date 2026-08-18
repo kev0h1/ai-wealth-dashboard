@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MessageCircle, X, Send, Loader2, Sparkles } from "lucide-react";
+import { MessageCircle, X, Send, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import ChatMarkdown from "@/components/ChatMarkdown";
+import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 
@@ -90,7 +91,7 @@ export default function TaxChat() {
           <div className="flex items-center justify-between px-4 py-3 text-white flex-shrink-0" style={{ background: BG }}>
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4" />
+                <PennyMark size={16} />
               </div>
               <div>
                 <p className="text-sm font-bold">Penny</p>

@@ -13,6 +13,7 @@ import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency, currencySymbol } from "@/lib/currency";
 import Spinner from "@/components/Spinner";
+import PennyMark from "@/components/PennyMark";
 
 type MiscategorisedItem = {
   id: string;
@@ -143,11 +144,12 @@ export default function MiscategorisedReviewSheet({
               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
               style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
             >
-              ✦ Penny
+              <PennyMark size={11} />
+              Penny
             </span>
           </div>
           <p className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed">
-            Money moving between your own accounts isn&apos;t spending — it should be a{" "}
+            Money moving between your own accounts isn&apos;t spending, it should be a{" "}
             <strong className="font-semibold text-slate-900 dark:text-slate-100">Transfer</strong>{" "}
             (or <strong className="font-semibold text-slate-900 dark:text-slate-100">Savings</strong>{" "}
             if it&apos;s going to a savings account, <strong className="font-semibold text-slate-900 dark:text-slate-100">Debt</strong>{" "}

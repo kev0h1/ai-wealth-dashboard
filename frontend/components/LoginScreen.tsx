@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, nativeGoogleLogin } from "@/lib/nativeAuth";
 
@@ -24,18 +25,11 @@ export default function LoginScreen({ error }: LoginScreenProps) {
       <div className="w-full max-w-sm">
         {/* Logo / branding */}
         <div className="text-center mb-10">
-          {/* Solid Adviser Indigo tile, not the indigo→violet gradient — that
-              gradient is Penny's signature alone (DESIGN.md's Penny Gradient
-              Rule) and this screen is sign-in, not an advice surface. No
-              usable vector "settle" mark was found in the repo (only
-              composited PNG app-icon layers with a baked-in bloom/gradient
-              in capacitor-spike/assets/) so the existing trending-up glyph
-              is kept rather than tracing new artwork. */}
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 shadow-lg mb-5">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-              <polyline points="17 6 23 6 23 12" />
-            </svg>
+          {/* Canonical "settle" mark (dark navy tile, purple stacked bars) —
+              generated from capacitor-spike/assets/icon.png and already
+              deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
+            <Image src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X, ArrowLeftRight, CreditCard, ReceiptText, SlidersHorizontal } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import PennyMark from "@/components/PennyMark";
 
 interface CategorisationRulesSheetProps {
   onClose: () => void;
@@ -55,11 +56,12 @@ export default function CategorisationRulesSheet({ onClose }: CategorisationRule
               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
               style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
             >
-              ✦ Penny
+              <PennyMark size={11} />
+              Penny
             </span>
           </div>
           <p className="text-[14px] text-slate-700 dark:text-slate-200 leading-relaxed">
-            Money moving between your own accounts isn&apos;t spending — it should be a{" "}
+            Money moving between your own accounts isn&apos;t spending, it should be a{" "}
             <strong className="font-semibold text-slate-900 dark:text-slate-100">Transfer</strong>{" "}
             (or <strong className="font-semibold text-slate-900 dark:text-slate-100">Savings</strong>{" "}
             if it&apos;s going to a savings account, <strong className="font-semibold text-slate-900 dark:text-slate-100">Debt</strong>{" "}
@@ -94,7 +96,7 @@ export default function CategorisationRulesSheet({ onClose }: CategorisationRule
             <div>
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Real purchases go by merchant</p>
               <p className="text-[13px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-                Everything else is categorised by who you paid — a supermarket lands in{" "}
+                Everything else is categorised by who you paid, a supermarket lands in{" "}
                 <strong className="font-semibold text-slate-900 dark:text-slate-100">Groceries</strong>, a restaurant in{" "}
                 <strong className="font-semibold text-slate-900 dark:text-slate-100">Eating Out</strong>, and so on.
               </p>
@@ -109,7 +111,7 @@ export default function CategorisationRulesSheet({ onClose }: CategorisationRule
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">We flag anything that looks off</p>
               <p className="text-[13px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
                 If something looks like it should have been a transfer between your own accounts but landed in a
-                spending category, we flag it for review — you can recategorise it or dismiss the flag if it&apos;s
+                spending category, we flag it for review, you can recategorise it or dismiss the flag if it&apos;s
                 genuinely spending.
               </p>
             </div>
