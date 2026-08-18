@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, nativeGoogleLogin } from "@/lib/nativeAuth";
 
@@ -29,7 +28,13 @@ export default function LoginScreen({ error }: LoginScreenProps) {
               generated from capacitor-spike/assets/icon.png and already
               deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
-            <Image src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
+            {/* Plain <img>, not next/image: the mobile Capacitor build is a
+                static export (output: 'export') without images.unoptimized
+                set, so next/image would emit a /_next/image?url=... optimizer
+                URL that 404s in the exported bundle. A 192px static icon
+                doesn't need runtime optimization anyway. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>

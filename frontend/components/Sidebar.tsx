@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, Settings, CalendarClock, Lightbulb } from "lucide-react";
 
@@ -21,7 +20,12 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-6 border-b border-slate-100 dark:border-slate-800">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden">
-          <Image src="/icons/icon-192.png" alt="Sorted" width={36} height={36} className="w-full h-full object-cover" />
+          {/* Plain <img>, not next/image: the mobile Capacitor build is a
+              static export without images.unoptimized set, so next/image
+              would emit a /_next/image?url=... optimizer URL that 404s in
+              the exported bundle. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/icon-192.png" alt="Sorted" width={36} height={36} className="w-full h-full object-cover" />
         </div>
         <div>
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-tight">Sorted</p>

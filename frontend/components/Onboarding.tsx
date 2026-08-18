@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { Wallet, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
@@ -171,7 +170,12 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
       <Shell dotIndex={dotIndex}>
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl shadow-xl mb-6 overflow-hidden">
-            <Image src="/icons/icon-192.png" alt="Sorted" width={80} height={80} className="w-full h-full object-cover" />
+            {/* Plain <img>, not next/image: the mobile Capacitor build is a
+                static export without images.unoptimized set, so next/image
+                would emit a /_next/image?url=... optimizer URL that 404s in
+                the exported bundle. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/icon-192.png" alt="Sorted" width={80} height={80} className="w-full h-full object-cover" />
           </div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
             Welcome to Sorted
