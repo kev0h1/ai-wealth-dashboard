@@ -179,6 +179,27 @@ _CARD_DEBT_MOVE_RE = re.compile(
 _NUMERIC_RANGE_DASH_RE = re.compile(r"(?<=[0-9×%])\s*[–—]\s*(?=[£0-9])")
 _DASH_RE = re.compile(r"\s*[—–]\s*")
 
+# Broken-decimal guardrail: a digit, a period, one-or-more whitespace chars,
+# then another digit ("4. 47%", "£17. 99") is essentially always a decimal
+# literal that picked up a stray space, never a genuine sentence break (a
+# real sentence boundary is a period followed by a capital letter or the end
+# of the string, not by a bare digit). Investigated 2026-08-18: stored
+# savings-insight docs in Mongo were already clean (0/27 matches across
+# title/body/savings_estimate), so the space is not being written by the
+# generation pipeline. The actual corruption was traced to the frontend's
+# sentence-preview splitter (InsightBody in
+# frontend/app/insights/InsightsPage.tsx), which tokenised prose on every
+# ".", including inside "4.47%", and rejoined the fragments with
+# .join(" ") -- turning "4.47%" into "4." + "47%" -> "4. 47%". That frontend
+# bug is the real fix (see InsightsPage.tsx), but this backend pass is added
+# anyway as requested defense-in-depth: applied at both generation-time and
+# serve-time so any other consumer of this JSON (or a future frontend
+# regression) can't resurface the same artefact. Guarded to require a digit
+# on both sides so it can never touch a real sentence break ("...available.
+# If your..." has a capital letter after the space, not a digit, so it's
+# untouched).
+_DECIMAL_SPACE_RE = re.compile(r"(?<=\d)\.\s+(?=\d)")
+
 
 # Duplicate-payment guardrail: the model can read several trigger lines for
 # the same brand and narrate it as "you're paying N times" / "N separate
@@ -225,7 +246,9 @@ def _house_style(text: str) -> str:
     """Replace any em-dash/en-dash with a comma (prose) so the house "no
     em-dashes" rule holds even when the model doesn't follow it unprompted,
     except a dash between numeric-ish tokens (£15–£30, 4–8×), which is a
-    range and becomes a plain hyphen instead of a comma."""
+    range and becomes a plain hyphen instead of a comma. Also collapses a
+    broken decimal ("4. 47%" -> "4.47%") -- see _DECIMAL_SPACE_RE above."""
+    text = _DECIMAL_SPACE_RE.sub(".", text)
     text = _NUMERIC_RANGE_DASH_RE.sub("-", text)
     return _DASH_RE.sub(", ", text).strip()
 
@@ -774,6 +797,11 @@ async def _generate_savings_insight_content(
 
         savings_estimate = parsed.get("savings_estimate") or None
         if savings_estimate is not None:
+            # House-style (incl. the decimal-space repair) at write-time too,
+            # not just at serve-time in _serialize_insight — mirrors the
+            # title/body treatment above so a stored doc is clean from the
+            # moment it's written, not only when read back through the API.
+            savings_estimate = _house_style(str(savings_estimate))
             allowed = _build_allowed_savings_numbers(web_text, user_context, triggered_by)
             if not _savings_estimate_is_derivable(savings_estimate, allowed):
                 log.warning(

@@ -609,16 +609,31 @@ function WorkflowDrawer({
 
 // ── Insight Body (truncated with "more" toggle) ───────────────────────────────
 
+// Placeholder swapped in for a decimal point ("4.47", "£17.99") before
+// sentence-splitting below, so the splitter can never mistake a decimal for
+// a sentence terminator. The bug this guards against: the raw split regex
+// treats every "." as a sentence end, so "4.47%" was tokenised into "4."
+// and "47%" and rejoined with `.join(" ")`, producing "4. 47%" in the
+// rendered preview even though the API response text was clean. Uses a
+// control character that can never appear in normal copy, restored to "."
+// immediately after splitting.
+const _DECIMAL_PLACEHOLDER = "\0";
+
 function InsightBody({ body }: { body: string }) {
   const [expanded, setExpanded] = useState(false);
-  // Split on sentence endings; keep first 2 sentences as the visible preview
-  const sentences = body.match(/[^.!?]+[.!?]+/g) ?? [body];
+  // Split on sentence endings; keep first 2 sentences as the visible preview.
+  // Decimal points (digit.digit) are protected first so "4.47%" survives as
+  // one token instead of being split into "4." + "47%" (see
+  // _DECIMAL_PLACEHOLDER above).
+  const protectedBody = body.replace(/(\d)\.(\d)/g, `$1${_DECIMAL_PLACEHOLDER}$2`);
+  const restoreDecimals = (s: string) => s.replace(new RegExp(_DECIMAL_PLACEHOLDER, "g"), ".");
+  const sentences = (protectedBody.match(/[^.!?]+[.!?]+/g) ?? [protectedBody]).map(restoreDecimals);
   const preview = sentences.slice(0, 2).join(" ").trim();
   const rest = sentences.slice(2).join(" ").trim();
   const hasMore = rest.length > 0;
 
   return (
-    <p lang="en-GB" className="hero-prose text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed text-pretty">
       <span>{preview}</span>
       {hasMore && !expanded && (
         <>

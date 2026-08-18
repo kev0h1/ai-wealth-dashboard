@@ -150,7 +150,7 @@ export default function HomeInsightSpotlight() {
           <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
             {insight.title}
           </p>
-          <p lang="en-GB" className="hero-prose text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2">
+          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 text-pretty">
             {insight.body}
           </p>
 
