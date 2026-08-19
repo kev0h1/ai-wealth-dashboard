@@ -15,6 +15,10 @@ _hits: dict[str, deque] = defaultdict(deque)
 RULES = [
     ("/auth/",    30, 60),
     ("/webhooks/", 60, 60),
+    # The auth middleware only calls check_rate_limit() for /auth/, /webhooks/
+    # and /logo/ prefixes, so this rule is inert unless /push/test calls
+    # check_rate_limit() itself (it does, as the first line of the handler).
+    ("/push/test", 5, 60),
 ]
 
 

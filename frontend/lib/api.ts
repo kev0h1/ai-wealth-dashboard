@@ -1233,6 +1233,37 @@ export type DebtPlanSummary = {
   cards: { name: string; rate_schedule: { source: string; until: string | null }[] }[];
 };
 
+// Whether a given native (Capacitor) device token is actually registered
+// with the backend, not just whether the OS granted permission.
+export type NativePushStatus = {
+  registered: boolean;
+  platform: "android" | "ios" | null;
+};
+
+// Per-transport delivery tally in a TestPushResult's `result`. `webpush`
+// genuinely has no `configured` key (there's no separate "is web push set
+// up" concept the way there is a VAPID/FCM/APNs credential check), so it
+// deliberately omits the field rather than padding it in.
+export type PushDeliveryStats = { attempted: number; delivered: number; failed: number; pruned: number };
+export type PushDeliveryStatsWithConfig = PushDeliveryStats & { configured: boolean };
+
+// Response for a one-off test push fanned out to every device registered
+// for this user. `detail` is only populated on the ok:false path (no
+// devices registered). `result` is the optional per-transport breakdown;
+// nothing reads it today, it's here so the type matches what the backend
+// actually returns.
+export type TestPushResult = {
+  ok: boolean;
+  sent: boolean;
+  devices: { apns: number; fcm: number; webpush: number };
+  detail?: string;
+  result?: {
+    apns: PushDeliveryStatsWithConfig;
+    fcm: PushDeliveryStatsWithConfig;
+    webpush: PushDeliveryStats;
+  };
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -1984,6 +2015,29 @@ export const api = {
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ token }),
     }).then((r) => toJson<{ ok: boolean }>(r)),
+
+  // Truthful read of native push registration state, keyed by the device's
+  // own token, so the Settings toggle reflects "the backend actually has
+  // this device" rather than just "the OS granted permission" (see
+  // isCapacitorPushRegistered in lib/capacitorPush.ts).
+  getNativePushStatus: (token: string) =>
+    fetch(`${API_BASE}/push/native/status?token=${encodeURIComponent(token)}`, {
+      headers: authHeaders(),
+    }).then((r) => toJson<NativePushStatus>(r)),
+
+  // Fires a one-off push at every device registered for this user (APNs,
+  // FCM, web push). Rate limited server-side to 5/60s; the pre-check below
+  // surfaces that as a distinguishable error before falling through to the
+  // shared toJson(...) parsing so the Settings test flow can show a specific
+  // "wait a minute" message instead of a generic failure.
+  sendTestPush: async (): Promise<TestPushResult> => {
+    const res = await fetch(`${API_BASE}/push/test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    });
+    if (res.status === 429) throw new Error("429 Too Many Requests");
+    return toJson<TestPushResult>(res);
+  },
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
 

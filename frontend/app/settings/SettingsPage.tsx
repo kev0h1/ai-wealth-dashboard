@@ -24,7 +24,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
 import { isNativePlatform } from "@/lib/nativeAuth";
-import { initCapacitorPush, unregisterCapacitorPush, isCapacitorPushRegistered } from "@/lib/capacitorPush";
+import { initCapacitorPush, unregisterCapacitorPush, isCapacitorPushRegistered, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -112,6 +112,8 @@ export default function SettingsPage() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState("");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
+  const [testPushLoading, setTestPushLoading] = useState(false);
+  const [testPushMsg, setTestPushMsg] = useState<{ text: string; tone: "ok" | "warn" } | null>(null);
 
   const [incomeBracket, setIncomeBracket] = useState("");
   const [incomeInput, setIncomeInput] = useState("");
@@ -381,6 +383,44 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleTestPush() {
+    setTestPushLoading(true);
+    setTestPushMsg(null);
+    // Start waiting for on-device receipt before sending, so a fast push
+    // that arrives within a beat of the response is never missed.
+    const receivedPromise = onPushReceivedOnce(8000);
+    try {
+      const res = await api.sendTestPush();
+      if (!res.ok) {
+        setTestPushMsg({
+          text: "No device is registered yet. Turn notifications off and on again to register this device.",
+          tone: "warn",
+        });
+        return;
+      }
+      const received = await receivedPromise;
+      if (received) {
+        setTestPushMsg({ text: "Delivered to this device.", tone: "ok" });
+      } else {
+        const count = res.devices.apns + res.devices.fcm + res.devices.webpush;
+        setTestPushMsg({
+          text: `Sent to ${count} device${count === 1 ? "" : "s"}. If nothing appeared, background the app and try again, Android hides notifications while the app is open.`,
+          tone: "warn",
+        });
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "";
+      if (message.includes("429")) {
+        setTestPushMsg({ text: "Too many tests, wait a minute and try again.", tone: "warn" });
+      } else {
+        setTestPushMsg({ text: message || "Something went wrong", tone: "warn" });
+      }
+    } finally {
+      setTestPushLoading(false);
+      setTimeout(() => setTestPushMsg(null), 5000);
+    }
+  }
+
   async function handleSyncHistory() {
     setSyncingHistory(true); setSyncHistoryMsg(null);
     try {
@@ -556,6 +596,24 @@ export default function SettingsPage() {
               <div className="mt-2 flex items-center gap-1.5">
                 <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
                 <p className="text-xs text-red-500">{notifError}</p>
+              </div>
+            )}
+            {notifPermission === "native" && notifEnabled && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={handleTestPush}
+                  disabled={testPushLoading}
+                  className="min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 text-sm font-medium disabled:opacity-50 active:scale-95 transition-transform"
+                >
+                  <Bell size={14} className={testPushLoading ? "animate-pulse" : ""} />
+                  {testPushLoading ? "Sending…" : "Send a test notification"}
+                </button>
+                {testPushMsg && (
+                  <p className={`mt-2 text-xs font-medium ${testPushMsg.tone === "ok" ? "text-emerald-500" : "text-amber-500"}`}>
+                    {testPushMsg.text}
+                  </p>
+                )}
               </div>
             )}
           </div>

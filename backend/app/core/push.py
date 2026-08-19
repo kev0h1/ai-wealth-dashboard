@@ -44,19 +44,20 @@ def _apns_provider_jwt() -> str:
     return _apns_jwt_cache["token"]
 
 
-async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") -> None:
+async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") -> dict:
     """Deliver to the user's native iOS (APNs) device tokens. Prunes dead tokens."""
     global _apns_warned_unconfigured
+    result = {"configured": APNS_CONFIGURED, "attempted": 0, "delivered": 0, "failed": 0, "pruned": 0}
     try:
         if not APNS_CONFIGURED:
             if not _apns_warned_unconfigured:
                 logging.warning("APNs not configured (missing key/team id) — native iOS push disabled.")
                 _apns_warned_unconfigured = True
-            return
+            return result
 
         tokens = await apns_tokens_col.find({"user_id": user_id}).to_list(None)
         if not tokens:
-            return
+            return result
 
         host = APNS_HOST_SANDBOX if APNS_USE_SANDBOX else APNS_HOST_PROD
         payload = {"aps": {"alert": {"title": title, "body": body}, "sound": "default"}, "url": url}
@@ -70,28 +71,49 @@ async def send_apns_push(user_id: str, title: str, body: str, url: str = "/") ->
         }
 
         dead = []
+        result["attempted"] = len(tokens)
         async with httpx.AsyncClient(http2=True, timeout=15) as client:
             for t in tokens:
                 device_token = t["_id"]
+                token_trunc = f"{device_token[:12]}…{device_token[-6:]}"
                 try:
                     resp = await client.post(f"{host}/3/device/{device_token}", headers=headers, json=payload)
                     if resp.status_code == 410:
+                        # Apple always reports "Unregistered" as the reason for 410, logged
+                        # here so a prune is diagnosable without a repro.
+                        logging.warning(
+                            "APNs pruning dead token for %s (%s, reason=Unregistered): token=%s body=%s",
+                            user_id, resp.status_code, token_trunc, resp.text,
+                        )
                         dead.append(device_token)
+                        result["failed"] += 1
                     elif resp.status_code == 400:
                         reason = (resp.json() or {}).get("reason")
                         if reason in ("BadDeviceToken", "Unregistered"):
+                            logging.warning(
+                                "APNs pruning dead token for %s (%s, reason=%s): token=%s body=%s",
+                                user_id, resp.status_code, reason, token_trunc, resp.text,
+                            )
                             dead.append(device_token)
                         else:
                             logging.warning("APNs 400 for %s: %s", user_id, reason)
+                        result["failed"] += 1
                     elif resp.status_code >= 400:
                         logging.warning("APNs send error for %s (%s): %s", user_id, resp.status_code, resp.text)
+                        result["failed"] += 1
+                    else:
+                        result["delivered"] += 1
                 except Exception as e:
                     logging.warning("APNs send exception for %s: %s", user_id, e)
+                    result["failed"] += 1
 
         if dead:
             await apns_tokens_col.delete_many({"_id": {"$in": dead}})
+        result["pruned"] = len(dead)
+        return result
     except Exception as e:
         logging.warning("APNs push error for %s: %s", user_id, e)
+        return {"configured": APNS_CONFIGURED, "attempted": 0, "delivered": 0, "failed": 0, "pruned": 0}
 
 
 FCM_SEND_URL_TMPL = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
@@ -116,23 +138,24 @@ async def _fcm_access_token() -> str | None:
     return _fcm_creds.token
 
 
-async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> None:
+async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> dict:
     """Deliver to the user's native Android (FCM) device tokens. Prunes dead tokens."""
     global _fcm_warned_unconfigured
+    result = {"configured": FCM_CONFIGURED, "attempted": 0, "delivered": 0, "failed": 0, "pruned": 0}
     try:
         if not FCM_CONFIGURED:
             if not _fcm_warned_unconfigured:
                 logging.warning("FCM not configured (missing project id/service account) — native Android push disabled.")
                 _fcm_warned_unconfigured = True
-            return
+            return result
 
         tokens = await fcm_tokens_col.find({"user_id": user_id}).to_list(None)
         if not tokens:
-            return
+            return result
 
         access_token = await _fcm_access_token()
         if not access_token:
-            return
+            return result
 
         send_url = FCM_SEND_URL_TMPL.format(project_id=FCM_PROJECT_ID)
         headers = {
@@ -141,9 +164,11 @@ async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> 
         }
 
         dead = []
+        result["attempted"] = len(tokens)
         async with httpx.AsyncClient(timeout=15) as client:
             for t in tokens:
                 device_token = t["_id"]
+                token_trunc = f"{device_token[:12]}…{device_token[-6:]}"
                 payload = {
                     "message": {
                         "token": device_token,
@@ -156,6 +181,7 @@ async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> 
                     resp = await client.post(send_url, headers=headers, json=payload)
                     if resp.status_code >= 400:
                         is_dead = resp.status_code == 404
+                        dead_reason = "HTTP 404" if is_dead else None
                         if not is_dead:
                             # The top-level error.status (e.g. "INVALID_ARGUMENT") is just the
                             # HTTP code translated to a string — it does NOT mean the token is
@@ -170,26 +196,43 @@ async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> 
                             for d in details:
                                 if isinstance(d, dict) and d.get("errorCode") in ("UNREGISTERED", "SENDER_ID_MISMATCH"):
                                     is_dead = True
+                                    dead_reason = f"errorCode={d.get('errorCode')}"
                                     break
                         if is_dead:
+                            # Pruning is destructive, so log the evidence before the token
+                            # is dropped. Without this, a dead-token verdict is unrecoverable.
+                            logging.warning(
+                                "FCM pruning dead token for %s (%s, %s): token=%s body=%s",
+                                user_id, resp.status_code, dead_reason, token_trunc, resp.text,
+                            )
                             dead.append(device_token)
+                            result["failed"] += 1
                         else:
                             logging.warning("FCM send error for %s (%s): %s", user_id, resp.status_code, resp.text)
+                            result["failed"] += 1
+                    else:
+                        result["delivered"] += 1
                 except Exception as e:
                     logging.warning("FCM send exception for %s: %s", user_id, e)
+                    result["failed"] += 1
 
         if dead:
             await fcm_tokens_col.delete_many({"_id": {"$in": dead}, "user_id": user_id})
+        result["pruned"] = len(dead)
+        return result
     except Exception as e:
         logging.warning("FCM push error for %s: %s", user_id, e)
+        return {"configured": FCM_CONFIGURED, "attempted": 0, "delivered": 0, "failed": 0, "pruned": 0}
 
 
-async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/") -> None:
-    await send_apns_push(user_id, title, body, url)
-    await send_fcm_push(user_id, title, body, url)
+async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/") -> dict:
+    apns_result = await send_apns_push(user_id, title, body, url)
+    fcm_result = await send_fcm_push(user_id, title, body, url)
+    webpush_result = {"attempted": 0, "delivered": 0, "failed": 0, "pruned": 0}
     subs = await push_subscriptions_col.find({"user_id": user_id}).to_list(None)
     if not subs:
-        return
+        return {"apns": apns_result, "fcm": fcm_result, "webpush": webpush_result}
+    webpush_result["attempted"] = len(subs)
     expired = []
     for sub in subs:
         try:
@@ -204,15 +247,20 @@ async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/")
                 vapid_claims={"sub": VAPID_SUBJECT},
                 ttl=3600,
             )
+            webpush_result["delivered"] += 1
         except WebPushException as e:
             if e.response is not None and e.response.status_code in (404, 410):
                 expired.append(sub["_id"])
             else:
                 logging.warning("WebPushException for %s: %s", user_id, e)
+            webpush_result["failed"] += 1
         except Exception as e:
             logging.warning("Push send error for %s: %s", user_id, e)
+            webpush_result["failed"] += 1
     if expired:
         await push_subscriptions_col.delete_many({"_id": {"$in": expired}})
+    webpush_result["pruned"] = len(expired)
+    return {"apns": apns_result, "fcm": fcm_result, "webpush": webpush_result}
 
 
 async def notify_new_transactions(user_id: str, new_txns: list) -> None:
