@@ -13,6 +13,9 @@ backend/.vapid_private_key
 backend/.webhook_secret
 backend/.token_key
 backend/.apns_auth_key.p8
+# Apple ships APNs auth keys and App Store Connect API keys as AuthKey_*.p8 files, and either one is a live credential.
+# The line above documents where the backend expects to find its key, this pattern catches any copy anywhere in the repo.
+*.p8
 backend/.fcm_service_account.json
 *service-account*.json
 *service_account*.json
