@@ -26,6 +26,7 @@ from app.db.collections import (
 log = logging.getLogger(__name__)
 from app.routers.analytics import _build_cashflow_response, income_credit_ok
 from app.services.card_rates import is_credit_card_account
+from app.services.categories import MOVEMENT
 from app.services.categorisation import series_key
 
 
@@ -539,7 +540,7 @@ def _is_offline(acc: dict) -> bool:
 def _walk_events(
     events: list[tuple[int, str, float, bool, dict]],
     balances: dict[str, float],
-) -> tuple[dict[str, float], dict[str, float], dict[str, dict]]:
+) -> tuple[dict[str, float], dict[str, float], dict[str, dict], dict[str, list[dict]]]:
     """The per-account running-balance walk at the heart of the at-risk/
     shortfall simulation — extracted so `spend_impact._bills_risk` can run
     the exact same walk (once at usual pace, once with an extra projected
@@ -560,15 +561,30 @@ def _walk_events(
     prior inline behaviour, where `running` only ever held keys for
     accounts that had at least one assessable bill).
 
-    Returns (running, min_running, shortfall_bill):
+    Returns (running, min_running, shortfall_bill, bounced_bills):
       running        — final balance per account after every event.
       min_running    — the lowest point each account's balance touched.
       shortfall_bill — first bill (by walk order) that drove each account
                         negative, keyed by account id.
+      bounced_bills  — EVERY bill (by walk order, not just the first) that
+                        left an account negative, keyed by account id. A
+                        deficit cascades — once an account is short, every
+                        later bill on it counts until income recovers it —
+                        so this is the full set `shortfall_bill` only takes
+                        the head of. Callers use it to tell whether a
+                        deficit is genuinely caused by an obligation
+                        (commitment/discretionary) or only ever by the
+                        user's own movement (savings/transfer/investment/
+                        debt) — see `compute_today_items`' recommendation
+                        gating, which must not instruct a "move money" fix
+                        for a plan the user made for their own money, but
+                        must still fire when movement merely starves a real
+                        bill further down the same account's timeline.
     """
     running: dict[str, float] = dict(balances)
     min_running: dict[str, float] = dict(balances)
     shortfall_bill: dict[str, dict] = {}
+    bounced_bills: dict[str, list[dict]] = {}
 
     for _days_away, acct, amount, is_income, item in events:
         if is_income:
@@ -577,10 +593,118 @@ def _walk_events(
             new_bal = running.get(acct, 0.0) - amount
             running[acct] = new_bal
             min_running[acct] = min(min_running.get(acct, new_bal), new_bal)
-            if new_bal < 0 and acct not in shortfall_bill:
-                shortfall_bill[acct] = item
+            if new_bal < 0:
+                if acct not in shortfall_bill:
+                    shortfall_bill[acct] = item
+                bounced_bills.setdefault(acct, []).append(item)
 
-    return running, min_running, shortfall_bill
+    return running, min_running, shortfall_bill, bounced_bills
+
+
+def _gate_recommendation(
+    dest_acct: str,
+    min_bal: float,
+    shortfall_bill: dict[str, dict],
+    bounced_bills: dict[str, list[dict]],
+    optimistic_min_running: dict[str, float],
+) -> dict | None:
+    """Decide whether `dest_acct`'s deficit (from the conservative walk)
+    should reach the "move money" recommendation engine, and if so, which
+    bill to represent it with. Returns the display bill dict, or None to
+    suppress the recommendation entirely.
+
+    Pulled out of `compute_today_items` as a pure, DB-free function so the
+    two suppression rules can be unit-tested directly: see
+    tests/test_companion_shortfall.py.
+
+    Two independent gates, either one suppresses:
+
+    (a) SAME-DAY INCOME — reliable income already credited to this exact
+        account (via `credited_incomes`, which is what `optimistic_min_running`
+        is built from) landing the SAME day as the outflows that would
+        otherwise bounce. The conservative walk (outflows-before-inflows on a
+        shared day) still drives `min_bal`/`shortfall_bill`/`bounced_bills` —
+        this only asks "if that income were credited first instead, would the
+        account ever actually go negative?" A recommendation is an
+        instruction to act; "move £X right now" is wrong when the money that
+        covers it is already expected in that same account that same day.
+
+    (b) MOVEMENT-ONLY — of every bill this account's deficit actually
+        bounces (not just the first — a deficit cascades), is at least one a
+        genuine commitment/discretionary obligation? If every bounced item is
+        `movement` (the user's own standing order to savings/another own
+        account/investment/debt), there is no obligation that can fail
+        expensively here, so no recommendation fires. `shortfall_bill` (the
+        FIRST bounced item) is deliberately not used alone: it can itself be
+        the movement that starts the drain while a later, genuinely-owed bill
+        on the same account also bounces and must still be covered — in that
+        case this returns THAT bill, not the movement, so the card's copy
+        never misdescribes a standing order as "your bill".
+    """
+    if optimistic_min_running.get(dest_acct, min_bal) >= -0.5:
+        return None
+    bounced = bounced_bills.get(dest_acct, [])
+    real_bounced = [b for b in bounced if b.get("kind") != MOVEMENT]
+    if not real_bounced:
+        return None
+    return real_bounced[0]
+
+
+# A "done" recommendation only had a one-way lifecycle: nothing ever put it
+# back into play if the SAME fingerprinted shortfall reopened later. These two
+# pure, DB-free helpers back the reactivation pass in `compute_today_items`
+# (see "5c. Reactivation" below) and its celebration-damping partner in the
+# step-7 auto-verification pass — both unit-tested directly, same pattern as
+# `_gate_recommendation` above.
+
+# Same noise floor already used twice elsewhere in this file: the emission
+# loop's own "is this destination actually covered" check (`dest_gap > 0.5`)
+# and the same-day-income gate above (`optimistic_min_running... >= -0.5`). A
+# doc that dipped to -£0.02 and bounced back is projection noise, not a
+# genuinely reopened shortfall — reactivating on that would flap.
+_REOPEN_THRESHOLD = -0.5
+
+# Bank data here only refreshes on the 4-hourly sync cron (see
+# `sync_worker.py`'s `task_reconcile_truelayer` schedule), so the account
+# state a celebration reacts to cannot genuinely change faster than that
+# under normal use. Capping re-celebration to once per that same window means
+# a balance that flaps across £0 between reactivation and resolution — e.g. a
+# stray pending debit clearing and re-posting — resolves quietly (the doc
+# still goes back to "done", just without a fresh "Sorted" toast/push) rather
+# than congratulating the user every time projections wobble.
+_RECELEBRATE_COOLDOWN_SECONDS = 4 * 3600
+
+
+def _should_reactivate(stored: dict, min_running: dict[str, float]) -> bool:
+    """True when a stored "done" move/payday_plan doc's destination(s) show a
+    materially reopened shortfall in THIS request's `min_running` walk.
+
+    Multi-destination (payday_plan) docs reopen if ANY listed destination is
+    materially negative again — the plan's promise covered all of them, so a
+    single account slipping back into deficit breaks it just as much as one
+    ever did when the doc was first built."""
+    dest_accts = stored.get("_dest_accts")
+    if dest_accts and isinstance(dest_accts, list) and len(dest_accts) > 0:
+        return any(min_running.get(d, 0.0) < _REOPEN_THRESHOLD for d in dest_accts)
+    dest = stored.get("_dest_acct")
+    if not dest:
+        return False
+    return min_running.get(dest, 0.0) < _REOPEN_THRESHOLD
+
+
+def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
+    """True when a doc that was previously reactivated resolved again TOO
+    SOON after its last celebration — resolve it quietly (status "done", no
+    new `_celebrated`/toast) instead of congratulating the user again.
+
+    A doc that has never been reactivated (`_reactivated_at` absent) is
+    always free to celebrate — this only damps the repeat-flap case."""
+    if not stored.get("_reactivated_at"):
+        return False
+    ca = stored.get("_celebrated_at")
+    if ca is None:
+        return False
+    return (now_utc - ca).total_seconds() < _RECELEBRATE_COOLDOWN_SECONDS
 
 
 async def compute_today_items(uid: str, payday_preview: bool = False) -> list[dict]:
@@ -734,7 +858,26 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # Walk shared with spend_impact._bills_risk (see _walk_events docstring) —
     # same events, same starting balances, same result as the inline loop
     # this replaced.
-    running, min_running, shortfall_bill = _walk_events(events, running)
+    _seed_balances = dict(running)
+    running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
+
+    # SAME-DAY INCOME — for RECOMMENDATION gating only, never for the at-risk
+    # DISPLAY. The conservative walk above (outflows-before-inflows on a
+    # shared day) stays exactly as it was: analytics.py's at-risk badge and
+    # the Planning page's own simulation both keep reasoning "a payment can
+    # leave before the salary clears", and this walk still feeds
+    # min_running/shortfall_bill/bounced_bills for everyone downstream. But a
+    # RECOMMENDATION is an instruction to act, not a warning, and "move £X
+    # right now" is simply wrong when reliable income (already vetted by
+    # income_credit_ok, already attributed to this exact account) is
+    # expected to land in that SAME account on the SAME day as the
+    # outflows it's supposedly short for. This second walk answers exactly
+    # that question — same events, same credited incomes, only the same-day
+    # tie-break flips to income-before-outflows — and is consulted below
+    # only to decide whether a "move money" card should fire, never to
+    # change the amounts or the conservative simulation itself.
+    _optimistic_events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
+    _, optimistic_min_running, _, _ = _walk_events(_optimistic_events, _seed_balances)
 
     # ── 5. Source-selection helpers (accounts already loaded in step 3) ─────
     # _is_savings, _is_current, _is_offline are module-level (above compute_today_items)
@@ -752,15 +895,70 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     items: list[dict] = []
     dismissed = await _get_dismissed(uid)
 
-    # Step 1: Collect shortfalls
+    # ── 5c. Reactivation — undo a stale "done" when a shortfall genuinely
+    # reopens ─────────────────────────────────────────────────────────────
+    # A doc reaches "done" when its destination's shortfall clears (step 7,
+    # below, owns the rest of the lifecycle). Nothing previously undid that:
+    # if the SAME fingerprinted shortfall reopened later, step 6's own-doc
+    # check (`existing.get("status") == "done": continue`) suppressed it
+    # forever, and step 7's reactivation branch only ever ran for
+    # shortfalls that were ALREADY clearing again (`min_running >= 0`),
+    # never for ones that had gone negative once more.
+    #
+    # This runs FIRST — before the Payday Plan section and step 6's
+    # emission loop both read `companion_items_col` for "is this already
+    # done" — using the `min_running` this request already computed. A doc
+    # flipped back to "active" here is read as active by both, so the
+    # recommendation reappears the SAME cycle, not a cycle late.
+    async for _rstored in companion_items_col.find({
+        "uid": uid,
+        "type": {"$in": ["move", "payday_plan"]},
+        "status": "done",
+    }):
+        _rid = _rstored["_id"]
+        if _rid in dismissed:
+            continue
+        _rwindow = _rstored.get("_window_end", "")
+        if _rwindow and date.fromisoformat(_rwindow) < today_d:
+            continue  # expired — step 7 below retires it, not this pass
+        if not _should_reactivate(_rstored, min_running):
+            continue
+        await companion_items_col.update_one(
+            {"_id": _rid, "uid": uid},
+            {
+                "$set": {
+                    "status": "active",
+                    "_celebrated": False,
+                    "_reactivated_at": datetime.utcnow(),
+                },
+                "$inc": {"_reactivation_count": 1},
+            },
+        )
+
+    # Step 1: Collect shortfalls — a destination only reaches the
+    # recommendation engine (the "move money" cards below) when its deficit
+    # is BOTH (a) not just a same-day income timing artifact and (b)
+    # genuinely caused by an obligation, not only ever by the user's own
+    # movement (savings/transfer/investment/debt). Movement stays IN the
+    # conservative walk above — min_running/shortfall_bill/bounced_bills are
+    # untouched, so a movement can still starve a real bill further down the
+    # timeline and that bill still flags. This step only decides what Penny
+    # is willing to instruct the user to act on.
     shortfalls = []  # (first_bounce_days_away, shortfall_amount, dest_acct, bill)
     for dest_acct, min_bal in min_running.items():
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
-        bill = shortfall_bill.get(dest_acct)
-        if not bill:
+        if dest_acct not in shortfall_bill:
             continue
-        shortfalls.append((bill["days_away"], abs(min_bal), dest_acct, bill))
+        # `_gate_recommendation` applies the two suppression rules (same-day
+        # income, movement-only) — see its docstring — and picks the right
+        # bill to represent the card with when it doesn't suppress.
+        _display_bill = _gate_recommendation(
+            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running
+        )
+        if _display_bill is None:
+            continue
+        shortfalls.append((_display_bill["days_away"], abs(min_bal), dest_acct, _display_bill))
     shortfalls.sort(key=lambda t: (t[0], -t[1]))  # most urgent, then largest
 
     # Step 2: Track remaining source capacity across successive moves.
@@ -1740,6 +1938,15 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             if all(min_running.get(d, 0.0) >= 0 for d in stored_dest_accts):
                 stored_total = stored.get("_total", 0)
                 if stored_status == "active":
+                    if _recelebration_gated(stored, _cel_now_utc):
+                        # Reactivated and resolved again too soon after its
+                        # last celebration — go quietly "done" with no fresh
+                        # toast/push. See `_recelebration_gated` for why.
+                        await companion_items_col.update_one(
+                            {"_id": stored_id, "uid": uid},
+                            {"$set": {"status": "done"}},
+                        )
+                        continue
                     await companion_items_col.update_one(
                         {"_id": stored_id, "uid": uid},
                         {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
@@ -1787,6 +1994,14 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         # its window; a re-opened shortfall must not be toasted as sorted.
         if stored_dest and min_running.get(stored_dest, 0.0) >= 0:
             if stored_status == "active":
+                if _recelebration_gated(stored, _cel_now_utc):
+                    # Reactivated and resolved again too soon after its last
+                    # celebration — go quietly "done" with no fresh toast/push.
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"status": "done"}},
+                    )
+                    continue
                 await companion_items_col.update_one(
                     {"_id": stored_id, "uid": uid},
                     {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},

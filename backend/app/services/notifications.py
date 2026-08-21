@@ -53,13 +53,24 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
     """Run every preference-gated check after a sync brought new transactions."""
     if not user_id or user_id == "unknown":
         return
+
+    # Run the move-recommendation check first and carry its covered accounts
+    # into the bill-shortfall check below, so a "Move £X to <account>" push
+    # (the fix) suppresses the plain "Bill may not clear" push (the problem)
+    # for the same account — one notification per underlying situation, not two.
+    covered_dest_accts: set[str] = set()
+    try:
+        covered_dest_accts = await _maybe_move_recommendation(user_id)
+    except Exception as e:  # one failing check must not block the others
+        log.warning("notify_after_sync move_recommendation failed for %s: %s", user_id, e)
+
     for label, coro in (
         ("planned_settlement", _maybe_settle_planned(user_id)),
         ("transactions", _maybe_transactions(user_id, new_txns)),
         ("budget_alerts", _maybe_budget_exceeded(user_id, region)),
         ("goal_milestones", _maybe_goal_funded(user_id, region)),
         ("insights", _maybe_new_insights(user_id)),
-        ("bill_alerts", _maybe_bill_shortfall(user_id, region)),
+        ("bill_alerts", _maybe_bill_shortfall(user_id, region, covered_dest_accts)),
     ):
         try:
             await coro
@@ -185,7 +196,78 @@ async def _maybe_new_insights(user_id: str) -> None:
     )
 
 
-async def _maybe_bill_shortfall(user_id: str, region: str) -> None:
+async def _maybe_move_recommendation(user_id: str) -> set[str]:
+    """Push when Penny recommends a "Move £X to <account>" cover-plan card.
+
+    Hooked into `notify_after_sync` alongside the other checks — the
+    recommendation is computed fresh from `compute_today_items`, the same
+    function that powers the /penny and Home cards, so the push always
+    matches what the user would see if they opened the app.
+
+    Preference: reuses `bill_alerts` rather than a new key. The move
+    recommendation only ever exists to fix the exact situation `bill_alerts`
+    already covers (a bill that may not clear) — it is the actionable
+    counterpart to that same risk, not a separate category of alert. Reusing
+    it means no new Settings toggle is needed.
+
+    Dedup + pruning: `compute_today_items` bakes a fingerprint of the
+    recommended amounts into each item's id, so a materially changed
+    recommendation naturally gets a new id. State stores exactly the ids of
+    *currently active* recommendations and is REPLACED (not appended to)
+    each run: an id that stops being emitted — because it was paid, verified,
+    dismissed, or the payday window rolled over — simply drops out on the
+    next sync. That keeps state bounded to "what's live right now" without a
+    separate expiry pass, unlike the per-period lists the sibling checks
+    accumulate.
+
+    Returns the set of destination account ids that currently have an
+    active move recommendation, so `_maybe_bill_shortfall` can suppress its
+    own push for the same account (the move is the fix for that same risk;
+    sending both would report one problem twice).
+    """
+    if not await notif_pref(user_id, "bill_alerts"):
+        return set()
+
+    from app.services.companion import compute_today_items
+
+    try:
+        items = await compute_today_items(user_id)
+    except Exception as e:
+        log.warning("move recommendation compute failed for %s: %s", user_id, e)
+        return set()
+
+    # Only genuine "here's the transfer" cards carry an `amount` + `plan_dest`
+    # (the funded cover-plan case). The sibling "no viable source" card is
+    # also `type == "move"` but recommends nothing to move, so it's excluded.
+    moves = [
+        i for i in items
+        if i.get("type") == "move" and i.get("amount") and i.get("plan_dest", {}).get("account_id")
+    ]
+    dest_accts = {str(m["plan_dest"]["account_id"]) for m in moves}
+
+    state = await _state(user_id)
+    already = set(state.get("move_recommended") or [])
+    current_ids = {m["id"] for m in moves}
+
+    for m in moves:
+        if m["id"] in already:
+            continue
+        dest_name = m["plan_dest"].get("name") or "your account"
+        amount = int(round(m["amount"]))
+        title = f"Move £{amount:,} to {dest_name}"
+        body = "Covers an expected bill before it's due."
+        await send_push_to_user(user_id, title, body, "/penny")
+
+    if current_ids != already:
+        await notification_state_col.update_one(
+            {"_id": user_id},
+            {"$set": {"move_recommended": sorted(current_ids)}},
+            upsert=True,
+        )
+    return dest_accts
+
+
+async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: set[str] | None = None) -> None:
     if not await notif_pref(user_id, "bill_alerts"):
         return
 
@@ -198,12 +280,14 @@ async def _maybe_bill_shortfall(user_id: str, region: str) -> None:
     resp = await _build_cashflow_response(cached)
     upcoming_bills = resp.get("upcoming_bills") or []
 
+    covered = covered_dest_accts or set()
     at_risk = [
         b for b in upcoming_bills
         if b["days_away"] <= 7
         and b.get("account_balance") is not None
         and b["account_balance"] >= 0
         and b["amount"] > b["account_balance"]
+        and str(b.get("account_id") or "") not in covered
     ]
     if not at_risk:
         return

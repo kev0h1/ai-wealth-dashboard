@@ -381,7 +381,7 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
         # extra outflow. This is the "at usual pace" comparison — a bill
         # already short here is companion's territory, not a spend
         # consequence.
-        _, baseline_min_running, _ = _walk_events(events, balances)
+        _, baseline_min_running, _, _ = _walk_events(events, balances)
 
         salary_acct = await _infer_salary_account(uid)
         if salary_acct is None:
@@ -400,7 +400,7 @@ async def _bills_risk(uid: str, total_excess: float, period: dict) -> dict | Non
             for day in range(1, int(days_left) + 1)
         ]
         paced_events = sorted(events + extra_events, key=lambda e: (e[0], 1 if e[3] else 0))
-        _, paced_min_running, paced_shortfall_bill = _walk_events(paced_events, balances)
+        _, paced_min_running, paced_shortfall_bill, _ = _walk_events(paced_events, balances)
 
         # Causation test: only a bill whose account was NOT already
         # projected negative at usual pace, but IS once the excess pace is
