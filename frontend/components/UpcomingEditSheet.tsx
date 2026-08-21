@@ -235,7 +235,7 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
             <div className="flex-1 min-w-0">
               <p className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">{item.name}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Predicted {formattedDate} · {sign}£{item.amount.toFixed(2)}
+                Predicted {formattedDate} · <span className="font-mono tabular-nums">{sign}£{item.amount.toFixed(2)}</span>
               </p>
             </div>
             <button

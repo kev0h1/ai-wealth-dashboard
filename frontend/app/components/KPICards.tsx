@@ -2,6 +2,7 @@
 
 import { TrendingUp, Wallet, Clock, LineChart, PiggyBank } from "lucide-react";
 import { KPIs } from "@/lib/api";
+import MoneyText from "@/components/MoneyText";
 
 function fmt(n: number) {
   if (n >= 1_000_000) return `£${(n / 1_000_000).toFixed(2)}m`;
@@ -26,7 +27,7 @@ function KPICard({ label, value, icon, color, loading }: KPICardProps) {
           {loading ? (
             <div className="h-7 w-24 bg-slate-800 animate-pulse rounded" />
           ) : (
-            <p className="text-2xl font-bold text-white">{value}</p>
+            <p className="text-2xl font-bold text-white"><MoneyText text={value} /></p>
           )}
         </div>
         <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>

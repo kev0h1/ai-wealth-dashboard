@@ -27,6 +27,7 @@ import { api, SavingsInsights, SavingsPlan } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
 import { goBack } from "@/lib/goBack";
 import { usePreferences } from "@/components/PreferencesContext";
+import MoneyText from "@/components/MoneyText";
 import SavingsGoalSheet from "@/components/SavingsGoalSheet";
 import SavingsPlanCard from "@/components/SavingsPlanCard";
 
@@ -192,7 +193,7 @@ function LadderRung({ step, isLast }: { step: GrowLadderStep; isLast: boolean })
           <div className="mt-1.5 flex items-center gap-2">
             <SegmentStrip state={step.state} />
             <p className={`text-xs ${quiet ? "text-slate-400 dark:text-slate-600" : "text-slate-600 dark:text-slate-300"}`}>
-              {step.detail}
+              <MoneyText text={step.detail} />
             </p>
           </div>
 
@@ -249,13 +250,13 @@ function SplitGauge({ view }: { view: GrowView }) {
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
           <div>
-            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{money(cash)}</p>
+            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{money(cash)}</p>
             <p className="text-[10px] uppercase tracking-widest text-slate-400">Cash, safe</p>
           </div>
         </div>
         <div className="flex items-center gap-2 text-right">
           <div>
-            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100">{money(atRisk)}</p>
+            <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{money(atRisk)}</p>
             <p className="text-[10px] uppercase tracking-widest text-slate-400">Invested, at risk</p>
           </div>
           <span className="h-2 w-2 rounded-full bg-sky-400" />
@@ -386,9 +387,9 @@ export default function GrowVariant1() {
                   </p>
                 </div>
                 <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                  {view.verdict.headline}
+                  <MoneyText text={view.verdict.headline} />
                 </h1>
-                <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">{view.verdict.sub}</p>
+                <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300"><MoneyText text={view.verdict.sub} /></p>
                 {view.debt.all_promo && view.debt.promo_cliff && (
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)}, the after-debt figure reflects those repayments.
@@ -399,7 +400,7 @@ export default function GrowVariant1() {
                   <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                     {view.surplus_monthly < 0 ? "Short each month" : "Spare each month"}
                   </span>
-                  <span className="text-base font-bold text-slate-900 dark:text-slate-50">
+                  <span className="text-base font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
                     {money(Math.abs(view.surplus_monthly))}
                   </span>
                 </div>
@@ -462,7 +463,7 @@ export default function GrowVariant1() {
                     </button>
                   )}
                 </div>
-                <p className="text-sm font-bold text-slate-900 dark:text-slate-50">
+                <p className="text-sm font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
                   {money(view.buffer.current)}{" "}
                   <span className="text-xs font-medium text-slate-500 dark:text-slate-400">/ {money(view.buffer.target)}</span>
                 </p>
@@ -474,9 +475,11 @@ export default function GrowVariant1() {
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1">Debt</p>
                 {view.debt.has_debt ? (
                   <>
-                    <p className="text-sm font-bold text-slate-900 dark:text-slate-50">{money(view.debt.total)}</p>
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">{money(view.debt.total)}</p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {view.debt.all_promo ? "all on 0%" : `${money(view.debt.expensive_total)} not on 0%`}
+                      {view.debt.all_promo ? "all on 0%" : (
+                        <><span className="font-mono tabular-nums">{money(view.debt.expensive_total)}</span> not on 0%</>
+                      )}
                     </p>
                   </>
                 ) : (
@@ -490,7 +493,7 @@ export default function GrowVariant1() {
               <div className="space-y-1 px-1">
                 {view.notes.map((n, i) => (
                   <p key={i} className="text-[11px] text-slate-500 dark:text-slate-400 italic leading-snug">
-                    {n}
+                    <MoneyText text={n} />
                   </p>
                 ))}
               </div>

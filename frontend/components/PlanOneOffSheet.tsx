@@ -7,6 +7,7 @@ import { api, Account, PlannedImpact } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import MoneyText from "@/components/MoneyText";
 
 interface PlanOneOffSheetProps {
   accounts: Account[];
@@ -177,7 +178,7 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
               <div className="space-y-4 py-2">
                 <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 px-4 py-5">
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
-                    {confirmMessage}
+                    {confirmMessage && <MoneyText text={confirmMessage} />}
                   </p>
                 </div>
                 <button

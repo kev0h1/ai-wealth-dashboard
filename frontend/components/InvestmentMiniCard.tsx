@@ -91,7 +91,7 @@ export default function InvestmentMiniCard({ account, onClick, hidden, grid, cal
           </div>
 
           {/* Value — the hero, same slot as balance on bank cards */}
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num leading-none">
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 money leading-none">
             {hidden ? "••••" : valueStr}
           </p>
 
@@ -129,7 +129,7 @@ export default function InvestmentMiniCard({ account, onClick, hidden, grid, cal
       </p>
 
       {/* Value */}
-      <p className="text-xl font-bold tracking-tight leading-none text-white">
+      <p className="text-xl font-bold tracking-tight leading-none text-white font-mono tabular-nums">
         {hidden ? "••••" : valueStr}
       </p>
 

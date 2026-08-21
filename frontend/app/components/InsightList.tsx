@@ -2,6 +2,7 @@
 
 import { Lightbulb, TrendingUp } from "lucide-react";
 import { Insight } from "@/lib/api";
+import MoneyText from "@/components/MoneyText";
 
 const CATEGORY_STYLE: Record<string, string> = {
   savings: "border-l-emerald-500",
@@ -29,13 +30,13 @@ export default function InsightList({ insights }: { insights: Insight[] }) {
               <p className="text-sm font-medium text-slate-200 leading-snug">{ins.title}</p>
               <div className="flex items-center gap-1 text-emerald-400 shrink-0">
                 <TrendingUp className="w-3.5 h-3.5" />
-                <span className="text-xs font-semibold">£{ins.impact}/yr</span>
+                <span className="text-xs font-semibold font-mono tabular-nums">£{ins.impact}/yr</span>
               </div>
             </div>
-            <p className="text-xs text-slate-400 leading-relaxed mb-3">{ins.rationale}</p>
+            <p className="text-xs text-slate-400 leading-relaxed mb-3"><MoneyText text={ins.rationale} /></p>
             <div className="flex items-center justify-between">
               <span className="text-xs bg-slate-700 px-2 py-0.5 rounded-full text-slate-300">
-                {ins.action}
+                <MoneyText text={ins.action} />
               </span>
               <span className="text-xs text-slate-500">{ins.confidence}% confidence</span>
             </div>

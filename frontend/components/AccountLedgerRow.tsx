@@ -67,7 +67,7 @@ function UtilisationBar({ pct, limit }: { pct: number; limit: number }) {
         />
       </div>
       <span className="shrink-0 text-[10px] text-slate-500 dark:text-slate-400 num">
-        {clamped}% of £{limit.toLocaleString("en-GB")}
+        {clamped}% of <span className="font-mono tabular-nums">£{limit.toLocaleString("en-GB")}</span>
       </span>
     </div>
   );
@@ -181,7 +181,7 @@ export default function AccountLedgerRow({
       <div className="shrink-0 flex flex-col items-end gap-1">
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
-          className={`text-[16px] font-semibold num tabular-nums ${
+          className={`text-[16px] font-semibold money ${
             isCredit ? "text-rose-600 dark:text-rose-400" : muted ? "text-slate-400 dark:text-slate-500" : "text-slate-900 dark:text-slate-100"
           }`}
         >

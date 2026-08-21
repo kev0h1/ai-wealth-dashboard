@@ -79,7 +79,7 @@ export default function InvestmentUpload({ onSuccess, onClose }: InvestmentUploa
               {result.provider} {result.account_type} imported
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500">
-              {result.holdings_count} holdings · £{result.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {result.holdings_count} holdings · <span className="font-mono tabular-nums">£{result.total_value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </p>
             <button
               onClick={onClose}

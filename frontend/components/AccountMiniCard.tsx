@@ -374,7 +374,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           </div>
 
           {/* Balance — the hero. Neutral ink even when negative (Red Is Risk rule) */}
-          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 num leading-none">
+          <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 money leading-none">
             {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
           </p>
           {isCredit && !hidden && (
@@ -488,7 +488,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
 
       {/* Balance */}
       <p
-        className={`text-xl font-bold tracking-tight leading-none`}
+        className={`text-xl font-bold tracking-tight leading-none font-mono tabular-nums`}
         style={{ color: balance < 0 ? (tc === "#fff" ? "#fca5a5" : "#b91c1c") : tc }}
       >
         {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}

@@ -771,7 +771,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between px-4 pb-3.5 border-t border-slate-50 dark:border-slate-700/50 pt-3.5">
                 <div>
                   <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Receiving Child Benefit</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High income charge applies over £60k</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">High income charge applies over <span className="font-mono tabular-nums">£60k</span></p>
                 </div>
                 <Toggle
                   checked={hasChildBenefit}

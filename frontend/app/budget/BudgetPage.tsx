@@ -24,6 +24,7 @@ import { getPayPeriodWithConfig, filterPeriod, formatPeriod, prevPeriodWithConfi
 import type { Transaction, PaceDetail } from "@/lib/api";
 import CategorySheet from "@/components/CategorySheet";
 import TransactionSheet from "@/components/TransactionSheet";
+import MoneyText from "@/components/MoneyText";
 
 interface Budget {
   category: string;
@@ -377,13 +378,13 @@ export default function BudgetPage() {
               <div className="glass-hero rounded-2xl p-4">
                 <p className={`${whisperClass} mb-1`}>THIS PERIOD</p>
                 <p className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold num text-slate-900 dark:text-slate-100 tracking-tight">
+                  <span className="text-3xl font-bold money text-slate-900 dark:text-slate-100 tracking-tight">
                     {hideNetWorth ? `${sym}••` : fmt(discretionarySoFar, sym)}
                   </span>
                   <span className="text-sm text-slate-500 dark:text-slate-400 font-medium">spent on choices</span>
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1.5">
-                  {hideNetWorth ? `${sym}••/day` : `${ratePerDay}/day`}
+                  <span className="font-mono tabular-nums">{hideNetWorth ? `${sym}••/day` : `${ratePerDay}/day`}</span>
                   {!isClosed && pd.days_left != null && (
                     <> · {pd.days_left} days to payday</>
                   )}
@@ -397,7 +398,7 @@ export default function BudgetPage() {
               const dayLabel = new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" });
               return (
                 <p className="text-[12px] text-slate-400 dark:text-slate-500 px-1">
-                  {dayLabel} was {hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)}, about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
+                  {dayLabel} was <span className="font-mono tabular-nums">{hideNetWorth ? `${sym}••` : fmt(detail.notable_day.amount, sym)}</span>, about {detail.notable_day.multiple.toFixed(1)}× your usual {detail.notable_day.weekday}.
                 </p>
               );
             })()}
@@ -430,7 +431,7 @@ export default function BudgetPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{choice.category}</p>
                           {subLine && (
-                            <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">{subLine}</p>
+                            <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5"><MoneyText text={subLine} /></p>
                           )}
                           {choice.checkpoint && (() => {
                             const { aim_amount, spent_so_far, days_left } = choice.checkpoint;
@@ -438,12 +439,12 @@ export default function BudgetPage() {
                             const aimLine = `${sym}${Math.round(spent_so_far).toLocaleString("en-GB")} of your ${sym}${Math.round(aim_amount).toLocaleString("en-GB")} aim · ${dl}`;
                             return (
                               <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                {hideNetWorth ? `${sym}•• of your ${sym}•• aim · ${dl}` : aimLine}
+                                <MoneyText text={hideNetWorth ? `${sym}•• of your ${sym}•• aim · ${dl}` : aimLine} />
                               </p>
                             );
                           })()}
                         </div>
-                        <span className="text-base font-bold tabular-nums text-slate-700 dark:text-slate-200 flex-shrink-0">
+                        <span className="text-base font-bold tabular-nums text-slate-700 dark:text-slate-200 flex-shrink-0 font-mono">
                           {hideNetWorth ? `${sym}••` : fmt(choice.spent, sym)}
                         </span>
                       </div>
@@ -651,7 +652,7 @@ function ApplyBudgetCard({
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
                 <span className="text-xs text-slate-700 dark:text-slate-200 truncate">{b.category}</span>
               </div>
-              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">{sym}{b.monthly_limit}/mo</span>
+              <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">{sym}{b.monthly_limit}/mo</span>
             </div>
           );
         })}

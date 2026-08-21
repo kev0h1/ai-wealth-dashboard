@@ -25,7 +25,7 @@ function roundTo5(n: number): number {
   return Math.max(5, Math.round(n / 5) * 5);
 }
 
-// Aim-setting sheet for the Mirror's "I'd like to change this" path.
+// Aim-setting sheet for the Mirror's "This isn't me, change it" path.
 // Fetches the category's usual-period baseline from /spend/category-signals,
 // prefils the derived aim (backend suggested_aim when present, otherwise
 // ~93% of usual rounded to £5), and saves via POST /checkpoints. Cancelling
@@ -159,7 +159,7 @@ export default function AimSheet({ category, onClose, onSaved }: AimSheetProps) 
                 <>
                   <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
                     {usual != null
-                      ? <>Your usual is about <strong className="font-semibold text-slate-900 dark:text-slate-100">{fmtWhole(usual)}/period</strong>. Set an aim to track against:</>
+                      ? <>Your usual is about <strong className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">{fmtWhole(usual)}/period</strong>. Set an aim to track against:</>
                       : <>Set an aim for {category} to track against, leave it blank and I&apos;ll work one out from your own baseline:</>}
                   </p>
 

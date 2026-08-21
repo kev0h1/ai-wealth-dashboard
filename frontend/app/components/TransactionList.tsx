@@ -97,7 +97,7 @@ export default function TransactionList({
                 </div>
               </div>
               <span
-                className={`text-sm font-medium shrink-0 ${
+                className={`text-sm font-medium shrink-0 font-mono tabular-nums ${
                   txn.transaction_type === "credit" ? "text-emerald-400" : "text-slate-200"
                 }`}
               >

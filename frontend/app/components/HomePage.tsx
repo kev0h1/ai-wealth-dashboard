@@ -390,8 +390,8 @@ export default function HomePage() {
             >
               <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{provider} needs reconnecting</p>
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-tight">Transactions have stopped syncing.</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{provider} needs reconnecting</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Transactions have stopped syncing.</p>
               </div>
               <button
                 onClick={() => handleReconnect(provider_id)}

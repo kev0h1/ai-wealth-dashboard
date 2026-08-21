@@ -61,7 +61,7 @@ export default function AccountList({
                   <p className="text-xs text-slate-500 truncate">{acc.provider}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-semibold text-white">
+                  <p className="text-sm font-semibold text-white font-mono tabular-nums">
                     £{acc.balance.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className={`text-xs ${typeColor(acc.type)}`}>{acc.type}</p>
@@ -79,7 +79,7 @@ export default function AccountList({
         <div className="px-4 py-3 border-t border-slate-800">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>Total balance</span>
-            <span className="font-semibold text-slate-300">
+            <span className="font-semibold text-slate-300 font-mono tabular-nums">
               £{accounts.reduce((s, a) => s + a.balance, 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>

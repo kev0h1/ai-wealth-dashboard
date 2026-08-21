@@ -15,6 +15,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { fmtWhole, daysLabel } from "@/lib/aimFormat";
+import MoneyText from "@/components/MoneyText";
 
 interface DoorProps {
   category: string;
@@ -70,7 +71,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
     return (
       <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3">
         <p className="text-[13px] text-slate-500 dark:text-slate-400">
-          {fmtWhole(spent_so_far, sym)} of your {fmtWhole(aim_amount, sym)} aim · {daysLabel(days_left)}
+          <MoneyText text={`${fmtWhole(spent_so_far, sym)} of your ${fmtWhole(aim_amount, sym)} aim · ${daysLabel(days_left)}`} />
         </p>
         <button
           onClick={async () => {
@@ -135,7 +136,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
             onClick={() => setDoorOpen(true)}
             className="text-[13px] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded-full px-3 py-1.5 active:scale-95 transition-transform"
           >
-            I&apos;d like to change this
+            Set an aim
           </button>
         </div>
       </div>
@@ -169,7 +170,7 @@ function DoorBlock({ door }: { door: DoorProps }) {
     return (
       <div className="border-b border-slate-100 dark:border-slate-700 px-4 py-3">
         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Your usual {category} is about {fmtWhole(suggestedAim, sym)} a period.
+          <MoneyText text={`Your usual ${category} is about ${fmtWhole(suggestedAim, sym)} a period.`} />
         </p>
         <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5 mb-3">
           {isCurrentPeriod ? "Aim for that this period?" : "Aim for that in the current period?"}
@@ -307,14 +308,14 @@ export default function CategorySheet({ name, title, total, count, transactions,
             );
           })()}
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{title ?? name}</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100"><MoneyText text={title ?? name} /></h2>
             {/* Scope/comparison basis stated up front (Show Your Working) —
                 this sheet is always scoped to the period it was opened from. */}
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {count} transaction{count !== 1 ? "s" : ""} · this period
             </p>
           </div>
-          <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
+          <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
             {sym}{total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <button

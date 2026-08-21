@@ -25,7 +25,7 @@ const CustomTooltip = ({ active, payload, label, sym }: { active?: boolean; payl
       <p className="font-semibold text-slate-600 dark:text-slate-300 mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} className={`font-medium ${p.name === "projected_income" ? "text-emerald-500" : "text-rose-500"}`}>
-          {p.name === "projected_income" ? "In " : "Out "}{fmt(p.value, sym)}
+          {p.name === "projected_income" ? "In " : "Out "}<span className="font-mono tabular-nums">{fmt(p.value, sym)}</span>
         </p>
       ))}
     </div>
@@ -70,7 +70,7 @@ export default function CashFlowCard() {
         {totalIn > 0 && (
           <span className={`text-xs font-semibold flex items-center gap-1 ${surplus >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
             {surplus >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-            {surplus >= 0 ? "+" : ""}{fmt(surplus, sym)} net
+            {surplus >= 0 ? "+" : ""}<span className="font-mono tabular-nums">{fmt(surplus, sym)}</span> net
           </span>
         )}
       </div>
@@ -127,7 +127,7 @@ export default function CashFlowCard() {
                       <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${item.type === "income" ? "bg-emerald-400" : "bg-rose-400"}`} />
                       <p className="flex-1 text-xs text-slate-700 dark:text-slate-200 truncate">{item.name}</p>
                       <DaysChip days={item.days_away} />
-                      <p className={`text-xs font-semibold flex-shrink-0 ${item.type === "income" ? "text-emerald-500" : "text-slate-600 dark:text-slate-300"}`}>
+                      <p className={`text-xs font-semibold flex-shrink-0 font-mono tabular-nums ${item.type === "income" ? "text-emerald-500" : "text-slate-600 dark:text-slate-300"}`}>
                         {item.type === "income" ? "+" : ""}{fmt(item.amount, sym)}
                       </p>
                     </div>

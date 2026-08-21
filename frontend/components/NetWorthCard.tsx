@@ -41,7 +41,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
         </div>
         {/* Right */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 num" aria-label={hidden ? "Balance hidden" : undefined}>
+          <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 money" aria-label={hidden ? "Balance hidden" : undefined}>
             {hidden ? <span aria-hidden="true">••••••</span> : `${isNegative ? "-" : ""}${fmt(netWorth, sym)}`}
           </span>
           <button
@@ -75,7 +75,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
         {/* Right: figure + eye toggle */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <span
-            className="text-base font-semibold text-slate-900 dark:text-slate-100 num"
+            className="text-base font-semibold text-slate-900 dark:text-slate-100 money"
             aria-label={hidden ? "Balance hidden" : undefined}
           >
             {hidden
@@ -127,7 +127,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
         <div className="h-10 w-48 bg-slate-100 dark:bg-slate-700 rounded-lg animate-pulse mb-4" />
       ) : (
         <div
-          className={`text-4xl font-bold tracking-tight mb-4 select-none num fade-in ${
+          className={`text-4xl font-bold tracking-tight mb-4 select-none money fade-in ${
             "text-slate-900 dark:text-slate-100"
           }`}
           aria-label={hidden ? "Balance hidden" : undefined}
@@ -146,7 +146,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
           {loading
             ? <div className="h-5 w-20 bg-slate-100 dark:bg-slate-600 rounded animate-pulse" />
             : <p
-                className="text-base font-semibold text-slate-800 dark:text-slate-100 num"
+                className="text-base font-semibold text-slate-800 dark:text-slate-100 money"
                 aria-label={hidden ? "Balance hidden" : undefined}
               >
                 {hidden ? <span aria-hidden="true">••••</span> : fmt(cash, sym)}
@@ -169,7 +169,7 @@ export default function NetWorthCard({ kpis, loading, compact, compactRow }: Net
               >
                 {hidden ? <span aria-hidden="true">••</span> : (
                   runway < 1
-                    ? <span className={runway * 30 < 7 ? "text-amber-500 dark:text-amber-400" : ""}>~{Math.round(runway * 30)} days</span>
+                    ? <span className={runway * 30 < 7 ? "text-slate-800 dark:text-slate-100" : ""}>~{Math.round(runway * 30)} days</span>
                     : `~${Math.round(runway)} months`
                 )}
               </p>}

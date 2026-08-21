@@ -144,7 +144,7 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
             <div className="flex-1 min-w-0">
               <p className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">{item.name}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Planned {formattedDate} · −£{item.amount.toFixed(2)}
+                Planned {formattedDate} · <span className="font-mono tabular-nums">−£{item.amount.toFixed(2)}</span>
               </p>
             </div>
             <button

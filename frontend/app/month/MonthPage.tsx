@@ -9,6 +9,7 @@ import {
   CycleStoryChapters,
 } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
+import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
 import SegmentedControl from "@/components/SegmentedControl";
 import BottomNav from "@/components/BottomNav";
@@ -339,7 +340,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "100ms" }}>
           <Whisper>THE OPENING</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.opening) : narrative.opening}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.opening) : narrative.opening} />
           </p>
           <div className="glass-card rounded-2xl p-4 mt-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -347,7 +348,7 @@ export default function MonthPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Income in
                 </p>
-                <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                   {fmt(chapters.opening.income_in)}
                 </p>
               </div>
@@ -386,7 +387,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "150ms" }}>
           <Whisper>THE SPENDING</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.month) : narrative.month}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.month) : narrative.month} />
           </p>
           <div className="glass-card rounded-2xl p-4 mt-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -394,7 +395,7 @@ export default function MonthPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Total spend
                 </p>
-                <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                   {fmt(chapters.spending?.total_spend ?? chapters.cliff?.period_spend ?? 0)}
                 </p>
               </div>
@@ -403,7 +404,7 @@ export default function MonthPage() {
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                     Income in
                   </p>
-                  <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                  <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                     {fmt(chapters.spending.income_in)}
                   </p>
                 </div>
@@ -427,7 +428,7 @@ export default function MonthPage() {
                       <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
                         {cat.category}
                       </span>
-                      <span className="text-sm font-semibold num text-slate-900 dark:text-slate-100">
+                      <span className="text-sm font-semibold money text-slate-900 dark:text-slate-100">
                         {fmt(cat.total)}
                       </span>
                     </div>
@@ -438,7 +439,7 @@ export default function MonthPage() {
             {chapters.cards?.material && (
               <div className="border-t border-slate-100 dark:border-slate-700/60 mt-3 pt-3">
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                  {fmt(chapters.cards.new_spend)} of it rode on your cards.
+                  <span className="font-mono tabular-nums">{fmt(chapters.cards.new_spend)}</span> of it rode on your cards.
                 </p>
                 {chapters.cards.delta === 0 ? (
                   <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
@@ -446,11 +447,11 @@ export default function MonthPage() {
                   </p>
                 ) : chapters.cards.delta > 0 ? (
                   <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-                    Balances closed {fmt(Math.abs(chapters.cards.delta))} higher.
+                    Balances closed <span className="font-mono tabular-nums">{fmt(Math.abs(chapters.cards.delta))}</span> higher.
                   </p>
                 ) : (
                   <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                    Balances closed {fmt(Math.abs(chapters.cards.delta))} lower.
+                    Balances closed <span className="font-mono tabular-nums">{fmt(Math.abs(chapters.cards.delta))}</span> lower.
                   </p>
                 )}
                 {chapters.switch?.switch_day && (
@@ -473,7 +474,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "200ms" }}>
           <Whisper>THE MOVES</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.moves) : narrative.moves}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.moves) : narrative.moves} />
           </p>
           <div className="glass-card rounded-2xl p-4 mt-3">
             {activeMoves.length === 0 ? (
@@ -493,7 +494,7 @@ export default function MonthPage() {
                         {label}
                       </span>
                       <span className="text-sm font-semibold num text-slate-900 dark:text-slate-100">
-                        {bucket.count}× · {fmt(bucket.total)}
+                        {bucket.count}× · <span className="font-mono tabular-nums">{fmt(bucket.total)}</span>
                       </span>
                     </div>
                   );
@@ -507,7 +508,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "250ms" }}>
           <Whisper>THE KEEPING</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.keeping) : narrative.keeping}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.keeping) : narrative.keeping} />
           </p>
           <div className="glass-card rounded-2xl p-4 mt-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -515,7 +516,7 @@ export default function MonthPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Set aside
                 </p>
-                <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                   {fmt(chapters.keeping.set_aside)}
                 </p>
               </div>
@@ -523,7 +524,7 @@ export default function MonthPage() {
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Drawn back
                 </p>
-                <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                   {fmt(chapters.keeping.drawn_back)}
                 </p>
               </div>
@@ -532,7 +533,7 @@ export default function MonthPage() {
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                     To investments
                   </p>
-                  <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                  <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                     {fmt(chapters.keeping.external)}
                   </p>
                 </div>
@@ -545,7 +546,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "300ms" }}>
           <Whisper>THE CLOSE</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.close) : narrative.close}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.close) : narrative.close} />
           </p>
           {chapters.close != null && (
             <div className="glass-card rounded-2xl p-4 mt-3">
@@ -554,7 +555,7 @@ export default function MonthPage() {
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                     Month-end cash
                   </p>
-                  <p className="text-base font-semibold num text-slate-900 dark:text-slate-100">
+                  <p className="text-base font-semibold money text-slate-900 dark:text-slate-100">
                     {fmt(chapters.close.month_end_cash)}
                   </p>
                 </div>
@@ -564,7 +565,7 @@ export default function MonthPage() {
                       Card movement
                     </p>
                     <p className={`text-base font-semibold num ${cardDeltaClass}`}>
-                      {cardMovement}
+                      <MoneyText text={cardMovement} />
                     </p>
                   </div>
                 )}
@@ -587,7 +588,7 @@ export default function MonthPage() {
         <div className="rise-in" style={{ animationDelay: "350ms" }}>
           <Whisper>THE SELF</Whisper>
           <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 mt-2">
-            {hideNetWorth ? maskAmounts(narrative.self) : narrative.self}
+            <MoneyText text={hideNetWorth ? maskAmounts(narrative.self) : narrative.self} />
           </p>
         </div>
           </>

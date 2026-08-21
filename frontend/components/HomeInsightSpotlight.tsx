@@ -6,6 +6,7 @@ import { X, ChevronRight, RotateCcw } from "lucide-react";
 import { api, SavingsInsight } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
+import MoneyText from "@/components/MoneyText";
 
 export default function HomeInsightSpotlight() {
   const router = useRouter();
@@ -142,16 +143,16 @@ export default function HomeInsightSpotlight() {
               "Back because:" prefix or arrow is added here. */}
           {insight.return_reason && (
             <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
-              <RotateCcw size={11} className="flex-shrink-0" /> {insight.return_reason}
+              <RotateCcw size={11} className="flex-shrink-0" /> <MoneyText text={insight.return_reason} />
             </p>
           )}
 
           {/* Title + body share a single left edge */}
           <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
-            {insight.title}
+            <MoneyText text={insight.title} />
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1.5 line-clamp-2 text-pretty">
-            {insight.body}
+            <MoneyText text={insight.body} />
           </p>
 
           {/* No savings_estimate badge here: the canonical InsightCard on

@@ -71,3 +71,14 @@ export function pruneHomeDismissedAdvice(liveKeys: Set<string>): void {
   const kept = freshEntries(readRaw()).filter((e) => liveKeys.has(e.key));
   writeRaw(kept);
 }
+
+/**
+ * Un-hides a single key — the "show on Home again" affordance in Penny's
+ * "cleared from Home" archive (app/penny/PennyPage.tsx). Removes the entry
+ * outright rather than waiting for the 7-day expiry, so the card reappears
+ * on Home the next time it loads.
+ */
+export function restoreOnHome(key: string): void {
+  const entries = freshEntries(readRaw()).filter((e) => e.key !== key);
+  writeRaw(entries);
+}

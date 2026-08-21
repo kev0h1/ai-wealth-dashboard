@@ -3,7 +3,9 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
+import SettleMark from "@/components/SettleMark";
 import { api, CycleStory } from "@/lib/api";
+import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -117,12 +119,12 @@ function SpendingSlide({
   return (
     <div className="flex flex-col justify-center min-h-0">
       <Whisper>YOUR SPENDING</Whisper>
-      <p className="text-5xl font-bold num text-slate-100">{fmt(s.total_spend)}</p>
+      <p className="text-5xl font-bold money text-slate-100">{fmt(s.total_spend)}</p>
       <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
-        You spent {fmt(s.total_spend)} this cycle.
+        You spent <span className="font-mono tabular-nums">{fmt(s.total_spend)}</span> this cycle.
       </p>
       {s.income_in > 0 && (
-        <p className="text-sm text-slate-400 mt-2">{fmt(s.income_in)} came in.</p>
+        <p className="text-sm text-slate-400 mt-2"><span className="font-mono tabular-nums">{fmt(s.income_in)}</span> came in.</p>
       )}
     </div>
   );
@@ -159,7 +161,7 @@ function WhereItWentSlide({
                 />
               </div>
               <p className="flex-1 text-sm font-medium text-slate-200">{d.category}</p>
-              <p className="text-sm font-semibold num text-slate-100">{fmt(d.total)}</p>
+              <p className="text-sm font-semibold money text-slate-100">{fmt(d.total)}</p>
             </div>
           );
         })}
@@ -192,7 +194,7 @@ function CardsSlide({
     <div className="flex flex-col justify-center min-h-0">
       <Whisper>YOUR CARDS</Whisper>
       <p className="text-2xl font-bold text-slate-100">
-        {fmt(c.new_spend)} of it rode on your cards.
+        <span className="font-mono tabular-nums">{fmt(c.new_spend)}</span> of it rode on your cards.
       </p>
       {deltaZero ? (
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
@@ -200,11 +202,11 @@ function CardsSlide({
         </p>
       ) : deltaPositive ? (
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
-          Balances closed {fmt(Math.abs(c.delta))} higher.
+          Balances closed <span className="font-mono tabular-nums">{fmt(Math.abs(c.delta))}</span> higher.
         </p>
       ) : (
         <p className="text-[15px] leading-relaxed text-emerald-400 mt-3">
-          Balances closed {fmt(Math.abs(c.delta))} lower.
+          Balances closed <span className="font-mono tabular-nums">{fmt(Math.abs(c.delta))}</span> lower.
         </p>
       )}
       {switchDay && (
@@ -232,7 +234,7 @@ function WinSlide({
     return (
       <div className="flex flex-col justify-center min-h-0">
         <p className="text-2xl font-bold text-slate-100">
-          <span className="text-amber-300">✦</span> {ch.close.streak_weeks} weeks of saving, unbroken.
+          <SettleMark size={20} className="inline-block align-[-3px] text-amber-300" /> {ch.close.streak_weeks} weeks of saving, unbroken.
         </p>
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
           Still going. That habit is yours.
@@ -245,10 +247,10 @@ function WinSlide({
     return (
       <div className="flex flex-col justify-center min-h-0">
         <p className="text-2xl font-bold text-slate-100">
-          <span className="text-amber-300">✦</span> You kept {fmt(ch.keeping.kept)} of what you set aside.
+          <SettleMark size={20} className="inline-block align-[-3px] text-amber-300" /> You kept <span className="font-mono tabular-nums">{fmt(ch.keeping.kept)}</span> of what you set aside.
         </p>
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
-          Set aside {fmt(ch.keeping.set_aside)}, drew back {fmt(ch.keeping.drawn_back)}. The rest stayed put.
+          Set aside <span className="font-mono tabular-nums">{fmt(ch.keeping.set_aside)}</span>, drew back <span className="font-mono tabular-nums">{fmt(ch.keeping.drawn_back)}</span>. The rest stayed put.
         </p>
       </div>
     );
@@ -258,10 +260,10 @@ function WinSlide({
     return (
       <div className="flex flex-col justify-center min-h-0">
         <p className="text-2xl font-bold text-slate-100">
-          <span className="text-amber-300">✦</span> {ch.moves.deliberate_saving.count} deliberate transfers to savings.
+          <SettleMark size={20} className="inline-block align-[-3px] text-amber-300" /> {ch.moves.deliberate_saving.count} deliberate transfers to savings.
         </p>
         <p className="text-[15px] leading-relaxed text-slate-300 mt-3">
-          You moved {fmt(ch.moves.deliberate_saving.total)} on purpose.
+          You moved <span className="font-mono tabular-nums">{fmt(ch.moves.deliberate_saving.total)}</span> on purpose.
         </p>
       </div>
     );
@@ -295,12 +297,12 @@ function CloseSlide({
       <Whisper>THE CLOSE</Whisper>
       {close && (
         <h2 className="text-2xl font-bold text-slate-100">
-          You reached payday with {fmt(close.month_end_cash)} in your current accounts.
+          You reached payday with <span className="font-mono tabular-nums">{fmt(close.month_end_cash)}</span> in your current accounts.
         </h2>
       )}
       {selfText && (
         <p className="text-[15px] leading-relaxed text-slate-300 mt-4">
-          {hideNetWorth ? maskAmounts(selfText) : selfText}
+          <MoneyText text={hideNetWorth ? maskAmounts(selfText) : selfText} />
         </p>
       )}
       <button

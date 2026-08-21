@@ -20,6 +20,7 @@ import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxChat from "@/components/TaxChat";
 import { usePreferences } from "@/components/PreferencesContext";
+import MoneyText from "@/components/MoneyText";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -163,7 +164,7 @@ function UnknownBillsPanel({
                     {bill.display_name}
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    £{bill.monthly_amount.toFixed(2)}/mo · {bill.occurrences} payments
+                    <span className="font-mono tabular-nums">£{bill.monthly_amount.toFixed(2)}/mo</span> · {bill.occurrences} payments
                   </p>
                 </div>
                 <ChevronDown
@@ -527,7 +528,7 @@ function WorkflowDrawer({
               {/* What we already see — grounds the questions in their own data */}
               {topTrigger && (
                 <div className="mb-4 px-3 py-2.5 rounded-xl border border-indigo-100/80 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 text-[11px] text-indigo-700 dark:text-indigo-300">
-                  We can already see <span className="font-semibold">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
+                  We can already see <span className="font-semibold font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> at{" "}
                   <span className="font-semibold">{topTrigger.display_name}</span>, {totalSteps <= 2 ? "just" : "only"} {totalSteps} quick {totalSteps === 1 ? "question" : "questions"} to tailor the advice to your exact deal.
                 </div>
               )}
@@ -634,7 +635,7 @@ function InsightBody({ body }: { body: string }) {
 
   return (
     <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed text-pretty">
-      <span>{preview}</span>
+      <MoneyText text={preview} />
       {hasMore && !expanded && (
         <>
           {" "}
@@ -649,7 +650,7 @@ function InsightBody({ body }: { body: string }) {
       {hasMore && expanded && (
         <>
           {" "}
-          <span>{rest}</span>
+          <MoneyText text={rest} />
           {" "}
           <button
             onClick={() => setExpanded(false)}
@@ -715,7 +716,7 @@ function InsightCard({
               <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-snug">
                 <span className="font-bold">You did it</span>, payments to {insight.verified_merchant} have stopped.
-                That&apos;s ~£{insight.verified_savings.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo staying in your pocket.
+                That&apos;s <span className="font-mono tabular-nums">~£{insight.verified_savings.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> staying in your pocket.
               </p>
             </div>
           ) : null}
@@ -723,7 +724,7 @@ function InsightCard({
           {/* The user's own figure opens the card — verdict first */}
           {topTrigger && (
             <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
-              ~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo{" "}
+              <span className="font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
               <span className="font-medium">at {topTrigger.display_name}</span>
               {extraTriggers > 0 && <span className="font-medium"> · +{extraTriggers} more</span>}{" "}
               <span className="text-xs font-normal text-slate-500 dark:text-slate-400">· from your transactions</span>
@@ -738,7 +739,7 @@ function InsightCard({
                 : "text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]"
             }
           >
-            {insight.title}
+            <MoneyText text={insight.title} />
           </p>
 
           {/* Body — truncated to ~2 sentences with a "more" toggle */}
@@ -809,7 +810,7 @@ function InsightCard({
                 {insight.triggered_by.map(t => (
                   <div key={t.merchant_key} className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{t.display_name}</span>
-                    <span className="text-slate-500 dark:text-slate-400">£{t.monthly_amount.toFixed(2)}/mo · {t.occurrences}×</span>
+                    <span className="text-slate-500 dark:text-slate-400"><span className="font-mono tabular-nums">£{t.monthly_amount.toFixed(2)}/mo</span> · {t.occurrences}×</span>
                   </div>
                 ))}
               </div>
@@ -1044,7 +1045,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
               </div>
             ))}
             <div className="pt-2">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">From £5.99/month · Cancel anytime</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center">From <span className="font-mono tabular-nums">£5.99</span>/month · Cancel anytime</p>
             </div>
           </div>
         </div>

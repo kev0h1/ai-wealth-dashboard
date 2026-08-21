@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, NeedleSummary } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { usePreferences } from "@/components/PreferencesContext";
+import MoneyText from "@/components/MoneyText";
 
 type Status = "loading" | "ready" | "failed";
 
@@ -95,14 +96,14 @@ export default function ThisMonthStrip({ summary, summaryStatus }: ThisMonthStri
               : "text-slate-600 dark:text-slate-300"
           }`}
         >
-          {hideNetWorth
+          <MoneyText text={hideNetWorth
             ? maskAmounts(last_closed.lines.movement)
-            : last_closed.lines.movement}
+            : last_closed.lines.movement} />
         </p>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-          {hideNetWorth
+          <MoneyText text={hideNetWorth
             ? maskAmounts(last_closed.lines.cash)
-            : last_closed.lines.cash}
+            : last_closed.lines.cash} />
         </p>
       </button>
     </div>

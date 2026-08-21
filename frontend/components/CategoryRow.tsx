@@ -47,7 +47,7 @@ export default function CategoryRow({
             <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               {data.name}
             </span>
-            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
+            <span className="text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
               £
               {data.total.toLocaleString("en-GB", {
                 minimumFractionDigits: 2,

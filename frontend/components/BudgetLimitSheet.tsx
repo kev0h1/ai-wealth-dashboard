@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
+import MoneyText from "@/components/MoneyText";
 
 interface BudgetLimitSheetProps {
   category: string;
@@ -157,11 +158,13 @@ export default function BudgetLimitSheet({
           <div className="overflow-y-auto flex-1 px-5 space-y-4" style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))" }}>
             {/* C1. Spent context — pay-period framing, not calendar month */}
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {sym}
-              {Math.abs(spent).toLocaleString("en-GB", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{" "}
+              <span className="font-mono tabular-nums">
+                {sym}
+                {Math.abs(spent).toLocaleString("en-GB", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>{" "}
               spent this period
             </p>
 
@@ -199,14 +202,20 @@ export default function BudgetLimitSheet({
             {delta !== null && (
               <div className="flex">
                 {delta >= 0 ? (
-                  <span className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold tabular-nums px-3 py-1 rounded-full inline-flex">
-                    {sym}
-                    {Math.round(delta).toLocaleString("en-GB")} left
+                  <span className="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm font-semibold px-3 py-1 rounded-full inline-flex gap-1">
+                    <span className="font-mono tabular-nums">
+                      {sym}
+                      {Math.round(delta).toLocaleString("en-GB")}
+                    </span>
+                    left
                   </span>
                 ) : (
-                  <span className="bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-sm font-semibold tabular-nums px-3 py-1 rounded-full inline-flex">
-                    {sym}
-                    {Math.round(Math.abs(delta)).toLocaleString("en-GB")} over
+                  <span className="bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 text-sm font-semibold px-3 py-1 rounded-full inline-flex gap-1">
+                    <span className="font-mono tabular-nums">
+                      {sym}
+                      {Math.round(Math.abs(delta)).toLocaleString("en-GB")}
+                    </span>
+                    over
                   </span>
                 )}
               </div>
@@ -223,7 +232,7 @@ export default function BudgetLimitSheet({
                     onClick={() => setInputValue(String(chip.value))}
                     className="bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-xs px-3 py-2 rounded-full min-h-[36px] active:scale-95 transition-transform"
                   >
-                    {chip.label}
+                    <MoneyText text={chip.label} />
                   </button>
                 ))}
               </div>

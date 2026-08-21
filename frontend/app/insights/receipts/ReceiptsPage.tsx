@@ -112,7 +112,7 @@ export default function ReceiptsPage() {
                         </p>
                       </div>
                     </button>
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 num flex-shrink-0">
+                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 money flex-shrink-0">
                       {money(b.total, b.currency)}
                     </span>
                     <button
@@ -137,7 +137,7 @@ export default function ReceiptsPage() {
                             </p>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.category}</p>
                           </div>
-                          <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 num flex-shrink-0">
+                          <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 money flex-shrink-0">
                             {money(it.line_price ?? it.unit_price, b.currency)}
                           </span>
                         </li>

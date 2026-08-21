@@ -10,6 +10,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import Spinner from "@/components/Spinner";
+import MoneyText from "@/components/MoneyText";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -464,7 +465,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const promosSection = (
     <div className="space-y-3">
       <div>
-        <FieldLabel>Is any of this {balanceStr} on a 0% deal?</FieldLabel>
+        <FieldLabel><MoneyText text={`Is any of this ${balanceStr} on a 0% deal?`} /></FieldLabel>
         <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5 leading-snug">Balance transfers you&apos;ve already made count here, add each one and when it ends.</p>
         <div role="radiogroup" aria-label="Is any of this balance on a 0% deal?" className="grid grid-cols-2 gap-2">
           <Chip
@@ -823,7 +824,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     {current.name}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 num">
-                    {balanceStr} on it
+                    <MoneyText text={`${balanceStr} on it`} />
                     {total > 1 && <span> · {index + 1} of {total}</span>}
                   </p>
                 </div>

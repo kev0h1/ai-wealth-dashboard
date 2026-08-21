@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Figtree, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./Providers";
 import Sidebar from "@/components/Sidebar";
@@ -38,13 +39,20 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree" });
+const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jbmono" });
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="h-full" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`h-full ${figtree.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/* Chrome Auto Dark opt-out (server-rendered default). The globals.css
             `color-scheme: only light` on :root is belt-and-braces — Chrome's

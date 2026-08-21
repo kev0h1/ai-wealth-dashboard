@@ -6,6 +6,7 @@ import { ChevronLeft, CheckCircle2, AlertCircle, Info, Calendar, ChevronDown } f
 import { api } from "@/lib/api";
 import Spinner from "@/components/Spinner";
 import TaxChat from "@/components/TaxChat";
+import MoneyText from "@/components/MoneyText";
 
 const PA = 12_570;
 const TAPER_START = 100_000;
@@ -97,9 +98,9 @@ function ActionRow({
       </div>
       <div className="flex-1 min-w-0">
         <p className={`text-base font-bold leading-snug ${status === "done" ? "text-slate-500 dark:text-slate-400 line-through" : "text-slate-800 dark:text-slate-100"}`}>
-          {title}
+          <MoneyText text={title} />
         </p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{detail}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed"><MoneyText text={detail} /></p>
         {onToggle && (
           <p className="text-[11px] font-medium mt-2 text-slate-500 dark:text-slate-400">
             {status === "done" ? "Tap to unmark" : "Tap to mark done"}
@@ -314,9 +315,9 @@ export default function TaxPage({
       heroBody = (
         <>
           Pension contributions still attract <strong>45% relief</strong>. Contributing{" "}
-          <strong>£{fmt(pensionNeededTotal)}</strong> restores your full{" "}
-          <strong>£{fmt(PA)}</strong> personal allowance, saving approximately{" "}
-          <strong>£{fmt(taxSaving)}</strong> in tax.
+          <strong className="font-mono tabular-nums">£{fmt(pensionNeededTotal)}</strong> restores your full{" "}
+          <strong className="font-mono tabular-nums">£{fmt(PA)}</strong> personal allowance, saving approximately{" "}
+          <strong className="font-mono tabular-nums">£{fmt(taxSaving)}</strong> in tax.
         </>
       );
     } else if (hasTaperIssue) {
@@ -324,11 +325,11 @@ export default function TaxPage({
       heroHeadline = "You're in the 60% tax trap.";
       heroBody = (
         <>
-          Every £1 between £100k and £125k is taxed ~60%. Put{" "}
-          <strong>£{fmt(pensionNeededTotal)}</strong> into your pension before 5 Apr to win
-          back your <strong>£{fmt(allowanceLost)}</strong> personal allowance, saving{" "}
-          <strong>£{fmt(taxSaving)}</strong> in tax, at a real cost of just{" "}
-          <strong>£{fmt(effectiveCost)}</strong>.
+          Every <span className="font-mono tabular-nums">£1</span> between <span className="font-mono tabular-nums">£100k</span> and <span className="font-mono tabular-nums">£125k</span> is taxed ~60%. Put{" "}
+          <strong className="font-mono tabular-nums">£{fmt(pensionNeededTotal)}</strong> into your pension before 5 Apr to win
+          back your <strong className="font-mono tabular-nums">£{fmt(allowanceLost)}</strong> personal allowance, saving{" "}
+          <strong className="font-mono tabular-nums">£{fmt(taxSaving)}</strong> in tax, at a real cost of just{" "}
+          <strong className="font-mono tabular-nums">£{fmt(effectiveCost)}</strong>.
         </>
       );
     } else if (adjustedIncome > 50_270) {
@@ -336,9 +337,9 @@ export default function TaxPage({
       heroHeadline = "You get 40% back on pension & Gift Aid.";
       heroBody = (
         <>
-          This year&rsquo;s <strong>£20,000 ISA</strong> and <strong>£60,000 pension</strong>{" "}
-          allowances reset on 5 Apr and don&rsquo;t roll over. £1,000 into your pension costs
-          you just <strong>£600</strong>.
+          This year&rsquo;s <strong><span className="font-mono tabular-nums">£20,000</span> ISA</strong> and <strong><span className="font-mono tabular-nums">£60,000</span> pension</strong>{" "}
+          allowances reset on 5 Apr and don&rsquo;t roll over. <span className="font-mono tabular-nums">£1,000</span> into your pension costs
+          you just <strong className="font-mono tabular-nums">£600</strong>.
         </>
       );
     } else {
@@ -346,10 +347,10 @@ export default function TaxPage({
       heroHeadline = "Your allowances reset on 5 Apr.";
       heroBody = (
         <>
-          This year&rsquo;s <strong>£20,000 ISA</strong>{" "}
+          This year&rsquo;s <strong><span className="font-mono tabular-nums">£20,000</span> ISA</strong>{" "}
           allowance doesn&rsquo;t roll over, and pension contributions get{" "}
           <strong>20% added automatically</strong>. Every
-          £80 in becomes £100 invested.
+          <span className="font-mono tabular-nums">£80</span> in becomes <span className="font-mono tabular-nums">£100</span> invested.
         </>
       );
     }
@@ -368,7 +369,7 @@ export default function TaxPage({
         {/* Deadline footer */}
         <div className="flex items-center gap-2 pt-3 border-t border-indigo-100 dark:border-indigo-800/50">
           <Calendar size={14} className="text-amber-500 flex-shrink-0" />
-          <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {ty.daysLeft} days left in {ty.label}, allowances reset 5 Apr
           </p>
         </div>
@@ -392,25 +393,25 @@ export default function TaxPage({
             <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-base font-bold text-slate-800 dark:text-slate-100">
-                Pension: contribute £{fmt(pensionNeededTotal)} before 5 Apr
+                Pension: contribute <span className="font-mono tabular-nums">£{fmt(pensionNeededTotal)}</span> before 5 Apr
               </p>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                Your adjusted income is £{fmt(adjustedIncome)}. £{fmt(over100k)} over the
-                £100,000 threshold. Contributing £{fmt(pensionNeededTotal)} more this tax year
+                Your adjusted income is <span className="font-mono tabular-nums">£{fmt(adjustedIncome)}</span>. <span className="font-mono tabular-nums">£{fmt(over100k)}</span> over the
+                <span className="font-mono tabular-nums">£100,000</span> threshold. Contributing <span className="font-mono tabular-nums">£{fmt(pensionNeededTotal)}</span> more this tax year
                 (via any mix of regular or one-off payments) restores your full personal allowance.
               </p>
               <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 grid grid-cols-3 gap-2 text-center">
                 <div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Extra needed</p>
-                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(pensionNeededTotal)}</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">£{fmt(pensionNeededTotal)}</p>
                 </div>
                 <div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Tax saved</p>
-                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">£{fmt(taxSaving)}</p>
+                  <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">£{fmt(taxSaving)}</p>
                 </div>
                 <div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">Costs you</p>
-                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">£{fmt(effectiveCost)}</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">£{fmt(effectiveCost)}</p>
                 </div>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
@@ -428,7 +429,7 @@ export default function TaxPage({
               Your personal allowance is safe
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Adjusted income £{fmt(adjustedIncome)}, below the £100,000 taper threshold. Pension contributions attract 40% relief at your rate.
+              Adjusted income <span className="font-mono tabular-nums">£{fmt(adjustedIncome)}</span>, below the <span className="font-mono tabular-nums">£100,000</span> taper threshold. Pension contributions attract 40% relief at your rate.
             </p>
           </div>
         </div>
@@ -441,7 +442,7 @@ export default function TaxPage({
               Pension relief happens automatically
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              At basic rate, HMRC adds 20% to pension contributions with no forms to fill in. Every £80 in becomes £100 invested.
+              At basic rate, HMRC adds 20% to pension contributions with no forms to fill in. Every <span className="font-mono tabular-nums">£80</span> in becomes <span className="font-mono tabular-nums">£100</span> invested.
             </p>
           </div>
         </div>

@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
+import SettleMark from "@/components/SettleMark";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
@@ -17,6 +18,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
+import MoneyText from "@/components/MoneyText";
 
 interface HomeBriefProps {
   items: CompanionItem[];
@@ -60,7 +62,7 @@ function SyncErrorBanner({ glow }: { glow?: boolean }) {
   return (
     <div role="alert" className={`flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-3 py-2${glow ? " needs-you" : ""}`}>
       <AlertTriangle size={13} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0" />
-      <p className="text-sm text-amber-700 dark:text-amber-300 flex-1">Sync didn&apos;t complete, try again in a moment.</p>
+      <p className="text-sm text-slate-700 dark:text-slate-300 flex-1">Sync didn&apos;t complete, try again in a moment.</p>
     </div>
   );
 }
@@ -145,8 +147,8 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
         <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
       </p>
       {/* Body */}
-      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        {maskAmounts(item.body ?? "")}
+      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions */}
       <div className="flex items-center gap-2">
@@ -182,10 +184,17 @@ interface AskGenericCardProps {
 
 // Generic ask card — same visual family as the payday ask (glass card, Penny
 // chip, headline + body ramp), but the primary action is a route push from
-// item.action. "Not now" dismisses server-side (globally, Penny included) by
-// default; on Home (`dismissible`) it instead hides Home-only via
-// localStorage, so the ask keeps showing on Penny's archive. Used for any
-// ask item without bespoke handling (e.g. ask:card_terms).
+// item.action. "Not now" only renders when `dismissible` (Home): it hides
+// the card Home-only via localStorage, so it keeps showing on Penny's
+// archive. Penny never renders "Not now" at all — for asks like
+// ask:card_terms the backend id is static with no time component, so the
+// server-side dismiss "Not now" used to trigger there was genuinely
+// permanent (one dismissible ask, never a nag); the user can still decline
+// from Home instead. The primary action button is unaffected and still
+// renders on both screens; if an item has neither a primary action nor
+// `dismissible`, the whole actions row is skipped so Penny never shows an
+// empty, actionless strip. Used for any ask item without bespoke handling
+// (e.g. ask:card_terms).
 function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss, hideAttribution }: AskGenericCardProps) {
   const [busy, setBusy] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -228,28 +237,33 @@ function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeDismiss,
         <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
       </p>
       {/* Body */}
-      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-        {maskAmounts(item.body ?? "")}
+      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+        <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        {item.action && (
-          <button
-            onClick={handleGo}
-            disabled={busy}
-            className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-          >
-            {item.action.label}
-          </button>
-        )}
-        <button
-          onClick={handleNotNow}
-          disabled={busy}
-          className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
-        >
-          Not now
-        </button>
-      </div>
+      {/* Actions — skipped entirely when there'd be nothing to show (no
+          primary action AND not on Home), so Penny never gets an empty row. */}
+      {(item.action || dismissible) && (
+        <div className="flex items-center gap-2">
+          {item.action && (
+            <button
+              onClick={handleGo}
+              disabled={busy}
+              className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+            >
+              {item.action.label}
+            </button>
+          )}
+          {dismissible && (
+            <button
+              onClick={handleNotNow}
+              disabled={busy}
+              className="inline-flex items-center text-slate-500 dark:text-slate-400 text-sm font-semibold px-4 py-2 rounded-xl hover:opacity-80 active:opacity-70 transition-[transform,opacity] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50 min-h-[44px]"
+            >
+              Not now
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -264,9 +278,13 @@ interface CelebrationCardProps {
 }
 
 // "Sorted" reward card — a proper glass card, not a pill. Emerald lives ONLY on
-// the ✦ mark (colour is information: verified-safe); the headline stays ink.
-// Tapping the card opens the Mirror; the ✕ dismisses — server-side + globally
-// on Penny, Home-only (localStorage) when `dismissible`.
+// the SettleMark (colour is information: verified-safe); the headline stays
+// ink. This is a resolution state ("Sorted: X is covered"), not Penny
+// speaking, so it wears SettleMark rather than PennyMark. Tapping the card
+// opens Planning, not the Mirror: this celebrates upcoming bills being
+// covered, and Planning is where upcoming bills live. The ✕ only renders when
+// `dismissible` (Home) — a local, Home-only hide (localStorage). Penny never
+// renders the ✕ at all, so it has no way to dismiss the card away for good.
 function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CelebrationCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -284,7 +302,7 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
   }
 
   function handleOpen() {
-    router.push("/mirror");
+    router.push("/planning");
   }
 
   return (
@@ -301,25 +319,29 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
       className="glass-card rounded-2xl p-4 cursor-pointer active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
     >
       <div className="flex items-start gap-3">
-        <span aria-hidden="true" className="text-emerald-500 text-[15px] leading-6 flex-shrink-0">✦</span>
+        <span className="flex-shrink-0 flex items-center justify-center w-4 h-6">
+          <SettleMark size={16} className="text-emerald-500" />
+        </span>
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
-            {item.headline}
+            <MoneyText text={item.headline} />
           </p>
           {item.body && (
             <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              {maskAmounts(item.body)}
+              <MoneyText text={maskAmounts(item.body)} />
             </p>
           )}
         </div>
-        <button
-          type="button"
-          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
-          onClick={handleDismiss}
-          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
+        {dismissible && (
+          <button
+            type="button"
+            aria-label="Hide on Home"
+            onClick={handleDismiss}
+            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -334,11 +356,13 @@ interface CliffCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-// Informational fact-card family — covers promo-cliff and debt-trajectory items.
-// NO Penny gradient (the indigo→violet gradient marks advice surfaces; these
-// state facts). Amber mark only: approaching/projected risk, not materialised
-// risk — red stays strictly reserved for materialised risk (Red-is-Risk rule).
-// Icon varies by type: AlertTriangle for cliff, TrendingDown for trajectory.
+// Informational fact-card family — covers promo-cliff, debt-trajectory AND
+// payload-less rhythm info items. NO Penny gradient (the indigo→violet
+// gradient marks advice surfaces; these state facts). Amber mark only:
+// approaching/projected risk, not materialised risk — red stays strictly
+// reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
+// AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
+// when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
 function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
   const [hidden, setHidden] = useState(false);
@@ -362,11 +386,11 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
         <Icon size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
-            {maskAmounts(item.headline)}
+            <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
             <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              {maskAmounts(item.body)}
+              <MoneyText text={maskAmounts(item.body)} />
             </p>
           )}
           {item.action && (
@@ -378,14 +402,16 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
             </button>
           )}
         </div>
-        <button
-          type="button"
-          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
-          onClick={handleDismiss}
-          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
+        {dismissible && (
+          <button
+            type="button"
+            aria-label="Hide on Home"
+            onClick={handleDismiss}
+            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -401,7 +427,9 @@ interface IntentPaceCardProps {
 
 // Quiet pace note for a category the user chose to change in the Mirror.
 // Pure information — headline + body in ink/muted, no accent colour, no CTA
-// (the aim already lives in the Mirror). Dismissible like the other info cards.
+// (the aim already lives in the Mirror). The ✕ only renders when
+// `dismissible` (Home) — a local, Home-only hide; Penny never renders it, so
+// the note can't be dismissed away for good from there.
 // NO red: pace against a self-chosen aim is never materialised risk.
 function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: IntentPaceCardProps) {
   const [hidden, setHidden] = useState(false);
@@ -424,22 +452,24 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
-            {maskAmounts(item.headline)}
+            <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
             <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              {maskAmounts(item.body)}
+              <MoneyText text={maskAmounts(item.body)} />
             </p>
           )}
         </div>
-        <button
-          type="button"
-          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
-          onClick={handleDismiss}
-          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
+        {dismissible && (
+          <button
+            type="button"
+            aria-label="Hide on Home"
+            onClick={handleDismiss}
+            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -452,9 +482,27 @@ interface MoveCardProps {
   maskAmounts: (text: string) => string;
   /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
   hideAttribution?: boolean;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
 }
 
-function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: MoveCardProps) {
+function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: MoveCardProps) {
+  const [hidden, setHidden] = useState(false);
+  if (hidden) return null;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
   type LegEntry = { provider: string; name: string; amount: number };
   const legs: LegEntry[] =
     item.moves && item.moves.length > 0
@@ -471,23 +519,41 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: 
   return (
     <div className="glass-card rounded-2xl p-4">
       {/* Penny gradient chip — marks this as a proactive advice surface;
-          suppressed on the Penny screen itself */}
-      {!hideAttribution && (
-        <div className="flex items-center gap-2 mb-3">
-          <span
-            className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
-            style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
-          >
-            <PennyMark size={11} />
-            Penny
-          </span>
+          suppressed on the Penny screen itself. The dismiss control is
+          Home-only: dismissing here is local ("Hide on Home", localStorage)
+          and the card keeps showing on Penny's permanent archive. Penny
+          itself must never be able to dismiss the card away for good, so no
+          dismiss control renders there at all — and with the chip also
+          suppressed on Penny, the whole header row is skipped rather than
+          leaving an empty strip above the headline. */}
+      {(dismissible || !hideAttribution) && (
+        <div className={`flex items-center gap-2 mb-3 ${hideAttribution ? "justify-end" : "justify-between"}`}>
+          {!hideAttribution && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+              style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+            >
+              <PennyMark size={11} />
+              Penny
+            </span>
+          )}
+          {dismissible && (
+            <button
+              type="button"
+              aria-label="Hide on Home"
+              onClick={handleDismiss}
+              className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
       {item.plan_dest ? (
         <>
           {/* Headline */}
           <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-            <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}.</strong>
+            <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} />.</strong>
           </p>
 
           {/* a) Destination tile */}
@@ -533,7 +599,7 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: 
                   <span className="flex-1 min-w-0">
                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
                   </span>
-                  <span className="num text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                  <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
                     {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
                   </span>
                 </div>
@@ -542,7 +608,7 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: 
             {/* Total row */}
             <div className="flex items-center justify-between gap-2.5 px-3 min-h-[44px]">
               <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Moving <span className="num">{hideNetWorth ? "£••••" : `£${Math.round(totalAmount).toLocaleString("en-GB")}`}</span>
+                Moving <span className="money">{hideNetWorth ? "£••••" : `£${Math.round(totalAmount).toLocaleString("en-GB")}`}</span>
               </span>
             </div>
           </div>
@@ -567,10 +633,10 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: 
                   <p className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
                 )}
                 {item.residual && (
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(String(item.residual))}</p>
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug"><MoneyText text={maskAmounts(String(item.residual))} /></p>
                 )}
                 {item.income_note && (
-                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{maskAmounts(item.income_note)}</p>
+                  <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug"><MoneyText text={maskAmounts(item.income_note)} /></p>
                 )}
                 {item.overflow_note && (
                   <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug">{item.overflow_note}</p>
@@ -583,11 +649,11 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution }: 
         <>
           {/* Headline */}
           <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
-            <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+            <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} /></strong>
           </p>
           {/* Body */}
-          <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-            {item.body}
+          <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
+            <MoneyText text={item.body ?? ""} />
           </p>
         </>
       )}
@@ -608,8 +674,10 @@ interface RhythmCardProps {
   router: ReturnType<typeof useRouter>;
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
-  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. Only
-   * the quiet ✕ (not the one_off/new_normal intent answers) is affected. */
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. The
+   * quiet ✕ only renders when this is true (Home); it never renders on
+   * Penny at all, leaving the one_off/new_normal intent buttons and the
+   * "See the payments" row completely untouched either way. */
   dismissible?: boolean;
   onHomeDismiss?: (id: string) => void;
 }
@@ -687,7 +755,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
     }
   }
 
-  function handleChangeThis() {
+  function handleSeePayments() {
     if (typeof window !== "undefined") {
       sessionStorage.setItem("wealth_open_category", category);
     }
@@ -709,36 +777,38 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
         <div className="flex-1 min-w-0">
           {/* Headline */}
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
-            {headline}
+            <MoneyText text={headline} />
           </p>
           {/* One supporting line */}
           {supportLine && (
             <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              {maskAmounts(supportLine)}
+              <MoneyText text={maskAmounts(supportLine)} />
             </p>
           )}
         </div>
 
-        {/* Dismiss button */}
-        <button
-          type="button"
-          aria-label={dismissible ? "Hide on Home" : "Dismiss"}
-          onClick={handleDismiss}
-          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
+        {/* Dismiss button — Home-only, see the dismissible docstring above */}
+        {dismissible && (
+          <button
+            type="button"
+            aria-label="Hide on Home"
+            onClick={handleDismiss}
+            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Answer pair — outside the icon-indented column, full width. The two
-          real answers sit in a symmetric 50/50 grid; the softer "change this"
-          escape hatch drops below as its own quiet, ghost-styled full-width row
-          so it reads as subordinate to the pair. On success, the pair is
-          replaced by a quiet confirmation line (card stays mounted, no
-          instant-hide reflow); on failure, the buttons stay visible/enabled
-          with an inline error so the user can retry. "I'd like to change
-          this" stays available regardless of confirm state — it's an escape
-          hatch to Spend, not an intent-recording action. */}
+          real answers sit in a symmetric 50/50 grid; the softer "See the
+          payments" deep link drops below as its own quiet, ghost-styled
+          full-width row so it reads as subordinate to the pair. On success,
+          the pair is replaced by a quiet confirmation line (card stays
+          mounted, no instant-hide reflow); on failure, the buttons stay
+          visible/enabled with an inline error so the user can retry. "See
+          the payments" stays available regardless of confirm state — it's a
+          deep link to Spend, not an intent-recording action. */}
       <div className="mt-3 flex flex-col gap-2">
         {confirmed ? (
           <p className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
@@ -770,11 +840,12 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           </>
         )}
         <button
-          onClick={handleChangeThis}
+          onClick={handleSeePayments}
           disabled={busy !== null}
-          className="inline-flex items-center justify-center w-full text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-700/40 active:scale-95 transition-[transform,background-color,color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-0.5 w-full text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-700/40 active:scale-95 transition-[transform,background-color,color] text-sm font-semibold px-3 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-50"
         >
-          I&apos;d like to change this
+          See the payments
+          <ChevronRight size={14} className="flex-shrink-0" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -833,6 +904,23 @@ function useHomeDismissedAdvice(items: CompanionItem[], enabled: boolean) {
   return { dismissedIds, dismiss };
 }
 
+/**
+ * Which item types belong in the Penny hub's (`app/penny/PennyPage.tsx`)
+ * PRIMARY section — owner's Penny hub IA rule, 2026-08-18: only cash-move
+ * recommendations, payday plans, and the payday-detection ask get the full
+ * card treatment there; everything else already has a home on another page.
+ *
+ * This predicate no longer means "visible on Penny at all". Since Penny
+ * grew a quiet "cleared from Home" archive section for anything dismissed
+ * on Home that isn't one of these types, every dismissed item is visible on
+ * Penny somewhere now — this only decides primary vs. archive. Exported so
+ * PennyPage's `pennyItems`/`clearedItems` filters share one definition
+ * instead of copies that can silently drift apart.
+ */
+export function isPennyVisible(item: CompanionItem): boolean {
+  return item.type === "move" || item.type === "payday_plan" || (item.type === "ask" && item.id === "ask:payday");
+}
+
 export interface BriefBodyProps {
   items: CompanionItem[];
   safeToSpend: SafeToSpend | null;
@@ -864,6 +952,44 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   const onHomeDismiss = dismissible ? homeDismiss : undefined;
 
   if (items.length === 0) {
+    // Home-only: everything that existed got hidden via "Hide on Home", not
+    // genuinely absent (rawItems is non-empty but the dismissed-filtered
+    // `items` came back empty). Saying "Nothing needs you today" here would
+    // be a lie the user could disprove by opening Penny. Penny now has a
+    // primary list (isPennyVisible types) PLUS a quiet "cleared from Home"
+    // archive for everything else that's been dismissed here, so every
+    // cleared item is genuinely visible on Penny somewhere — no need to
+    // check which subset qualifies before pointing the user there.
+    if (dismissible && rawItems.length > 0) {
+      // "waiting for you" (not "waiting on") — the thing waits for the
+      // user, not the other way round; "waiting on X" reads as the
+      // opposite in English. No backward-narration of the dismiss action
+      // itself ("You cleared…") — that's bookkeeping the user already
+      // knows, not information. One sentence, one idea: something still
+      // needs them, and where it lives. Wrapped in the same glass-card
+      // every other advice card on Home uses, so its 44px tap target sits
+      // inside a card's own padding instead of floating on bare canvas
+      // (that bare-canvas float was the source of the reported "big gap"
+      // under the link — see HomeBrief.tsx history).
+      const clearedCount = rawItems.length;
+      const stillLabel = clearedCount === 1 ? "1 thing's" : `${clearedCount} things are`;
+      return (
+        <div className="glass-card rounded-2xl p-4">
+          <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3">
+            {stillLabel} waiting for you on Penny.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/penny")}
+            className="inline-flex items-center gap-1 min-h-[44px] -ml-1 px-1 text-[14px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+          >
+            Open Penny
+            <ChevronRight size={14} aria-hidden="true" className="flex-shrink-0" />
+          </button>
+        </div>
+      );
+    }
+
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
       fallbackText = "Nothing needs you today. I'm keeping an eye on the bills, just check back later.";
@@ -880,7 +1006,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
       fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills, enjoy it.";
     }
     return (
-      <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">{fallbackText}</p>
+      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"><MoneyText text={fallbackText} /></p>
     );
   }
 
@@ -988,17 +1114,17 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
           <div key={item.id}>
             {/* Headline */}
             <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
-              <strong className="text-slate-900 dark:text-slate-100 font-semibold">{item.headline}</strong>
+              <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={item.headline} /></strong>
             </p>
             {/* Body */}
-            <p lang="en-GB" className="hero-prose text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">
-              {item.body}
+            <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">
+              <MoneyText text={item.body ?? ""} />
             </p>
           </div>
         ))}
 
         {moveItems.map(item => (
-          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} />
+          <MoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
     </div>
   );

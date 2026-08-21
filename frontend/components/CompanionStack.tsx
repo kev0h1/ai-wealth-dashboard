@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, CalendarClock, Sparkles, X } from "lucide-react";
+import { ArrowRightLeft, CalendarClock, X } from "lucide-react";
 import type { CompanionItem } from "@/lib/api";
+import SettleMark from "@/components/SettleMark";
 
 interface CompanionStackProps {
   items: CompanionItem[];
@@ -14,7 +15,7 @@ function itemIcon(type: CompanionItem["type"]) {
     case "move":
       return <ArrowRightLeft size={16} className="text-amber-500 flex-shrink-0" />;
     case "celebration":
-      return <Sparkles size={16} className="text-emerald-500 flex-shrink-0" />;
+      return <SettleMark size={16} className="text-emerald-500 flex-shrink-0" />;
     case "rhythm":
     default:
       return <CalendarClock size={16} className="text-indigo-400 flex-shrink-0" />;

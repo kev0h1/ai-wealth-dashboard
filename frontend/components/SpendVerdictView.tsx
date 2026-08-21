@@ -37,6 +37,7 @@ import type {
 } from "@/lib/api";
 import { fmtWhole as fmtAimWhole, daysLabel } from "@/lib/aimFormat";
 import { formatDate } from "@/lib/payPeriod";
+import MoneyText from "@/components/MoneyText";
 
 // − U+2212, never ASCII hyphen-minus, for money (copy rule).
 const MINUS = "−";
@@ -124,7 +125,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
     return (
       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
         <p className="text-[12px] text-slate-600 dark:text-slate-400">
-          {fmtAimWhole(spent_so_far, sym)} of your {fmtAimWhole(aim_amount, sym)} aim · {daysLabel(days_left)}
+          <span className="font-mono tabular-nums">{fmtAimWhole(spent_so_far, sym)}</span> of your <span className="font-mono tabular-nums">{fmtAimWhole(aim_amount, sym)}</span> aim · {daysLabel(days_left)}
         </p>
         <button
           type="button"
@@ -187,7 +188,7 @@ function AimBlock({ category, multiple, suggestedAim, checkpoint, sym, onChanged
   return (
     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60">
       <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100">
-        Your usual {category} is about {fmtAimWhole(suggestedAim!, sym)} a period.
+        Your usual {category} is about <span className="font-mono tabular-nums">{fmtAimWhole(suggestedAim!, sym)}</span> a period.
       </p>
       <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 mb-2">Aim for that this period?</p>
       {!customMode ? (
@@ -329,7 +330,7 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
         </div>
       </div>
 
-      <p className="mt-2 text-[19px] font-bold text-slate-900 dark:text-slate-100">{fmt(notable.spent)}</p>
+      <p className="mt-2 text-[19px] font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(notable.spent)}</p>
 
       {/* Pace sentence + consequence line + Biggest line — collapse away
           together on resolve via grid-template-rows 1fr→0fr (+ opacity).
@@ -343,7 +344,7 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
       >
         <div className="overflow-hidden">
           <p className="mt-1 text-[12px] text-slate-700 dark:text-slate-300">
-            {paceLine(notable.multiple, notable.excess, daysElapsed)}
+            <MoneyText text={paceLine(notable.multiple, notable.excess, daysElapsed)} />
           </p>
           {/* The priced consequence, directly below the pace line. Visually
               distinct from that muted pace line (stronger ink, font-medium)
@@ -351,10 +352,10 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
               "price", not a warning. */}
           {notable.consequence_line?.text && (
             <p className="mt-1 text-[12px] font-medium text-slate-700 dark:text-slate-200">
-              {notable.consequence_line.text}
+              <MoneyText text={notable.consequence_line.text} />
             </p>
           )}
-          {cause && <p className="mt-0.5 text-[12px] text-slate-600 dark:text-slate-400 line-clamp-2">{cause}</p>}
+          {cause && <p className="mt-0.5 text-[12px] text-slate-600 dark:text-slate-400 line-clamp-2"><MoneyText text={cause} /></p>}
         </div>
       </div>
 
@@ -475,7 +476,7 @@ function UnresolvedAskCard({
       </p>
 
       <div className="mt-1.5 flex items-baseline gap-1.5 min-w-0">
-        <span className={`flex-shrink-0 font-bold text-slate-900 dark:text-slate-100 ${routine ? "text-[16px]" : "text-[18px]"}`}>
+        <span className={`flex-shrink-0 font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums ${routine ? "text-[16px]" : "text-[18px]"}`}>
           {fmt(largest.amount)}
         </span>
         <span className="flex-shrink-0 text-slate-400 dark:text-slate-500 text-[13px]">·</span>
@@ -491,7 +492,7 @@ function UnresolvedAskCard({
       )}
 
       <p className={`text-[11px] text-slate-500 dark:text-slate-400 ${routine ? "mt-1" : "mt-1.5"}`}>
-        Counted in your {fmt(periodOut)} out.
+        Counted in your <span className="font-mono tabular-nums">{fmt(periodOut)}</span> out.
       </p>
 
       <div className={`flex items-center gap-4 ${routine ? "mt-2" : "mt-3"}`}>
@@ -540,7 +541,7 @@ function MajorityRowView({
           {quietTag && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · above usual</span>}
         </p>
       </div>
-      <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">{fmt(row.spent)}</span>
+      <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
     </button>
   );
 }
@@ -558,7 +559,7 @@ function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
         className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-2xl"
       >
         <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-          Money you moved · {fmt(total)}, not counted in spending
+          Money you moved · <span className="font-mono tabular-nums">{fmt(total)}</span>, not counted in spending
         </p>
         {open ? (
           <ChevronUp size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 ml-2" />
@@ -583,7 +584,7 @@ function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
                   <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{m.label}</p>
                   <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">{sub}</p>
                 </div>
-                <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0">
+                <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0 font-mono tabular-nums">
                   {fmt(m.amount)}
                 </span>
               </div>
@@ -745,7 +746,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
           top region has already rendered it (hideReading — the Verdict
           Header renders its own 20px hero reading instead). */}
       {!hideReading && (
-        <p className="px-1 text-base font-bold leading-snug text-slate-900 dark:text-slate-100">{reading}</p>
+        <p className="px-1 text-base font-bold leading-snug text-slate-900 dark:text-slate-100"><MoneyText text={reading} /></p>
       )}
 
       {/* Notable cards */}
@@ -791,7 +792,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
         )}
         {showUnresolvedWhisper && (
           <p className="mt-3 px-1 text-[11px] text-slate-600 dark:text-slate-400">
-            Other · {fmt(unresolved.total)}, still working this one out
+            Other · <span className="font-mono tabular-nums">{fmt(unresolved.total)}</span>, still working this one out
           </p>
         )}
       </div>
@@ -805,7 +806,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
       {aboveMajority && <div className="mt-5">{aboveMajority}</div>}
       <div className={aboveMajority ? "" : "mt-5"} id="spend-majority-section">
         <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-          {majorityHeader(state, headerSum, nonZeroRows.length)}
+          <MoneyText text={majorityHeader(state, headerSum, nonZeroRows.length)} />
         </p>
         {nonZeroRows.length > 0 ? (
           <div className="mt-2 glass-card-flat rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden">

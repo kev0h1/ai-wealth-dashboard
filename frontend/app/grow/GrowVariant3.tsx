@@ -35,6 +35,7 @@ import { api, GrowView } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
+import MoneyText from "@/components/MoneyText";
 
 // `frontend/lib/api.ts` re-exports GrowView but not the nested
 // GrowLadderStep — derive it locally rather than editing that shared file.
@@ -173,7 +174,7 @@ function TrackRungCard({ rung, track }: { rung: GrowLadderStep; track: Track }) 
               quiet ? "text-slate-300 dark:text-slate-600" : "text-slate-500 dark:text-slate-400",
             ].join(" ")}
           >
-            {rung.detail}
+            <MoneyText text={rung.detail} />
           </p>
         </div>
       </div>
@@ -200,7 +201,7 @@ function ActiveRungCard({ rung, track }: { rung: GrowLadderStep; track: Track })
           <p className="text-sm font-bold text-slate-900 dark:text-slate-100 leading-snug">{rung.title}</p>
         </div>
       </div>
-      <p className="text-[13px] leading-relaxed text-slate-700 dark:text-slate-200 mb-2">{rung.detail}</p>
+      <p className="text-[13px] leading-relaxed text-slate-700 dark:text-slate-200 mb-2"><MoneyText text={rung.detail} /></p>
       {rung.options.length > 0 && (
         <ul className="space-y-1.5">
           {rung.options.map((opt, i) => (
@@ -245,7 +246,7 @@ function NeutralRungCard({ rung }: { rung: GrowLadderStep }) {
               quiet ? "text-slate-300 dark:text-slate-600" : "text-slate-500 dark:text-slate-400",
             ].join(" ")}
           >
-            {rung.detail}
+            <MoneyText text={rung.detail} />
           </p>
         </div>
       </div>
@@ -361,15 +362,15 @@ export default function GrowVariant3() {
             <div className="rounded-3xl p-5 glass-hero">
               <WhisperLabel>Your next move</WhisperLabel>
               <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 leading-snug mt-1">
-                {grow.verdict.headline}
+                <MoneyText text={grow.verdict.headline} />
               </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">{grow.verdict.sub}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1"><MoneyText text={grow.verdict.sub} /></p>
             </div>
 
             {/* ── 2. Surplus → which track it feeds (the spine's source) ── */}
             <div className="rounded-2xl p-4 glass-card">
               <WhisperLabel>{grow.surplus_monthly >= 0 ? "Monthly surplus" : "Monthly shortfall"}</WhisperLabel>
-              <p className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums mt-1">
+              <p className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums font-mono mt-1">
                 {hide ? "£••••" : money(grow.surplus_monthly)}
               </p>
               {activeRung ? (
@@ -408,7 +409,7 @@ export default function GrowVariant3() {
                   align="left"
                   stat={
                     <div>
-                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 tabular-nums">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 tabular-nums font-mono">
                         {hide ? "£••••" : money(grow.buffer.current)}
                         <span className="text-slate-400 dark:text-slate-500 font-normal">
                           {" "}
@@ -430,7 +431,7 @@ export default function GrowVariant3() {
                   stat={
                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100 tabular-nums">
                       {grow.invest.has_investments
-                        ? (hide ? "£••••" : money(grow.invest.portfolio_value))
+                        ? <span className="font-mono tabular-nums">{hide ? "£••••" : money(grow.invest.portfolio_value)}</span>
                         : <span className="text-slate-400 dark:text-slate-500 font-normal text-xs">No investments yet</span>}
                     </p>
                   }
@@ -473,7 +474,7 @@ export default function GrowVariant3() {
               <div className="space-y-1 pt-1">
                 {grow.notes.map((note, i) => (
                   <p key={i} className="text-[11px] leading-relaxed text-slate-400 dark:text-slate-500 italic">
-                    {note}
+                    <MoneyText text={note} />
                   </p>
                 ))}
               </div>

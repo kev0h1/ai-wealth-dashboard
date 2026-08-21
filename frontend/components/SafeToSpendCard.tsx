@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useCountUp } from "@/lib/useCountUp";
+import MoneyText from "@/components/MoneyText";
 
 interface SafeToSpendCardProps {
   data: SafeToSpend | null;
@@ -178,7 +179,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
     state === "comfortable"
       ? "text-emerald-600 dark:text-emerald-400"
       : state === "tight"
-      ? "text-amber-500 dark:text-amber-400"
+      ? "text-slate-900 dark:text-slate-100"
       : "text-red-500 dark:text-red-400";
 
   const hasSpendableNow = spendable_now != null;
@@ -213,7 +214,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
       <div className="space-y-3">
       {/* ── 1. Verdict headline ── */}
       <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 leading-snug">
-        {verdictText}
+        <MoneyText text={verdictText} />
         {estimated && (
           <span className="text-slate-400 dark:text-slate-500 font-normal text-sm"> · estimated</span>
         )}
@@ -226,19 +227,19 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           {/* NOW */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Now</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{hidden ? "£••••" : fmt(nowCounted)}</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 money text-left">{hidden ? "£••••" : fmt(nowCounted)}</span>
           </div>
           {/* BILLS — minus sign only when there's a real bills figure to
               subtract; a zero-normalised total never renders "−£0". */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Bills</span>
-            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 tabular-nums num text-left">{billsTarget > 0 ? "−" : ""}{hidden ? "£••••" : fmt(billsCounted)}</span>
+            <span className="text-base font-semibold text-slate-800 dark:text-slate-100 money text-left">{billsTarget > 0 ? "−" : ""}{hidden ? "£••••" : fmt(billsCounted)}</span>
           </div>
           {/* FREE — minus sign (and red, via freeClass) only for a genuine
               shortfall (state === "short", already gated to <= −£1). */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Free</span>
-            <span className={`text-base font-semibold tabular-nums num text-left ${freeClass}`}>
+            <span className={`text-base font-semibold money text-left ${freeClass}`}>
               {state === "short" ? `−${hidden ? "£••••" : fmt(freeCounted)}` : (hidden ? "£••••" : fmt(freeCounted))}
             </span>
           </div>
@@ -262,13 +263,13 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
             {cardsGrew && netAfterCards !== null ? (
               <>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
+                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
                 <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">−</span>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(cardDelta as number)}</span>
+                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(cardDelta as number)}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">on credit cards</span>
                 <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">=</span>
-                <span className={`text-base font-semibold tabular-nums num ${netAfterCards > 0 ? "text-slate-900 dark:text-slate-100" : "text-amber-600 dark:text-amber-400"}`}>
+                <span className={`text-base font-semibold money ${netAfterCards > 0 ? "text-slate-900 dark:text-slate-100" : "text-slate-900 dark:text-slate-100"}`}>
                   {hidden ? "£••••" : fmt(Math.abs(netAfterCards))}
                 </span>
                 <span className={`text-[13px] ${netAfterCards > 0 ? "text-slate-500 dark:text-slate-400" : "text-amber-600 dark:text-amber-400"}`}>
@@ -277,12 +278,12 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
               </>
             ) : cardsDown ? (
               <>
-                <span className="text-base font-semibold tabular-nums num text-emerald-600 dark:text-emerald-400">{hidden ? "£••••" : fmt(Math.abs(cardDelta as number))}</span>
+                <span className="text-base font-semibold money text-emerald-600 dark:text-emerald-400">{hidden ? "£••••" : fmt(Math.abs(cardDelta as number))}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">paid off credit cards</span>
               </>
             ) : (
               <>
-                <span className="text-base font-semibold tabular-nums num text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
+                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
                 <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
                 <span className="text-[13px] text-slate-500 dark:text-slate-400">credit cards steady this month</span>
@@ -309,7 +310,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
         const incomeText = hasPaydayIncome ? `~${hidden ? "••" : fmt(payday_income!)} expected` : null;
         return (
           <p className="text-[13px] text-slate-500 dark:text-slate-400 num text-pretty">
-            {leadText}{incomeText ? ` · ${incomeText}` : ""}
+            <MoneyText text={`${leadText}${incomeText ? ` · ${incomeText}` : ""}`} />
           </p>
         );
       })()}
@@ -321,11 +322,13 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           aria-label="See the plans this is reserved for"
         >
           <span>
-            {hidden ? "£••" : fmt(data.commitments_reserved!)}{" "}
-            {data.commitments_reserved_period_label
-              ? `each pay period (${data.commitments_reserved_period_label})`
-              : "a period"}{" "}
-            reserved for {data.commitments_count ?? 1} plan{(data.commitments_count ?? 1) === 1 ? "" : "s"}
+            <MoneyText
+              text={`${hidden ? "£••" : fmt(data.commitments_reserved!)} ${
+                data.commitments_reserved_period_label
+                  ? `each pay period (${data.commitments_reserved_period_label})`
+                  : "a period"
+              } reserved for ${data.commitments_count ?? 1} plan${(data.commitments_count ?? 1) === 1 ? "" : "s"}`}
+            />
           </span>
           <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0" aria-hidden="true">›</span>
         </button>

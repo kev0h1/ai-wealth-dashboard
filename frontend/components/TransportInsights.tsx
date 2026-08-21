@@ -8,6 +8,7 @@ import {
 import { api, TransportSummary, TransportMode } from "@/lib/api";
 import Spinner from "@/components/Spinner";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
+import MoneyText from "@/components/MoneyText";
 
 const MODE_ICON: Record<string, React.ReactNode> = {
   "Fuel":             <Fuel size={14} />,
@@ -67,7 +68,7 @@ function ModeRow({ mode, maxTotal }: { mode: TransportMode; maxTotal: number }) 
             {mode.name}
           </span>
           <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100 ml-2 flex-shrink-0">
-            £{fmt(mode.monthly)}<span className="text-xs font-normal text-slate-400">/mo</span>
+            <span className="font-mono tabular-nums">£{fmt(mode.monthly)}</span><span className="text-xs font-normal text-slate-400">/mo</span>
           </span>
         </div>
         <div className="h-2 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -136,7 +137,7 @@ export default function TransportInsights() {
       {/* ── 2. Always-visible summary whisper ───────────────────────── */}
       <div className="px-1">
         <p className="text-[12px] text-slate-400 dark:text-slate-500">
-          Transport · <span className="font-semibold text-slate-600 dark:text-slate-300">~£{fmt(data.monthly_avg)}/mo</span>
+          Transport · <span className="font-semibold text-slate-600 dark:text-slate-300 font-mono tabular-nums">~£{fmt(data.monthly_avg)}/mo</span>
         </p>
       </div>
 
@@ -175,9 +176,9 @@ export default function TransportInsights() {
               </p>
               <div className="flex items-end gap-2">
                 <p className="text-3xl font-bold text-slate-900 dark:text-slate-100">
-                  £{fmt(data.monthly_avg)}<span className="text-base font-normal text-slate-400">/mo</span>
+                  <span className="font-mono tabular-nums">£{fmt(data.monthly_avg)}</span><span className="text-base font-normal text-slate-400">/mo</span>
                 </p>
-                <p className="text-sm text-slate-400 dark:text-slate-500 mb-0.5">
+                <p className="text-sm text-slate-400 dark:text-slate-500 mb-0.5 font-mono tabular-nums">
                   £{fmt(data.weekly_avg)}/wk
                 </p>
               </div>
@@ -230,7 +231,7 @@ export default function TransportInsights() {
                 >
                   {MODE_ICON[data.modes[0]?.name] ?? <Car size={11} />}
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300">{insight}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-300"><MoneyText text={insight} /></p>
               </div>
             )}
 
@@ -238,7 +239,7 @@ export default function TransportInsights() {
             {hasCar && (
               <p className="text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-700">
                 Car running costs total roughly{" "}
-                <span className="font-semibold text-slate-600 dark:text-slate-300">
+                <span className="font-semibold text-slate-600 dark:text-slate-300 font-mono tabular-nums">
                   £{annualCar.toLocaleString("en-GB")}/yr
                 </span>{" "}
                 before depreciation and insurance
@@ -267,7 +268,7 @@ export default function TransportInsights() {
                     <p className="text-[13px] font-medium text-slate-800 dark:text-slate-100 truncate">{tx.name}</p>
                     <p className="text-[11px] text-slate-400 dark:text-slate-500">{tx.mode} · {tx.date}</p>
                   </div>
-                  <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex-shrink-0">
+                  <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200 flex-shrink-0 font-mono tabular-nums">
                     £{tx.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>

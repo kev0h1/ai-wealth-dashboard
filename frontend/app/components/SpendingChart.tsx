@@ -50,7 +50,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       <p className="text-slate-300 font-medium mb-1">{label}</p>
       {payload.map((p: any) => (
         <p key={p.name} style={{ color: p.color }}>
-          {p.name === "spend" ? "Spend" : "Income"}: £{p.value.toLocaleString()}
+          {p.name === "spend" ? "Spend" : "Income"}: <span className="font-mono tabular-nums">£{p.value.toLocaleString()}</span>
         </p>
       ))}
     </div>
@@ -73,7 +73,7 @@ export default function SpendingChart({ transactions }: { transactions: Transact
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 11, fill: "#64748b" }}
+            tick={{ fontSize: 11, fill: "#64748b", fontFamily: "var(--font-jbmono), monospace" }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(v) => `£${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`}

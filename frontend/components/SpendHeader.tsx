@@ -27,6 +27,7 @@ import { ChevronLeft, ChevronRight, Settings2, Search, Info, X } from "lucide-re
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import TransactionRow from "@/components/TransactionRow";
+import MoneyText from "@/components/MoneyText";
 import type { SpendVerdict, SpendVerdictPaceEntry, Transaction } from "@/lib/api";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
@@ -507,7 +508,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
               className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
             >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Out</span>
-              <span className="text-[20px] font-bold tabular-nums text-slate-900 dark:text-slate-100">{fmt(pills.spent)}</span>
+              <span className="text-[20px] font-bold tabular-nums font-mono text-slate-900 dark:text-slate-100">{fmt(pills.spent)}</span>
             </button>
             <button
               type="button"
@@ -516,7 +517,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
               className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
             >
               <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">In</span>
-              <span className="text-[20px] font-bold tabular-nums text-slate-900 dark:text-slate-100">{fmt(pills.income)}</span>
+              <span className="text-[20px] font-bold tabular-nums font-mono text-slate-900 dark:text-slate-100">{fmt(pills.income)}</span>
             </button>
             {hasMoved && (
               <button
@@ -526,7 +527,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
                 className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:scale-95 transition-transform"
               >
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Moved</span>
-                <span className="text-[20px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{fmt(moved_total!)}</span>
+                <span className="text-[20px] font-bold tabular-nums font-mono text-emerald-600 dark:text-emerald-400">{fmt(moved_total!)}</span>
               </button>
             )}
           </div>
@@ -555,7 +556,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
 
         {/* The reading, now a caption under the instrument rather than the
             card's own 20px hero line. */}
-        <p lang="en-GB" className="hero-prose mt-3 text-sm font-normal text-slate-600 dark:text-slate-300 line-clamp-3">{reading}</p>
+        <p lang="en-GB" className="text-pretty mt-3 text-sm font-normal text-slate-600 dark:text-slate-300 line-clamp-3"><MoneyText text={reading} /></p>
       </div>
 
       {incomeExpanded && <IncomeDrilldown incomeTxns={incomeTxns} onTransactionClick={onTransactionClick} />}

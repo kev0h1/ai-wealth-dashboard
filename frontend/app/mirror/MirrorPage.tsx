@@ -95,7 +95,7 @@ function TraitCard({ trait, activeAim, onChoice, onSetAim }: {
               : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
           }`}
         >
-          I&apos;d like to change this
+          This isn&apos;t me, change it
         </button>
       </div>
 
@@ -262,7 +262,7 @@ export default function MirrorPage() {
                 <div key={aim.id} className="glass-card rounded-2xl px-4 py-3">
                   <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{aim.ref}</p>
                   <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    £{Math.round(aim.spent_so_far).toLocaleString("en-GB")} of your £{Math.round(aim.aim_amount).toLocaleString("en-GB")} aim
+                    <span className="font-mono tabular-nums">£{Math.round(aim.spent_so_far).toLocaleString("en-GB")}</span> of your <span className="font-mono tabular-nums">£{Math.round(aim.aim_amount).toLocaleString("en-GB")}</span> aim
                     {" · "}
                     {aim.days_left <= 0 ? "last day" : aim.days_left === 1 ? "1 day left" : `${aim.days_left} days left`}
                   </p>

@@ -7,6 +7,7 @@ import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import PennyMark from "@/components/PennyMark";
+import MoneyText from "@/components/MoneyText";
 
 // Same resolver MoveCard uses in HomeBrief.tsx — kept local (not exported from
 // there) so this component doesn't reach into HomeBrief's module internals.
@@ -108,7 +109,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           the month") variant keeps its calm headline/body ramp with no hero. */}
       {(item.total ?? 0) > 0 && (
         <div className="mb-3">
-          <p className="num text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <p className="money text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {hideNetWorth ? "£••••" : `£${Math.round(item.total ?? 0).toLocaleString("en-GB")}`}
           </p>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mt-0.5">
@@ -126,15 +127,16 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
       {/* Body sentence */}
       {item.body && (
         <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose">
-          {maskAmounts(item.body)}
+          <MoneyText text={maskAmounts(item.body)} />
         </p>
       )}
 
       {/* Trimmed notice — amber (not red): buffers were reduced to make the
           plan fit this month, informational not alarming. */}
       {item.trimmed && (
-        <p className="text-[12px] text-amber-600 dark:text-amber-400 leading-snug mb-3">
-          Buffers trimmed to fit this month.
+        <p className="flex items-start gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+          <span>Buffers trimmed to fit this month.</span>
         </p>
       )}
 
@@ -159,7 +161,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                 {item.salary.name}
               </span>
             </span>
-            <span className="num text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
+            <span className="money text-sm font-bold text-emerald-600 dark:text-emerald-400 flex-shrink-0">
               {hideNetWorth ? "£••••" : `~£${Math.round(item.salary.amount).toLocaleString("en-GB")}`}
             </span>
           </div>
@@ -205,18 +207,18 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                       {dest.name}
                     </span>
                   </span>
-                  <span className="num text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                  <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
                     {hideNetWorth ? "£••••" : `£${Math.round(dest.move).toLocaleString("en-GB")}`}
                   </span>
                 </div>
                 {breakdownParts.length > 0 && (
                   <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 leading-snug pl-[46px]">
-                    {maskAmounts(breakdownParts.join(" · "))}
+                    <MoneyText text={maskAmounts(breakdownParts.join(" · "))} />
                   </p>
                 )}
                 {showUsual && (
                   <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
-                    {maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)}
+                    <MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} />
                   </p>
                 )}
               </div>
@@ -240,7 +242,7 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           the reader. */}
       {item.salary && item.salary.stays > 0 && (
         <p className="mt-3 text-[13px] text-slate-600 dark:text-slate-300 leading-snug">
-          {maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays with you in ${item.salary.name}.`)}
+          <MoneyText text={maskAmounts(`£${Math.round(item.salary.stays).toLocaleString("en-GB")} stays with you in ${item.salary.name}.`)} />
         </p>
       )}
 

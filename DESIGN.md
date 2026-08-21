@@ -139,16 +139,19 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 
 **The Red Is Risk Rule.** Red and rose mean money is genuinely at risk. Never use red for emphasis, decoration, or non-financial errors; if everything is fine, a screen may contain no red at all.
 
+**Figures Are Ink; Amber Lives In The Signifier.** Watch Amber marks a caution condition through a small signifier only, a badge, chip, dot, icon, or bar, never through the colour of a money figure, headline, section label, or full sentence of prose. When a sentence carries a caution and no other signifier is present, prepend a small leading amber dot rather than colouring the text.
+
 **The Penny Gradient Rule.** The indigo→violet gradient belongs to the AI adviser alone. Any surface wearing it must be a place the user can get advice.
 
 **Flows vs Positions.** Home speaks only in flows (what's moving: in hand, due, movement since payday). Position totals (net worth, total across cards) live in the estate — the Accounts page — visited by choice, never greeting the user.
 
 ## 3. Typography
 
-**Display Font:** system-ui (SF Pro / Segoe UI / Roboto native stacks)
-**Body Font:** system-ui (same stack)
+**Display Font:** Figtree, self-hosted via next/font (replaces the raw system-ui stack, 2026-08-18)
+**Body Font:** Figtree (same family)
+**Figure Font:** JetBrains Mono, for any currency figure regardless of symbol (£, KES/KSh, etc., see The Money Is Mono Rule below)
 
-**Character:** Native and invisible — the platform's own sans renders numbers crisply and loads instantly. Hierarchy comes entirely from weight, size, and colour, never from a second family.
+**Character:** A rounded, humanist sans with a warmer, more considered voice than the raw platform default, self-hosted so it loads instantly with no layout shift. Hierarchy still comes entirely from weight, size, and colour, never from a second family for prose, currency figures are the one deliberate exception.
 
 ### Hierarchy
 - **Display** (700, 30px, tight −0.025em): The one hero figure per screen — net worth, total debt, monthly surplus.
@@ -163,9 +166,9 @@ A muted slate stage where one indigo voice and a single-saturation category pale
 ### Named Rules
 **The Numbers Lead Rule.** On any card the money figure is the visually heaviest element; its label sits above or beside it in whisper-label style. If a label outweighs its number, the hierarchy is wrong.
 
-**Hero prose is justified, narrowly.** Justification only earns its keep on genuine flowing narrative: multi-sentence, plain-word paragraphs that reliably run 2+ lines, on a wide-enough measure that word-gaps have room to distribute. In practice that's the Penny brief's own headline+body cards (the payday ask, the generic ask, the move-money recommendation, the "nothing needs you" fallback, and other free-text advice bodies) and the Spend reading caption — set `text-align: justify` with `hyphens: auto` and `lang="en-GB"` for correct UK hyphenation.
+**The Money Is Mono Rule (2026-08-18).** Any currency figure, in any currency (£, KES/KSh, including −£, ~£, and equivalent negated/approximate forms in other currencies), is set in JetBrains Mono with tabular-nums, all other numerals (dates, counts, percentages) stay in Figtree. A KES balance next to a £ balance must not differ in font. Chosen by Kevin from the /design/type variant comparison (variant D).
 
-Everything else stays ragged with `text-pretty` (better wrapping, no orphans), including cases that look superficially similar: headlines, labels, amounts, and any single-line string (never justified, per the original rule); short number/brand-dense captions (the Insights card body, its Home spotlight echo, Safe to Spend's pace/payday line) where currency figures, dates, and provider names create wildly uneven token lengths that justification stretches into visible rivers of whitespace; anything hard-capped to 1-2 lines via `line-clamp` or a JS "show more" split, since a 2-line justified paragraph justifies exactly one real line, all artifact and no benefit; and anything that ends mid-flow in an inline link (Insights' "more" toggle). Justification is for prose that wraps generously, not for figures, tags, or compressed captions wearing a paragraph's clothing.
+- **No justified text (2026-08-18).** Justification was trialled on hero prose and reverted: on narrow phone columns it produced uneven word gaps. All prose is left-aligned with `text-pretty`.
 
 ## 4. Elevation
 

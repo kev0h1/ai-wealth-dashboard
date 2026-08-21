@@ -11,6 +11,7 @@ import { BANK_META, BankBadge, bankKey } from "@/components/AccountMiniCard";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import BottomNav from "@/components/BottomNav";
 import PennyMark from "@/components/PennyMark";
+import MoneyText from "@/components/MoneyText";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         <>
           {amberDot}At your current pace the cards aren&apos;t coming down.
           {plan.history?.rising && (
-            <> Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+            <> Your carried debt has risen <span className="font-mono tabular-nums">{fmtMoney(plan.history.trend_3m, hide)}</span> over the last three months.</>
           )}
         </>
       );
@@ -105,14 +106,14 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         <>
           {amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, further out than five years.
           {plan.history?.rising && (
-            <> Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.</>
+            <> Your carried debt has risen <span className="font-mono tabular-nums">{fmtMoney(plan.history.trend_3m, hide)}</span> over the last three months.</>
           )}
         </>
       );
     }
   } else if (totals.verdict === "drifting") {
     sentence = (
-      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)}, {fmtMoney(totals.interest_to_clear, hide)} of that will be interest.</>
+      <>{amberDot}At your current pace the cards clear in {fmtMonth(totals.debt_free_month!)}, <span className="font-mono tabular-nums">{fmtMoney(totals.interest_to_clear, hide)}</span> of that will be interest.</>
     );
   } else {
     // good
@@ -120,7 +121,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       sentence = <>Nothing material on the cards right now.</>;
     } else {
       sentence = (
-        <>At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, with {fmtMoney(totals.interest_to_clear, hide)} interest.</>
+        <>At your current pace the cards clear in {fmtMonth(totals.debt_free_month)}, with <span className="font-mono tabular-nums">{fmtMoney(totals.interest_to_clear, hide)}</span> interest.</>
       );
     }
   }
@@ -134,11 +135,11 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
     const zero = buckets.carried_zero;
     let splitText: React.ReactNode;
     if (interest >= 1) {
-      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried, {hide ? "••••" : fmtMoney(interest, hide)} of it costing interest · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+      splitText = <><span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(carried, hide)}</span> carried, <span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(interest, hide)}</span> of it costing interest · <span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(float, hide)}</span> of monthly spending you clear as you go</>;
     } else if (zero >= 0.9 * carried) {
-      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried on 0% deals · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+      splitText = <><span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(carried, hide)}</span> carried on 0% deals · <span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(float, hide)}</span> of monthly spending you clear as you go</>;
     } else {
-      splitText = <>{hide ? "••••" : fmtMoney(carried, hide)} carried · {hide ? "••••" : fmtMoney(float, hide)} of monthly spending you clear as you go</>;
+      splitText = <><span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(carried, hide)}</span> carried · <span className="font-mono tabular-nums">{hide ? "••••" : fmtMoney(float, hide)}</span> of monthly spending you clear as you go</>;
     }
     splitLine = (
       <p className="text-[13px] mt-1 text-slate-600 dark:text-slate-300">
@@ -154,7 +155,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">
         {showFloatBuckets ? "CARRIED ON YOUR CARDS" : "ACROSS YOUR CARDS"}
       </p>
-      <p className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight mt-1">
+      <p className="text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight mt-1 font-mono tabular-nums">
         {showFloatBuckets
           ? (hide ? "••••" : "£" + Math.round(buckets!.carried_total).toLocaleString("en-GB"))
           : (hide ? "••••" : "£" + Math.round(totals.debt).toLocaleString("en-GB"))
@@ -167,7 +168,7 @@ function VerdictBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
       {plan.commitments_reserved && totals.debt_free_month && (
         <p className="text-[11px] mt-2 text-slate-400 dark:text-slate-500 leading-snug">
           Assumes your recent payment pace continues. Your plans reserve{" "}
-          {fmtMoney(plan.commitments_reserved.total_slice, hide)}{" "}
+          <span className="font-mono tabular-nums">{fmtMoney(plan.commitments_reserved.total_slice, hide)}</span>{" "}
           {plan.commitments_reserved.period_label
             ? `each pay period (${plan.commitments_reserved.period_label})`
             : "a period"}
@@ -202,7 +203,7 @@ function AgencyBlock({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
           ) : (
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
               <span className="font-semibold text-slate-900 dark:text-slate-100">
-                {fmtMoney(extra.amount, hide)} more a month
+                <span className="font-mono tabular-nums">{fmtMoney(extra.amount, hide)}</span> more a month
               </span>{" "}
               clears every {cardWord} by {fmtMonth(extra.debt_free_month)}.
             </p>
@@ -291,7 +292,7 @@ function PennyInsight({
         </span>
       </div>
       <p className="text-[15px] leading-relaxed text-slate-700 dark:text-slate-200 max-w-prose">
-        {text}
+        <MoneyText text={text} />
       </p>
       {ask ? (
         <button
@@ -352,9 +353,9 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           : `${k} of those cards don’t clear at all`;
       dearestSentence = (
         <>
-          {`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `}
+          <MoneyText text={`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `} />
           <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
-          {` with ${fmtMoney(sb.total_interest, hide)} interest. As it stands, ${dontClear}; by ${byMonth} they’d have cost ${fmtMoney(sb.as_is_interest_over_window, hide)}.`}
+          <MoneyText text={` with ${fmtMoney(sb.total_interest, hide)} interest. As it stands, ${dontClear}; by ${byMonth} they’d have cost ${fmtMoney(sb.as_is_interest_over_window, hide)}.`} />
         </>
       );
     } else if (sb.as_is_clears && sb.as_is_interest_over_window != null) {
@@ -364,9 +365,9 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           : "";
       dearestSentence = (
         <>
-          {`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `}
+          <MoneyText text={`Same ${poolStr} a month, dearest card first, clears ${clearsWhat} by `} />
           <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">{byMonth}</span>
-          {` with ${fmtMoney(sb.total_interest, hide)} interest${soonerClause}. As it stands the same cards would have cost ${fmtMoney(sb.as_is_interest_over_window, hide)} by ${byMonth}.`}
+          <MoneyText text={` with ${fmtMoney(sb.total_interest, hide)} interest${soonerClause}. As it stands the same cards would have cost ${fmtMoney(sb.as_is_interest_over_window, hide)} by ${byMonth}.`} />
         </>
       );
     }
@@ -382,7 +383,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           {totals.monthly_interest_now >= 1 ? (
             <>
               <p className="mt-1">
-                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                <span className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-mono tabular-nums">
                   {fmtMoney(totals.monthly_interest_now, hide)}
                 </span>{" "}
                 <span className="text-sm text-slate-700 dark:text-slate-200">
@@ -391,13 +392,13 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
               </p>
               {nc.count > 0 && nc.monthly_interest_share >= 1 && (
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-2">
-                  {fmtMoney(nc.monthly_interest_share, hide)} of that is on {nc.count}{" "}
+                  <span className="font-mono tabular-nums">{fmtMoney(nc.monthly_interest_share, hide)}</span> of that is on {nc.count}{" "}
                   {nc.count === 1 ? "card that isn’t" : "cards that aren’t"} clearing at your pace.
                 </p>
               )}
               {totals.interest_to_clear >= 1 && (
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
-                  {fmtMoney(totals.interest_to_clear, hide)} to clear{" "}
+                  <span className="font-mono tabular-nums">{fmtMoney(totals.interest_to_clear, hide)}</span> to clear{" "}
                   {nc.count > 0 ? "the rest" : "them at your pace"}.
                 </p>
               )}
@@ -410,7 +411,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
               {totals.potential_monthly_interest >= 1 && (
                 <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed mt-1">
                   If these balances ran past their 0% windows at the rates on file, they&apos;d cost about{" "}
-                  {fmtMoney(totals.potential_monthly_interest, hide)} a month.
+                  <span className="font-mono tabular-nums">{fmtMoney(totals.potential_monthly_interest, hide)}</span> a month.
                 </p>
               )}
             </>
@@ -429,7 +430,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           {sb.interest_saved != null && sb.interest_saved >= 1 && (
             <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
               That&apos;s{" "}
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
                 {fmtMoney(sb.interest_saved, hide)}
               </span>{" "}
               less interest.
@@ -437,7 +438,7 @@ function TrajectoryBlocks({ plan, hide }: { plan: DebtPlanView; hide: boolean })
           )}
           {plan.history?.rising && (
             <p className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-              Your carried debt has risen {fmtMoney(plan.history.trend_3m, hide)} over the last three months.
+              Your carried debt has risen <span className="font-mono tabular-nums">{fmtMoney(plan.history.trend_3m, hide)}</span> over the last three months.
             </p>
           )}
           {sb.assumption && (
@@ -551,7 +552,7 @@ function CardRows({
                   brandBg={chip.bg}
                 />
                 <p className="flex-1 text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{card.name}</p>
-                <p className="text-base font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                <p className="text-base font-bold text-slate-900 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
                   {card.debt === 0 ? "£0" : fmtMoney(card.debt, hide)}
                 </p>
               </div>
@@ -569,7 +570,7 @@ function CardRows({
                   {/* Line 3: movement */}
                   {hasMovement && (
                     <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                      +{fmtMoney(card.movement.monthly!, hide)}/mo at your pace
+                      <span className="font-mono tabular-nums">+{fmtMoney(card.movement.monthly!, hide)}/mo</span> at your pace
                     </p>
                   )}
                   {!hasMovement && projectedFlat && (
@@ -581,22 +582,23 @@ function CardRows({
                     <p className="text-[13px] text-slate-600 dark:text-slate-300">
                       Clears {fmtMonth(card.payoff_month)}
                       {card.total_interest != null && card.total_interest >= 1 && (
-                        <> · {fmtMoney(card.total_interest, hide)} interest</>
+                        <> · <span className="font-mono tabular-nums">{fmtMoney(card.total_interest, hide)}</span> interest</>
                       )}
                     </p>
                   )}
                   {!card.payoff_month && card.debt > 0 && card.monthly_interest_now >= 1 && (
                     <p className="text-[13px] text-slate-600 dark:text-slate-300">
-                      Not clearing at your pace · {fmtMoney(card.monthly_interest_now, hide)}/mo interest right now
+                      Not clearing at your pace · <span className="font-mono tabular-nums">{fmtMoney(card.monthly_interest_now, hide)}/mo</span> interest right now
                     </p>
                   )}
                 </>
               )}
 
-              {/* Usage conflict flag — amber, calm, not red */}
+              {/* Usage conflict flag — amber dot signifier, slate text, calm not red */}
               {card.usage_conflict && (
-                <p className="text-[13px] text-amber-700 dark:text-amber-400">
-                  You said you clear this monthly, but interest charges are appearing, worth a look.
+                <p className="flex items-start gap-1.5 text-[13px] text-slate-600 dark:text-slate-300">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+                  <span>You said you clear this monthly, but interest charges are appearing, worth a look.</span>
                 </p>
               )}
 
@@ -632,9 +634,9 @@ function TransferRoutes({ plan, hide }: { plan: DebtPlanView; hide: boolean }) {
         return (
           <div key={i} className="glass-card rounded-2xl p-4">
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-              Moving {fmtMoney(opt.transferable, hide)} from {opt.source_name}{rateParenthetical} to{" "}
-              {opt.destination_name}&apos;s offer: {fmtMoney(opt.fee, hide)} fee once instead of ~
-              {fmtMoney(monthly, hide)} interest a month.
+              Moving <span className="font-mono tabular-nums">{fmtMoney(opt.transferable, hide)}</span> from {opt.source_name}{rateParenthetical} to{" "}
+              {opt.destination_name}&apos;s offer: <span className="font-mono tabular-nums">{fmtMoney(opt.fee, hide)}</span> fee once instead of{" "}
+              <span className="font-mono tabular-nums">~{fmtMoney(monthly, hide)}</span> interest a month.
               {opt.break_even_weeks != null && ` Break-even in ${opt.break_even_weeks} weeks.`}
             </p>
             {opt.assumptions.length > 0 && (

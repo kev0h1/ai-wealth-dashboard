@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
 import { api, ValueDelivered } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useRouter } from "next/navigation";
+import PennyMark from "@/components/PennyMark";
 
 const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
@@ -32,11 +32,11 @@ export default function ValueDeliveredStat() {
         <div className="min-h-[44px] flex items-center justify-between">
           {/* Left */}
           <div className="flex items-center gap-2">
-            <Sparkles size={15} className="text-slate-400 flex-shrink-0" />
+            <PennyMark size={15} className="text-slate-400 flex-shrink-0" />
             <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
               {verified > 0
-                ? `${sym}${verified.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo saved`
-                : `${sym}${monthly.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo potential savings`}
+                ? <><span className="font-mono tabular-nums">{sym}{verified.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span>/mo saved</>
+                : <><span className="font-mono tabular-nums">{sym}{monthly.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span>/mo potential savings</>}
             </span>
           </div>
           {/* Right */}

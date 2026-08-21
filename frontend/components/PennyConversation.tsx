@@ -28,6 +28,7 @@ import { api, CanIOffer, CanISuggestionChip } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import CommitmentSheet from "@/components/CommitmentSheet";
+import MoneyText from "@/components/MoneyText";
 
 const BG = BRAND_GRADIENT;
 const HISTORY_CAP = 6;
@@ -55,7 +56,7 @@ function reducedMotion(): boolean {
 function UserLine({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <p className="max-w-[85%] text-[13px] text-slate-500 dark:text-slate-400 text-right leading-snug">{text}</p>
+      <p className="max-w-[85%] text-[13px] text-slate-500 dark:text-slate-400 text-right leading-snug"><MoneyText text={text} /></p>
     </div>
   );
 }
@@ -71,15 +72,15 @@ function VerdictCard({ msg, onOfferTap }: { msg: AssistantMsg; onOfferTap: () =>
   return (
     <div className="glass-card rounded-2xl p-4 w-full">
       {msg.degraded ? (
-        <p className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200">{msg.headline}</p>
+        <p className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200"><MoneyText text={msg.headline} /></p>
       ) : (
-        <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">{msg.headline}</p>
+        <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100"><MoneyText text={msg.headline} /></p>
       )}
       {msg.facts && msg.facts.length > 0 && (
         <div className="mt-2 space-y-1">
           {msg.facts.map((f, i) => (
             <p key={i} className="text-[13px] leading-snug text-slate-500 dark:text-slate-400">
-              {f}
+              <MoneyText text={f} />
             </p>
           ))}
         </div>
@@ -90,7 +91,7 @@ function VerdictCard({ msg, onOfferTap }: { msg: AssistantMsg; onOfferTap: () =>
           onClick={onOfferTap}
           className="mt-3 min-h-[44px] inline-flex items-center text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/20 rounded-full px-4 py-2 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          Set this up: £{Math.round(msg.offer.per_period).toLocaleString("en-GB")}/period ›
+          Set this up: <span className="font-mono tabular-nums">£{Math.round(msg.offer.per_period).toLocaleString("en-GB")}</span>/period ›
         </button>
       )}
     </div>
@@ -136,7 +137,7 @@ function SuggestionChip({ label, onTap, onDismiss }: { label: string; onTap: () 
         onClick={onTap}
         className="relative min-h-[28px] flex items-center before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] text-[13px] font-medium text-slate-600 dark:text-slate-300 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
       >
-        {label}
+        <MoneyText text={label} />
       </button>
       <button
         type="button"
@@ -423,7 +424,7 @@ export function PennyPromptBar({
           <PennyMark size={13} className="text-white" />
         </span>
         <span className="text-[14px] text-slate-400 dark:text-slate-500 truncate">
-          Ask Penny&hellip; Can I spend £45 this weekend?
+          Ask Penny&hellip; Can I spend <span className="font-mono tabular-nums">£45</span> this weekend?
         </span>
       </button>
 
@@ -437,7 +438,7 @@ export function PennyPromptBar({
                 onClick={() => onAsk(c.label)}
                 className="min-h-[44px] inline-flex items-center text-[13px] font-medium px-4 rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
-                {c.label}
+                <MoneyText text={c.label} />
               </button>
             ))}
           </div>

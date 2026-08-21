@@ -11,6 +11,7 @@ import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
+import MoneyText from "@/components/MoneyText";
 
 // ── Whisper label ─────────────────────────────────────────────────────────────
 function Whisper({ children }: { children: React.ReactNode }) {
@@ -136,7 +137,7 @@ export default function CardsPage() {
     // Balance grew (more owed) — NEUTRAL slate, never red
     verdictNode = (
       <span className="text-slate-900 dark:text-slate-100">
-        ↑ {mask(fmtGBP(delta))}
+        ↑ <span className="font-mono tabular-nums">{mask(fmtGBP(delta))}</span>
       </span>
     );
     companionLine = `New spend ${mask(fmtGBP(new_spend))} · Payments ${mask(fmtGBP(payments))}`;
@@ -144,7 +145,7 @@ export default function CardsPage() {
     // delta <= -20: balance shrank (paid down) — emerald
     verdictNode = (
       <span className="text-emerald-600 dark:text-emerald-400">
-        ↓ {mask(fmtGBP(delta))}
+        ↓ <span className="font-mono tabular-nums">{mask(fmtGBP(delta))}</span>
       </span>
     );
     companionLine = `New spend ${mask(fmtGBP(new_spend))} · Payments ${mask(fmtGBP(payments))}`;
@@ -196,17 +197,19 @@ export default function CardsPage() {
               </p>
             ) : (
               <p className="text-sm text-slate-500 dark:text-slate-400 num">
-                New spend {mask(fmtGBP(new_spend))} · Payments {mask(fmtGBP(payments))}
+                New spend <span className="font-mono tabular-nums">{mask(fmtGBP(new_spend))}</span> · Payments <span className="font-mono tabular-nums">{mask(fmtGBP(payments))}</span>
               </p>
             )}
 
             {/* Clarifying sentence — contextualises the headline */}
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 leading-snug">
-              {deltaAbs < 20
-                ? `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
-                : delta >= 20
-                ? `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
-                : `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`}
+              <MoneyText text={
+                deltaAbs < 20
+                  ? `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                  : delta >= 20
+                  ? `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                  : `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+              } />
             </p>
           </div>
         </div>
@@ -253,21 +256,21 @@ export default function CardsPage() {
                     {/* Right: delta + balance owed */}
                     <div className="text-right flex-shrink-0">
                       {c.delta > 0 ? (
-                        <p className="text-sm font-semibold num text-slate-900 dark:text-slate-100">
+                        <p className="text-sm font-semibold money text-slate-900 dark:text-slate-100">
                           +{mask(fmtGBP(c.delta))}
                         </p>
                       ) : c.delta < 0 ? (
-                        <p className="text-sm font-semibold num text-emerald-600 dark:text-emerald-400">
+                        <p className="text-sm font-semibold money text-emerald-600 dark:text-emerald-400">
                           {/* Proper minus sign */}
                           −{mask(fmtGBP(c.delta))}
                         </p>
                       ) : (
-                        <p className="text-sm font-semibold num text-slate-900 dark:text-slate-100">
+                        <p className="text-sm font-semibold money text-slate-900 dark:text-slate-100">
                           £0
                         </p>
                       )}
                       <p className="text-[11px] text-slate-400 dark:text-slate-500 num">
-                        {mask(`£${Math.round(balanceAbs).toLocaleString("en-GB")}`)} owed
+                        <span className="font-mono tabular-nums">{mask(`£${Math.round(balanceAbs).toLocaleString("en-GB")}`)}</span> owed
                       </p>
                     </div>
                   </div>
@@ -304,7 +307,7 @@ export default function CardsPage() {
                       </p>
 
                       {/* Total spend */}
-                      <p className="text-sm font-semibold num text-slate-900 dark:text-slate-100">
+                      <p className="text-sm font-semibold money text-slate-900 dark:text-slate-100">
                         {mask(fmtGBP(d.total))}
                       </p>
                     </div>

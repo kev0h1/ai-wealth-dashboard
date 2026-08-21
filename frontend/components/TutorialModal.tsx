@@ -6,6 +6,7 @@ import {
   Building2, Upload, PieChart, List,
   Tag, Target, TrendingDown, Lightbulb, Sparkles,
 } from "lucide-react";
+import MoneyText from "@/components/MoneyText";
 
 const STEPS = [
   {
@@ -149,7 +150,7 @@ export default function TutorialModal({ open, onClose }: Props) {
 
           {/* Description */}
           <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-            {current.description}
+            <MoneyText text={current.description} />
           </p>
 
           {/* Tip */}

@@ -144,7 +144,7 @@ function CategoryPieWidget({ data, compact }: { data: WidgetData; compact?: bool
             >
               {slices.map(s => <Cell key={s.name} fill={colour(s.name)} />)}
             </Pie>
-            {!compact && <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} formatter={(v) => fmtGBP(Number(v ?? 0))} />}
+            {!compact && <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }} formatter={(v) => fmtGBP(Number(v ?? 0))} />}
           </PieChart>
         </ResponsiveContainer>
       </div>
@@ -208,7 +208,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
         return (
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
             {"Busiest day: "}<span className="font-bold text-slate-900 dark:text-slate-100">{busiest.label}</span>
-            {" · "}<span className="font-bold text-slate-900 dark:text-slate-100">{fmtGBP(busiest.spend)}</span>
+            {" · "}<span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmtGBP(busiest.spend)}</span>
             {ratio !== null && ` · ${ratio}× your daily average`}
           </p>
         );
@@ -224,6 +224,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
           <Tooltip
             trigger="click"
             contentStyle={TOOLTIP_STYLE}
+            itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }}
             formatter={(v) => fmtGBP(Number(v ?? 0))}
             cursor={{ fill: "rgba(100,116,139,0.08)" }}
           />
@@ -243,6 +244,7 @@ function DailyBarsWidget({ data, compact }: { data: WidgetData; compact?: boolea
                 position: "insideTopRight",
                 fontSize: 9,
                 fill: tickFill,
+                fontFamily: "var(--font-jbmono), monospace",
                 offset: 4,
               }}
             />
@@ -291,16 +293,16 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
         const pct = delta !== null && prevSpend > 0 ? Math.round((Math.abs(delta) / prevSpend) * 100) : null;
         return (
           <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
-            <span className="font-bold text-slate-900 dark:text-slate-100">{fmtGBP(currentSpend)}</span>
+            <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmtGBP(currentSpend)}</span>
             {" this period"}
             {delta !== null && absDelta !== null && pct !== null && (
               delta > 0 ? (
                 <span className="text-amber-600 dark:text-amber-400">
-                  {" · "}<span className="font-bold">{fmtGBP(absDelta)}</span>{` (${pct}%) more than last`}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{` (${pct}%) more than last`}
                 </span>
               ) : delta < 0 ? (
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  {" · "}<span className="font-bold">{fmtGBP(absDelta)}</span>{` (${pct}%) less than last`}
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(absDelta)}</span>{` (${pct}%) less than last`}
                 </span>
               ) : null
             )}
@@ -315,9 +317,9 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
           )}
           {!compact && (
             <YAxis width={34} tickLine={false} axisLine={false}
-              tick={{ fontSize: 9, fill: tickFill }} tickFormatter={(v: number) => fmtGBP(v)} />
+              tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
           )}
-          <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} formatter={(v) => fmtGBP(Number(v ?? 0))} cursor={{ fill: "rgba(100,116,139,0.08)" }} />
+          <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }} formatter={(v) => fmtGBP(Number(v ?? 0))} cursor={{ fill: "rgba(100,116,139,0.08)" }} />
           <Bar dataKey="spend" radius={[3, 3, 0, 0]} maxBarSize={28} isAnimationActive={false}>
             {periods.map((p, i) => (
               <Cell key={i} fill={p.current ? "#6366f1" : "#c7d2fe"} />
@@ -378,11 +380,12 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
             <div className="flex items-start justify-between gap-3 mb-2">
               <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug flex-1">
                 {largeCount === 0
-                  ? "No single payment over £250 this period"
+                  ? <>No single payment over <span className="font-mono tabular-nums">£250</span> this period</>
                   : (
                     <>
                       <span className="font-bold text-slate-900 dark:text-slate-100">{largeCount}</span>
-                      {` ${largeCount === 1 ? "payment" : "payments"} over £250`}
+                      {` ${largeCount === 1 ? "payment" : "payments"} over `}
+                      <span className="font-mono tabular-nums">£250</span>
                       {" · "}
                       <span className="font-bold text-slate-900 dark:text-slate-100">{largePct}%</span>
                       {" of your spend"}
@@ -429,14 +432,15 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={bands} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
             {!compact && (
-              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill }} interval={0} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} interval={0} />
             )}
             {!compact && (
               <YAxis width={mode === "spend" ? 40 : 24} tickLine={false} axisLine={false}
-                allowDecimals={false} tick={{ fontSize: 9, fill: tickFill }}
+                allowDecimals={false} tick={{ fontSize: 9, fill: tickFill, fontFamily: mode === "spend" ? "var(--font-jbmono), monospace" : undefined }}
                 tickFormatter={yFormatter} />
             )}
             <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE}
+              itemStyle={mode === "spend" ? { fontFamily: "var(--font-jbmono), monospace" } : undefined}
               formatter={tooltipFormatter}
               cursor={{ fill: "rgba(100,116,139,0.08)" }} />
             <Bar dataKey={dataKey} fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
@@ -496,7 +500,7 @@ function TransportModesWidget({ compact }: { compact?: boolean }) {
           Transport · 90 days
         </p>
         <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {fmtGBP(data.monthly_avg)}<span className="text-sm font-normal text-slate-400">/mo</span>
+          <span className="font-mono tabular-nums">{fmtGBP(data.monthly_avg)}</span><span className="text-sm font-normal text-slate-400">/mo</span>
         </p>
       </div>
 
@@ -547,7 +551,7 @@ function TransportModesWidget({ compact }: { compact?: boolean }) {
                     <div className="flex items-baseline justify-between mb-1">
                       <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">{m.name}</span>
                       <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 ml-2 flex-shrink-0">
-                        {fmtGBP(m.monthly)}<span className="text-[11px] font-normal text-slate-400">/mo</span>
+                        <span className="font-mono tabular-nums">{fmtGBP(m.monthly)}</span><span className="text-[11px] font-normal text-slate-400">/mo</span>
                       </span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">

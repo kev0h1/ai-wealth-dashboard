@@ -412,7 +412,7 @@ export default function SpendPage() {
       .catch(() => setIsPro(true));
   }, []);
 
-  // Category deep-link — e.g. from RhythmCard "I'd like to change this"
+  // Category deep-link — e.g. from RhythmCard "See the payments"
   // (sessionStorage). Insight cards route straight to /transactions now
   // (savings_insights.py's CATEGORY_APP_ROUTES) so this is the one surviving
   // producer of "/spend?category=X" — RhythmCard's rhythm item is about

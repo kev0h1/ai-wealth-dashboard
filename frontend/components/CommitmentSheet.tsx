@@ -10,6 +10,7 @@ import { getPayPeriodWithConfig, nextPeriodWithConfig, periodRhythmLabel, PayPer
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import MoneyText from "@/components/MoneyText";
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
 // car, fees) the app reserves a per-period slice for. Mirrors the
@@ -584,18 +585,18 @@ export default function CommitmentSheet({
                                   {sel.count_existing && (
                                     <Check size={11} strokeWidth={3} aria-hidden="true" />
                                   )}
-                                  count the £{Math.round(chipBalance).toLocaleString("en-GB")} already here
+                                  <MoneyText text={`count the £${Math.round(chipBalance).toLocaleString("en-GB")} already here`} />
                                 </span>
                               </button>
                               {/* Non-blocking — information, not attention. An
                                   older goal keeps first claim on a shared pot. */}
                               {hasConflict && (
                                 <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-                                  Also funding {detail!.also_funding.map((f) => f.name).join(", ")}, £
-                                  {Math.round(
-                                    detail!.also_funding.reduce((sum, f) => sum + f.amount, 0)
-                                  ).toLocaleString("en-GB")}{" "}
-                                  spoken for · £{Math.round(detail!.free).toLocaleString("en-GB")} free
+                                  <MoneyText
+                                    text={`Also funding ${detail!.also_funding.map((f) => f.name).join(", ")}, £${Math.round(
+                                      detail!.also_funding.reduce((sum, f) => sum + f.amount, 0)
+                                    ).toLocaleString("en-GB")} spoken for · £${Math.round(detail!.free).toLocaleString("en-GB")} free`}
+                                  />
                                 </p>
                               )}
                             </div>
@@ -613,22 +614,18 @@ export default function CommitmentSheet({
               {/* Live per-period estimate — hedged, backend derives the real slice */}
               {slice != null && (
                 <p className="text-[13px] text-slate-500 dark:text-slate-400 num" aria-live="polite">
-                  ≈ £{slice.toLocaleString("en-GB")} {periodLabel ? `each pay period (${periodLabel})` : "a period"} · {periods} {periods === 1 ? "period" : "periods"}
+                  <MoneyText text={`≈ £${slice.toLocaleString("en-GB")} ${periodLabel ? `each pay period (${periodLabel})` : "a period"} · ${periods} ${periods === 1 ? "period" : "periods"}`} />
                 </p>
               )}
 
-              {/* Feasibility verdict — surplus: slate; savings: slate + amber
-                  dot; stretch: amber text (attention, never red). */}
+              {/* Feasibility verdict — slate text always; amber dot signifier
+                  when feasibility needs attention (savings or stretch), never red. */}
               {slice != null && feasibility && feasibilityNote && (
                 <p
-                  className={`text-[13px] leading-snug ${
-                    feasibilityCaution
-                      ? "text-amber-600 dark:text-amber-400"
-                      : "text-slate-500 dark:text-slate-400"
-                  }`}
+                  className="text-[13px] leading-snug text-slate-500 dark:text-slate-400"
                   aria-live="polite"
                 >
-                  {feasibility === "savings" && (
+                  {feasibilityCaution && (
                     <span
                       className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 align-middle"
                       aria-hidden="true"

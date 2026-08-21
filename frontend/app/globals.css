@@ -2,6 +2,19 @@
 
 @custom-variant dark (&:is(.dark, .dark *));
 
+/* Typography foundation — Figtree for prose/UI, JetBrains Mono for currency
+   figures (Kevin's pick, variant D of /design/type, 2026-08-18; see
+   DESIGN.md's typography section for the doctrine). Both fonts are loaded
+   in app/layout.tsx via next/font/google and exposed as --font-figtree /
+   --font-jbmono custom properties on <html>. `@theme inline` (not plain
+   `@theme`) is required here because these values reference those runtime
+   CSS variables rather than static literals, so Tailwind must resolve them
+   at usage time instead of baking in a value at build time. */
+@theme inline {
+  --font-sans: var(--font-figtree), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 :root {
   --background: #f0f2f7;
   --foreground: #0f172a;
@@ -48,8 +61,8 @@ body {
 }
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    sans-serif;
+  font-family: var(--font-figtree), system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
   background-color: var(--background);
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
@@ -224,21 +237,13 @@ a:focus-visible,
   font-feature-settings: "tnum" 1;
 }
 
-/* Hero-card flowing prose — justified body text, narrow scope (see
-   DESIGN.md "Hero prose is justified, narrowly"). Reserved for genuine
-   multi-sentence narrative that reliably wraps 2+ lines on a generous
-   measure: the Penny brief's headline+body cards and the Spend reading
-   caption. NOT for number/brand-dense captions, line-clamped or JS-
-   truncated text, or anything effectively single-line — those use
-   text-pretty instead, justification on them produced visible word-gap
-   rivers with no benefit (mortgage-card Insights regression, 2026-08).
-   text-align: justify leaves the LAST line left-aligned per browser
-   default, so single-line paragraphs render unchanged; no conditional
-   logic needed at call sites. Pair with lang="en-GB" on the element for
-   correct hyphenation dictionary. */
-.hero-prose {
-  text-align: justify;
-  hyphens: auto;
+/* Currency figures — the Money Is Mono rule (DESIGN.md §3). Any figure
+   carrying a currency symbol uses this; .num above stays for non-currency
+   tabular numerals (dates, counts, percentages) which remain in Figtree. */
+.money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 /* ── Accessibility: honour reduced-motion OS preference ─────────────────── */
@@ -285,6 +290,16 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
+/* WARNING: fill-mode "both" keeps `transform: translateY(0)` applied to
+   this element forever after the animation ends (not just during it), and
+   any non-"none" transform establishes a CSS containing block for
+   `position: fixed` descendants — they resolve against THIS element's box
+   instead of the viewport. Never render a `position: fixed` element (a
+   docked composer, BottomNav, a toast, a sheet) anywhere inside an element
+   carrying .rise-in — put it outside as a sibling instead. Bit twice on
+   /penny (2026-08-19/21): first BottomNav, then PennyConversation's docked
+   composer, both trapped after rise-in was applied to their ancestor. See
+   app/penny/PennyPage.tsx for the fix shape. */
 .rise-in {
   animation: riseIn 220ms ease-out both;
   animation-delay: calc(var(--rise-index, 0) * 80ms);

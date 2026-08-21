@@ -27,6 +27,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
+import MoneyText from "@/components/MoneyText";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -1788,7 +1789,7 @@ export default function AccountsPage() {
                   <p className="text-[12.5px] text-slate-400 dark:text-slate-500 mt-0.5">{cat.count} payment{cat.count !== 1 ? "s" : ""}</p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-[15px] font-bold num tabular-nums text-slate-900 dark:text-slate-100">
+                  <span className="text-[15px] font-bold money text-slate-900 dark:text-slate-100">
                     £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" aria-hidden="true" />
@@ -1889,7 +1890,7 @@ export default function AccountsPage() {
           </div>
 
           <p
-            className={`text-[30px] leading-none font-bold num tabular-nums ${isCredit || balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+            className={`text-[30px] leading-none font-bold money ${isCredit || balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
           >
             {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </p>
@@ -1929,7 +1930,7 @@ export default function AccountsPage() {
         </div>
 
         {pinMsg && (
-          <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
             {pinMsg}
           </div>
         )}
@@ -2224,7 +2225,7 @@ export default function AccountsPage() {
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Net worth</p>
                   <p
-                    className="mt-1 text-2xl font-bold tracking-tight num text-slate-900 dark:text-slate-100 leading-none"
+                    className="mt-1 text-2xl font-bold tracking-tight money text-slate-900 dark:text-slate-100 leading-none"
                     aria-label={hideNetWorth ? "Balance hidden" : undefined}
                   >
                     {hideNetWorth
@@ -2236,8 +2237,12 @@ export default function AccountsPage() {
                       point-in-time net_worth, no history/delta to report
                       honestly, so nothing is fabricated in its place. */}
                   <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
-                    {cardTotal > 0 &&
-                      `${hideNetWorth ? "−£••••" : `−£${cardTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`} across cards · `}
+                    {cardTotal > 0 && (
+                      <span className="font-mono tabular-nums">
+                        {hideNetWorth ? "−£••••" : `−£${cardTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`}
+                      </span>
+                    )}
+                    {cardTotal > 0 && " across cards · "}
                     {bankAccounts.length} bank · {investmentAccounts.length} investment
                     {manualAccounts.length > 0 && ` · ${manualAccounts.length} offline`}
                   </p>
@@ -2378,7 +2383,7 @@ export default function AccountsPage() {
             {showColdStartNote && (
               <div className="mt-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700 rounded-2xl px-4 py-3 space-y-2">
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
-                  No statement yet? Upload a contract note to create an account and start tracking from £0.
+                  No statement yet? Upload a contract note to create an account and start tracking from <span className="font-mono tabular-nums">£0</span>.
                 </p>
                 {/* Password field */}
                 <div className="relative">
@@ -2417,7 +2422,7 @@ export default function AccountsPage() {
                 </button>
                 {coldStartError && (
                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
-                    <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{coldStartError}</p>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{coldStartError}</p>
                   </div>
                 )}
                 <button
@@ -2527,7 +2532,7 @@ export default function AccountsPage() {
             ) : (
               <>
                 {pinMsg && (
-                  <div className="mb-1 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <div className="mb-1 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
                     {pinMsg}
                   </div>
                 )}
@@ -2598,9 +2603,9 @@ export default function AccountsPage() {
                       <div>
                         <div className="px-1 mb-1.5 flex items-center gap-1.5">
                           <AlertTriangle size={12} className="text-amber-500 dark:text-amber-400" aria-hidden="true" />
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                             Needs reconnecting
-                            <span className="text-amber-500/70 dark:text-amber-400/70 font-medium normal-case"> · {estate.attention.length}</span>
+                            <span className="text-slate-400 dark:text-slate-500 font-medium normal-case"> · {estate.attention.length}</span>
                           </span>
                         </div>
                         <div className="glass-card rounded-2xl overflow-hidden border border-amber-200/70 dark:border-amber-800/60">
@@ -2653,7 +2658,7 @@ export default function AccountsPage() {
                                 <span className="text-slate-400 dark:text-slate-600 font-medium normal-case">· {group.count}</span>
                               </span>
                               <span className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 num">
+                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 money">
                                   {hideNetWorth
                                     ? "••••"
                                     : `${group.subtotal < 0 ? "-" : ""}£${Math.abs(Math.round(group.subtotal)).toLocaleString("en-GB")}`}
@@ -2768,7 +2773,7 @@ export default function AccountsPage() {
                         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{acc.name}</p>
                         <p className="text-xs text-slate-400 dark:text-slate-500">{meta.label} · Offline</p>
                       </div>
-                      <span className={`text-sm font-bold flex-shrink-0 ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
+                      <span className={`text-sm font-bold flex-shrink-0 font-mono tabular-nums ${isCredit ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
                         {hideNetWorth ? "••••" : `${isCredit ? "-" : ""}${currency}${acc.balance.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </span>
                       <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
@@ -2846,7 +2851,7 @@ export default function AccountsPage() {
               if (isProvisional) {
                 // Provisional: running total from £0
                 decomposedLine = (
-                  <span>No statement yet: running total of your contract notes, from £0.</span>
+                  <span><MoneyText text="No statement yet: running total of your contract notes, from £0." /></span>
                 );
               } else if (stmtDate) {
                 if (hasRefreshAfterStatement) {
@@ -2858,7 +2863,7 @@ export default function AccountsPage() {
                     const absVal = Math.abs(addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     const noteWord = notesSince === 1 ? "note" : "notes";
                     decomposedLine = (
-                      <span>Prices refreshed {refreshDate} · {sign}£{absVal} since {stmtDate} statement · {notesSince} {noteWord}</span>
+                      <span><MoneyText text={`Prices refreshed ${refreshDate} · ${sign}£${absVal} since ${stmtDate} statement · ${notesSince} ${noteWord}`} /></span>
                     );
                   } else {
                     decomposedLine = (
@@ -2873,7 +2878,7 @@ export default function AccountsPage() {
                     const verb = addedSince > 0 ? "added" : "net trades";
                     const noteWord = notesSince === 1 ? "contract note" : "contract notes";
                     decomposedLine = (
-                      <span>Valued £{(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on {stmtDate} · {sign}£{absVal} {verb} since ({notesSince} {noteWord})</span>
+                      <span><MoneyText text={`Valued £${(displayValue - addedSince).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} on ${stmtDate} · ${sign}£${absVal} ${verb} since (${notesSince} ${noteWord})`} /></span>
                     );
                   } else {
                     decomposedLine = <span>Statement dated {stmtDate}</span>;
@@ -2954,7 +2959,7 @@ export default function AccountsPage() {
                               {refreshDate && <span className="ml-1.5">· updated {refreshDate}</span>}
                             </p>
                           </div>
-                          <span className="text-sm font-bold num tabular-nums text-slate-800 dark:text-slate-100 flex-shrink-0">
+                          <span className="text-sm font-bold money text-slate-800 dark:text-slate-100 flex-shrink-0">
                             {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </span>
                         </button>
@@ -3010,7 +3015,7 @@ export default function AccountsPage() {
                       {/* ── Statement block: big value, real dates, quiet
                           provenance line ── */}
                       <div className="px-4 pt-3 pb-1">
-                        <p className="text-[30px] leading-none font-bold num tabular-nums text-slate-900 dark:text-slate-100">
+                        <p className="text-[30px] leading-none font-bold money text-slate-900 dark:text-slate-100">
                           {hideNetWorth ? "••••" : `£${displayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                         </p>
                         <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
@@ -3062,7 +3067,7 @@ export default function AccountsPage() {
                         {howItWorksOpen[inv.id] && (
                           <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                             {isProvisional && (
-                              <>This account started from a contract note, so its value is a running total from £0, upload your first statement to set the real value.<br /><br /></>
+                              <>This account started from a contract note, so its value is a running total from <span className="font-mono tabular-nums">£0</span>, upload your first statement to set the real value.<br /><br /></>
                             )}
                             A statement sets the account&apos;s value. Contract notes add each buy or sell on top until the next statement arrives, then the statement takes over and earlier notes fold into it. Add every contract note when it lands. Notes dated before your latest statement won&apos;t add: that value is already counted, and duplicates are rejected.
                           </p>
@@ -3121,7 +3126,7 @@ export default function AccountsPage() {
                             {/* Error message */}
                             {thisNoteError && (
                               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
-                                <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{thisNoteError}</p>
+                                <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{thisNoteError}</p>
                               </div>
                             )}
 
@@ -3143,7 +3148,7 @@ export default function AccountsPage() {
                         {/* Statement upload error */}
                         {thisStatementError && (
                           <div className="mt-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl px-3 py-2">
-                            <p className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{thisStatementError}</p>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug">{thisStatementError}</p>
                           </div>
                         )}
                       </div>
@@ -3174,7 +3179,7 @@ export default function AccountsPage() {
                                         <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">sold</span>
                                       )}
                                     </div>
-                                    <p className={`text-xs font-semibold mt-0.5 ${isSale ? "text-rose-500 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                    <p className={`text-xs font-semibold mt-0.5 font-mono tabular-nums ${isSale ? "text-rose-500 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                                       {isSale ? "−" : "+"}£{absAmount}
                                     </p>
                                   </div>
@@ -3255,12 +3260,12 @@ export default function AccountsPage() {
                                     {displayPrice && (
                                       <p className="text-xs mt-0.5">
                                         <span className={hasLivePrice ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-slate-400"}>
-                                          {hasLivePrice ? "Live " : ""}£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} / unit
+                                          {hasLivePrice ? "Live " : ""}<span className="font-mono tabular-nums">£{displayPrice.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span> / unit
                                         </span>
                                       </p>
                                     )}
                                   </div>
-                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex-shrink-0">
+                                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
                                     {hideNetWorth ? "••••" : `£${hDisplayValue.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                                   </p>
                                 </div>

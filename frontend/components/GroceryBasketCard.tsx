@@ -6,6 +6,7 @@ import { Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin, ChevronDow
 import { api, Basket, BasketInsights } from "@/lib/api";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import MoneyText from "@/components/MoneyText";
 
 const CURRENCY_SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$" };
 
@@ -162,7 +163,7 @@ export default function GroceryBasketCard() {
           {insights?.headline ? (
             <>
               <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate">{insights.headline}</span>
+              <MoneyText text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0 truncate" />
             </>
           ) : (
             <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 flex-1">Snap a receipt to track grocery prices</span>
@@ -177,9 +178,7 @@ export default function GroceryBasketCard() {
           className="w-full flex items-center gap-2 mt-3 mb-4 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-left"
         >
           <TrendingUp size={15} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-          <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0">
-            {insights.headline}
-          </span>
+          <MoneyText text={insights.headline} className="text-[11px] font-medium text-emerald-800 dark:text-emerald-200 flex-1 min-w-0" />
           {hasTrends && (
             <ChevronDown
               size={14}
@@ -254,11 +253,11 @@ export default function GroceryBasketCard() {
                           <div className="min-w-0">
                             <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{s.name}</p>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                              {money(s.cheapest_price, s.currency)} at {s.cheapest_store} · {money(s.dearest_price, s.currency)} at {s.dearest_store}
+                              <span className="font-mono tabular-nums">{money(s.cheapest_price, s.currency)}</span> at {s.cheapest_store} · <span className="font-mono tabular-nums">{money(s.dearest_price, s.currency)}</span> at {s.dearest_store}
                             </p>
                           </div>
                           <span className="text-[11px] font-semibold text-emerald-500 flex-shrink-0">
-                            save {money(s.saving, s.currency)}
+                            save <span className="font-mono tabular-nums">{money(s.saving, s.currency)}</span>
                           </span>
                         </li>
                       ))}
@@ -296,7 +295,7 @@ export default function GroceryBasketCard() {
                             <div className="min-w-0">
                               <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{t.name}</p>
                               <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                {money(t.previous, t.currency)} → {money(t.latest, t.currency)}{t.store ? ` · ${t.store}` : ""}
+                                <span className="font-mono tabular-nums">{money(t.previous, t.currency)}</span> → <span className="font-mono tabular-nums">{money(t.latest, t.currency)}</span>{t.store ? ` · ${t.store}` : ""}
                               </p>
                             </div>
                             <span className={`text-[11px] font-semibold flex-shrink-0 ${up ? "text-rose-500" : "text-emerald-500"}`}>
@@ -351,7 +350,7 @@ export default function GroceryBasketCard() {
                       </p>
                     </div>
                   </button>
-                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                  <span className="text-sm font-bold text-slate-900 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
                     {money(b.total, b.currency)}
                   </span>
                   <button
@@ -373,7 +372,7 @@ export default function GroceryBasketCard() {
                           </p>
                           <p className="text-[11px] text-slate-500 dark:text-slate-400">{it.category}</p>
                         </div>
-                        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0">
+                        <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex-shrink-0 font-mono tabular-nums">
                           {money(it.line_price ?? it.unit_price, b.currency)}
                         </span>
                       </li>

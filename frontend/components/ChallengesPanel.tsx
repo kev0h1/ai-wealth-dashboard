@@ -45,8 +45,8 @@ export function TierCard({ challenge, hideNetWorth, onTips }: {
       {p && (
         <>
           <div className="flex justify-between text-[9px] text-slate-500 dark:text-slate-400 mb-1">
-            <span>{hideNetWorth ? "••••" : fmtA(p.actual_so_far)} spent</span>
-            <span>target {hideNetWorth ? "••••" : fmtA(p.target)}</span>
+            <span><span className="font-mono tabular-nums">{hideNetWorth ? "••••" : fmtA(p.actual_so_far)}</span> spent</span>
+            <span>target <span className="font-mono tabular-nums">{hideNetWorth ? "••••" : fmtA(p.target)}</span></span>
           </div>
           <div className="h-1.5 bg-white/60 dark:bg-slate-700/60 rounded-full overflow-hidden mb-1.5">
             <div
@@ -148,7 +148,9 @@ export default function ChallengesPanel({ data, hideNetWorth, onOpenChat }: {
                   <span className="text-[9px] text-slate-400 dark:text-slate-500 w-10 flex-shrink-0">{dateLabel(ch.period_start)}</span>
                   <span className="text-[10px] text-slate-600 dark:text-slate-300 flex-1 truncate">{ch.category} ↓{Math.round(ch.reduction_pct * 100)}%</span>
                   <span className={`text-[9px] font-semibold flex-shrink-0 ${ch.status === "completed" ? "text-amber-600" : "text-slate-400"}`}>
-                    {ch.status === "completed" ? `+${ch.xp_reward} XP` : hideNetWorth ? "••" : ch.actual !== null ? fmtAmt(ch.actual, ch.currency) : ""}
+                    {ch.status === "completed" ? `+${ch.xp_reward} XP` : (
+                      <span className="font-mono tabular-nums">{hideNetWorth ? "••" : ch.actual !== null ? fmtAmt(ch.actual, ch.currency) : ""}</span>
+                    )}
                   </span>
                 </div>
               );
