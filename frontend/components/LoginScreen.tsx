@@ -2,6 +2,7 @@
 
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, nativeGoogleLogin } from "@/lib/nativeAuth";
+import { BUILD_TAG } from "@/lib/buildTag";
 
 interface LoginScreenProps {
   error?: string | null;
@@ -66,6 +67,11 @@ export default function LoginScreen({ error }: LoginScreenProps) {
             Continue with Google
           </a>
         </div>
+
+        {/* Whisper build tag — see lib/buildTag.ts for why this exists. */}
+        <p className="mt-6 text-center text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
+          {BUILD_TAG}
+        </p>
       </div>
     </div>
   );
