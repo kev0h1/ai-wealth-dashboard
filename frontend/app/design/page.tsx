@@ -15,6 +15,12 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "coming-up",
+    name: "coming-up",
+    description: "Coming up card · 3 variants (ledger / timeline / next three)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "penny-chat",
     name: "penny-chat",
     description: "One Penny · prompt bar + verdict answers",

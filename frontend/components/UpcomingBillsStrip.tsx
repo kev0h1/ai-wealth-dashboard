@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Receipt } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useRouter } from "next/navigation";
+import {
+  AmberSignifier,
+  DropSentence,
+  computeHeadsUp,
+  totalOut,
+  dueToday,
+  fmtSum,
+  formatShortDate,
+  isSpend,
+  type ComingUpBill,
+} from "@/lib/comingUp";
 
 const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
@@ -27,9 +38,40 @@ export default function UpcomingBillsStrip() {
   useEffect(() => { fetch(); }, [fetch]);
 
   if (status === "loading") {
+    // Structural skeleton — mirrors Variant E's own layout (eyebrow, a
+    // two-line hero sentence block, a divider, then a footer row with the
+    // bill count/total and the chevron), not Variant H's three SettleBar
+    // rows. min-h floor pins it to Variant E's own measured height: 165.25px
+    // (rounded up to 166), CDP at a true 430px viewport, confirmed across
+    // the busy/quiet/heavy fixtures and both themes (app/design/coming-up,
+    // "E · The drop" section) — a belt-and-braces guard in case the
+    // placeholder's sentence happens to wrap to fewer lines than the real
+    // one would.
     return (
       <div className="px-4 lg:px-0">
-        <div className="h-16 rounded-2xl glass-card animate-pulse" />
+        <div
+          className="w-full min-h-[166px] glass-card rounded-2xl px-4 py-3.5 flex flex-col animate-pulse"
+          aria-hidden="true"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide rounded-full bg-slate-200 dark:bg-slate-700 text-transparent inline-block">
+            Coming up &middot; 14 days
+          </p>
+
+          <div className="mt-1.5 flex flex-col gap-1.5">
+            <div className="h-[18px] w-full rounded-full bg-slate-200 dark:bg-slate-700" />
+            <div className="h-[18px] w-4/5 rounded-full bg-slate-200 dark:bg-slate-700" />
+          </div>
+
+          <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-3">
+            <p className="flex items-center gap-1.5 text-[13px]">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+              <span className="rounded-full bg-slate-200 dark:bg-slate-700 text-transparent inline-block">
+                3 bills &middot; &pound;1,234 total
+              </span>
+            </p>
+            <div className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -53,51 +95,90 @@ export default function UpcomingBillsStrip() {
   if (!data) return null;
 
   // The backend projects ~35 days for the Spend page; the Home strip stays
-  // a 14-day glance so the count doesn't balloon
-  const all = [
-    ...data.upcoming_bills.map(b => ({ ...b, type: "bill" as const })),
-    ...data.upcoming_income.map(b => ({ ...b, type: "income" as const })),
-  ].filter(b => b.days_away <= 14);
+  // a 14-day glance so the count doesn't balloon. Bounded to days_away < 14
+  // (today = day 0 .. day 13, a fixed 14-day window) to match the 14-slot
+  // zone/day model shared with the design preview in lib/comingUp.tsx.
+  //
+  // Bills only — upcoming_income is never mixed in here. The old version
+  // built its "all" list from bills AND income, so a same-day salary
+  // landing could silently count toward "N due today" even though the
+  // total underneath only summed bills. This card's job is the shape of
+  // money going OUT; income belongs to Safe to Spend / Payday Plan
+  // elsewhere on Home.
+  const windowBills: ComingUpBill[] = data.upcoming_bills
+    .filter(b => b.days_away < 14)
+    .map(b => ({
+      name: b.name,
+      amount: b.amount,
+      daysAway: b.days_away,
+      date: formatShortDate(b.expected_date),
+      isoDate: b.expected_date,
+      kind: b.kind,
+    }));
 
-  if (all.length === 0) return null;
+  // The headline (total/count/verdict sentence) describes SPEND only —
+  // "movement" entries (transfers, savings, investment STOs) still leave
+  // the account but aren't consumed, so they must never be announced as
+  // what's "due". If there's genuinely nothing due in the window the card
+  // hides itself, same as before, even if movement-only entries exist —
+  // this card's whole job is bills, not the shape of every debit.
+  const bills: ComingUpBill[] = windowBills.filter(isSpend);
+  const movementBills: ComingUpBill[] = windowBills.filter(b => !isSpend(b));
 
-  const today     = all.filter(b => b.days_away === 0);
-  const tomorrow  = all.filter(b => b.days_away === 1);
-  const later     = all.filter(b => b.days_away > 1);
+  if (bills.length === 0) return null;
 
-  // Build a tight summary line e.g. "3 due tomorrow · 1 today · 2 later"
-  const parts: { label: string; count: number; urgent: boolean; noDue?: boolean }[] = [];
-  if (today.length)    parts.push({ label: "today",    count: today.length,    urgent: true });
-  if (tomorrow.length) parts.push({ label: "tomorrow", count: tomorrow.length, urgent: true });
-  if (later.length)    parts.push({ label: "bills over the next 2 weeks", count: later.length, urgent: false, noDue: true });
+  const total = totalOut(bills);
+  const today = dueToday(bills);
+  // Quiet secondary mention only — never folded into the headline total or
+  // sentence above. Movement is real money leaving the account (it stays
+  // in the balance simulation elsewhere), so silently dropping it here
+  // would leave the balance-conscious owner unable to reconcile "3 bills,
+  // £X total" against a bigger drop in their actual balance. It's shown as
+  // a plain, uncoloured addendum on the existing footer row (no new red/
+  // amber signifier, no separate card row) so it can't read as a second
+  // due amount or a caution.
+  const movementTotal = totalOut(movementBills);
 
-  const totalBillAmount = all.filter(b => b.type === "bill").reduce((s, b) => s + b.amount, 0);
+  // Deep-link target: the heaviest day in the window, unless something is
+  // due today, in which case today wins. Both facts come straight out of
+  // computeHeadsUp — unchanged even though the visible sentence is now
+  // Variant E's (computeDrop), so the link keeps pointing at the same day
+  // it always did. Dates are read off each bill's own expected_date (an
+  // absolute ISO date), never derived from days_away, so the link stays
+  // correct if this card is viewed a day after it was rendered. Falls back
+  // to a bare /planning if nothing resolves.
+  const headsUp = computeHeadsUp(bills);
+  const heaviestIso = headsUp.kind === "insight" ? headsUp.heaviestLead.isoDate : undefined;
+  const targetIso = today[0]?.isoDate ?? heaviestIso;
+  const href = targetIso ? `/planning?day=${targetIso}` : "/planning";
 
   return (
     <div className="px-4 lg:px-0 fade-in">
       <button
-        className="w-full glass-card rounded-2xl px-4 py-3 flex items-center gap-3 active:scale-[0.99] transition-transform text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        onClick={() => router.push("/planning")}
+        type="button"
+        className="w-full glass-card rounded-2xl px-4 py-3.5 flex flex-col active:scale-[0.99] transition-transform text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        onClick={() => router.push(href)}
       >
-        <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-900/25 flex items-center justify-center flex-shrink-0">
-          <Receipt size={17} className="text-amber-600 dark:text-amber-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">Coming up · 14 days</p>
-          <div className="flex items-center gap-2 flex-wrap mt-0.5">
-            {parts.map(p => (
-              <span
-                key={p.label}
-                className={`text-sm font-semibold ${p.urgent ? "text-amber-500" : "text-slate-600 dark:text-slate-300"}`}
-              >
-                {p.noDue ? `${p.count} ${p.label}` : `${p.count} due ${p.label}`}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-xs text-slate-400 dark:text-slate-500">total out</p>
-          <p className="text-sm font-bold text-slate-700 dark:text-slate-200 num">{sym}{totalBillAmount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Coming up &middot; 14 days
+        </p>
+        <p className="mt-1 text-[18px] font-bold leading-snug text-pretty text-slate-900 dark:text-slate-100">
+          <DropSentence bills={bills} sym={sym} />
+        </p>
+        <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between gap-3">
+          <p className="flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+            <AmberSignifier show={today.length > 0} />
+            <span>
+              {bills.length} bill{bills.length === 1 ? "" : "s"} &middot;{" "}
+              <span className="font-mono tabular-nums">{fmtSum(total, sym)}</span> total
+              {movementTotal > 0 && (
+                <>
+                  {" "}&middot; <span className="font-mono tabular-nums">{fmtSum(movementTotal, sym)}</span> moving between your accounts
+                </>
+              )}
+            </span>
+          </p>
+          <ChevronRight size={16} className="text-slate-300 dark:text-slate-600 flex-shrink-0" aria-hidden />
         </div>
       </button>
     </div>
