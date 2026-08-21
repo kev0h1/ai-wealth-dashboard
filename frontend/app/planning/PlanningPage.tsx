@@ -9,7 +9,7 @@ import { getCategoryColour } from "@/lib/categories";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryIcon } from "@/lib/categoryIcons";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import UpcomingEditSheet from "@/components/UpcomingEditSheet";
@@ -18,6 +18,7 @@ import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import { PennyPromptBar } from "@/components/PennyConversation";
+import MoneyText from "@/components/MoneyText";
 
 function isCliffSoon(until: string): boolean {
   const y = parseInt(until.slice(0, 4), 10);
@@ -31,6 +32,52 @@ function fmtCliffMonth(ym: string): string {
   const m = parseInt(ym.slice(5, 7), 10);
   const d = new Date(y, m - 1, 1);
   return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }); // e.g. "Sep 2026"
+}
+
+// ── Deep-link day target (?day=YYYY-MM-DD) ─────────────────────────────────
+const DAY_PARAM_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Absolute-ISO only, and rejects roll-over garbage (e.g. "2026-02-30").
+function isValidIsoDate(s: string): boolean {
+  if (!DAY_PARAM_RE.test(s)) return false;
+  const d = new Date(`${s}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return false;
+  const [y, m, day] = s.split("-").map(Number);
+  return d.getFullYear() === y && d.getMonth() + 1 === m && d.getDate() === day;
+}
+
+// Planning's own visible window never runs past roughly two pay periods out.
+// A `day` further than this from today is stale enough (a link surviving
+// long after the event it pointed at) that snapping to "nearest" would be
+// misleading rather than helpful — degrade to the normal page instead.
+const DAY_PARAM_MAX_DRIFT_DAYS = 60;
+
+function isWithinDeepLinkWindow(iso: string): boolean {
+  const target = new Date(`${iso}T00:00:00`).getTime();
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return Math.abs(target - todayMidnight) / 86_400_000 <= DAY_PARAM_MAX_DRIFT_DAYS;
+}
+
+function formatFallbackDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// A row's key is built as `bill-${name}-${expected_date}` (see renderRow's
+// rowKey below), where expected_date is always a fixed-width YYYY-MM-DD (10
+// chars). Matching against `name` used to be a plain `startsWith` prefix
+// scan, which a bill name that is itself a prefix of another bill's name
+// could satisfy for the wrong row (e.g. "Netflix" matching a
+// "Netflix-Plus" row, since the hyphen after "Netflix" in the combined key
+// happens to line up). Stripping the fixed date suffix first recovers the
+// exact name segment, so the comparison is exact rather than positional.
+function billKeyMatchesName(key: string | null, name: string): boolean {
+  if (!key || !key.startsWith("bill-")) return false;
+  const datePart = key.slice(-10);
+  if (!DAY_PARAM_RE.test(datePart)) return false;
+  const namePart = key.slice("bill-".length, key.length - 11); // drop "bill-" and "-YYYY-MM-DD"
+  return namePart === name;
 }
 
 // A row's content is a single line: verdict fragment (semibold) + slate "·"
@@ -101,7 +148,15 @@ function computeGrowRow(view: import("@/lib/api").GrowView): DockRowContent {
   const match = headline.match(/(£[\d,]+(?:\.\d+)?)\s*\/\s*month\s+(.+)$/i);
   return (
     <>
-      <span className="font-semibold">{match ? `${match[1]}/mo ${match[2]}` : headline}</span>
+      <span className="font-semibold">
+        {match ? (
+          <>
+            <span className="font-mono tabular-nums">{match[1]}</span>/mo {match[2]}
+          </>
+        ) : (
+          <MoneyText text={headline} />
+        )}
+      </span>
       <span className="text-slate-400 dark:text-slate-500"> · </span>
       <span className="text-slate-500 dark:text-slate-400">Grow</span>
     </>
@@ -246,13 +301,14 @@ function CommitmentsBlock({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 tabular-nums num">
-          {fmtC(c.progress)} <span className="font-normal text-slate-400 dark:text-slate-500">of {fmtC(c.amount)}</span>
+        <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 money">
+          <span className="font-mono tabular-nums">{fmtC(c.progress)}</span> <span className="font-normal text-slate-400 dark:text-slate-500">of <span className="font-mono tabular-nums">{fmtC(c.amount)}</span></span>
         </p>
         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
+          <span className="font-mono tabular-nums">{fmtC(c.per_period_slice)}</span>
           {c.period_label
-            ? `${fmtC(c.per_period_slice)} each pay period (${c.period_label}) · ${c.periods_left} left`
-            : `${fmtC(c.per_period_slice)} a period · ${c.periods_left} left`}
+            ? ` each pay period (${c.period_label}) · ${c.periods_left} left`
+            : ` a period · ${c.periods_left} left`}
         </p>
         {/* Shared pot — quiet, structural information, never a colour
             signal (a pound is claimed by only the oldest goal). */}
@@ -272,7 +328,7 @@ function CommitmentsBlock({
               className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500"
               aria-hidden="true"
             />
-            <span className="text-[12px] leading-snug text-amber-600 dark:text-amber-400">
+            <span className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">
               {c.pace_note.text}{" "}
               <button
                 type="button"
@@ -301,13 +357,7 @@ function CommitmentsBlock({
               }`}
               aria-hidden="true"
             />
-            <span
-              className={`text-[11px] line-clamp-2 leading-snug ${
-                isCaution
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-slate-500 dark:text-slate-400"
-              }`}
-            >
+            <span className="text-[11px] line-clamp-2 leading-snug text-slate-500 dark:text-slate-400">
               {c.feasibility_note}
             </span>
           </p>
@@ -367,6 +417,7 @@ export default function PlanningPage() {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sym = "£";
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
@@ -487,14 +538,24 @@ export default function PlanningPage() {
       if (a.days_away !== b.days_away) return a.days_away - b.days_away;
       return (a.kind === "income" ? 1 : 0) - (b.kind === "income" ? 1 : 0);
     });
-    const atRisk: typeof scopedBills = [];
+    // Movements (transfers, savings, investment STOs) processed on each
+    // account since its last income landing — the causal window for
+    // shortfall attribution below. Reset on income because income is what
+    // would otherwise have covered them; a movement from before the last
+    // top-up no longer explains a later deficit. This is a best-effort
+    // "most-recent, same-account" heuristic, not a formal causal solver —
+    // good enough to name a likely culprit, not a guarantee of sole cause.
+    const movementsSince: Record<string, { name: string; amount: number; expected_date: string }[]> = {};
+    const atRisk: (typeof scopedBills[0] & {
+      movementCulprit?: { name: string; amount: number; expected_date: string };
+    })[] = [];
     for (const ev of events) {
       if (ev.kind === "income") {
         if (ev.account_id) {
           const key = ev.account_id;
-          if (key in running) running[key] += ev.amount;
+          if (key in running) { running[key] += ev.amount; movementsSince[key] = []; }
         } else {
-          for (const key of Object.keys(running)) running[key] += ev.amount;
+          for (const key of Object.keys(running)) { running[key] += ev.amount; movementsSince[key] = []; }
         }
       } else {
         const key = ev.account_id ?? "__null__";
@@ -502,11 +563,28 @@ export default function PlanningPage() {
         // Deficit cascades (same semantics as companion.py's shortfall walk):
         // a bounced bill still debits the running balance, so every later bill
         // on a short account flags until income recovers it — not just the
-        // single bill that first tipped it over.
+        // single bill that first tipped it over. This debit happens for
+        // EVERY kind, movement included — a movement still empties the
+        // account and can still bounce a later bill.
         const bal = running[key];
         running[key] = bal - ev.amount;
-        if (bal < ev.amount) {
-          atRisk.push(ev.bill);
+        const isMovement = ev.bill.kind === "movement";
+        if (isMovement) {
+          (movementsSince[key] ??= []).push({ name: ev.bill.name, amount: ev.bill.amount, expected_date: ev.bill.expected_date });
+        }
+        if (bal < ev.amount && !isMovement) {
+          // Only genuine spend (commitment/discretionary) is ever flagged
+          // at-risk — a movement that can't be funded isn't a risk, it's a
+          // plan that won't happen, so it's never added here (never painted
+          // red). If a movement on this account is what actually drained
+          // the balance, name it: "the £X move on <date> puts this at
+          // risk" is the useful sentence; "your savings transfer is at
+          // risk" is not.
+          const priorMovements = movementsSince[key] ?? [];
+          const movementCulprit = priorMovements.length > 0
+            ? [...priorMovements].sort((a, b) => b.amount - a.amount)[0]
+            : undefined;
+          atRisk.push(movementCulprit ? { ...ev.bill, movementCulprit } : ev.bill);
         }
       }
     }
@@ -530,6 +608,13 @@ export default function PlanningPage() {
         // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
         const daysToPay = Math.round((nextPaydayMs - Date.now()) / 86400000);
         const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
+        // Note: this total intentionally still includes "movement" entries
+        // (transfers, savings, investment STOs) for this account — it's the
+        // real cash that would need to be there to cover everything
+        // scheduled, movements included. Only the RED banner/CTA above it
+        // is gated to genuine at-risk spend (accountIds is built from the
+        // already-movement-filtered atRiskBills), so a shortfall driven
+        // purely by a movement no longer shows this banner at all.
         const scopedBills = cashflow!.upcoming_bills.filter(
           b => (b.account_id ?? "__null__") === accountId &&
                new Date(b.expected_date).getTime() <= simEndMs &&
@@ -540,9 +625,14 @@ export default function PlanningPage() {
         const billsSum = scopedBills.reduce((s, b) => s + b.amount, 0);
         const shortfall = billsSum - balance;
         if (shortfall <= 0) return null;
-        return { accountId, bank, balance, shortfall };
+        // Earliest genuinely at-risk bill on this account, so the
+        // attribution names whichever movement actually preceded it.
+        const earliest = atRiskBills
+          .filter(b => (b.account_id ?? "__null__") === accountId)
+          .sort((a, b) => a.days_away - b.days_away)[0];
+        return { accountId, bank, balance, shortfall, culprit: earliest?.movementCulprit };
       })
-      .filter((x): x is { accountId: string; bank: string; balance: number; shortfall: number } => x !== null)
+      .filter((x): x is { accountId: string; bank: string; balance: number; shortfall: number; culprit: { name: string; amount: number; expected_date: string } | undefined } => x !== null)
       .sort((a, b) => b.shortfall - a.shortfall);
   })();
 
@@ -550,7 +640,24 @@ export default function PlanningPage() {
   const [undoBar, setUndoBar] = useState<{ kind: "recurring"; name: string } | { kind: "planned"; id: string } | null>(null);
   const [undoNonce, setUndoNonce] = useState(0);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [highlightBill, setHighlightBill] = useState<string | null>(null);
+  // Single transient spotlight target, auto-fading 2800ms after it fires —
+  // either a bare ISO date (scrolls the matching day group into view; set by
+  // resolveDayTarget, driven by the ?day= deep link — the day group is
+  // already self-evident at scroll-centre with its own label, so it isn't
+  // additionally rung) or a bill-row key (`bill-${name}-${date}` /
+  // `income-${name}-${date}`, matched against `data-bill-key`; set by the
+  // shortfall callout's Review button and the ?bill= deep link, and flashed
+  // with a ring since nothing else disambiguates one row among many). Only
+  // one of those can be true at a time, so one state variable is enough to
+  // answer "what is spotlighted".
+  const [highlightTarget, setHighlightTarget] = useState<string | null>(null);
+  // Quiet, non-error line shown when a ?day= deep link named a day with
+  // nothing due on it (skipped/re-dated bill) and Planning landed on the
+  // nearest day with content instead. Cleared wherever it stops being true
+  // — see resolveDayTarget's exact-match branch and the auto-clear timer
+  // below — so it can never stay pinned above a day group that plainly
+  // does have content, or outlive the scroll landing it was explaining.
+  const [dayFallbackNote, setDayFallbackNote] = useState<string | null>(null);
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const [editItem, setEditItem] = useState<null | {
     name: string;
@@ -564,19 +671,97 @@ export default function PlanningPage() {
   }>(null);
   const [editPlanned, setEditPlanned] = useState<null | { id: string; name: string; amount: number; date: string; account_id: string | null }>(null);
 
-  // Highlight scroll effect — no view guard needed (always on planning page)
+  // Highlight scroll effect — no view guard needed (always on planning
+  // page). Scrolls to the day group for a bare ISO date, or the bill row
+  // for a bill-key (the latter also gets a ring via `highlighted` below),
+  // then auto-fades both the target and any fallback note together 2800ms
+  // after it fires, so a landing and its explanation appear and fade in
+  // lockstep rather than the note outliving the landing.
   useEffect(() => {
-    if (!highlightBill) return;
+    if (!highlightTarget) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const selector = DAY_PARAM_RE.test(highlightTarget)
+      ? `[data-day-key="${CSS.escape(highlightTarget)}"]`
+      : `[data-bill-key="${CSS.escape(highlightTarget)}"]`;
     const scrollTimer = setTimeout(() => {
       try {
         document
-          .querySelector(`[data-bill-key="${CSS.escape(highlightBill)}"]`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+          .querySelector(selector)
+          ?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
       } catch {}
     }, 120);
-    const clearTimer = setTimeout(() => setHighlightBill(null), 2800);
+    const clearTimer = setTimeout(() => {
+      setHighlightTarget(null);
+      setDayFallbackNote(null);
+    }, 2800);
     return () => { clearTimeout(scrollTimer); clearTimeout(clearTimer); };
-  }, [highlightBill]);
+  }, [highlightTarget]);
+
+  // Resolves a bare ISO date against the rendered day groups: exact match if
+  // one exists, otherwise the closest day (preferring the next one forward)
+  // that does have content, with a quiet note explaining the snap. No-ops if
+  // nothing is rendered at all (the page's own "nothing more expected" empty
+  // state already covers that). Every call — exact match or fallback —
+  // leaves dayFallbackNote in the correct state for the day it lands on, so
+  // scrubbing from a fallback day to one with real content on it clears the
+  // stale note rather than leaving it pinned above an unrelated day group.
+  function resolveDayTarget(day: string) {
+    const dayEls = Array.from(document.querySelectorAll<HTMLElement>("[data-day-key]"));
+    const keys = [...new Set(dayEls.map((el) => el.getAttribute("data-day-key") || "").filter(Boolean))]
+      .map((key) => ({ key, ms: new Date(`${key}T00:00:00`).getTime() }))
+      .filter((d) => !Number.isNaN(d.ms));
+    if (keys.length === 0) return;
+
+    if (keys.some((d) => d.key === day)) {
+      setHighlightTarget(day);
+      setDayFallbackNote(null);
+      return;
+    }
+
+    const targetMs = new Date(`${day}T00:00:00`).getTime();
+    const onOrAfter = keys.filter((d) => d.ms >= targetMs).sort((a, b) => a.ms - b.ms)[0];
+    const chosen = onOrAfter ?? [...keys].sort((a, b) => b.ms - a.ms)[0];
+
+    setHighlightTarget(chosen.key);
+    setDayFallbackNote(`Nothing's due ${formatFallbackDate(day)} now, showing the closest day with payments.`);
+  }
+
+  // Deep-link entry — /planning?day=YYYY-MM-DD&bill=<name> (Home points here
+  // when it's warned about a specific day or bill). Runs once, only after
+  // cashflow has loaded (targets don't exist in the DOM before then), then
+  // strips the params so a back-navigation or refresh doesn't replay it.
+  const deepLinkHandledRef = useRef(false);
+  useEffect(() => {
+    if (!cashflow) return;
+    if (deepLinkHandledRef.current) return;
+    const dayParam = searchParams.get("day");
+    const billParam = searchParams.get("bill");
+    if (!dayParam && !billParam) return;
+    deepLinkHandledRef.current = true;
+
+    // Malformed or far-outside-the-window days degrade silently — treated
+    // as though no day were given at all, never thrown.
+    const validDay = dayParam && isValidIsoDate(dayParam) && isWithinDeepLinkWindow(dayParam) ? dayParam : null;
+
+    if (billParam) {
+      const prefix = `bill-${billParam}-`;
+      const billEls = Array.from(document.querySelectorAll<HTMLElement>("[data-bill-key]"));
+      const exactKey = validDay ? `${prefix}${validDay}` : null;
+      const match =
+        (exactKey && billEls.find((el) => el.getAttribute("data-bill-key") === exactKey)) ||
+        billEls.find((el) => billKeyMatchesName(el.getAttribute("data-bill-key"), billParam));
+      if (match) {
+        setHighlightTarget(match.getAttribute("data-bill-key"));
+      } else if (validDay) {
+        resolveDayTarget(validDay);
+      }
+    } else if (validDay) {
+      resolveDayTarget(validDay);
+    }
+
+    router.replace("/planning", { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cashflow]);
 
   const lastDismissRef = useRef<{
     name: string;
@@ -802,8 +987,13 @@ export default function PlanningPage() {
         const items = rawItems.map(item => {
           if (item.type === "income") {
             running += item.amount;
-            return { ...item, balance_after: running, at_risk: false, account_short: false, is_credit_card: false };
+            return { ...item, balance_after: running, at_risk: false, account_short: false, is_credit_card: false, at_risk_raw: false, account_short_raw: false, isMovement: false };
           } else {
+            // Every kind (commitment, discretionary, movement) still debits
+            // `running` here — a movement is real money leaving the
+            // account and can genuinely bounce a later bill, so it must
+            // stay in the simulation. What changes below is only which
+            // kinds are allowed to render the red at-risk treatment.
             running -= item.amount;
             const acctBalance = item.account_balance ?? null;
             // Prefer the real backend-computed flag; fall back to the old
@@ -811,8 +1001,27 @@ export default function PlanningPage() {
             const is_credit_card = item.is_credit_card !== undefined
               ? item.is_credit_card
               : (acctBalance !== null && acctBalance < 0);
-            const account_short = !is_credit_card && atRiskKeySet.has(atRiskKey(item)) && (!item.next_period || assessNextPeriod);
-            return { ...item, balance_after: running, at_risk: running < 0 && (!item.next_period || assessNextPeriod), account_short, is_credit_card };
+            // "movement" (transfer/savings/investment STO) is not spend —
+            // per DESIGN.md, red means genuine financial risk only, and a
+            // missed top-up has no fee, no cut-off, no credit damage
+            // (worst case the money just stays in the account). So a
+            // movement never gets the red account_short/at_risk treatment,
+            // even when the raw simulation says it can't be funded — the
+            // *_raw flags below carry that fact through for the calm,
+            // non-red copy shown elsewhere in this row.
+            const isMovement = item.kind === "movement";
+            const account_short_raw = !is_credit_card && atRiskKeySet.has(atRiskKey(item)) && (!item.next_period || assessNextPeriod);
+            const at_risk_raw = running < 0 && (!item.next_period || assessNextPeriod);
+            return {
+              ...item,
+              balance_after: running,
+              at_risk: at_risk_raw && !isMovement,
+              account_short: account_short_raw && !isMovement,
+              is_credit_card,
+              at_risk_raw,
+              account_short_raw,
+              isMovement,
+            };
           }
         });
 
@@ -855,18 +1064,26 @@ export default function PlanningPage() {
           const isPlanned = item.type === "bill" && item.planned;
           // Risk doesn't care who authored the bill — planned rows flag the
           // same as predicted ones when their account can't cover them.
-          const flagged = item.type === "bill"
-            ? atRiskBills.some(r => r.name === item.name && r.expected_date === item.expected_date)
-            : false;
+          // atRiskBills only ever contains commitment/discretionary items
+          // (movement is filtered out at the source), so this can't flag a
+          // movement row red.
+          const atRiskMatch = item.type === "bill"
+            ? atRiskBills.find(r => r.name === item.name && r.expected_date === item.expected_date)
+            : undefined;
+          const flagged = !!atRiskMatch;
+          // A movement whose raw simulation says it can't be funded gets a
+          // calm, non-red note instead of the usual red treatment or the
+          // plain bank-name line.
+          const movementCalm = item.type === "bill" && !!item.isMovement && (item.at_risk_raw || item.account_short_raw);
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
-          const highlighted = highlightBill === rowKey;
+          const highlighted = highlightTarget === rowKey;
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
           // Insight hint — calm bill rows only: never on next-period amber
           // rows, and never competing with a risk verdict (red leads there).
           const insightHint =
-            item.type === "bill" && !item.next_period && !flagged && !item.at_risk && !item.account_short
+            item.type === "bill" && !item.next_period && !flagged && !item.at_risk && !item.account_short && !movementCalm
               ? findInsightHint(item.name)
               : null;
 
@@ -932,7 +1149,7 @@ export default function PlanningPage() {
 
                   {item.account_short && (item.account_bank || item.account_name) && (
                     <p className="text-[11px] font-semibold text-rose-500 dark:text-rose-400 truncate">
-                      {item.account_bank || item.account_name} · only {sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })} available
+                      {item.account_bank || item.account_name} · only <span className="font-mono tabular-nums">{sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> available
                     </p>
                   )}
                   {item.at_risk && !item.account_short && (
@@ -945,12 +1162,32 @@ export default function PlanningPage() {
                       )}
                     </>
                   )}
+                  {/* A genuine bill that a movement (transfer/savings/STO)
+                      earlier in the sequence helped push under — names the
+                      movement rather than just flagging the bill, so the
+                      owner sees the actual cause. */}
+                  {flagged && item.type === "bill" && atRiskMatch?.movementCulprit && (
+                    <p className="text-[11px] text-rose-500 dark:text-rose-400 truncate">
+                      Includes a <span className="font-mono tabular-nums">{sym}{atRiskMatch.movementCulprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatItemDate(atRiskMatch.movementCulprit.expected_date)}
+                    </p>
+                  )}
+                  {/* A movement that the simulation says may not be covered
+                      is not a risk (no fee, no cut-off, no credit damage,
+                      worst case it just doesn't happen) — calm, uncoloured
+                      copy with a small amber signifier dot rather than the
+                      red treatment above. */}
+                  {movementCalm && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
+                      May not go through if the balance is tight. No fee either way.
+                    </p>
+                  )}
                   {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && (
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                       {item.account_bank || item.account_name}
                     </p>
                   )}
-                  {item.type === "bill" && !item.account_short && !item.is_credit_card && !item.at_risk && (item.account_bank || item.account_name) && (
+                  {item.type === "bill" && !item.account_short && !item.is_credit_card && !item.at_risk && !movementCalm && (item.account_bank || item.account_name) && (
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
                       {item.account_bank || item.account_name}
                     </p>
@@ -966,7 +1203,7 @@ export default function PlanningPage() {
                       onKeyDown={(e) => e.stopPropagation()}
                       className="min-h-[44px] flex items-center -my-2.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
                     >
-                      {insightHint.est ? `could save ~£${insightHint.est}` : "could save"} ›
+                      {insightHint.est ? <>could save <span className="font-mono tabular-nums">~£{insightHint.est}</span></> : "could save"} ›
                     </button>
                   )}
 
@@ -1002,15 +1239,19 @@ export default function PlanningPage() {
                 </div>
 
                 <div className="text-right flex-shrink-0">
-                  <p className={`text-base font-bold ${
+                  <p className={`text-base font-bold font-mono tabular-nums ${
                     item.type === "income" ? "text-emerald-500" :
                     flagged ? "text-rose-600 dark:text-rose-400" :
                     "text-slate-800 dark:text-slate-100"
                   }`}>
                     {item.type === "income" ? "+" : "−"}{sym}{item.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
-                  <p className={`text-[11px] font-medium ${item.balance_after >= 0 ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
-                    {item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })} left
+                  {/* A negative running balance is only coloured red when a
+                      real bill (not a movement row) is what's showing it —
+                      the figure itself stays plain ink otherwise, per
+                      DESIGN.md's "red is genuine risk only". */}
+                  <p className={`text-[11px] font-medium ${item.balance_after >= 0 || item.isMovement ? "text-slate-500 dark:text-slate-400" : "text-rose-400"}`}>
+                    <span className="font-mono tabular-nums">{item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> left
                   </p>
                 </div>
               </div>
@@ -1028,7 +1269,7 @@ export default function PlanningPage() {
               nodes.push(
                 <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`New pay period ${paydayLabel}, next pay period begins`}>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">New pay period · {paydayLabel}</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">New pay period · {paydayLabel}</span>
                   <div className="flex-1 h-px bg-amber-300/50 dark:bg-amber-700/40" />
                 </div>
               );
@@ -1036,14 +1277,13 @@ export default function PlanningPage() {
             }
             const showPlanButton = isFirstGroup;
             isFirstGroup = false;
+            // All items in a group share the same days_away, and days_away is
+            // deterministic from "today", so they share the same absolute date.
+            const dayKey = groupItems[0]?.expected_date;
             nodes.push(
-              <div key={label}>
+              <div key={label} data-day-key={dayKey}>
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className={`text-xs font-semibold uppercase tracking-wide ${
-                    label === "Today" || label === "Tomorrow" || isNextPeriodGroup
-                      ? "text-amber-700 dark:text-amber-400"
-                      : "text-slate-500 dark:text-slate-400"
-                  }`}>{label}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
                   {showPlanButton && (
                     <button
                       onClick={() => setPlanSheetOpen(true)}
@@ -1076,7 +1316,7 @@ export default function PlanningPage() {
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">
                       {isCalendarMonth ? "Before month end" : "To last this pay period"}
                     </p>
-                    <p className={`text-2xl font-bold tracking-tight ${
+                    <p className={`text-2xl font-bold tracking-tight font-mono tabular-nums ${
                       runwayNegative
                         ? "text-rose-600 dark:text-rose-400"
                         : "text-slate-900 dark:text-slate-100"
@@ -1084,16 +1324,16 @@ export default function PlanningPage() {
                       {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </p>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                      {sym}{spendableNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} now
+                      <span className="font-mono tabular-nums">{sym}{spendableNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> now
                       {" − "}
-                      {sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} bills
+                      <span className="font-mono tabular-nums">{sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> bills
                       {isCalendarMonth
                         ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
                         : ` · ends ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
                     </p>
                     {savingsNow > 0 && (
                       <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
-                        + {sym}{savingsNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} in savings if needed
+                        <span className="font-mono tabular-nums">+ {sym}{savingsNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> in savings if needed
                       </p>
                     )}
                     <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
@@ -1159,6 +1399,7 @@ export default function PlanningPage() {
                 <div className="flex-1 min-w-0">
                   {(() => {
                     const fmt = (n: number) => "£" + n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
                     if (accountShortfalls.length === 1) {
                       const acct = accountShortfalls[0];
                       return (
@@ -1167,8 +1408,13 @@ export default function PlanningPage() {
                             Your {acct.bank} account is short before payday
                           </p>
                           <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                            {fmt(acct.shortfall)} short for bills due before payday. Move money in, or change a payment date.
+                            <span className="font-mono tabular-nums">{fmt(acct.shortfall)}</span> short for bills due before payday. Move money in, or change a payment date.
                           </p>
+                          {acct.culprit && (
+                            <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
+                              The <span className="font-mono tabular-nums">{fmt(acct.culprit.amount)}</span> move on {fmtDate(acct.culprit.expected_date)} is part of why.
+                            </p>
+                          )}
                         </>
                       );
                     }
@@ -1182,7 +1428,7 @@ export default function PlanningPage() {
                         <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
                           {shown.map((a, i) => (
                             <span key={a.accountId}>
-                              {i > 0 && " · "}{a.bank} · {fmt(a.shortfall)} short
+                              {i > 0 && " · "}{a.bank} · <span className="font-mono tabular-nums">{fmt(a.shortfall)}</span> short
                             </span>
                           ))}
                           {extra > 0 && <span> · +{extra} more</span>}
@@ -1199,7 +1445,7 @@ export default function PlanningPage() {
                     const top = [...atRiskBills].sort(
                       (a, b) => a.days_away !== b.days_away ? a.days_away - b.days_away : b.amount - a.amount
                     )[0];
-                    if (top) setHighlightBill(`bill-${top.name}-${top.expected_date}`);
+                    if (top) setHighlightTarget(`bill-${top.name}-${top.expected_date}`);
                   }}
                   className="flex-shrink-0 self-center px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold min-h-[44px] flex items-center active:scale-95 transition-transform"
                 >
@@ -1213,6 +1459,10 @@ export default function PlanningPage() {
           </>
         )}
       </div>
+
+      {dayFallbackNote && (
+        <p className="px-5 pt-2 text-xs text-slate-500 dark:text-slate-400">{dayFallbackNote}</p>
+      )}
 
       <div className="px-4 pt-4 pb-2">{upcomingBlock}</div>
 
