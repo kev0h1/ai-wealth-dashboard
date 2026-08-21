@@ -174,7 +174,16 @@ async def send_fcm_push(user_id: str, title: str, body: str, url: str = "/") -> 
                         "token": device_token,
                         "notification": {"title": title, "body": body},
                         "data": {"url": url},
-                        "android": {"priority": "high"},
+                        # channel_id overrides the manifest's default channel so this
+                        # lands on the "money_updates" channel created client-side in
+                        # frontend/lib/capacitorPush.ts (gives the user per-app control
+                        # in Android settings). icon names the drawable resource FCM
+                        # should use for the status-bar icon, no extension or path, just
+                        # the resource name as registered in AndroidManifest.xml.
+                        "android": {
+                            "priority": "high",
+                            "notification": {"channel_id": "money_updates", "icon": "ic_stat_notify"},
+                        },
                     }
                 }
                 try:

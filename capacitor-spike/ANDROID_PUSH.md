@@ -132,6 +132,38 @@ the script exits non-zero.
    `firebase-messaging` transitively, so the script does **not** add a
    duplicate `firebase-messaging` dependency — it only checks and logs
    whether one is already present.
+5. **Notification icon**, copies `ic_stat_notify.png` into each of
+   `android/app/src/main/res/drawable-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/`,
+   creating those directories if they don't exist. Android draws status-bar
+   notification icons from the alpha channel only and discards all colour,
+   so the full-colour launcher icon renders as a flat white blob there. The
+   fix is a purpose-made monochrome silhouette, pure white RGB with a
+   shaped alpha channel, sized per density. The **canonical masters** for
+   this icon live at `capacitor-spike/assets/notification-icon/drawable-*/`
+   and are committed to the repo. The copies under `android/` are, like
+   everything else in that directory, gitignored and wiped by every
+   `npx cap add android`, so this step restores them the same way step 3
+   restores `google-services.json`. If you ever need to regenerate the
+   masters (e.g. after a brand refresh), see the generation recipe in the
+   assets folder or ask for the icon-generation script; the current masters
+   were built from `capacitor-spike/assets/icon-foreground.png`'s alpha
+   channel, cropped to its bounding box and scaled to fill 22/24 of each
+   canvas so the mark has a dp of breathing room.
+6. **`android/app/src/main/AndroidManifest.xml`** — adds two `<meta-data>`
+   elements inside `<application>` if missing, each guarded by its own
+   `grep` so a partial prior run self-heals:
+   - `com.google.firebase.messaging.default_notification_icon` (using
+     `android:resource`) points Firebase at `@drawable/ic_stat_notify` so
+     it uses the monochrome icon from step 5 instead of falling back to the
+     launcher icon, which is the exact blob problem this whole flow exists
+     to avoid.
+   - `com.google.firebase.messaging.default_notification_channel_id` (using
+     `android:value`, not `android:resource`, since it's a plain string not
+     a resource reference) sets `money_updates` as the channel FCM uses for
+     messages that don't specify one, e.g. background data-only messages.
+     This id must exactly match the channel created client-side and the id
+     the backend targets when sending, so it's deliberately not
+     configurable here.
 
 ## Verifying the patch worked
 
@@ -140,4 +172,11 @@ grep "com.google.gms:google-services" android/build.gradle
 grep "com.google.gms.google-services" android/app/build.gradle
 grep "POST_NOTIFICATIONS" android/app/src/main/AndroidManifest.xml
 ls android/app/google-services.json
+
+# Notification icon: all five densities should be present
+ls android/app/src/main/res/drawable-*/ic_stat_notify.png
+
+# Notification icon + channel meta-data in the manifest
+grep -A0 "default_notification_icon\|default_notification_channel_id" \
+  android/app/src/main/AndroidManifest.xml
 ```

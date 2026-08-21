@@ -19,6 +19,21 @@ let registrationListenerRegistered = false;
 let registrationErrorListenerRegistered = false;
 let receivedListenerRegistered = false;
 
+// Guards `PushNotifications.createChannel()`, same reasoning as the listener
+// guards above: `initCapacitorPush()` runs on every Settings toggle and on
+// every app launch via `resyncCapacitorPush()`, so this must not fire twice.
+// There is deliberately ONE channel (`money_updates`) for all push, not one
+// per notification type. The app already exposes four granular notification
+// preferences in its own Settings, and mirroring those as separate Android
+// channels would create two competing control surfaces that can silently
+// disagree, for example a user muting an Android channel while the in-app
+// preference still reads as on. Also note that Android channels are
+// immutable once created: after first creation the app cannot change the
+// name, importance or visibility, only the user can from OS settings, so if
+// these values ever need to change, that requires a new channel id to take
+// effect on installs that already created this one.
+let androidChannelCreated = false;
+
 // Resolvers waiting on the next `pushNotificationReceived` event, drained by
 // the listener in `initCapacitorPush()`. Backing `onPushReceivedOnce`, which
 // the Settings test-push flow uses to confirm a push physically arrived,
@@ -149,6 +164,29 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
         const path = resolveNotificationPath(action?.notification?.data?.url);
         window.location.href = path;
       });
+    }
+
+    // Android only, iOS has no notification-channel concept and
+    // `createChannel` does not exist on that platform, calling it there
+    // would throw.
+    if (platform() === "android" && !androidChannelCreated) {
+      androidChannelCreated = true;
+      try {
+        await PushNotifications.createChannel({
+          id: "money_updates",
+          name: "Money updates",
+          description: "Balance, bills, and spending alerts.",
+          importance: 4, // IMPORTANCE_HIGH, lets a push show as a heads-up (banner) notification
+          visibility: 0, // VISIBILITY_PRIVATE, shows on the lockscreen but hides the content until unlocked
+          vibration: true,
+        });
+      } catch (e) {
+        // A channel failure must never block registration, registration
+        // working matters more than the channel. Worst case without it,
+        // pushes still deliver, they just land on Capacitor's default
+        // channel with no per-app control in Android settings.
+        console.error("[capacitorPush] createChannel failed", e);
+      }
     }
 
     await PushNotifications.register();
