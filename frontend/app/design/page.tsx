@@ -32,6 +32,12 @@ const ROUTES: PreviewRoute[] = [
     description: "Spend page · fixtures reference (real components)",
     states: [{ label: "Everything", value: "everything" }],
   },
+  {
+    slug: "type",
+    name: "type",
+    description: "Home hero · 4 typeface treatments (System / Figtree / DM Sans / Figtree+Mono)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
 ];
 
 export default function DesignIndexPage() {
