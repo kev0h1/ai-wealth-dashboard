@@ -91,6 +91,22 @@ export type UpcomingBill = {
   planned?: boolean;
   planned_id?: string;
   days_past_due?: number;
+  /**
+   * "commitment" (real spend, not freely chosen) | "discretionary" (real
+   * spend, freely chosen) | "movement" (not spend — money moved, not
+   * consumed: transfers, savings, investment STOs). Resolved backend-side
+   * from app/services/categories.py's kind model. Optional because cached
+   * payloads computed before this field existed won't carry it.
+   *
+   * Fallback for a missing/unrecognised kind: treat it as real spend (i.e.
+   * NOT "movement"). This fails safe in the dangerous direction — an
+   * unknown kind still counts toward bill totals and can still render the
+   * at-risk treatment, rather than silently vanishing from a total or
+   * being waved through as riskless. Consumers should test `kind ===
+   * "movement"` explicitly rather than `kind !== "movement"` when they
+   * need the safe/inclusive read; see lib/comingUp.tsx's `isSpend`.
+   */
+  kind?: "commitment" | "discretionary" | "movement";
 };
 
 export type PlannedExpense = { id: string; name: string; amount: number; date: string; account_id?: string | null; created_at?: string };

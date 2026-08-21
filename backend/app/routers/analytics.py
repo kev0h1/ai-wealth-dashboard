@@ -30,7 +30,7 @@ from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
 from app.services.categorisation import series_key, has_date_fragment, is_own_transfer, user_identity
 from app.services.card_rates import is_credit_card_account
-from app.services.categories import get_category_kinds, is_non_spend
+from app.services.categories import get_category_kinds, is_non_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -52,8 +52,24 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # field entirely, so `.get("is_credit_card", False)` on them silently resolves
 # to a concrete False (indistinguishable from a real "not a credit card"
 # answer) instead of "unknown". Readers must treat missing/low version as
-# stale and force a recompute rather than trust that default.
-PATTERNS_VERSION = 3
+# stale and force a recompute rather than trust that default. v4 changed the
+# monthly recurring-bill projection anchor in `_detect_recurring` from the day
+# the last payment happened to post to a derived nominal due day — pre-v4 docs
+# carry `expected_date`/`days_away` on every monthly bill that are wrong by
+# however far that last posting drifted from its true due day (weekends,
+# month-end shifts), so they must not be served as-is either. v5 (a) taught
+# `_monthly_anchor` to recognise weekday-anchored monthly cadences ("last
+# Friday", "first Monday") instead of misreading their scattered
+# day-of-month as a fixed-day bill, carrying the anchor descriptor through
+# on every pattern as `monthly_anchor` so `_occurrences` can re-derive later
+# occurrences correctly too; (b) stopped excluding Transfer-category debits
+# from recurring-outflow detection, so a standing order into your own
+# savings (which still consumes current-account balance) can appear in
+# `upcoming_bills` for the first time; and (c) added a `kind` field
+# (discretionary/commitment/movement) to every `upcoming_bills` entry. All
+# three change which entries appear, what dates they carry, or what fields
+# they have — pre-v5 docs have none of this and must not be served as-is.
+PATTERNS_VERSION = 5
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -469,6 +485,185 @@ def _net_reversals(items: list, credits: list) -> list:
     return kept
 
 
+# A weekend/bank-holiday-shifted direct debit posts LATE, never early, and UK
+# bank holidays cluster tightly enough (e.g. Christmas Day + substitute
+# Boxing Day) to push a posting up to ~4 calendar days past its due date.
+# Genuine provider-initiated date changes (e.g. "moved from the 1st to the
+# 15th") jump much further than that, so this tolerance is what separates
+# "same bill, noisy posting" from "the bill's due date actually changed".
+_MONTHLY_DRIFT_TOLERANCE_DAYS = 4
+
+# Sentinel meaning "anchored to the last calendar day of the month" rather
+# than a fixed day-of-month. Kept distinct from an int day because a bill
+# genuinely due on "month end" must track 28/29/30/31 as the month's length
+# changes, which no single day-of-month number can express.
+_MONTHLY_ANCHOR_EOM = None
+
+# Sentinel meaning "this cached pattern predates weekday-anchor support and
+# carries no `monthly_anchor` descriptor at all" — distinct from a *present*
+# key whose value is `None` (which legitimately means EOM). Used only by the
+# `_occurrences` legacy fallback below; PATTERNS_VERSION invalidation means
+# a live doc should never actually hit it, but stepping must not silently
+# misread "key absent" as "key present and EOM" if it ever does.
+_NO_MONTHLY_ANCHOR = object()
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, nth: int):
+    """The date of the `nth` (1-4, counted from the start) or last (`nth ==
+    -1`) occurrence of `weekday` (Monday=0..Sunday=6) in `year`/`month`.
+
+    If a stored `nth` (1-4) doesn't exist in this particular month (e.g. a
+    "5th Friday" reading from a month that happened to have five, applied to
+    a shorter following month), falls back to the LAST occurrence rather
+    than raise or silently roll into the wrong week — the last occurrence is
+    always the closest honest reading of "the same relative week" available.
+    """
+    month_len = monthrange(year, month)[1]
+    if nth == -1:
+        d = _date(year, month, month_len)
+        offset = (d.weekday() - weekday) % 7
+        return d - timedelta(days=offset)
+    first = _date(year, month, 1)
+    offset = (weekday - first.weekday()) % 7
+    day = 1 + offset + (nth - 1) * 7
+    if day > month_len:
+        return _nth_weekday_of_month(year, month, weekday, -1)
+    return _date(year, month, day)
+
+
+def _monthly_anchor(dates: list):
+    """Derive the NOMINAL due anchor for a monthly-cadence series, as
+    distinct from the day any individual payment happened to POST on.
+
+    `_detect_recurring` used to anchor the next projection on
+    `last_date.day` — the day the most recent payment posted — which is
+    wrong on two counts: a weekend/bank-holiday delay pushes that posting
+    day later and the offset then ratchets forward forever, and a bill due
+    on the 29th/30th/31st gets clamped down whenever it lands in a shorter
+    month (e.g. February) and never climbs back once longer months return.
+    Both bugs share one cause: the code had no notion of "the day this bill
+    is actually due" independent of any single observed posting.
+
+    Returns one of three shapes:
+      - `int` (1-31)                    — a fixed nominal day-of-month.
+      - `None`                          — anchored to the month's LAST
+        CALENDAR DAY (EOM), tracking 28/29/30/31 as month length changes.
+      - `{"weekday": int, "nth": int}`  — anchored to the nth (1-4, from the
+        start) or last (`nth == -1`) occurrence of `weekday` in the month —
+        e.g. `{"weekday": 4, "nth": -1}` is "the last Friday of the month".
+        Some genuinely monthly bills (standing orders set to "last Friday",
+        "first Monday", etc.) have NO stable day-of-month at all — their day
+        genuinely scatters (24/26/29/31 for a last-Friday bill) — so a
+        day-of-month reading of them is not a degraded version of the truth,
+        it is a different and wrong claim.
+
+    Derivation, in priority order:
+
+    1. WEEKDAY check (tried first — see the over-correction note below for
+       why). If every occurrence in the series (>= 3 of them, and at least
+       one NOT on its own month's exact last day — see step 2 for why that
+       exclusion matters) falls on the same weekday, and either ALL are the
+       LAST occurrence of that weekday in their month, or ALL are the SAME
+       nth occurrence from the start, that shared (weekday, nth) is the
+       anchor. Real calendar months differ in length by 0-3 days, so a
+       fixed-day-of-month bill sharing the same weekday across 3 real
+       months in a row by coincidence is roughly a 1-in-49 fluke — this is
+       strong, not weak, evidence once it holds for 3+ points.
+
+       Over-correction guard: this is checked BEFORE day-of-month
+       clustering specifically because the old clustering heuristic reads
+       weekday noise as false day-of-month precision (it read 26/29/31 —
+       genuinely three different last-Fridays — as a day-26 bill, because
+       26 and 29 happen to fall inside its drift tolerance). Checking
+       weekday first lets a real weekday-anchored series be read on its own
+       terms instead of being forced into a day-of-month cluster that only
+       coincidentally fits 2 of its 3-4 points.
+
+       The `informative` (non-EOM) requirement guards the reverse
+       over-correction: a bill that happens to land on its own month's
+       exact last day every single time it's been observed (e.g. Jan 31,
+       Feb 28) is trivially "the last occurrence of its weekday" in EVERY
+       case, for ANY weekday — that's not evidence of weekday-anchoring,
+       it's just what "last day of the month" always looks like. Requiring
+       at least one occurrence that ISN'T its month's exact last day rules
+       that degenerate case out and leaves it to the EOM path below, which
+       already reads it correctly.
+
+    2. An occurrence that posted on its OWN month's last day is ambiguous —
+       it could be a genuinely EOM-anchored bill, or a fixed-day bill (say,
+       due the 31st) that would have clamped there anyway. Those two read
+       identically no matter which month they land in (clamping "day 31"
+       into a short month always produces that month's last day too), so
+       there's nothing to resolve for that occurrence in isolation; it's
+       simply set aside as uninformative. If every occurrence is
+       uninformative, the series is treated as EOM-anchored.
+    3. Otherwise (no weekday match, and not all-EOM), walk the informative
+       occurrences newest-first, chaining each one onto a running cluster
+       while it stays within `_MONTHLY_DRIFT_TOLERANCE_DAYS` of the
+       cluster's minimum day so far. The chain breaks the moment a gap is
+       too large to be posting drift — which is exactly a genuine permanent
+       date change — so the trailing cluster naturally captures "the new
+       day, once it's stuck for a few cycles" while older, disconnected
+       history stops contributing. Within the trailing cluster the MINIMUM
+       day is the anchor: drift only ever pushes a posting later than its
+       due date, never earlier, so the smallest observed day in a cluster
+       is the least-distorted reading of the true due day. This same
+       fallback also serves as the honest degrade when a series has no
+       stable anchor of EITHER kind: rather than invent a new "unknown"
+       output the projection layer can't render as a date anyway, it keeps
+       reading the best day-of-month evidence available — exactly as
+       before weekday-anchor support existed — since that's still a more
+       grounded guess than either extreme (this month's raw posting day, or
+       a confident weekday claim the data doesn't actually support).
+    """
+    dates = sorted(dates)
+    informative = [
+        d for d in dates if d.day != monthrange(d.year, d.month)[1]
+    ]
+
+    if informative and len(dates) >= 3 and len({d.weekday() for d in dates}) == 1:
+        wd = dates[0].weekday()
+        if all((d.day + 7) > monthrange(d.year, d.month)[1] for d in dates):
+            return {"weekday": wd, "nth": -1}
+        nths = {(d.day - 1) // 7 + 1 for d in dates}
+        if len(nths) == 1:
+            return {"weekday": wd, "nth": next(iter(nths))}
+
+    if not informative:
+        return _MONTHLY_ANCHOR_EOM
+
+    informative = sorted(informative)
+    cluster_min = informative[-1].day
+    for d in reversed(informative[:-1]):
+        if abs(d.day - cluster_min) > _MONTHLY_DRIFT_TOLERANCE_DAYS:
+            break
+        cluster_min = min(cluster_min, d.day)
+    return cluster_min
+
+
+def _advance_month_to_anchor(d, anchor):
+    """Move to the following calendar month, landing on `anchor`:
+
+      - `int`                          — that day-of-month, clamped to the
+        target month's own length.
+      - `None`                         — that month's last calendar day.
+      - `{"weekday": int, "nth": int}` — the nth/last occurrence of that
+        weekday in the target month (see `_nth_weekday_of_month`).
+
+    Only `d`'s year/month are used; `d.day` is deliberately ignored so a
+    clamped or drift-shifted day never gets carried forward as the new
+    basis for the month after — each step re-derives the day fresh from the
+    fixed anchor, which is what stops the month-end clamp from being sticky.
+    """
+    year = d.year + (1 if d.month == 12 else 0)
+    month = 1 if d.month == 12 else d.month + 1
+    if isinstance(anchor, dict):
+        return _nth_weekday_of_month(year, month, anchor["weekday"], anchor["nth"])
+    month_len = monthrange(year, month)[1]
+    day = month_len if anchor is _MONTHLY_ANCHOR_EOM else min(anchor, month_len)
+    return d.replace(year=year, month=month, day=day)
+
+
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
     buckets: dict[str, list] = defaultdict(list)
@@ -558,6 +753,14 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
         _grace = timedelta(days=0 if is_income else PENDING_GIVE_UP_DAYS)
         _config = pay_period_config or {"type": "calendar_month"}
 
+        # Monthly-cadence anchor descriptor (int day / None=EOM / weekday
+        # dict — see `_monthly_anchor`), carried through to the serialised
+        # pattern so `_occurrences` can re-derive later occurrences inside
+        # the same window without falling back to naive day-carry-forward
+        # stepping. Stays None for every non-monthly cadence — harmless,
+        # since only the monthly branch of `_occurrences` ever reads it.
+        monthly_anchor_desc = None
+
         # Confirmed income stream: use stored schedule directly (wins over all interval logic)
         _confirmed_sched = (confirmed_income or {}).get(key, {}).get("schedule") if is_income else None
         if _confirmed_sched:
@@ -598,16 +801,22 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                     from app.services.pay_period import _next_payday
                     next_date = _next_payday(_today, _config)
                 else:
-                    year  = last_date.year + (1 if last_date.month == 12 else 0)
-                    month = 1 if last_date.month == 12 else last_date.month + 1
-                    day   = min(last_date.day, monthrange(year, month)[1])
-                    next_date = last_date.replace(year=year, month=month, day=day)
+                    # Anchor on the bill's NOMINAL due day (derived from the
+                    # whole series), not `last_date.day` — the day the most
+                    # recent payment happened to POST. See `_monthly_anchor`
+                    # for why that distinction matters: a weekend/holiday
+                    # posting delay used to ratchet forward permanently, and
+                    # a 29th/30th/31st bill clamped by a short month never
+                    # climbed back once longer months returned. Re-deriving
+                    # the target day from the fixed anchor on every step
+                    # (rather than from the previous, possibly-clamped
+                    # `next_date`) fixes both.
+                    anchor = _monthly_anchor(dates)
+                    monthly_anchor_desc = anchor
+                    next_date = _advance_month_to_anchor(last_date, anchor)
                     # If still in the past or today (minus grace for bills), advance one more month
                     while next_date <= _today - _grace:
-                        year  = next_date.year + (1 if next_date.month == 12 else 0)
-                        month = 1 if next_date.month == 12 else next_date.month + 1
-                        day   = min(next_date.day, monthrange(year, month)[1])
-                        next_date = next_date.replace(year=year, month=month, day=day)
+                        next_date = _advance_month_to_anchor(next_date, anchor)
             else:
                 next_date = last_date + timedelta(days=round(avg_interval))
                 while next_date <= _today - _grace:
@@ -641,6 +850,7 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             "avg_amount":   round(avg_amount, 2),
             "last_date":    last_date,
             "next_date":    next_date,
+            "monthly_anchor": monthly_anchor_desc,
             "occurrences":  len(items),
             "account_id":   attributed_acct,
             "amounts_recent": amounts_recent,
@@ -755,8 +965,15 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
     }
 
-    debits  = [t for t in raw if t.get("transaction_type") == "debit"
-               and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
+    # Debits are NOT filtered by category (Transfer included): anything that
+    # regularly leaves the account on a date belongs in the projection
+    # regardless of what it's called, because it consumes balance and can
+    # block a payment even when it isn't a bill (e.g. a standing order into
+    # your own savings still empties the current account). Credits keep the
+    # Transfer exclusion — this is about outflows that consume balance, not
+    # inflows, and widening it would risk double-reading a self-transfer as
+    # recurring "income" as well as a recurring "bill" on the source side.
+    debits  = [t for t in raw if t.get("transaction_type") == "debit"]
     credits = [t for t in raw if t.get("transaction_type") == "credit"
                and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
     income_credits = [t for t in credits if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
@@ -877,6 +1094,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "account_balance": acct["balance"] if acct else None,
             "is_credit_card":  acct.get("is_credit_card", False) if acct else False,
             "category":        r.get("category"),
+            "monthly_anchor":  r.get("monthly_anchor"),
         }
 
     return {
@@ -1016,27 +1234,36 @@ async def at_risk_count(user: dict = Depends(current_user)):
         s.get("key") for s in (_user_prefs.get("income_streams") or [])
         if s.get("status") == "confirmed"
     }
-    events: list[tuple[int, str, float, bool]] = []  # (days_away, acct_id, amount, is_income)
+    events: list[tuple[int, str, float, bool, str]] = []  # (days_away, acct_id, amount, is_income, kind)
     for b in assessable_bills:
-        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False))
+        events.append((b["days_away"], b["account_id"] or "__unknown__", float(b["amount"]), False, b.get("kind")))
     for i in window_income:
         acct = str(i.get("account_id") or "")
         if acct in running and income_credit_ok(i, acct, _confirmed_keys):
-            events.append((i["days_away"], acct, float(i["amount"]), True))
+            events.append((i["days_away"], acct, float(i["amount"]), True, None))
 
     events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income on the same day (conservative)
 
     at_risk = 0
-    for days_away, acct, amount, is_income in events:
+    for days_away, acct, amount, is_income, kind in events:
         if is_income:
             running[acct] = running.get(acct, 0.0) + amount
         else:
             bal = running.get(acct, 0.0)
             # Deficit cascades (same semantics as companion.py's shortfall
             # walk): a bounced bill still debits the running balance, so every
-            # later bill on a short account counts until income recovers it.
+            # later bill on a short account counts until income recovers it —
+            # for EVERY kind, movement included, since it genuinely still
+            # empties the account and can still bounce a later bill.
             running[acct] = bal - amount
-            if bal < amount:
+            # But a `movement` bill bouncing is never itself counted toward
+            # this badge — it's the user's own plan for their own money, not
+            # an obligation that can fail expensively — matching the Planning
+            # page's own at-risk simulation (frontend, PlanningPage.tsx),
+            # which this badge must agree with (it links straight to that
+            # page). A commitment/discretionary bill a movement starves still
+            # counts, same as Planning's `movementCulprit` handling.
+            if bal < amount and kind != MOVEMENT:
                 at_risk += 1
 
     return {"count": at_risk}
@@ -1375,7 +1602,7 @@ async def clear_rule(body: dict, user: dict = Depends(current_user)):
 
 
 async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: dict | None = None) -> dict:
-    """Reconstruct the time-sensitive cashflow response from stored patterns. Zero DB cost.
+    """Reconstruct the time-sensitive cashflow response from stored patterns.
 
     Pass `prefs` (the user's preferences doc) when the caller has already
     fetched it, to avoid a duplicate find_one per request."""
@@ -1387,6 +1614,15 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     spend_patterns  = cached.get("recurring_spend", [])
     income_patterns = cached.get("recurring_income", [])
+
+    # Every `upcoming_bills` entry carries a `kind` (discretionary /
+    # commitment / movement), resolved through the shared kind map — never a
+    # hardcoded set — so consumers can tell "council tax" (commitment) apart
+    # from "transfer to my own savings" (movement): both consume balance and
+    # both belong in the projection, but only one is a genuine risk. No uid
+    # (one caller, notifications.py, doesn't have one) falls back to the
+    # built-in kinds only — no custom-category overrides, but never crashes.
+    kind_map = await get_category_kinds(uid) if uid else CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
 
     # --- observation index for bill matching ---
     observed: dict = {}
@@ -1404,9 +1640,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             except Exception:
                 pass
         for _t in _obs_pipeline_results:
-            _eff_cat = (_t.get("custom_category") or _t.get("category") or "Other")
-            if _eff_cat == "Transfer":
-                continue
+            # No category filter here (Transfer included): the projected
+            # bill list itself can now contain Transfer-category outflows
+            # (see the debits filter in `_compute_cashflow_patterns`), so
+            # excluding Transfer from the observation index would leave
+            # those bills permanently "pending" — never matched to the real
+            # posting that already closed them.
             _key = series_key(_t)
             if not _key:
                 continue
@@ -1484,11 +1723,27 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 next_d = _next_occ_svc(confirmed_sched, d.date())
                 d = datetime(next_d.year, next_d.month, next_d.day)
             elif 28 <= interval <= 33:
-                # Monthly bills anchor to day-of-month (same rule as detection)
+                # Monthly bills step using the SAME anchor descriptor
+                # `_detect_recurring` derived (day-of-month / EOM / nth-
+                # weekday — see `_monthly_anchor`), not a fresh
+                # day-carried-forward guess. Without this, a second
+                # occurrence of a weekday-anchored bill inside the same
+                # 35-day window (possible when `next_date` falls early
+                # enough) would silently reuse the day-of-month clamp logic
+                # and land on the wrong date. `_NO_MONTHLY_ANCHOR` (key
+                # entirely absent, not merely `None`=EOM) means a cached
+                # doc predates this field — fall back to the pre-existing
+                # day-carry-forward behaviour rather than misread absence
+                # as "confirmed EOM".
+                _anchor = r.get("monthly_anchor", _NO_MONTHLY_ANCHOR)
                 year  = d.year + (1 if d.month == 12 else 0)
                 month = 1 if d.month == 12 else d.month + 1
-                day   = min(d.day, monthrange(year, month)[1])
-                d = d.replace(year=year, month=month, day=day)
+                if _anchor is _NO_MONTHLY_ANCHOR:
+                    day = min(d.day, monthrange(year, month)[1])
+                    d = d.replace(year=year, month=month, day=day)
+                else:
+                    nd = _advance_month_to_anchor(d.date(), _anchor)
+                    d = datetime(nd.year, nd.month, nd.day)
             else:
                 d = d + timedelta(days=max(2, round(interval)))
         return out
@@ -1573,6 +1828,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_balance": r.get("account_balance"),
                 "is_credit_card":  r.get("is_credit_card", False),
                 "category":        r.get("category"),
+                "kind":            kind_of(kind_map, r.get("category")),
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
                 "pending":         pending,
@@ -1651,6 +1907,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_balance": acc_balance,
                 "is_credit_card":  acc_is_credit_card,
                 "category":        "Planned",
+                "kind":            kind_of(kind_map, "Planned"),
                 "edited":          False,
                 "rule_label":      None,
                 "planned":         True,
