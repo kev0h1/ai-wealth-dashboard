@@ -348,6 +348,8 @@ export default function SettingsPage() {
             setNotifEnabled(true);
           } else if (result === "denied") {
             setNotifError("Notifications are blocked, enable them in your phone's Settings app.");
+          } else if (result === "no-token") {
+            setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported, please try again.");
           } else {
             setNotifError("Couldn't enable notifications on this device.");
           }

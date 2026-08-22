@@ -19,6 +19,11 @@ RULES = [
     # and /logo/ prefixes, so this rule is inert unless /push/test calls
     # check_rate_limit() itself (it does, as the first line of the handler).
     ("/push/test", 5, 60),
+    # Same pattern as /push/test above: /push/client-diagnostic calls
+    # check_rate_limit() itself as the first line of its handler. Higher
+    # than /push/test's limit because a client-side registration retry loop
+    # could otherwise flood this endpoint with failure reports.
+    ("/push/client-diagnostic", 20, 60),
 ]
 
 

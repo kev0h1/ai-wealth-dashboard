@@ -2192,6 +2192,19 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<NativePushStatus>(r)),
 
+  // Reports a native push registration failure the app cannot otherwise
+  // surface, a release TestFlight build has no Safari Web Inspector, so a
+  // `registrationError` or a timed-out `register()` call is invisible
+  // without this. See reportPushDiagnostic in lib/capacitorPush.ts, which
+  // wraps this call and swallows its own errors so a broken diagnostic
+  // report can never itself become a second failure to chase.
+  reportPushDiagnostic: (stage: string, detail: string, platform?: string) =>
+    fetch(`${API_BASE}/push/client-diagnostic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ stage, detail, platform }),
+    }).then((r) => toJson<{ ok: boolean }>(r)),
+
   // Fires a one-off push at every device registered for this user (APNs,
   // FCM, web push). Rate limited server-side to 5/60s; the pre-check below
   // surfaces that as a distinguishable error before falling through to the

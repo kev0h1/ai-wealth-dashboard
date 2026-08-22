@@ -42,6 +42,17 @@ let androidChannelCreated = false;
 // otherwise look identical to the user.
 const pendingReceiveResolvers = new Set<(received: boolean) => void>();
 
+// Resolvers waiting on the next `registration` event's token, drained by the
+// same guarded listener that already exists in `initCapacitorPush()` below,
+// mirrors `pendingReceiveResolvers` above. Backs the registration timeout:
+// `PushNotifications.register()` resolves as soon as the OS call is made,
+// not when a real token (or a registrationError) actually comes back, so
+// without this a native bridge that silently drops the callback looks
+// identical to a successful registration. Deliberately a second listener is
+// NOT added per call, that would stack duplicate "registration" handlers
+// exactly like `registrationListenerRegistered` exists to prevent.
+const pendingTokenResolvers = new Set<(token: string | null) => void>();
+
 // Guards `resyncCapacitorPush()`. `resyncInFlight` stops two overlapping
 // calls from both running the async work. `resyncCompleted` is set ONLY
 // after `initCapacitorPush()` has actually been awaited without throwing
@@ -94,7 +105,37 @@ function platform(): string {
   }
 }
 
-export type PushInitResult = "granted" | "denied" | "unavailable";
+export type PushInitResult = "granted" | "denied" | "unavailable" | "no-token";
+
+/**
+ * Serialises a non-string value for a diagnostic report. `JSON.stringify`
+ * covers the common case (a plain object from a Capacitor plugin), falling
+ * back to `String(value)` for anything it can't handle, for example a
+ * circular reference or a bare Error instance's own quirks.
+ */
+function safeSerialize(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Reports a native push registration failure to the backend's
+ * `/push/client-diagnostic` sink, so it lands in journalctl. A release
+ * TestFlight build has no Safari Web Inspector, so `console.error` alone is
+ * completely invisible there, this is the only way these failures have ever
+ * been observable. Deliberately swallows its own errors (network failure,
+ * 401, whatever), a broken diagnostic report must never become a second,
+ * unrelated failure for the caller to handle.
+ */
+function reportPushDiagnostic(stage: string, detail: unknown, plat: string): void {
+  const message = typeof detail === "string" ? detail : safeSerialize(detail);
+  api.reportPushDiagnostic(stage, message, plat).catch(() => {
+    /* best-effort, there is nothing more useful to do if the report itself fails */
+  });
+}
 
 /**
  * Registers this device for native push notifications (APNs on iOS, FCM on
@@ -129,7 +170,10 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
             : api.registerApnsToken(token.value, plat);
         registration.catch((e) => {
           console.error("[capacitorPush] failed to send token to backend", e);
+          reportPushDiagnostic("tokenPostFailed", e instanceof Error ? e.message : e, plat);
         });
+        for (const resolve of pendingTokenResolvers) resolve(token.value);
+        pendingTokenResolvers.clear();
       });
     }
 
@@ -137,6 +181,13 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
       registrationErrorListenerRegistered = true;
       await PushNotifications.addListener("registrationError", (error) => {
         console.error("[capacitorPush] registration error", error.error);
+        // This is the single most important diagnostic line in this file.
+        // On iOS the "registrationError" event is almost certainly what has
+        // been firing all along, silently, since no APNs token has ever
+        // reached the backend, and console.error is invisible in a release
+        // TestFlight build. Without this report there is no way to know why
+        // registration failed at all.
+        reportPushDiagnostic("registrationError", error?.error ?? error, platform());
       });
     }
 
@@ -189,7 +240,32 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
       }
     }
 
+    // `register()` only resolves once the OS call has been *made*, not once
+    // a real token (or failure) has come back, so calling it and returning
+    // immediately made silence indistinguishable from success, exactly the
+    // failure mode this whole diagnostic effort exists to fix. Wait for the
+    // "registration" listener above to actually resolve with a token, up to
+    // 10 seconds, before deciding this call succeeded.
+    const tokenPromise = new Promise<string | null>((resolve) => {
+      const onResolve = (token: string | null) => {
+        pendingTokenResolvers.delete(onResolve);
+        resolve(token);
+      };
+      pendingTokenResolvers.add(onResolve);
+      setTimeout(() => onResolve(null), 10000);
+    });
+
     await PushNotifications.register();
+    const token = await tokenPromise;
+    if (!token) {
+      const plat = platform();
+      reportPushDiagnostic(
+        "registrationTimeout",
+        `No push token arrived within 10s on platform=${plat}.`,
+        plat,
+      );
+      return "no-token";
+    }
     return "granted";
   } catch (e) {
     console.error("[capacitorPush] init failed", e);

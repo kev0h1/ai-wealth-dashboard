@@ -1,4 +1,5 @@
 """Web Push subscription endpoints."""
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from app.db.collections import (
 )
 
 router = APIRouter(tags=["push"])
+logger = logging.getLogger(__name__)
 
 
 class APNsRegisterBody(BaseModel):
@@ -30,6 +32,12 @@ class FCMRegisterBody(BaseModel):
 
 class FCMUnregisterBody(BaseModel):
     token: str
+
+
+class ClientDiagnosticBody(BaseModel):
+    stage: str
+    detail: str
+    platform: str | None = None
 
 
 @router.get("/push/vapid-public-key")
@@ -151,3 +159,31 @@ async def push_test(request: Request, user: dict = Depends(current_user)):
         "devices": {"apns": apns_count, "fcm": fcm_count, "webpush": webpush_count},
         "result": result,
     }
+
+
+@router.post("/push/client-diagnostic")
+async def push_client_diagnostic(
+    request: Request, body: ClientDiagnosticBody, user: dict = Depends(current_user)
+):
+    """Sink for client-side push registration failures the app itself cannot
+    surface to us any other way. iOS TestFlight builds have no Safari Web
+    Inspector, so a `registrationError` or a timed-out `register()` call on
+    a real device is otherwise completely invisible, this logs it into
+    journalctl so it can actually be diagnosed. Never allow the content of
+    a diagnostic report to raise, a malformed or hostile detail string must
+    still be logged, not cause a 500 on the one endpoint whose whole job is
+    to catch failures.
+    """
+    if limited := check_rate_limit(request):
+        return limited
+
+    try:
+        detail = body.detail[:500] if body.detail else ""
+        logger.warning(
+            "push client-diagnostic: user=%s stage=%s platform=%s detail=%s",
+            user["email"], body.stage, body.platform, detail,
+        )
+    except Exception:
+        logger.warning("push client-diagnostic: failed to log a client report cleanly")
+
+    return {"ok": True}
