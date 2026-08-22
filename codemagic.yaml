@@ -10,14 +10,26 @@
 # Manual one-time steps for PUSH NOTIFICATIONS (not automatable from here):
 #   3. Apple Developer portal -> Certificates, Identifiers & Profiles -> Identifiers
 #      -> co.uk.auriqltd.wealth: enable the "Push Notifications" capability on the
-#      App ID, then regenerate/re-download the App Store provisioning profile
-#      referenced by ios_signing so it includes the entitlement.
+#      App ID. Signing here is AUTOMATIC (see the ios_signing block below and the
+#      app_store_connect integration), so there is no profile to manually
+#      regenerate or re-download. Codemagic requests a provisioning profile from
+#      Apple at build time, and enabling a capability invalidates the App ID's
+#      existing profiles on Apple's side, which is what forces a fresh one to be
+#      issued. So the next build after this step, run with IOS_PUSH_ENABLED set to
+#      "true" (see the environment.vars block in the ios-capacitor workflow below),
+#      automatically picks up a profile that already includes the entitlement. No
+#      manual profile step is needed. The only manual fallback is deleting a stale
+#      profile in the Apple portal if Codemagic somehow reuses one instead of
+#      requesting a new one.
 #   4. Apple Developer portal -> Keys: create an APNs Auth Key (recommended over a
 #      per-app cert — one key covers all your apps and doesn't expire yearly).
 #   5. App Store Connect / Codemagic: upload that APNs key so Codemagic (or your
 #      backend's push sender) can authenticate to APNs. If push is sent from the
 #      backend directly, hand the .p8 key + Key ID + Team ID to whoever owns the
 #      backend's push-sending code — do NOT commit it to this repo.
+#   6. Once step 3 is done, no separate Codemagic UI env var is needed:
+#      IOS_PUSH_ENABLED is set directly in this file's environment.vars block
+#      (ios-capacitor workflow, below). Flip it there to turn push on or off.
 # The `Add Push Notifications entitlement` build step below sets the
 # `aps-environment` key in App.entitlements to "production" and wires it into
 # the freshly-generated Xcode project (ios/ is not committed — `cap add ios`
@@ -36,6 +48,25 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: co.uk.auriqltd.wealth
+      vars:
+        # This enables the aps-environment entitlement and the remote-notification
+        # background mode in the build steps below (see "Register wealthdash URL
+        # scheme + Face ID + push background mode" and "Add Push Notifications
+        # entitlement"). It's a plain feature flag, not a secret, so it lives here
+        # in the repo rather than as a Codemagic UI environment variable: UI
+        # variables belong to variable groups that must be imported via an
+        # `environment: groups:` key, this file has no `groups:` key, so a
+        # UI-set variable would silently never reach the build.
+        #
+        # !!! PREREQUISITE, READ BEFORE FLIPPING THIS TO "true" !!!
+        # The Push Notifications capability must already be enabled on the
+        # co.uk.auriqltd.wealth App ID in the Apple Developer portal (see header
+        # comment step 3 above) BEFORE this is set to "true". If the entitlement
+        # is requested in a build before Apple has granted the capability, code
+        # signing FAILS. Quoted as a string because the build scripts compare it
+        # with `[ "${IOS_PUSH_ENABLED:-false}" = "true" ]`, a YAML boolean `true`
+        # would not match that string comparison.
+        IOS_PUSH_ENABLED: "true"
     scripts:
       - name: Build web (mobile static export)
         script: |
@@ -75,7 +106,9 @@ workflows:
           # IOS_PUSH_ENABLED (see the "Add Push Notifications entitlement" step
           # below for why: signing fails until the provisioning profile grants
           # Push, so this ships off by default for a clean no-push TestFlight
-          # build. Set IOS_PUSH_ENABLED=true as a Codemagic env var to re-enable.
+          # build. IOS_PUSH_ENABLED is set in this yaml's environment.vars block
+          # (ios-capacitor workflow, above), not as a Codemagic UI env var. Flip
+          # it there to re-enable or disable.
           if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
             /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
             /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
@@ -90,8 +123,9 @@ workflows:
           # Notifications capability (see the header comment above, steps
           # 3-4) — until that's done, wiring CODE_SIGN_ENTITLEMENTS in makes
           # Apple signing FAIL. So today we ship a no-push TestFlight build:
-          # this whole step is a no-op unless IOS_PUSH_ENABLED=true is set as
-          # a Codemagic environment variable. Face ID/biometrics is unaffected
+          # this whole step is a no-op unless IOS_PUSH_ENABLED is set to "true"
+          # in this yaml's environment.vars block (ios-capacitor workflow,
+          # above), not as a Codemagic UI environment variable. Face ID/biometrics is unaffected
           # (needs no capability) — see the previous step.
           if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
             # Capacitor's `cap add ios` template ships no entitlements file and no
