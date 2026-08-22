@@ -24,7 +24,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
 import { isNativePlatform } from "@/lib/nativeAuth";
-import { initCapacitorPush, unregisterCapacitorPush, isCapacitorPushRegistered, onPushReceivedOnce } from "@/lib/capacitorPush";
+import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
   isAvailable as checkBiometryAvailability,
   authenticate as authenticateBiometrics,
@@ -109,6 +109,11 @@ export default function SettingsPage() {
   type NotifPermission = "granted" | "denied" | "default" | "unsupported" | "native";
   const [notifPermission, setNotifPermission] = useState<NotifPermission>("unsupported");
   const [notifEnabled, setNotifEnabled] = useState(false);
+  // Native-only: OS push permission state. Registration itself is automatic
+  // on native (resyncCapacitorPush self-heals on every launch), the OS
+  // permission is the master switch, there is no in-app toggle to mirror it
+  // with. Null until the first `getCapacitorPushPermission()` read resolves.
+  const [nativePushStatus, setNativePushStatus] = useState<"granted" | "prompt" | "denied" | null>(null);
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState("");
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs | null>(null);
@@ -317,8 +322,23 @@ export default function SettingsPage() {
     // this WKWebView, so this must come first.
     if (isNativePlatform()) {
       setNotifPermission("native");
-      isCapacitorPushRegistered().then(setNotifEnabled).catch(() => {});
-      return;
+      const readPermission = () => {
+        getCapacitorPushPermission().then(setNativePushStatus).catch(() => setNativePushStatus("denied"));
+      };
+      readPermission();
+      // The old toggle re-checked live on every tap; without an equivalent
+      // here, "denied" is a dead end: the row tells the user to enable
+      // notifications in the phone's Settings app, but returning from there
+      // never re-reads permission on its own, so this still-mounted screen
+      // would keep showing blocked forever. Re-reading on visibility gets
+      // this back for free, and the same mechanism also covers the
+      // opposite direction, granted permission revoked in OS settings while
+      // this screen sat mounted in the background.
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "visible") readPermission();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      return () => document.removeEventListener("visibilitychange", onVisibilityChange);
     }
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
       setNotifPermission("unsupported");
@@ -334,28 +354,40 @@ export default function SettingsPage() {
     }
   }, []);
 
+  // Native-only: the OS permission prompt, triggered by the "Turn on
+  // notifications" row shown while `nativePushStatus === "prompt"`. There is
+  // no native master toggle to unregister from, the OS permission is the
+  // only on/off switch, `resyncCapacitorPush` (see NativePushResync.tsx)
+  // handles re-registering on every subsequent launch on its own.
+  async function handleEnableNativePush() {
+    setNotifLoading(true);
+    setNotifError("");
+    try {
+      const result = await initCapacitorPush();
+      if (result === "granted") {
+        setNativePushStatus("granted");
+      } else if (result === "denied") {
+        // The dedicated blocked-state row below covers this message, no
+        // need to also surface it via notifError.
+        setNativePushStatus("denied");
+      } else if (result === "no-token") {
+        // OS permission itself came back granted, only our own token
+        // round-trip didn't finish, so the status row still promotes to
+        // "granted"; the amber note below explains the rest.
+        setNativePushStatus("granted");
+        setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported, please try again.");
+      } else {
+        setNotifError("Couldn't enable notifications on this device.");
+      }
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
   async function handleToggleNotifications() {
     setNotifLoading(true);
     setNotifError("");
     try {
-      if (isNativePlatform()) {
-        if (notifEnabled) {
-          await unregisterCapacitorPush();
-          setNotifEnabled(false);
-        } else {
-          const result = await initCapacitorPush();
-          if (result === "granted") {
-            setNotifEnabled(true);
-          } else if (result === "denied") {
-            setNotifError("Notifications are blocked, enable them in your phone's Settings app.");
-          } else if (result === "no-token") {
-            setNotifError("Your phone allowed notifications but didn't finish setting them up. This has been reported, please try again.");
-          } else {
-            setNotifError("Couldn't enable notifications on this device.");
-          }
-        }
-        return;
-      }
       if (notifEnabled) {
         const reg = await navigator.serviceWorker.ready;
         const sub = await reg.pushManager.getSubscription();
@@ -537,27 +569,49 @@ export default function SettingsPage() {
           <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
           <div className="px-4 py-3.5">
             {notifPermission === "native" ? (
-              <div className="flex items-center justify-between">
+              // No master toggle here, deliberately: on native, the OS
+              // permission IS the master switch, and registration itself is
+              // automatic (resyncCapacitorPush self-heals on every launch,
+              // see NativePushResync.tsx). This just reports OS permission
+              // state truthfully instead of duplicating it as a fake toggle.
+              nativePushStatus === "granted" ? (
                 <div className="flex items-center gap-3">
-                  <Bell size={16} className={notifEnabled ? "text-indigo-500" : "text-slate-400"} />
+                  <Bell size={16} className="text-indigo-500 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Push notifications</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are delivered by the app</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Delivered by your phone. Manage in your phone&apos;s Settings.</p>
                   </div>
                 </div>
-                {notifLoading ? (
-                  <div className="relative w-12 h-6 flex items-center justify-center">
-                    <Loader2 size={12} className="animate-spin text-slate-400" />
+              ) : nativePushStatus === "denied" ? (
+                <div className="flex items-start gap-3">
+                  <BellOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Notifications blocked</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Notifications are blocked, enable them in your phone&apos;s Settings app.</p>
                   </div>
-                ) : (
-                  <Toggle
-                    checked={notifEnabled}
-                    onChange={handleToggleNotifications}
-                    label="Push notifications"
-                    disabled={notifLoading}
-                  />
-                )}
-              </div>
+                </div>
+              ) : nativePushStatus === "prompt" ? (
+                <button
+                  type="button"
+                  onClick={handleEnableNativePush}
+                  disabled={notifLoading}
+                  className="min-h-[44px] w-full flex items-center gap-3 disabled:opacity-50 active:scale-[0.99] transition-transform"
+                >
+                  {notifLoading ? (
+                    <Loader2 size={16} className="animate-spin text-slate-400 flex-shrink-0" />
+                  ) : (
+                    <Bell size={16} className="text-indigo-500 flex-shrink-0" />
+                  )}
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Turn on notifications</p>
+                </button>
+              ) : (
+                // nativePushStatus still null: the permission read hasn't
+                // resolved yet.
+                <div className="flex items-center gap-3">
+                  <Bell size={16} className="text-slate-400 flex-shrink-0" />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Checking notification status...</p>
+                </div>
+              )
             ) : notifPermission === "unsupported" ? (
               <div className="flex items-center gap-3">
                 <BellOff size={16} className="text-slate-400 flex-shrink-0" />
@@ -595,12 +649,17 @@ export default function SettingsPage() {
               </div>
             )}
             {notifError && (
+              // Amber, not red: this is a setup hiccup (a permission prompt
+              // that didn't finish registering, a device that couldn't
+              // enable push), not genuine financial risk (DESIGN.md's Red
+              // Is Risk Rule). A blocked/denied permission gets its own
+              // dedicated amber row above instead of routing through here.
               <div className="mt-2 flex items-center gap-1.5">
-                <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
-                <p className="text-xs text-red-500">{notifError}</p>
+                <AlertCircle size={13} className="text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-amber-500">{notifError}</p>
               </div>
             )}
-            {notifPermission === "native" && notifEnabled && (
+            {notifPermission === "native" && nativePushStatus === "granted" && (
               <div className="mt-3">
                 <button
                   type="button"
@@ -628,6 +687,8 @@ export default function SettingsPage() {
               {([
                 { key: "insights", title: "Tips & insights", desc: "Ways to save money we spot for you" },
                 { key: "budget_alerts", title: "Budget alerts", desc: "When you go over a budget category" },
+                { key: "category_pace", title: "Category running hot", desc: "When a category is well above your usual pace" },
+                { key: "classification_attention", title: "Payments needing a look", desc: "Unplaced or possibly miscategorised payments" },
                 { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear" },
                 { key: "goal_milestones", title: "Goal milestones", desc: "When you reach a savings goal" },
                 { key: "period_digest", title: "Pay-period digest", desc: "A fresh-start goals summary each new pay period" },

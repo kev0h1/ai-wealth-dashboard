@@ -1,19 +1,21 @@
-"""Unit tests for the "Move £X to <account>" push (`_maybe_move_recommendation`)
-and its double-notify interaction with `_maybe_bill_shortfall`.
+"""Unit tests for the money-movement merge (`_maybe_money_movement`, which
+combines `_maybe_bill_shortfall` and `_maybe_move_recommendation`) and the
+category-pace dedup (`_maybe_category_pace`).
 
 No mongomock is available in this environment, so DB-touching collections are
 replaced with tiny in-memory fakes and the lazily-imported dependencies
-(`compute_today_items`, `_build_cashflow_response`, `notif_pref`,
-`send_push_to_user`) are monkeypatched at their source module. Each test
-drives the async functions directly via `asyncio.run`, matching how the rest
-of this suite avoids a pytest-asyncio dependency by testing sync/pure seams
-— here the seam is the notification function itself, called from sync test
-bodies.
+(`compute_today_items`, `_build_cashflow_response`, `compute_spend_verdict`,
+`notif_pref`, `send_push_to_user`) are monkeypatched at their source module.
+Each test drives the async functions directly via `asyncio.run`, matching how
+the rest of this suite avoids a pytest-asyncio dependency by testing
+sync/pure seams — here the seam is the notification function itself, called
+from sync test bodies.
 """
 import asyncio
 
 import app.services.companion as companion
 import app.routers.analytics as analytics
+import app.services.spend_verdict as spend_verdict
 import app.db.collections as collections
 import app.services.notifications as notifications
 
@@ -35,12 +37,85 @@ class FakeStateCol:
             if not upsert:
                 return
             self.docs[_id] = {"_id": _id}
-        self.docs[_id].update(update.get("$set") or {})
+        doc = self.docs[_id]
+        # Real Mongo interprets a dotted $set key ("category_pace.2026-08-01")
+        # as a nested-field write, not a literal top-level key — several
+        # checks in notifications.py (budget_exceeded, bill_shortfall,
+        # category_pace) rely on that. Mirror it here.
+        for key, value in (update.get("$set") or {}).items():
+            parts = key.split(".")
+            d = doc
+            for p in parts[:-1]:
+                d = d.setdefault(p, {})
+            d[parts[-1]] = value
 
 
 class FakeCashflowCacheCol:
     async def find_one(self, query, *args, **kwargs):
         return {"_id": query.get("_id")}
+
+
+class FakePreferencesCol:
+    """Always "no prefs saved" -> callers fall back to their own defaults
+    (calendar_month pay period, etc). Avoids touching the real Motor client,
+    which binds to whichever event loop first used it — a problem once more
+    than one test in this file calls `asyncio.run()` (each run gets a fresh
+    loop, and the real client would raise "Event loop is closed" on the
+    second one)."""
+
+    async def find_one(self, query, *args, **kwargs):
+        return None
+
+
+def _mongo_matches(doc: dict, query: dict) -> bool:
+    """Tiny subset-of-Mongo query matcher — just enough to exercise the real
+    `_category_clause` ($or / $in) against fake in-memory documents, so the
+    classification-attention tests drive the ACTUAL clause rather than a
+    hand-rolled stand-in for it."""
+    for key, cond in query.items():
+        if key == "$or":
+            if not any(_mongo_matches(doc, sub) for sub in cond):
+                return False
+        elif isinstance(cond, dict) and "$in" in cond:
+            if doc.get(key) not in cond["$in"]:
+                return False
+        else:
+            if doc.get(key) != cond:
+                return False
+    return True
+
+
+class _FakeCursor:
+    def __init__(self, docs):
+        self._docs = docs
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for d in self._docs:
+            yield d
+
+
+class FakeTxnCol:
+    """Stand-in for `transactions_col`/`yapily_transactions_col`: enough of
+    Motor's `.find()` (sync call returning an async-iterable cursor) to drive
+    `_current_classification_flags`'s query against real documents."""
+
+    def __init__(self, docs=None):
+        self.docs = list(docs or [])
+        self.find_calls = 0
+
+    def find(self, query, *args, **kwargs):
+        self.find_calls += 1
+        return _FakeCursor([d for d in self.docs if _mongo_matches(d, query)])
+
+
+def _txn(txn_id, category=None, custom_category=None, transaction_type="debit"):
+    return {
+        "_id": txn_id, "user_id": "kevin", "transaction_type": transaction_type,
+        "category": category, "custom_category": custom_category,
+    }
 
 
 def _move_item(item_id, amount=110, account_id="acc-natwest", name="THE NUMBER ONE"):
@@ -68,6 +143,7 @@ def _bill(name, days_away, amount, account_balance, account_id):
 def _patch_common(monkeypatch, *, pref_on=True, state_docs=None):
     state = FakeStateCol(state_docs)
     monkeypatch.setattr(notifications, "notification_state_col", state)
+    monkeypatch.setattr(notifications, "preferences_col", FakePreferencesCol())
     monkeypatch.setattr(notifications, "notif_pref", _const_pref(pref_on))
     sent = []
 
@@ -85,7 +161,10 @@ def _const_pref(value):
     return _pref
 
 
-def test_new_move_recommendation_notifies(monkeypatch):
+# ── _maybe_move_recommendation / _maybe_bill_shortfall: detection + dedup,
+# no send (send moved to _maybe_money_movement) ─────────────────────────────
+
+def test_new_move_recommendation_detected_not_sent(monkeypatch):
     state, sent = _patch_common(monkeypatch, state_docs={})
     item = _move_item("plan:2026-09-01:fp1")
 
@@ -94,17 +173,15 @@ def test_new_move_recommendation_notifies(monkeypatch):
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
 
-    dest_accts = asyncio.run(notifications._maybe_move_recommendation("kevin"))
+    dest_accts, new_moves = asyncio.run(notifications._maybe_move_recommendation("kevin"))
 
-    assert len(sent) == 1
-    assert sent[0]["title"] == "Move £110 to THE NUMBER ONE"
-    assert "£" in sent[0]["body"] or "Covers" in sent[0]["body"]
-    assert sent[0]["url"] == "/penny"
+    assert sent == []  # detection only, this function never sends anymore
     assert dest_accts == {"acc-natwest"}
+    assert [m["id"] for m in new_moves] == ["plan:2026-09-01:fp1"]
     assert state.docs["kevin"]["move_recommended"] == ["plan:2026-09-01:fp1"]
 
 
-def test_unchanged_recommendation_does_not_renotify_on_second_sync(monkeypatch):
+def test_unchanged_recommendation_not_renotified_on_second_sync(monkeypatch):
     item_id = "plan:2026-09-01:fp1"
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [item_id]}})
     item = _move_item(item_id)
@@ -114,14 +191,15 @@ def test_unchanged_recommendation_does_not_renotify_on_second_sync(monkeypatch):
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
 
-    dest_accts = asyncio.run(notifications._maybe_move_recommendation("kevin"))
+    dest_accts, new_moves = asyncio.run(notifications._maybe_move_recommendation("kevin"))
 
     assert sent == []
     assert dest_accts == {"acc-natwest"}
+    assert new_moves == []  # already active last sync, so not "new" this sync
     assert state.docs["kevin"]["move_recommended"] == [item_id]
 
 
-def test_materially_changed_recommendation_renotifies(monkeypatch):
+def test_materially_changed_recommendation_is_new_again(monkeypatch):
     old_id = "plan:2026-09-01:fp1"
     new_id = "plan:2026-09-01:fp2"  # amount moved, fingerprint changed
     state, sent = _patch_common(monkeypatch, state_docs={"kevin": {"move_recommended": [old_id]}})
@@ -132,16 +210,15 @@ def test_materially_changed_recommendation_renotifies(monkeypatch):
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
 
-    asyncio.run(notifications._maybe_move_recommendation("kevin"))
+    dest_accts, new_moves = asyncio.run(notifications._maybe_move_recommendation("kevin"))
 
-    assert len(sent) == 1
-    assert sent[0]["title"] == "Move £150 to THE NUMBER ONE"
+    assert [m["id"] for m in new_moves] == [new_id]
     # State is replaced wholesale with what's currently active — the old,
     # no-longer-emitted id is pruned automatically, not accumulated.
     assert state.docs["kevin"]["move_recommended"] == [new_id]
 
 
-def test_preference_off_suppresses_push(monkeypatch):
+def test_preference_off_suppresses_detection(monkeypatch):
     state, sent = _patch_common(monkeypatch, pref_on=False, state_docs={})
     called = {"n": 0}
 
@@ -151,10 +228,10 @@ def test_preference_off_suppresses_push(monkeypatch):
 
     monkeypatch.setattr(companion, "compute_today_items", fake_items)
 
-    dest_accts = asyncio.run(notifications._maybe_move_recommendation("kevin"))
+    dest_accts, new_moves = asyncio.run(notifications._maybe_move_recommendation("kevin"))
 
-    assert sent == []
     assert dest_accts == set()
+    assert new_moves == []
     # Pref is checked before the (heavier) recompute — no wasted work either.
     assert called["n"] == 0
 
@@ -174,10 +251,351 @@ def test_bill_shortfall_suppressed_for_account_with_active_move(monkeypatch):
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
     # Same account as the live move recommendation ("acc-natwest") is covered;
-    # "acc-other" is not, so its bill must still push normally.
-    asyncio.run(notifications._maybe_bill_shortfall("kevin", "UK", {"acc-natwest"}))
+    # "acc-other" is not, so its bill must still qualify normally.
+    new_bills = asyncio.run(notifications._maybe_bill_shortfall("kevin", "UK", {"acc-natwest"}))
+
+    assert sent == []  # detection only
+    assert [b["name"] for b in new_bills] == ["Council Tax"]
+    assert "Council Tax" in new_bills[0]["body"]
+
+
+# ── _maybe_money_movement: the merge/send layer ──────────────────────────────
+
+def test_money_movement_merges_when_both_fire(monkeypatch):
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
+
+    async def fake_items(uid):
+        return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": [bill]}
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+
+    assert len(sent) == 1  # ONE merged push, not two
+    assert sent[0]["title"] == "Bill may not clear"
+    assert "Council Tax" in sent[0]["body"]
+    assert "£110" in sent[0]["body"] and "THE NUMBER ONE" in sent[0]["body"]
+    assert sent[0]["url"] == "/"
+
+
+def test_money_movement_sends_bill_alone_when_only_bill_fires(monkeypatch):
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
+
+    async def fake_items(uid):
+        return []  # no move recommendation this sync
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": [bill]}
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
 
     assert len(sent) == 1
     assert sent[0]["title"] == "Bill may not clear"
-    assert "Council Tax" in sent[0]["body"]
-    assert "THE NUMBER ONE" not in sent[0]["body"]
+    assert sent[0]["url"] == "/"
+
+
+def test_money_movement_sends_move_alone_when_only_move_fires(monkeypatch):
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    async def fake_items(uid):
+        return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": []}  # no bills at risk
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Move £110 to THE NUMBER ONE"
+    assert sent[0]["url"] == "/"
+
+
+def test_money_movement_sends_nothing_when_neither_fires(monkeypatch):
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    async def fake_items(uid):
+        return []
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": []}
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+
+    assert sent == []
+
+
+def test_money_movement_two_bills_one_move_sends_every_event(monkeypatch):
+    """Regression for the swallow bug: with two new bills and one new move,
+    the merge must only consume the FIRST bill + the move — the second bill
+    is not allowed to vanish just because its dedup state was already
+    written by the detector before this ran."""
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    bills = [
+        _bill("Council Tax", 2, 50.0, 10.0, "acc-other"),
+        _bill("Broadband", 4, 30.0, 5.0, "acc-third"),
+    ]
+
+    async def fake_items(uid):
+        return [_move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest")]
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": bills}
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+
+    assert len(sent) == 2  # merged (Council Tax + move) + standalone Broadband
+    assert sent[0]["title"] == "Bill may not clear"
+    assert "Council Tax" in sent[0]["body"] and "£110" in sent[0]["body"]
+    assert sent[0]["url"] == "/"
+    assert sent[1]["title"] == "Bill may not clear"
+    assert "Broadband" in sent[1]["body"]
+    assert sent[1]["url"] == "/"
+
+
+def test_money_movement_one_bill_two_moves_sends_every_event(monkeypatch):
+    """Same regression, mirrored: two new moves + one new bill must produce
+    the merged push plus a standalone push for the second move — never a
+    silently dropped move."""
+    _state_col, sent = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(collections, "cashflow_cache_col", FakeCashflowCacheCol())
+
+    bill = _bill("Council Tax", 2, 50.0, 10.0, "acc-other")
+    moves = [
+        _move_item("plan:2026-09-01:fp1", amount=110, account_id="acc-natwest", name="THE NUMBER ONE"),
+        _move_item("plan:2026-09-01:fp2", amount=60, account_id="acc-isa", name="ISA"),
+    ]
+
+    async def fake_items(uid):
+        return moves
+
+    async def fake_resp(cached):
+        return {"upcoming_bills": [bill]}
+
+    monkeypatch.setattr(companion, "compute_today_items", fake_items)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    asyncio.run(notifications._maybe_money_movement("kevin", "UK"))
+
+    assert len(sent) == 2  # merged (Council Tax + first move) + standalone second move
+    assert sent[0]["title"] == "Bill may not clear"
+    assert "£110" in sent[0]["body"] and "THE NUMBER ONE" in sent[0]["body"]
+    assert sent[0]["url"] == "/"
+    assert sent[1]["title"] == "Move £60 to ISA"
+    assert sent[1]["url"] == "/"
+
+
+# ── _maybe_category_pace: one push per category per pay period ──────────────
+
+def _notable(category, multiple=2.0, excess=80.0):
+    return {"category": category, "multiple": multiple, "excess": excess}
+
+
+def _verdict(notables, period_start="2026-08-01", days_elapsed=22):
+    return {
+        "notables": notables,
+        "period": {"start": period_start, "days_elapsed": days_elapsed},
+    }
+
+
+def test_category_pace_pushes_once_then_dedupes_same_period(monkeypatch):
+    state, sent = _patch_common(monkeypatch, state_docs={})
+
+    async def fake_verdict(uid):
+        return _verdict([_notable("Entertainment", multiple=2.0, excess=80.0)])
+
+    monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
+
+    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Entertainment is running hot"
+    assert "twice your usual pace for day 22" in sent[0]["body"]
+    assert sent[0]["url"] == "/spend"
+
+    # Same category, same period, second sync — must not renotify.
+    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+    assert len(sent) == 1
+
+
+def test_category_pace_new_category_same_period_notifies_again(monkeypatch):
+    state, sent = _patch_common(
+        monkeypatch, state_docs={"kevin": {"category_pace": {"2026-08-01": ["Entertainment"]}}},
+    )
+
+    async def fake_verdict(uid):
+        return _verdict([
+            _notable("Entertainment", multiple=2.0, excess=80.0),
+            _notable("Groceries", multiple=1.6, excess=45.0),
+        ])
+
+    monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
+
+    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+
+    assert len(sent) == 1  # Entertainment already flagged; only Groceries is new
+    assert sent[0]["title"] == "Groceries is running hot"
+    assert set(state.docs["kevin"]["category_pace"]["2026-08-01"]) == {"Entertainment", "Groceries"}
+
+
+def test_category_pace_preference_off_suppresses(monkeypatch):
+    _state, sent = _patch_common(monkeypatch, pref_on=False, state_docs={})
+    called = {"n": 0}
+
+    async def fake_verdict(uid):
+        called["n"] += 1
+        return _verdict([_notable("Entertainment")])
+
+    monkeypatch.setattr(spend_verdict, "compute_spend_verdict", fake_verdict)
+
+    asyncio.run(notifications._maybe_category_pace("kevin", "UK"))
+
+    assert sent == []
+    assert called["n"] == 0
+
+
+# ── _maybe_classification_attention: unplaced + miscategorised, dedup on id ─
+
+def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=None, pref_on=True, state_docs=None):
+    state, sent = _patch_common(monkeypatch, pref_on=pref_on, state_docs=state_docs)
+    txn_col = FakeTxnCol(txns)
+    yapily_col = FakeTxnCol(yapily_txns)
+    monkeypatch.setattr(notifications, "transactions_col", txn_col)
+    monkeypatch.setattr(notifications, "yapily_transactions_col", yapily_col)
+
+    async def fake_flagged(uid):
+        return flagged or []
+
+    monkeypatch.setattr(analytics, "_flagged_miscategorised", fake_flagged)
+    return state, sent, txn_col, yapily_col
+
+
+def test_classification_attention_first_run_seeds_silently(monkeypatch):
+    txns = [_txn("t1", category=None, custom_category=None)]  # unplaced
+    state, sent, *_ = _patch_classification(monkeypatch, txns=txns, state_docs={})
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert sent == []  # backlog at rollout must never blast a push
+    assert state.docs["kevin"]["classification_seen"] == ["t1"]
+
+
+def test_classification_attention_new_unplaced_after_seeding_notifies(monkeypatch):
+    baseline = [_txn("t1", category="Other")]
+    state, sent, txn_col, _ = _patch_classification(
+        monkeypatch, txns=baseline, state_docs={"kevin": {"classification_seen": ["t1"]}},
+    )
+
+    # A brand new unplaced debit lands after the baseline was seeded.
+    txn_col.docs.append(_txn("t2", category=None, custom_category=None))
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Some payments need a look"
+    assert sent[0]["body"] == "1 payment I could not place"
+    assert sent[0]["url"] == "/spend"
+    assert set(state.docs["kevin"]["classification_seen"]) == {"t1", "t2"}
+
+    # Re-running with no further change must not renotify (dedup on id).
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+    assert len(sent) == 1
+
+
+def test_classification_attention_unplaced_query_treats_empty_string_as_other(monkeypatch):
+    """SHOULD-FIX regression: category="" (and custom_category="") must count
+    as unplaced, matching `transactions.py`'s own `_category_clause("Other")`
+    — this is the exact clause reused, not a hand-rolled copy."""
+    txns = [_txn("t1", category="", custom_category=None)]
+    state, sent, *_ = _patch_classification(monkeypatch, txns=txns, state_docs={})
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    # First run only seeds — but seeding must have picked t1 up as unplaced,
+    # proving the "" case matched the query at all.
+    assert state.docs["kevin"]["classification_seen"] == ["t1"]
+
+
+def test_classification_attention_guardrail_flagged_item(monkeypatch):
+    state, sent, *_ = _patch_classification(monkeypatch, txns=[], flagged=[], state_docs={})
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+    assert sent == []  # seeded with nothing flagged
+
+    # Re-patch with the same state but a newly flagged miscategorised item.
+    async def fake_flagged(uid):
+        return [{"_id": "m1"}]
+
+    monkeypatch.setattr(analytics, "_flagged_miscategorised", fake_flagged)
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Some payments need a look"
+    assert sent[0]["body"] == "1 may be miscategorised"
+    assert "m1" in state.docs["kevin"]["classification_seen"]
+
+    # Dedup: same flagged id again on the next sync must not renotify.
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+    assert len(sent) == 1
+
+
+def test_classification_attention_combined_counts_wording(monkeypatch):
+    state, sent, *_ = _patch_classification(monkeypatch, txns=[], flagged=[], state_docs={})
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+    assert sent == []
+
+    txns = [
+        _txn("t1", category=None, custom_category=None),
+        _txn("t2", category="Other", custom_category=None),
+    ]
+    monkeypatch.setattr(notifications, "transactions_col", FakeTxnCol(txns))
+
+    async def fake_flagged(uid):
+        return [{"_id": "m1"}]
+
+    monkeypatch.setattr(analytics, "_flagged_miscategorised", fake_flagged)
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["body"] == "2 payments I could not place and 1 may be miscategorised"
+
+
+def test_classification_attention_preference_off_does_no_query_work(monkeypatch):
+    called = {"n": 0}
+
+    async def fake_flags(uid):
+        called["n"] += 1
+        return set(), set()
+
+    _state, sent, *_ = _patch_classification(monkeypatch, txns=[], pref_on=False, state_docs={})
+    monkeypatch.setattr(notifications, "_current_classification_flags", fake_flags)
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert sent == []
+    assert called["n"] == 0

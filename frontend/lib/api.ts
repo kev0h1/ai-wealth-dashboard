@@ -54,6 +54,8 @@ export type NotificationPrefs = {
   insights: boolean;
   period_digest: boolean;
   bill_alerts: boolean;
+  category_pace?: boolean;
+  classification_attention?: boolean;
 };
 
 export type GoalSummary = {

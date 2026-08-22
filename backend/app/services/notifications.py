@@ -3,6 +3,14 @@
 A single orchestrator (`notify_after_sync`) runs the per-type checks, each
 gated by the user's notification preferences and de-duplicated via
 `notification_state_col` so the same alert never fires twice for one event.
+
+The two money-movement checks (`_maybe_bill_shortfall`, a bill that may not
+clear, and `_maybe_move_recommendation`, Penny's payday move that fixes it)
+keep their own detection/threshold/dedup logic exactly as before, but no
+longer send their own push — they return what's newly true, and
+`_maybe_money_movement` decides whether that's one merged push (both fired),
+one plain push (only one fired), or nothing, all landing on "/" (home, where
+both the payday plan and the move recommendation cards live).
 """
 import logging
 from datetime import datetime, timedelta
@@ -20,13 +28,20 @@ log = logging.getLogger(__name__)
 
 # Per-type defaults when the user hasn't set a preference. Transactions default
 # off (noisiest); the rest are high-signal and default on.
+#
+# "bill_alerts" also gates the merged money-movement push (bill shortfall +
+# move recommendation, see `_maybe_money_movement`) — no separate key, same
+# reasoning `_maybe_move_recommendation` already documents: the two checks
+# report on the same underlying risk, so they share one Settings toggle.
 NOTIF_DEFAULTS = {
-    "transactions":    False,
-    "budget_alerts":   True,
-    "goal_milestones": True,
-    "insights":        True,
-    "period_digest":   True,
-    "bill_alerts":     True,
+    "transactions":             False,
+    "budget_alerts":            True,
+    "goal_milestones":          True,
+    "insights":                 True,
+    "period_digest":            True,
+    "bill_alerts":              True,
+    "category_pace":            True,
+    "classification_attention": True,
 }
 
 # Outflows that aren't real consumption are never counted against a budget.
@@ -54,15 +69,14 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
     if not user_id or user_id == "unknown":
         return
 
-    # Run the move-recommendation check first and carry its covered accounts
-    # into the bill-shortfall check below, so a "Move £X to <account>" push
-    # (the fix) suppresses the plain "Bill may not clear" push (the problem)
-    # for the same account — one notification per underlying situation, not two.
-    covered_dest_accts: set[str] = set()
+    # Money-movement is a merge of two checks (bill shortfall + move
+    # recommendation) into at most one push — special-cased ahead of the
+    # generic loop below for the same reason it always was: the two checks
+    # need to see each other's result before either can send.
     try:
-        covered_dest_accts = await _maybe_move_recommendation(user_id)
+        await _maybe_money_movement(user_id, region)
     except Exception as e:  # one failing check must not block the others
-        log.warning("notify_after_sync move_recommendation failed for %s: %s", user_id, e)
+        log.warning("notify_after_sync money_movement failed for %s: %s", user_id, e)
 
     for label, coro in (
         ("planned_settlement", _maybe_settle_planned(user_id)),
@@ -70,7 +84,8 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
         ("budget_alerts", _maybe_budget_exceeded(user_id, region)),
         ("goal_milestones", _maybe_goal_funded(user_id, region)),
         ("insights", _maybe_new_insights(user_id)),
-        ("bill_alerts", _maybe_bill_shortfall(user_id, region, covered_dest_accts)),
+        ("category_pace", _maybe_category_pace(user_id, region)),
+        ("classification_attention", _maybe_classification_attention(user_id)),
     ):
         try:
             await coro
@@ -196,12 +211,12 @@ async def _maybe_new_insights(user_id: str) -> None:
     )
 
 
-async def _maybe_move_recommendation(user_id: str) -> set[str]:
-    """Push when Penny recommends a "Move £X to <account>" cover-plan card.
+async def _maybe_move_recommendation(user_id: str) -> tuple[set[str], list[dict]]:
+    """Detect (never send) Penny's "Move £X to <account>" cover-plan card.
 
-    Hooked into `notify_after_sync` alongside the other checks — the
-    recommendation is computed fresh from `compute_today_items`, the same
-    function that powers the /penny and Home cards, so the push always
+    Hooked into `_maybe_money_movement` alongside `_maybe_bill_shortfall` —
+    the recommendation is computed fresh from `compute_today_items`, the same
+    function that powers the /penny and Home cards, so a resulting push always
     matches what the user would see if they opened the app.
 
     Preference: reuses `bill_alerts` rather than a new key. The move
@@ -218,15 +233,20 @@ async def _maybe_move_recommendation(user_id: str) -> set[str]:
     dismissed, or the payday window rolled over — simply drops out on the
     next sync. That keeps state bounded to "what's live right now" without a
     separate expiry pass, unlike the per-period lists the sibling checks
-    accumulate.
+    accumulate. This dedup/state-write behaviour is unchanged from before the
+    send/landing layer moved out to `_maybe_money_movement`.
 
-    Returns the set of destination account ids that currently have an
-    active move recommendation, so `_maybe_bill_shortfall` can suppress its
-    own push for the same account (the move is the fix for that same risk;
-    sending both would report one problem twice).
+    Returns (dest_accts, new_moves):
+      - dest_accts: destination account ids that currently have an active
+        move recommendation, so `_maybe_bill_shortfall` can suppress its own
+        detection for the same account (the move is the fix for that same
+        risk; reporting both would describe one problem twice).
+      - new_moves: the move items that are newly active this sync (not
+        pushed yet — the caller decides whether to send them alone or merged
+        with a bill-shortfall push).
     """
     if not await notif_pref(user_id, "bill_alerts"):
-        return set()
+        return set(), []
 
     from app.services.companion import compute_today_items
 
@@ -234,7 +254,7 @@ async def _maybe_move_recommendation(user_id: str) -> set[str]:
         items = await compute_today_items(user_id)
     except Exception as e:
         log.warning("move recommendation compute failed for %s: %s", user_id, e)
-        return set()
+        return set(), []
 
     # Only genuine "here's the transfer" cards carry an `amount` + `plan_dest`
     # (the funded cover-plan case). The sibling "no viable source" card is
@@ -249,14 +269,7 @@ async def _maybe_move_recommendation(user_id: str) -> set[str]:
     already = set(state.get("move_recommended") or [])
     current_ids = {m["id"] for m in moves}
 
-    for m in moves:
-        if m["id"] in already:
-            continue
-        dest_name = m["plan_dest"].get("name") or "your account"
-        amount = int(round(m["amount"]))
-        title = f"Move £{amount:,} to {dest_name}"
-        body = "Covers an expected bill before it's due."
-        await send_push_to_user(user_id, title, body, "/penny")
+    new_moves = [m for m in moves if m["id"] not in already]
 
     if current_ids != already:
         await notification_state_col.update_one(
@@ -264,19 +277,39 @@ async def _maybe_move_recommendation(user_id: str) -> set[str]:
             {"$set": {"move_recommended": sorted(current_ids)}},
             upsert=True,
         )
-    return dest_accts
+    return dest_accts, new_moves
 
 
-async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: set[str] | None = None) -> None:
+def _bill_shortfall_body(b: dict, sym: str) -> str:
+    days = b["days_away"]
+    if days == 0:
+        timing = "today"
+    elif days == 1:
+        timing = "tomorrow"
+    else:
+        timing = f"in {days}d"
+    account_label = b.get("account_bank") or "your account"
+    return (
+        f"{b['name']} ({sym}{b['amount']:,.2f}) is due {timing}"
+        f", {account_label} only has {sym}{b['account_balance']:,.2f}."
+    )
+
+
+async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: set[str] | None = None) -> list[dict]:
+    """Detect (never send) bills at risk of not clearing. Returns the newly
+    at-risk bills (each augmented with a "body" string), for the caller to
+    send alone or merged with a move recommendation. Detection, thresholds
+    and dedup are unchanged from before the send/landing layer moved out to
+    `_maybe_money_movement`."""
     if not await notif_pref(user_id, "bill_alerts"):
-        return
+        return []
 
     from app.db.collections import cashflow_cache_col
     from app.routers.analytics import _build_cashflow_response
 
     cached = await cashflow_cache_col.find_one({"_id": user_id})
     if not cached:
-        return
+        return []
     resp = await _build_cashflow_response(cached)
     upcoming_bills = resp.get("upcoming_bills") or []
 
@@ -290,7 +323,7 @@ async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: s
         and str(b.get("account_id") or "") not in covered
     ]
     if not at_risk:
-        return
+        return []
 
     prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
     pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
@@ -302,31 +335,245 @@ async def _maybe_bill_shortfall(user_id: str, region: str, covered_dest_accts: s
 
     sym = "KES " if region == "Kenya" else "£"
     newly: list[str] = []
+    new_bills: list[dict] = []
     for b in at_risk:
         name = b["name"]
         if name in already:
             continue
-        days = b["days_away"]
-        if days == 0:
-            timing = "today"
-        elif days == 1:
-            timing = "tomorrow"
-        else:
-            timing = f"in {days}d"
-        account_label = b.get("account_bank") or "your account"
-        body = (
-            f"{name} ({sym}{b['amount']:,.2f}) is due {timing}"
-            f", {account_label} only has {sym}{b['account_balance']:,.2f}."
-        )
-        await send_push_to_user(user_id, "Bill may not clear", body, "/spend?view=upcoming")
+        new_bills.append({**b, "body": _bill_shortfall_body(b, sym)})
         newly.append(name)
+
+    if not newly:
+        return []
+    await notification_state_col.update_one(
+        {"_id": user_id},
+        {"$set": {f"bill_shortfall.{period_key}": already + newly}},
+        upsert=True,
+    )
+    return new_bills
+
+
+async def _maybe_money_movement(user_id: str, region: str) -> None:
+    """Merged send/landing layer for the two money-movement checks.
+
+    Runs `_maybe_move_recommendation` first and carries its covered accounts
+    into `_maybe_bill_shortfall`, exactly as before, so a live move
+    recommendation for an account suppresses the plain shortfall detection
+    for that same account. What's new: neither check sends its own push
+    anymore — this decides, once, what actually goes out. Both detectors
+    already wrote their dedup state before returning here, so every new
+    event MUST be sent exactly once — none may be silently dropped, or it
+    would be marked "seen" and never retried.
+
+      - a new bill AND a new move both landed this sync -> the FIRST of each
+        merges into ONE push (shortfall leads, the move is named as the
+        remedy). There's no real pairing to exploit beyond that: a bill only
+        counts as "at risk" once accounts already covered by ANY active move
+        (not just a new one) are excluded, so a same-sync bill and move can
+        never share an account — first-with-first is exactly as arbitrary as
+        any other pairing, so it's the simplest one.
+      - every OTHER new bill and new move (i.e. everything past the one
+        consumed by the merge) still gets its own push, in its own framing.
+      - only one side fired -> each of its new items gets its own push.
+      - neither -> nothing.
+
+    All pushes land on "/" (home), where both the payday plan and the move
+    recommendation cards live.
+    """
+    dest_accts: set[str] = set()
+    new_moves: list[dict] = []
+    try:
+        dest_accts, new_moves = await _maybe_move_recommendation(user_id)
+    except Exception as e:
+        log.warning("money_movement move_recommendation failed for %s: %s", user_id, e)
+
+    new_bills: list[dict] = []
+    try:
+        new_bills = await _maybe_bill_shortfall(user_id, region, dest_accts)
+    except Exception as e:
+        log.warning("money_movement bill_shortfall failed for %s: %s", user_id, e)
+
+    if not new_bills and not new_moves:
+        return
+
+    bills = list(new_bills)
+    moves = list(new_moves)
+
+    if bills and moves:
+        bill = bills.pop(0)
+        move = moves.pop(0)
+        dest_name = move["plan_dest"].get("name") or "your account"
+        amount = int(round(move["amount"]))
+        remedy = f" I can move £{amount:,} to {dest_name} to help cover it."
+        body = bill["body"] + remedy
+        await send_push_to_user(user_id, "Bill may not clear", body, "/")
+
+    # Every event not consumed by the merge above still gets its own push —
+    # a swallowed item here would be reported as "seen" (dedup state was
+    # already written by the detector) and never surface again.
+    for b in bills:
+        await send_push_to_user(user_id, "Bill may not clear", b["body"], "/")
+
+    for m in moves:
+        dest_name = m["plan_dest"].get("name") or "your account"
+        amount = int(round(m["amount"]))
+        title = f"Move £{amount:,} to {dest_name}"
+        body = "Covers an expected bill before it's due."
+        await send_push_to_user(user_id, title, body, "/")
+
+
+def _pace_line(multiple: float, excess: float, days_elapsed: int, sym: str) -> str:
+    """Mirror of frontend/components/SpendVerdictView.tsx's `paceLine` — same
+    three branches, same rounding, same wording, so the push never says
+    something the Spend page itself wouldn't. Kept in sync deliberately
+    rather than shared, since the frontend has no server call to make for a
+    push body."""
+    day_label = f"day {days_elapsed}"
+    rounded = round(multiple, 1)
+    if 1.9 <= rounded <= 2.1:
+        return f"about twice your usual pace for {day_label}."
+    if rounded > 2.1:
+        return f"about {rounded:.1f}× your usual pace for {day_label}."
+    return f"running about {sym}{round(excess):,} ahead of usual for {day_label}."
+
+
+async def _maybe_category_pace(user_id: str, region: str) -> None:
+    """Push once per category per pay period the first time it becomes a
+    Spend-page "notable" — the exact qualification `spend_verdict.py`'s
+    `build_notables_and_majority` already applies (the "N.N× usual pace for
+    day D" flag shown on the Spend page), reused verbatim via
+    `compute_spend_verdict` rather than a new threshold invented here.
+    """
+    if not await notif_pref(user_id, "category_pace"):
+        return
+
+    from app.services.spend_verdict import compute_spend_verdict
+
+    try:
+        verdict = await compute_spend_verdict(user_id)
+    except Exception as e:
+        log.warning("category pace compute failed for %s: %s", user_id, e)
+        return
+
+    notables = verdict.get("notables") or []
+    if not notables:
+        return
+
+    period = verdict.get("period") or {}
+    period_key = period.get("start")
+    days_elapsed = period.get("days_elapsed") or 0
+    if not period_key:
+        return
+
+    state = await _state(user_id)
+    already: list[str] = (state.get("category_pace") or {}).get(period_key, [])
+
+    sym = "KES " if region == "Kenya" else "£"
+    newly: list[str] = []
+    for n in notables:
+        cat = n["category"]
+        if cat in already:
+            continue
+        multiple = n.get("multiple")
+        excess = n.get("excess")
+        if multiple is None or excess is None:
+            continue
+        line = _pace_line(multiple, excess, days_elapsed, sym)
+        body = line[0].upper() + line[1:]
+        await send_push_to_user(user_id, f"{cat} is running hot", body, "/spend")
+        newly.append(cat)
 
     if not newly:
         return
     await notification_state_col.update_one(
         {"_id": user_id},
-        {"$set": {f"bill_shortfall.{period_key}": already + newly}},
+        {"$set": {f"category_pace.{period_key}": already + newly}},
         upsert=True,
+    )
+
+
+def _classification_body(new_unplaced: set, new_miscategorised: set) -> str:
+    parts: list[str] = []
+    if new_unplaced:
+        n = len(new_unplaced)
+        parts.append(f"{n} payment{'s' if n != 1 else ''} I could not place")
+    if new_miscategorised:
+        n = len(new_miscategorised)
+        parts.append(f"{n} may be miscategorised")
+    return " and ".join(parts)
+
+
+async def _current_classification_flags(user_id: str) -> tuple[set[str], set[str]]:
+    """(unplaced_ids, miscategorised_ids) — stable transaction `_id` strings,
+    mirroring the miscategorised guardrail's own dismissal keying
+    (`analytics._flagged_miscategorised`, keyed on the same stable provider
+    `_id`) so an id, once notified, is recognised again even if its category
+    or dismissal state later changes.
+
+    "Unplaced" = a debit whose effective category (custom override, else the
+    synced category) is "Other" or missing — the app's own fallback when the
+    categorisation engine has no confident category
+    (`categorisation.py`'s `"Other"` default). Reuses `transactions.py`'s own
+    `_category_clause("Other")` rather than re-deriving the match (it treats
+    "" the same as None on both fields — a bare copy of this clause missed
+    that once already)."""
+    from app.routers.transactions import _category_clause
+
+    other_clause = _category_clause("Other")
+    unplaced: set[str] = set()
+    for col in (transactions_col, yapily_transactions_col):
+        cursor = col.find(
+            {"user_id": user_id, "transaction_type": "debit", **other_clause},
+            {"_id": 1},
+        )
+        async for t in cursor:
+            unplaced.add(str(t["_id"]))
+
+    from app.routers.analytics import _flagged_miscategorised
+
+    flagged = await _flagged_miscategorised(user_id)
+    miscategorised = {str(t["_id"]) for t in flagged}
+
+    return unplaced, miscategorised
+
+
+async def _maybe_classification_attention(user_id: str) -> None:
+    """Push once when a sync leaves NEW unplaced or miscategorised payments
+    behind — never the same payment twice (dedup on its stable id)."""
+    if not await notif_pref(user_id, "classification_attention"):
+        return
+
+    try:
+        unplaced, miscategorised = await _current_classification_flags(user_id)
+    except Exception as e:
+        log.warning("classification attention compute failed for %s: %s", user_id, e)
+        return
+
+    all_current = unplaced | miscategorised
+    state = await _state(user_id)
+    seen_key = "classification_seen"
+
+    # First run: seed the baseline silently, same convention as
+    # `_maybe_new_insights` — an existing backlog of unplaced/miscategorised
+    # payments at rollout must never blast a push for history, only for what
+    # a sync newly leaves behind from here on.
+    if seen_key not in state:
+        await notification_state_col.update_one(
+            {"_id": user_id}, {"$set": {seen_key: sorted(all_current)}}, upsert=True,
+        )
+        return
+
+    seen = set(state.get(seen_key) or [])
+    new_unplaced = unplaced - seen
+    new_miscategorised = miscategorised - seen
+    if not new_unplaced and not new_miscategorised:
+        return
+
+    body = _classification_body(new_unplaced, new_miscategorised)
+    await send_push_to_user(user_id, "Some payments need a look", body, "/spend")
+
+    await notification_state_col.update_one(
+        {"_id": user_id}, {"$set": {seen_key: sorted(seen | all_current)}}, upsert=True,
     )
 
 

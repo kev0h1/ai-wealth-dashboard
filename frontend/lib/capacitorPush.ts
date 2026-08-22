@@ -107,6 +107,87 @@ function platform(): string {
 
 export type PushInitResult = "granted" | "denied" | "unavailable" | "no-token";
 
+// Event name for the "user tapped a delivered push notification" handoff
+// from `deliverNotificationPath` below into the React tree (see
+// `components/NotificationNavigator.tsx`). Exported so both sides reference
+// the same string instead of each hardcoding its own copy that could
+// silently drift apart.
+export const NOTIFICATION_TAP_EVENT = "wd:notification-tap";
+
+// Holds tapped notifications' target paths, in arrival order, from the
+// moment each is ready to deliver until `NotificationNavigator` (mounted
+// once, near the root, next to `NativePushResync` in layout.tsx) actually
+// consumes them. This exists for one specific race: a tap can become ready
+// to deliver before that component has mounted (a slow cold start can
+// outrun React), in which case the `CustomEvent` dispatched below fires
+// with nobody listening yet and would otherwise be lost. A real ARRAY, not
+// a single slot: two taps can both queue up before mount (e.g. two pushes
+// tapped in quick succession while the app is still cold-launching), and
+// collapsing them to one slot would silently discard whichever arrived
+// first. `NotificationNavigator` drains the whole queue on mount and
+// navigates each in order, so the most recent tap is the one navigated
+// last, i.e. it wins and ends up as the final on-screen destination, same
+// as if each had been handled live one at a time.
+const pendingNotificationPaths: string[] = [];
+
+/**
+ * Reads and clears every notification path queued by
+ * `deliverNotificationPath` below, oldest first. Called once, from
+ * `NotificationNavigator`'s mount effect.
+ */
+export function consumePendingNotificationPaths(): string[] {
+  return pendingNotificationPaths.splice(0, pendingNotificationPaths.length);
+}
+
+/**
+ * Hands a tapped notification's target path to the React app without ever
+ * navigating before the app is actually interactive.
+ *
+ * Why not the old `window.location.href = path` directly: the
+ * `pushNotificationActionPerformed` listener below can fire in two
+ * situations a raw location assignment handles badly.
+ *   - Cold start: Capacitor buffers the tap that launched the app and
+ *     delivers it as soon as the listener is registered, which happens from
+ *     `NativePushResync`'s mount effect, i.e. potentially while React is
+ *     still hydrating. Assigning `location.href` mid-hydration tears down
+ *     the half-booted app and reloads into a possibly-stale bundle/state.
+ *   - Warm start: even once the app is running, a full `location.href`
+ *     navigation inside a Next.js static export running in Capacitor forces
+ *     a hard reload rather than a client-side route change. Combined with
+ *     `BiometricLock` (which gates content on native), a hard reload can
+ *     land on a freshly-remounted lock screen with stale/half-applied
+ *     state, leaving the UI underneath unresponsive, which matches the
+ *     reported "a lot of buttons were non responsive" symptom.
+ *
+ * Fix: never navigate until `document.readyState === "complete"` (waiting
+ * for the `load` event if it hasn't fired yet), plus a short settle timeout
+ * so any in-flight hydration work gets a tick to finish, then hand off via a
+ * `CustomEvent` to `NotificationNavigator`, a small client component that
+ * performs a soft SPA navigation with Next.js's `router.push()` instead of a
+ * hard reload. This is deliberately simpler than routing through
+ * `history.pushState` + `popstate`: App Router navigation isn't driven by
+ * `popstate` for programmatic pushes, so `router.push()` in a component that
+ * already has `useRouter()` is the direct path, no extra history plumbing
+ * needed. `pendingNotificationPaths` above is the fallback for the case
+ * where that component still hasn't mounted by the time this fires.
+ */
+function deliverNotificationPath(path: string): void {
+  const dispatch = () => {
+    pendingNotificationPaths.push(path);
+    window.dispatchEvent(new CustomEvent(NOTIFICATION_TAP_EVENT, { detail: { path } }));
+  };
+  // `load` fires once resources are in, not once React has finished
+  // hydrating, so this settle window is a pragmatic delay, not a guarantee.
+  // Kept short deliberately: this is still the user's one tap, it should
+  // land promptly once the app can actually handle it.
+  const SETTLE_MS = 50;
+  if (document.readyState === "complete") {
+    setTimeout(dispatch, SETTLE_MS);
+  } else {
+    window.addEventListener("load", () => setTimeout(dispatch, SETTLE_MS), { once: true });
+  }
+}
+
 /**
  * Serialises a non-string value for a diagnostic report. `JSON.stringify`
  * covers the common case (a plain object from a Capacitor plugin), falling
@@ -213,7 +294,7 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
       actionListenerRegistered = true;
       await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
         const path = resolveNotificationPath(action?.notification?.data?.url);
-        window.location.href = path;
+        deliverNotificationPath(path);
       });
     }
 
@@ -302,6 +383,30 @@ export async function unregisterCapacitorPush(): Promise<void> {
     await PushNotifications.unregister();
   } catch (e) {
     console.error("[capacitorPush] unregister failed", e);
+  }
+}
+
+export type CapacitorPushPermission = "granted" | "prompt" | "denied";
+
+/**
+ * Reads OS push permission without prompting or registering anything, a
+ * pure status read, via the same dynamic-import pattern as the rest of this
+ * file (keeps @capacitor/push-notifications out of the web bundle). Drives
+ * the native Settings notifications UI (SettingsPage.tsx): whether to show
+ * the quiet "delivered by your phone" status row, a "Turn on notifications"
+ * prompt row, or the blocked message. Off native, or on any check failure,
+ * reports "denied" since there is nothing to promote to prompt/granted.
+ */
+export async function getCapacitorPushPermission(): Promise<CapacitorPushPermission> {
+  if (!isNative()) return "denied";
+  try {
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    const status = await PushNotifications.checkPermissions();
+    if (status.receive === "granted") return "granted";
+    if (status.receive === "prompt" || status.receive === "prompt-with-rationale") return "prompt";
+    return "denied";
+  } catch {
+    return "denied";
   }
 }
 

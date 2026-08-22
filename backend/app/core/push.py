@@ -287,4 +287,8 @@ async def notify_new_transactions(user_id: str, new_txns: list) -> None:
         body  = " · ".join(p for p in parts if p)
         if len(new_txns) > 2:
             body += f" +{len(new_txns) - 2} more"
-    await send_push_to_user(user_id, title, body, "/spend?view=list")
+    # "/spend?view=list" used to be a dedicated Transactions tab; the Spend
+    # redesign retired it (view=list now just falls back to the "This
+    # period" hub — see frontend/app/components/SpendPage.tsx). The actual
+    # transactions list now lives at its own route, /transactions.
+    await send_push_to_user(user_id, title, body, "/transactions")

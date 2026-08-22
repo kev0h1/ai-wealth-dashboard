@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import ScrollReset from "@/components/ScrollReset";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
 import NativePushResync from "@/components/NativePushResync";
+import NotificationNavigator from "@/components/NotificationNavigator";
 import ThemeColor from "@/components/ThemeColor";
 import BiometricLock from "@/components/BiometricLock";
 import { TutorialProvider } from "@/components/TutorialContext";
@@ -78,6 +79,7 @@ export default function RootLayout({
           <TutorialProvider>
             <ServiceWorkerRegistrar />
             <NativePushResync />
+            <NotificationNavigator />
             <ThemeColor />
             {/* Status-bar safe-area frost — mobile shell only (desktop uses the
                 sidebar, no overlay). Fixed above the scroll so content frosts
