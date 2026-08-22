@@ -32,9 +32,15 @@
 #      (ios-capacitor workflow, below). Flip it there to turn push on or off.
 # The `Add Push Notifications entitlement` build step below sets the
 # `aps-environment` key in App.entitlements to "production" and wires it into
-# the freshly-generated Xcode project (ios/ is not committed — `cap add ios`
+# the freshly-generated Xcode project (ios/ is not committed, `cap add ios`
 # regenerates it every build), but it cannot itself grant the capability on
-# Apple's servers or on the provisioning profile — that's steps 3-4 above.
+# Apple's servers or on the provisioning profile, that's steps 3-4 above.
+# Capacitor's SPM template ships neither of these things out of the box: no
+# entitlements file, and no AppDelegate forwarding of the APNs device token
+# to the push plugin. The `Patch AppDelegate for push token forwarding` build
+# step right after it fixes the second gap, without it the app registers for
+# push at the OS level but the token (or registration error) never reaches
+# the JS side.
 workflows:
   ios-capacitor:
     name: iOS Capacitor (TestFlight)
@@ -165,6 +171,46 @@ workflows:
             grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ" || { echo "ERROR: failed to wire CODE_SIGN_ENTITLEMENTS into $PBXPROJ"; exit 1; }
           else
             echo "Push entitlement (aps-environment / CODE_SIGN_ENTITLEMENTS) SKIPPED (IOS_PUSH_ENABLED != true) — signing a no-push TestFlight build"
+          fi
+      - name: Patch AppDelegate for push token forwarding (SPM template gap)
+        script: |
+          # Gated behind IOS_PUSH_ENABLED, same reasoning as the entitlement
+          # step above: this only matters once push is actually being wired
+          # in, so it stays a no-op for a clean no-push TestFlight build.
+          #
+          # Capacitor 8's SPM iOS template (scaffolded fresh by `cap add ios`
+          # on every build, ios/ is not committed) ships an AppDelegate.swift
+          # that implements neither didRegisterForRemoteNotificationsWithDeviceToken
+          # nor its didFail variant. The @capacitor/push-notifications plugin
+          # does not override AppDelegate itself, it only listens for the
+          # .capacitorDidRegisterForRemoteNotifications and
+          # .capacitorDidFailToRegisterForRemoteNotifications NotificationCenter
+          # events, which the AppDelegate is supposed to post once iOS hands
+          # back the APNs device token (or the registration error). Without
+          # these two methods, register() succeeds at the OS level and the JS
+          # side never hears anything, so there is no token and no error,
+          # ever, just a push permission prompt that silently goes nowhere.
+          if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
+            APPDELEGATE="$CM_BUILD_DIR/capacitor-spike/ios/App/App/AppDelegate.swift"
+            # Matches the class's closing brace, the LAST `}` in the file,
+            # anchored with \z so it cannot match anything earlier, and
+            # inserts the two forwarding methods before it. This is
+            # independent of any specific existing method name, so it stays
+            # robust even if Capacitor tweaks the template body, as long as
+            # the file is still a single top-level class ending in `}` at
+            # EOF. Written with perl (not a heredoc) for the same reason as
+            # the entitlement step above: a heredoc terminator cannot survive
+            # this YAML block scalar's indentation.
+            if ! grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$APPDELEGATE"; then
+              perl -0777 -pi -e 's/\n\}\s*\z/\n\n    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)\n    }\n\n    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {\n        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)\n    }\n}\n/' "$APPDELEGATE"
+            fi
+            # Assert the patch actually took, if Capacitor's template ever
+            # changes shape and the perl substitution silently no-ops, fail
+            # loud here instead of shipping a build where push tokens die
+            # silently inside the app.
+            grep -q "didRegisterForRemoteNotificationsWithDeviceToken" "$APPDELEGATE" || { echo "ERROR: failed to patch AppDelegate.swift for push token forwarding"; exit 1; }
+          else
+            echo "AppDelegate push token forwarding patch SKIPPED (IOS_PUSH_ENABLED != true), building a no-push TestFlight build"
           fi
       - name: Set unique build number
         script: |
