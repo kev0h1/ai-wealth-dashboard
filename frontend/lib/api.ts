@@ -608,13 +608,157 @@ export type CanISuggestions = {
 
 /** POST /can-i response. `headline`/`facts`/`out_of_scope` are additive —
  * an older backend returns only `reply`/`offer`, and callers must degrade
- * gracefully (render `reply` as plain body text) when they're absent. */
+ * gracefully (render `reply` as plain body text) when they're absent.
+ *
+ * `scenario`/`items`/`rejected`/`prefilled`/`clarify` are ALSO additive: they
+ * appear only when the deterministic classifier in
+ * backend/app/routers/scenario.py's `looks_like_scenario` fired instead of a
+ * normal affordability answer (see that router's /can-i short-circuit). When
+ * `scenario` is true, `facts` is always `[]` and `out_of_scope` is always
+ * false — the real payload lives in `items`/`rejected`/`prefilled`/`clarify`.
+ * `clarify` non-null means extraction found nothing usable; render `reply`
+ * as an ordinary message, no confirm card. Otherwise `items` (max 3, backend-
+ * capped) is the slot-extraction result the user must confirm/edit before
+ * anything is simulated — see ScenarioItem below. */
 export type CanIResponse = {
   reply: string;
   offer?: CanIOffer | null;
   headline?: string;
   facts?: string[];
   out_of_scope?: boolean;
+  scenario?: boolean;
+  items?: ScenarioItem[];
+  rejected?: string[];
+  /** True when the backend guessed an amount the user never stated (e.g.
+   * "what if I lose my job" prefilled from median income) — always paired
+   * with an `income_change` kind item, since that's the only case the
+   * backend ever prefills. Mark that field as an assumption to check, not
+   * as a stated fact. */
+  prefilled?: boolean;
+  clarify?: string | null;
+};
+
+/** A single confirmed "what if" scenario item, as sent to POST /scenario/run.
+ * Mirrors backend/app/services/scenario.py's `normalise_items` contract
+ * exactly (kind/direction/cadence enums, ISO date strings) — the backend
+ * silently drops anything it can't validate into `rejected` rather than
+ * erroring, so this type is deliberately permissive on the wire (the
+ * backend is the source of truth for what's actually accepted). */
+export type ScenarioItem = {
+  label: string;
+  amount: number;
+  direction: "out" | "in";
+  cadence: "monthly" | "weekly" | "annual" | "one_off";
+  starts: string; // ISO date
+  ends?: string | null; // ISO date, optional
+  kind: "new_outgoing" | "removal" | "income_change";
+  category?: string | null; // only meaningful when kind === "removal"
+};
+
+/** Cash-flow re-projection block. Null when there's under 2 months of
+ * transaction history to project from (see scenario.py's `thin_history`). */
+export type ScenarioCashBlock = {
+  surplus_now: number;
+  surplus_after: number;
+  per_month: number[];
+  first_tight_month: string | null;
+  months_negative: number;
+};
+
+/** Debt re-projection block. Null when no card has both a balance and
+ * demonstrated monthly movement to project against. Individual date fields
+ * can still be null even when the block itself isn't (e.g. no canonical
+ * debt-free date exists within the projection window). */
+export type ScenarioDebtBlock = {
+  debt_free_month_now: string | null;
+  debt_free_month_after: string | null;
+  months_later: number | null;
+  extra_interest: number | null;
+  movement_exhausted: boolean;
+  clears_after: boolean;
+};
+
+export type ScenarioPlanItem = {
+  name: string;
+  feasibility_now: string | null;
+  feasibility_after: string | null;
+  target_date: string | null;
+  slipped: boolean;
+};
+
+/** Plans/goals re-check block. Null when there are no active plans, or
+ * feasibility couldn't be computed at all. */
+export type ScenarioPlansBlock = {
+  items: ScenarioPlanItem[];
+  any_worse: boolean;
+};
+
+/** Emergency-fund cover block. Null when there's not enough spending
+ * history yet. `months_cover_after` can itself be null within a non-null
+ * block (adjusted spending resolves to zero). */
+export type ScenarioGrowBlock = {
+  months_cover_now: number;
+  months_cover_after: number | null;
+  current_savings: number;
+};
+
+export type ScenarioAbsorbCandidate = { category: string; monthly: number };
+
+/** "Where this comes from" block. Null whenever the scenario doesn't
+ * reduce spare cash (a cancellation/income rise) — there's nothing to
+ * absorb, not an error. */
+export type ScenarioAbsorbBlock = {
+  shortfall: number;
+  covered_by_surplus: number;
+  candidates: ScenarioAbsorbCandidate[];
+};
+
+/** Per-block null reasons, one slot per axis. Each is the plain-English
+ * reason that axis's block is null (e.g. cash's "Fewer than 2 months of
+ * transaction history..."), or null when that block isn't null / has no
+ * reason to report. Replaces the old approach of folding every block's
+ * reason into the flat `assumptions` array and recovering it client-side by
+ * matching fixed backend string prefixes — see git history on
+ * ScenarioPage.tsx for that (retired) approach. `assumptions` now carries
+ * only GLOBAL notes with no single block to attach to (e.g. the payday/
+ * rhythm line). */
+export type ScenarioReasons = {
+  cash: string | null;
+  debt: string | null;
+  plans: string | null;
+  grow: string | null;
+  absorb: string | null;
+};
+
+/** POST /scenario/run response. Every one of cash/debt/plans/grow/absorb
+ * can legitimately be null — each null is always paired with a plain-
+ * English reason in `reasons`, never a silent gap. See
+ * backend/app/services/scenario.py's `simulate()` docstring for the full
+ * doctrine (every figure computed from real inputs, never a guess). */
+export type ScenarioRunResponse = {
+  horizon_months: number;
+  items: ScenarioItem[];
+  rejected: string[];
+  baseline: {
+    monthly_surplus: number;
+    monthly_income: number;
+    monthly_spending: number;
+    n_months: number;
+  };
+  recurring_delta: number;
+  cash: ScenarioCashBlock | null;
+  debt: ScenarioDebtBlock | null;
+  plans: ScenarioPlansBlock | null;
+  grow: ScenarioGrowBlock | null;
+  absorb: ScenarioAbsorbBlock | null;
+  reasons: ScenarioReasons;
+  /** True when some of this scenario lands in specific months rather than
+   * being spread evenly (an annual/one-off dominated scenario) — see
+   * backend/app/routers/scenario.py's `_is_lumpy_scenario`. Replaces the old
+   * client-side `assumptions` substring match for the same signal. */
+  lumpy: boolean;
+  assumptions: string[];
+  headline: string;
 };
 
 export type MoneyBasic = {
@@ -1436,6 +1580,13 @@ export const api = {
     post<{ reply: string }>("/chat/tax", { messages }),
   canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>) =>
     post<CanIResponse>("/can-i", { question, history }),
+  // Confirmed (possibly user-edited) "what if" scenario items -> full
+  // deterministic projection + one LLM-composed headline. See
+  // backend/app/routers/scenario.py's /scenario/run for the validation and
+  // simulate() call this wraps; up to 10 items, backend caps to 3 and
+  // returns the rest in `rejected` with a plain-English reason each.
+  scenarioRun: (items: ScenarioItem[]) =>
+    post<ScenarioRunResponse>("/scenario/run", { items }),
   // May 404 until the backend ships it — every caller wraps this in .catch()
   // and treats a failure as "no suggestions yet" (empty chips, no context line).
   canISuggestions: () => get<CanISuggestions>("/can-i/suggestions"),

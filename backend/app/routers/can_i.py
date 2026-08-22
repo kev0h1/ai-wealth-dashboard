@@ -19,6 +19,7 @@ from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import cashflow_cache_col, commitments_col, savings_goals_col
 from app.routers.analytics import compute_safe_to_spend, _build_cashflow_response
 from app.routers.savings import _cashflow, _current_savings
+from app.routers.scenario import looks_like_scenario, parse_question
 from app.services.categories import BUILTIN_CATEGORIES, get_category_kinds, is_discretionary
 from app.services.region import get_user_region
 
@@ -52,23 +53,13 @@ def _fmt_gbp(amount: float, decimals: int = 0) -> str:
     return f"−£{abs(amount):,.{decimals}f}" if amount < 0 else f"£{amount:,.{decimals}f}"
 
 
-# House-style guardrail (same pattern as savings_insights.py's _house_style):
-# the system prompt already tells the model never to use an em-dash or
-# en-dash, but live testing shows Haiku can still slip one into the short
-# HEADLINE line. Post-hoc backstop, not a replacement for the instruction —
-# replace with a comma so a stray dash never reaches a client. The facts
-# array always spells a negative amount with the app's Unicode minus (see
-# _fmt_gbp), but the model composes its own prose from the raw numeric facts
-# and reaches for a plain hyphen ("-£184") — normalised to match here too.
-_DASH_RE = re.compile(r"\s*[—–]\s*")
-_HYPHEN_MINUS_GBP_RE = re.compile(r"-£")
-
-
-def _house_style(text: str) -> str:
-    """Replace any em-dash/en-dash with a comma, and any hyphen-minus
-    directly before £ with the app's Unicode minus, per house copy rules."""
-    text = _HYPHEN_MINUS_GBP_RE.sub("−£", text)
-    return _DASH_RE.sub(", ", text).strip()
+# House-style guardrail: extracted to app.services.copy_style so every
+# surface phrasing LLM output shares exactly one em-dash/en-dash backstop
+# (see that module's docstring for the full rationale). Kept as a thin
+# local delegation, not a straight `from ... import house_style`, so this
+# file's public behaviour (the name `_house_style` other code in this
+# module already calls) stays byte-identical.
+from app.services.copy_style import house_style as _house_style
 
 
 def _round5(value: float) -> int:
@@ -332,6 +323,47 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     uid = user["email"]
     await check_ai_chat_limit(uid)
+
+    # ── Scenario short-circuit — deterministic routing, no LLM judgement ────
+    # looks_like_scenario (app/routers/scenario.py) is a hard rule: an ONGOING
+    # or FUTURE-DATED money change (a new standing cost, a cancellation, an
+    # income change) routes to the scenario simulator's slot extraction
+    # instead of this endpoint's own one-off affordability fact-gathering.
+    # Runs BEFORE the out-of-scope gate and before any fact pack/LLM call
+    # below, so a scenario-shaped question never falls into Can-I's own
+    # verdict call. Shares parse_question with POST /scenario/parse rather
+    # than a second copy of extraction (see that function's docstring).
+    # check_ai_chat_limit is NOT called again here (already done just above,
+    # exactly once for this request); parse_question calls
+    # increment_ai_chat_usage itself, at most once, only if extraction
+    # actually ran. This never simulates: the user confirms/edits slots via
+    # the confirm card before /scenario/run is ever called.
+    if looks_like_scenario(question):
+        result = await parse_question(uid, question)
+        items = result.get("items") or []
+        clarify = result.get("clarify")
+        if clarify:
+            reply = clarify
+            headline = "Tell me a bit more"
+        elif len(items) == 1:
+            subject = items[0].get("label") or "this change"
+            reply = f"Got it, {subject}. Check the details below and I'll run the numbers."
+            headline = "Here's what I understood"
+        else:
+            subject = f"these {len(items)} changes"
+            reply = f"Got it, {subject}. Check the details below and I'll run the numbers."
+            headline = "Here's what I understood"
+        return {
+            "scenario": True,
+            "items": items,
+            "rejected": result.get("rejected") or [],
+            "prefilled": result.get("prefilled") or False,
+            "clarify": clarify,
+            "reply": _house_style(reply),
+            "headline": _house_style(headline),
+            "facts": [],
+            "out_of_scope": False,
+        }
 
     # ── Out-of-scope gate — deterministic, no free-form LLM judgement ───────
     # Two cheap projected reads (active goals for the scope check itself and

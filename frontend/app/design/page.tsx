@@ -15,6 +15,24 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "scenario-a",
+    name: "scenario-a",
+    description: "What-if verdict · Delta-led comparison (now vs with this)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "scenario-b",
+    name: "scenario-b",
+    description: "What-if verdict · Verdict-led, quietest, one sentence + one fact",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "scenario-c",
+    name: "scenario-c",
+    description: "What-if verdict · Baseline-led (standing position leads)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "coming-up",
     name: "coming-up",
     description: "Coming up card · 3 variants (ledger / timeline / next three)",

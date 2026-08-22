@@ -1754,8 +1754,20 @@ async def compute_debt_plan(uid: str) -> dict:
     # ── Extra to clear ────────────────────────────────────────────────────────
     extra_to_clear = _compute_extra_to_clear([c for c in cards_out if c.get("classification") != "cleared_monthly"], today)
 
-    # Strip internal fields before returning (keep output JSON-clean)
+    # Strip internal fields before returning (keep output JSON-clean).
+    # `_projection_rate_schedule` is the one exception: it is publicly
+    # exposed as `projection_rate_schedule` (additive, alongside the
+    # existing `rate_schedule`) before its private copy is popped, so a
+    # consumer of the cached plan (e.g. app.services.scenario) can re-run
+    # `_amortise` against the SAME schedule this engine actually used —
+    # including the "no interest observed, projected without it" doctrine
+    # above that empties the schedule out entirely on a silent 0% card —
+    # rather than falling back to the raw file-derived `rate_schedule`,
+    # which still carries interest-bearing segments this engine
+    # deliberately isn't charging. Every other `_`-prefixed field keeps
+    # being stripped exactly as before; this is the only addition.
     for c in cards_out:
+        c["projection_rate_schedule"] = c.get("_projection_rate_schedule") or []
         c.pop("_standard_apr", None)
         c.pop("_bt_offers", None)
         c.pop("_interest_series", None)

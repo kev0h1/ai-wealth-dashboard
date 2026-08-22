@@ -23,8 +23,9 @@
 //   instead of a bold verdict headline (see VerdictCard's `degraded` case).
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Send, Loader2, X } from "lucide-react";
-import { api, CanIOffer, CanISuggestionChip } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import CommitmentSheet from "@/components/CommitmentSheet";
@@ -35,8 +36,9 @@ const HISTORY_CAP = 6;
 const DEFAULT_PLACEHOLDER = "Ask Penny: Can I spend £45 this weekend?";
 
 type UserMsg = { role: "user"; content: string };
-type AssistantMsg = {
+type VerdictMsg = {
   role: "assistant";
+  kind: "verdict";
   headline: string;
   facts?: string[];
   offer?: CanIOffer | null;
@@ -46,6 +48,21 @@ type AssistantMsg = {
    * plain body text rather than a bold verdict headline. */
   degraded: boolean;
 };
+/** The slot-confirm gate for a "what if" scenario question — the deliberate
+ * anti-chatbot step in this feature. POST /can-i's deterministic classifier
+ * (backend/app/routers/scenario.py's `looks_like_scenario`) routes an
+ * ongoing/future-dated money question here instead of a normal verdict; the
+ * user must see and be able to correct exactly what will be simulated
+ * before any numbers are produced. Rendered by ScenarioConfirmCard below;
+ * "Run it" pushes the (possibly edited) items straight to /scenario. */
+type ScenarioMsg = {
+  role: "assistant";
+  kind: "scenario";
+  items: ScenarioItem[];
+  rejected: string[];
+  prefilled: boolean;
+};
+type AssistantMsg = VerdictMsg | ScenarioMsg;
 type Msg = UserMsg | AssistantMsg;
 
 function reducedMotion(): boolean {
@@ -68,7 +85,7 @@ function UserLine({ text }: { text: string }) {
  * used to show, just inside the new card shell. Out-of-scope answers use
  * the exact same card anatomy as any other verdict (per the approved
  * design) — no separate visual treatment. */
-function VerdictCard({ msg, onOfferTap }: { msg: AssistantMsg; onOfferTap: () => void }) {
+function VerdictCard({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
   return (
     <div className="glass-card rounded-2xl p-4 w-full">
       {msg.degraded ? (
@@ -93,6 +110,221 @@ function VerdictCard({ msg, onOfferTap }: { msg: AssistantMsg; onOfferTap: () =>
         >
           Set this up: <span className="font-mono tabular-nums">£{Math.round(msg.offer.per_period).toLocaleString("en-GB")}</span>/period ›
         </button>
+      )}
+    </div>
+  );
+}
+
+const CADENCE_OPTIONS: { value: ScenarioItem["cadence"]; label: string }[] = [
+  { value: "monthly", label: "Monthly" },
+  { value: "weekly", label: "Weekly" },
+  { value: "annual", label: "Annual" },
+  { value: "one_off", label: "One off" },
+];
+
+/** "2026-10-01" -> "2026-10", for a native `type="month"` input's value. */
+function toMonthValue(iso: string | null | undefined): string {
+  return iso ? iso.slice(0, 7) : "";
+}
+/** "2026-10" -> "2026-10-01" — the backend always deals in first-of-month
+ * ISO dates for `starts`/`ends` (see parse_question's own resolved-start
+ * output), so editing keeps that shape. */
+function fromMonthValue(month: string): string {
+  return month ? `${month}-01` : "";
+}
+
+/** A single confirmable scenario item, editable in place. Amount is kept as
+ * a draft string (not a controlled number) while typing — same convention
+ * as SavingsGoalSheet's amount fields — parsed back to a number only when
+ * the parent reads it out for "Run it" or a remove/reorder re-render. */
+type DraftItem = Omit<ScenarioItem, "amount"> & { amountText: string };
+
+function toDraft(item: ScenarioItem): DraftItem {
+  const { amount, ...rest } = item;
+  return { ...rest, amountText: String(amount) };
+}
+function fromDraft(draft: DraftItem): ScenarioItem {
+  const { amountText, ...rest } = draft;
+  const n = Number(amountText);
+  return { ...rest, amount: Number.isFinite(n) ? n : 0 };
+}
+
+const FIELD_CLASS =
+  "mt-1 w-full min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-xl px-3 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 focus-visible:ring-2 focus-visible:ring-indigo-500";
+const FIELD_LABEL_CLASS = "text-[11px] font-medium text-slate-500 dark:text-slate-400";
+
+/** The slot-confirm card — the deliberate anti-chatbot gate for a "what if"
+ * question. Shows every extracted item as editable fields (label, amount,
+ * cadence, start month, ongoing-or-end-month) so the user can see and
+ * correct exactly what will be simulated before any numbers are produced.
+ * Holds its own draft state seeded from the backend's extraction; nothing
+ * is sent anywhere until "Run it". `rejected` (items the backend dropped,
+ * e.g. over the 3-item cap) is surfaced quietly underneath rather than
+ * silently giving the user less than they asked for. */
+function ScenarioConfirmCard({
+  items,
+  rejected,
+  prefilled,
+  onRun,
+}: {
+  items: ScenarioItem[];
+  rejected: string[];
+  prefilled: boolean;
+  onRun: (items: ScenarioItem[]) => void;
+}) {
+  const [drafts, setDrafts] = useState<DraftItem[]>(() => items.map(toDraft));
+
+  function patch(i: number, next: Partial<DraftItem>) {
+    setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...next } : d)));
+  }
+  function remove(i: number) {
+    setDrafts((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="glass-card rounded-2xl p-4 w-full">
+      <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">Here&apos;s what I understood</p>
+      {drafts.length === 0 ? (
+        <p className="mt-2 text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">
+          Everything was removed, nothing left to run.
+        </p>
+      ) : (
+        <form
+          className="mt-3 flex flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onRun(drafts.map(fromDraft));
+          }}
+        >
+          {drafts.map((d, i) => {
+            const isAssumption = prefilled && d.kind === "income_change";
+            const hasEnd = !!d.ends;
+            return (
+              <fieldset key={i} className="rounded-xl border border-slate-200 dark:border-slate-600 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-0.5">
+                    {d.kind === "removal" ? "Cancel" : d.kind === "income_change" ? "Income change" : "New cost"}
+                  </legend>
+                  <button
+                    type="button"
+                    onClick={() => remove(i)}
+                    aria-label={`Remove ${d.label || "this item"}`}
+                    className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <label className="block mt-1.5">
+                  <span className={FIELD_LABEL_CLASS}>Label</span>
+                  <input
+                    type="text"
+                    value={d.label}
+                    onChange={(e) => patch(i, { label: e.target.value })}
+                    maxLength={40}
+                    required
+                    className={FIELD_CLASS}
+                  />
+                </label>
+
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className={FIELD_LABEL_CLASS}>
+                      Amount
+                      {isAssumption && (
+                        <span className="ml-1 inline-flex items-center gap-1">
+                          <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
+                          assumption, check this
+                        </span>
+                      )}
+                    </span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 text-sm pointer-events-none select-none mt-0.5">£</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={d.amountText}
+                        onChange={(e) => patch(i, { amountText: e.target.value })}
+                        required
+                        className={`${FIELD_CLASS} pl-6 font-mono tabular-nums`}
+                      />
+                    </div>
+                  </label>
+
+                  <label className="block">
+                    <span className={FIELD_LABEL_CLASS}>Cadence</span>
+                    <select
+                      value={d.cadence}
+                      onChange={(e) => patch(i, { cadence: e.target.value as ScenarioItem["cadence"] })}
+                      className={FIELD_CLASS}
+                    >
+                      {CADENCE_OPTIONS.map((c) => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {/* Stacked, not a 2-col grid like the fields above — a
+                    native `type="month"` control needs its full row to
+                    display a longer month name (e.g. "September 2026")
+                    without truncating against its own built-in icon. */}
+                <label className="block mt-2">
+                  <span className={FIELD_LABEL_CLASS}>Starts</span>
+                  <input
+                    type="month"
+                    value={toMonthValue(d.starts)}
+                    onChange={(e) => patch(i, { starts: fromMonthValue(e.target.value) })}
+                    required
+                    className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
+                  />
+                </label>
+
+                <label className="block mt-2">
+                  <span className={FIELD_LABEL_CLASS}>Duration</span>
+                  <select
+                    value={hasEnd ? "until" : "ongoing"}
+                    onChange={(e) =>
+                      patch(i, { ends: e.target.value === "ongoing" ? null : d.ends || d.starts })
+                    }
+                    className={FIELD_CLASS}
+                  >
+                    <option value="ongoing">Ongoing</option>
+                    <option value="until">Ends</option>
+                  </select>
+                </label>
+
+                {hasEnd && (
+                  <label className="block mt-2">
+                    <span className={FIELD_LABEL_CLASS}>End month</span>
+                    <input
+                      type="month"
+                      value={toMonthValue(d.ends)}
+                      onChange={(e) => patch(i, { ends: fromMonthValue(e.target.value) })}
+                      required
+                      className={`${FIELD_CLASS} appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
+                    />
+                  </label>
+                )}
+              </fieldset>
+            );
+          })}
+
+          {rejected.length > 0 && (
+            <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500 text-pretty">{rejected.join(" ")}</p>
+          )}
+
+          <button
+            type="submit"
+            className="min-h-[44px] rounded-xl text-white text-sm font-semibold active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            style={{ background: BG }}
+          >
+            Run it
+          </button>
+        </form>
+      )}
+      {drafts.length === 0 && rejected.length > 0 && (
+        <p className="mt-2 text-[12px] leading-snug text-slate-400 dark:text-slate-500 text-pretty">{rejected.join(" ")}</p>
       )}
     </div>
   );
@@ -171,6 +403,7 @@ export default function PennyConversation({
   onContextLine?: (line: string | null) => void;
   className?: string;
 }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -204,9 +437,14 @@ export default function PennyConversation({
   }, []);
 
   function buildHistory(msgs: Msg[]): Array<{ role: "user" | "assistant"; content: string }> {
-    return msgs.slice(-HISTORY_CAP).map((m) =>
-      m.role === "user" ? { role: "user" as const, content: m.content } : { role: "assistant" as const, content: m.headline }
-    );
+    return msgs.slice(-HISTORY_CAP).map((m) => {
+      if (m.role === "user") return { role: "user" as const, content: m.content };
+      // A scenario confirm card has no headline of its own — summarise it
+      // by label so a follow-up question still has something sensible to
+      // read as "what Penny said last".
+      const content = m.kind === "scenario" ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.` : m.headline;
+      return { role: "assistant" as const, content };
+    });
   }
 
   async function ask(question: string, history: Array<{ role: "user" | "assistant"; content: string }>) {
@@ -214,9 +452,20 @@ export default function PennyConversation({
     setLoading(true);
     try {
       const res = await api.canI(question, history);
-      const assistantMsg: AssistantMsg = res.headline
-        ? { role: "assistant", headline: res.headline, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, degraded: false }
-        : { role: "assistant", headline: res.reply, offer: res.offer ?? null, degraded: true };
+      let assistantMsg: AssistantMsg;
+      if (res.scenario && res.items && res.items.length > 0 && !res.clarify) {
+        // The slot-confirm gate — see ScenarioMsg's doc comment. Never a
+        // verdict card: nothing has been simulated yet.
+        assistantMsg = { role: "assistant", kind: "scenario", items: res.items, rejected: res.rejected ?? [], prefilled: res.prefilled ?? false };
+      } else if (res.scenario) {
+        // `clarify` non-null (or no usable items extracted) — nothing to
+        // confirm, render `reply` as an ordinary plain-text message.
+        assistantMsg = { role: "assistant", kind: "verdict", headline: res.reply, degraded: true };
+      } else if (res.headline) {
+        assistantMsg = { role: "assistant", kind: "verdict", headline: res.headline, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, degraded: false };
+      } else {
+        assistantMsg = { role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, degraded: true };
+      }
       setMessages((prev) => [...prev, assistantMsg].slice(-HISTORY_CAP));
       setOffer(res.offer ?? null);
     } catch {
@@ -228,6 +477,14 @@ export default function PennyConversation({
       // a bubble, but the "ask another one immediately" flow is unchanged).
       inputRef.current?.focus();
     }
+  }
+
+  /** "Run it" on a scenario confirm card — pushes the (possibly edited)
+   * items straight to /scenario as a JSON-encoded `items` query param,
+   * exactly what ScenarioPage.tsx expects. No re-typing the question:
+   * editing happens entirely in the card, this is a pure navigation. */
+  function runScenario(items: ScenarioItem[]) {
+    router.push(`/scenario?items=${encodeURIComponent(JSON.stringify(items))}`);
   }
 
   function send(text: string) {
@@ -283,9 +540,13 @@ export default function PennyConversation({
           this). */}
       {messages.length > 0 && (
         <div aria-live="polite" role="log" className="space-y-3">
-          {messages.map((m, i) =>
-            m.role === "user" ? <UserLine key={i} text={m.content} /> : <VerdictCard key={i} msg={m} onOfferTap={openOfferSheet} />
-          )}
+          {messages.map((m, i) => {
+            if (m.role === "user") return <UserLine key={i} text={m.content} />;
+            if (m.kind === "scenario") {
+              return <ScenarioConfirmCard key={i} items={m.items} rejected={m.rejected} prefilled={m.prefilled} onRun={runScenario} />;
+            }
+            return <VerdictCard key={i} msg={m} onOfferTap={openOfferSheet} />;
+          })}
           {loading && <BouncingDots />}
           {error && !loading && <ErrorRetry onRetry={retry} />}
           <div ref={threadEndRef} />
@@ -367,6 +628,7 @@ export default function PennyConversation({
               ...prev,
               {
                 role: "assistant" as const,
+                kind: "verdict" as const,
                 headline: `Set up: £${Math.round(item.per_period_slice).toLocaleString("en-GB")} ${item.period_label ? `each pay period (${item.period_label})` : "a period"} reserved.`,
                 degraded: true,
               },
