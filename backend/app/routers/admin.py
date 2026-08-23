@@ -23,7 +23,7 @@ async def admin_sync_all(request: Request):
         uid = conn.get("user_id")
         if not uid:
             continue
-        ids = await sync_connection(conn["_id"], uid)
+        ids, _new = await sync_connection(conn["_id"], uid)
         total_accounts += len(ids)
         user_ids.add(uid)
 

@@ -1,10 +1,13 @@
 """arq worker: bank sync tasks + reconciliation cron."""
+import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 from arq import ArqRedis, cron
 from arq.connections import RedisSettings
 
 from app.core.config import REDIS_URL
+from app.core.push import send_push_to_user
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col, mono_connections_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
@@ -16,9 +19,33 @@ from app.services.mono_sync import sync_mono_connection
 from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+from app.services.notifications import notif_pref
 from app.db.collections import investment_accounts_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
+
+logger = logging.getLogger(__name__)
+
+# Specials that don't round-trip through a plain "strip 'ob-', title-case"
+# transform — trademarked capitalisation, ampersands, or acronyms.
+_BANK_NAME_SPECIALS = {
+    "ms":       "M&S Bank",
+    "hsbc":     "HSBC",
+    "natwest":  "NatWest",
+    "tsb":      "TSB",
+    "amex":     "Amex",
+    "chase_uk": "Chase",
+}
+
+
+def _bank_display_name(provider_id: Optional[str]) -> str:
+    """Human-friendly bank name from a provider_id/provider like "ob-monzo"."""
+    if not provider_id:
+        return "Your bank"
+    raw = provider_id[3:] if provider_id.startswith("ob-") else provider_id
+    if raw in _BANK_NAME_SPECIALS:
+        return _BANK_NAME_SPECIALS[raw]
+    return raw.replace("_", " ").title()
 
 
 async def _enqueue_weekly_insight_refresh(ctx, user_id: str) -> None:
@@ -166,6 +193,147 @@ async def task_reconcile_truelayer(ctx):
     return {"reconciled": enqueued, "at": now.isoformat()}
 
 
+def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
+    if isinstance(last_synced, datetime):
+        return (
+            f"{bank} last synced {last_synced.strftime('%-d %b')} and its bank permission "
+            f"has ended. Tap Reconnect on the Accounts page to carry on."
+        )
+    return (
+        f"{bank} stopped syncing because its bank permission ended. "
+        f"Tap Reconnect on the Accounts page to carry on."
+    )
+
+
+def _expiring_copy(bank: str, expires_at: datetime, now: datetime) -> tuple[str, str]:
+    days = (expires_at - now).days
+    title = f"{bank} access expires tomorrow" if days <= 1 else f"{bank} access expires in {days} days"
+    body = f"Reconnect before {expires_at.strftime('%-d %b')} to keep {bank} syncing without a gap."
+    return title, body
+
+
+async def task_consent_watch(ctx):
+    """Daily nudge for bank connections whose consent is dead or expiring soon.
+
+    `needs_reauth` (TrueLayer) and a non-"authorized" remote `status`
+    (Finexer) are written during sync but, until now, nothing read them back
+    — a dead connection just silently stopped syncing until a user happened
+    to notice on the Accounts page. This walks every connection/consent that
+    owns at least one account and pushes a calm reconnect nudge, throttled to
+    once per 72h per connection so it can't nag on every run.
+
+    NB: naive-UTC comparisons throughout, same convention as
+    task_reconcile_truelayer — Mongo returns naive UTC datetimes here.
+    """
+    now = datetime.utcnow()
+    warn_cutoff = now + timedelta(days=7)
+    throttle_cutoff = now - timedelta(hours=72)
+
+    nagged = 0
+    warned = 0
+
+    # ---- TrueLayer connections ----
+    tl_conns = await connections_col.find(
+        {"user_id": {"$exists": True, "$ne": None}},
+        {"_id": 1, "user_id": 1, "needs_reauth": 1, "consent_expires_at": 1,
+         "last_synced": 1, "provider": 1, "last_connection_nag": 1},
+    ).to_list(None)
+
+    for conn in tl_conns:
+        uid = conn.get("user_id")
+        if not uid:
+            continue
+        owns = await accounts_col.count_documents({"connection_id": conn["_id"]}, limit=1)
+        if owns == 0:
+            continue
+
+        last_nag = conn.get("last_connection_nag")
+        if isinstance(last_nag, datetime) and last_nag > throttle_cutoff:
+            continue
+
+        is_dead = bool(conn.get("needs_reauth"))
+        expires_at = conn.get("consent_expires_at")
+        is_expiring = (
+            not is_dead
+            and isinstance(expires_at, datetime)
+            and now <= expires_at <= warn_cutoff
+        )
+        if not is_dead and not is_expiring:
+            continue
+        if not await notif_pref(uid, "connection_health"):
+            continue
+
+        bank = _bank_display_name(conn.get("provider"))
+        if is_dead:
+            title = f"{bank} needs reconnecting"
+            body = _reconnect_body(bank, conn.get("last_synced"))
+        else:
+            title, body = _expiring_copy(bank, expires_at, now)
+
+        try:
+            await send_push_to_user(uid, title, body, url="/")
+        except Exception:
+            logger.exception("consent watch push failed for TrueLayer connection %s", conn["_id"])
+            continue
+
+        await connections_col.update_one({"_id": conn["_id"]}, {"$set": {"last_connection_nag": now}})
+        if is_dead:
+            nagged += 1
+        else:
+            warned += 1
+
+    # ---- Finexer consents ----
+    fx_consents = await finexer_consents_col.find(
+        {"last_synced": {"$exists": True}},
+        {"_id": 1, "user_id": 1, "status": 1, "expiry_date": 1,
+         "last_synced": 1, "provider": 1, "last_connection_nag": 1},
+    ).to_list(None)
+
+    for fx in fx_consents:
+        uid = fx.get("user_id")
+        if not uid:
+            continue
+
+        last_nag = fx.get("last_connection_nag")
+        if isinstance(last_nag, datetime) and last_nag > throttle_cutoff:
+            continue
+
+        is_dead = fx.get("status") != "authorized"
+        expiry_date = fx.get("expiry_date")
+        is_expiring = (
+            not is_dead
+            and isinstance(expiry_date, datetime)
+            and now <= expiry_date <= warn_cutoff
+        )
+        if not is_dead and not is_expiring:
+            continue
+        if not await notif_pref(uid, "connection_health"):
+            continue
+
+        bank = _bank_display_name(fx.get("provider"))
+        if is_dead:
+            title = f"{bank} needs reconnecting"
+            body = _reconnect_body(bank, fx.get("last_synced"))
+        else:
+            title, body = _expiring_copy(bank, expiry_date, now)
+
+        try:
+            await send_push_to_user(uid, title, body, url="/")
+        except Exception:
+            logger.exception("consent watch push failed for Finexer consent %s", fx["_id"])
+            continue
+
+        await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": {"last_connection_nag": now}})
+        if is_dead:
+            nagged += 1
+        else:
+            warned += 1
+
+    summary = {"nagged": nagged, "warned": warned}
+    logger.info("consent watch: %s", summary)
+    return summary
+
+
 async def task_period_digests(ctx):
     """Fresh-start digest: one push per user on the first day of their pay
     period. send_period_digest itself checks the boundary, the user's
@@ -225,13 +393,16 @@ class WorkerSettings:
     # the weekly insights refresh land somewhere that executes them.
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
-                 task_refresh_investment_prices, task_refresh_savings_insights]
+                 task_refresh_investment_prices, task_refresh_savings_insights,
+                 task_consent_watch]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
         # 07:00 UTC = start-of-morning UK; the task is a no-op except on each
         # user's period boundary
         cron(task_period_digests, hour=7, minute=0, run_at_startup=False),
+        # 08:15 UK morning: nudge dead/expiring bank connections to reconnect.
+        cron(task_consent_watch, hour=8, minute=15, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

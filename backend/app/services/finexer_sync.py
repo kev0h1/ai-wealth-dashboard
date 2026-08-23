@@ -1,7 +1,7 @@
 """Finexer open-banking sync — HTTP Basic auth, consent-based flow."""
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -123,6 +123,21 @@ def _infer_transaction_type(txn: dict) -> str:
         return "debit"
 
 
+def _parse_iso_utc(s) -> Optional[datetime]:
+    """Parse an ISO 8601 timestamp (optionally trailing 'Z') to a NAIVE UTC
+    datetime, matching this codebase's convention of storing naive UTC in
+    Mongo. Returns None if absent or unparseable."""
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
 def _parse_date(txn: dict) -> datetime:
     """Parse transaction date from possible field names."""
     raw = (
@@ -220,6 +235,15 @@ async def _upsert_finexer_transactions(
     return new_txns
 
 
+async def _mark_finexer_accounts_expired(consent_id: str) -> None:
+    """Flag every account on this consent so the existing "needs reconnecting"
+    banner fires (the UI reads status), mirroring truelayer_sync.py."""
+    await accounts_col.update_many(
+        {"connection_id": consent_id},
+        {"$set": {"status": "expired"}},
+    )
+
+
 async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int]:
     """
     Sync all accounts and transactions for one Finexer consent.
@@ -251,12 +275,40 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
     async with _client() as client:
         # Verify consent status remotely
         cr = await client.get(f"/consents/{consent_id}")
-        if cr.status_code != 200:
-            logger.error("Finexer GET /consents/%s failed: HTTP %s", consent_id, cr.status_code)
+        if cr.status_code == 200:
+            consent_doc = cr.json()
+            remote_status = consent_doc.get("status")
+            # Always persist what the remote told us, even when we're about
+            # to bail below — a stale local "authorized" must not linger.
+            await finexer_consents_col.update_one(
+                {"_id": consent_id},
+                {"$set": {
+                    "status":      remote_status,
+                    "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
+                    "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
+                }},
+            )
+            if remote_status != "authorized":
+                logger.warning(
+                    "Finexer consent %s status is %s, marking its accounts expired",
+                    consent_id, remote_status,
+                )
+                await _mark_finexer_accounts_expired(consent_id)
+                return [], 0
+        elif cr.status_code in (401, 403, 404):
+            # Consent is gone remotely: revoke locally and flag its accounts.
+            logger.warning(
+                "Finexer consent %s no longer exists remotely (HTTP %s), marking revoked",
+                consent_id, cr.status_code,
+            )
+            await finexer_consents_col.update_one(
+                {"_id": consent_id}, {"$set": {"status": "revoked"}},
+            )
+            await _mark_finexer_accounts_expired(consent_id)
             return [], 0
-        consent_doc = cr.json()
-        if consent_doc.get("status") != "authorized":
-            logger.warning("Finexer consent %s status is %s — skipping sync", consent_id, consent_doc.get("status"))
+        else:
+            # Transient/server error: leave local state untouched, retry next run.
+            logger.error("Finexer GET /consents/%s failed: HTTP %s", consent_id, cr.status_code)
             return [], 0
 
         # Fetch accounts
@@ -413,6 +465,15 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                     txn_url = next_url
                 else:
                     txn_url = None
+
+    # A renewed consent should clear the "needs reconnecting" banner on the
+    # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
+    # sweep here (unfetched accounts on this consent are left alone).
+    if fetched_account_ids:
+        await accounts_col.update_many(
+            {"_id": {"$in": fetched_account_ids}},
+            {"$set": {"status": "connected"}},
+        )
 
     # Update last_synced on the consent record
     await finexer_consents_col.update_one(

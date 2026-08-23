@@ -42,6 +42,10 @@ NOTIF_DEFAULTS = {
     "bill_alerts":              True,
     "category_pace":            True,
     "classification_attention": True,
+    # Connection expiry/reconnect pushes from the consent-watch cron. No UI
+    # toggle exists yet; default on is deliberate (dead connections are
+    # silent otherwise).
+    "connection_health":        True,
 }
 
 # Outflows that aren't real consumption are never counted against a budget.

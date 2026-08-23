@@ -1,7 +1,7 @@
 """TrueLayer bank sync — fetch accounts + transactions for a connection."""
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import httpx
 
@@ -15,6 +15,21 @@ from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
 from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
+
+
+def _parse_iso_utc(s: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO 8601 timestamp (optionally trailing 'Z') to a NAIVE UTC
+    datetime, matching this codebase's convention of storing naive UTC in
+    Mongo. Returns None if absent or unparseable."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except (ValueError, TypeError):
+        return None
 
 
 async def save_connection(connection_id: str, token_data: dict, user_id: Optional[str] = None):
@@ -144,7 +159,13 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     """Fetch accounts + cards + transactions for one TrueLayer connection."""
     token = await get_valid_token(connection_id)
     if not token:
-        return []
+        # Dead consent: flag every account on this connection so the
+        # existing "needs reconnecting" banner fires (the UI reads status).
+        await accounts_col.update_many(
+            {"connection_id": connection_id},
+            {"$set": {"status": "expired"}},
+        )
+        return [], 0
 
     conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1, "last_synced": 1, "excluded_accounts": 1})
     if not user_id:
@@ -204,8 +225,9 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
         if me_r.status_code == 200:
             me = (me_r.json().get("results") or [{}])[0]
             await connections_col.update_one({"_id": connection_id}, {"$set": {
-                "credentials_id": me.get("credentials_id"),
-                "provider":       me.get("provider", {}).get("provider_id") if isinstance(me.get("provider"), dict) else me.get("provider"),
+                "credentials_id":     me.get("credentials_id"),
+                "provider":           me.get("provider", {}).get("provider_id") if isinstance(me.get("provider"), dict) else me.get("provider"),
+                "consent_expires_at": _parse_iso_utc(me.get("consent_expires_at")),
             }})
 
         async def _latest_txn_date(account_id: str) -> str:
