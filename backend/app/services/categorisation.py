@@ -11,10 +11,10 @@ import httpx
 from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
-    merchant_categories_col,
+    merchant_categories_col, confirmed_transfer_pairs_col,
     statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
 )
-from app.services.categories import get_category_kinds, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
+from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
 
 RAW_TRUELAYER_CATEGORIES = {
     "BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE",
@@ -148,27 +148,42 @@ def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
     return any(w for w in words if len(w) == 1 and w in unmatched_initials)
 
 
-def is_own_transfer(text: str, identity: dict, own_account_id=None) -> bool:
-    """True when a payment is corroborated as moving between the user's own
-    accounts: their own account/sort-code digits, or their own name.
-    With no identity data at all we can't judge — treat as own (legacy).
+def own_transfer_evidence(text: str, identity: dict, own_account_id=None) -> Optional[dict]:
+    """Decide account-match vs name-match vs no-match for a payment, given an
+    identity already known to carry SOME data (name tokens and/or own_ids).
+    Does not handle the "no identity data at all" case — that stays the
+    caller's responsibility.
 
     own_account_id: the account this txn is booked on. Its own number/sort-code
     is ignored as evidence because banks echo the host account's own number
     into its narrative (e.g. "27MAR A/C 76526682" on account 76526682 itself),
     which is not evidence of a move BETWEEN the user's accounts. Digits
-    belonging to any OTHER own account still count as transfer evidence."""
-    if not identity["name_tokens"] and not identity["own_ids"]:
-        return True
+    belonging to any OTHER own account still count as transfer evidence.
+
+    Returns None when neither an account nor a name match is found, else a
+    dict describing the evidence: {"kind": "account", "account_id": ...} or
+    {"kind": "name"}."""
     digits = set(re.findall(r"\d{6,}", text))
     own_map = identity.get("own_map") or {}
     for oid in identity["own_ids"]:
         if oid not in digits:
             continue
-        if own_account_id is not None and own_map.get(oid, {}).get("account_id") == own_account_id:
+        matched_account_id = own_map.get(oid, {}).get("account_id")
+        if own_account_id is not None and matched_account_id == own_account_id:
             continue  # self-reference: host account echoing its own number
+        return {"kind": "account", "account_id": matched_account_id}
+    if name_matches_owner(text, identity["name_tokens"]):
+        return {"kind": "name"}
+    return None
+
+
+def is_own_transfer(text: str, identity: dict, own_account_id=None) -> bool:
+    """True when a payment is corroborated as moving between the user's own
+    accounts: their own account/sort-code digits, or their own name.
+    With no identity data at all we can't judge — treat as own (legacy)."""
+    if not identity["name_tokens"] and not identity["own_ids"]:
         return True
-    return name_matches_owner(text, identity["name_tokens"])
+    return own_transfer_evidence(text, identity, own_account_id) is not None
 
 
 def classify_ft(description: str, amount: float, identity: dict, own_account_id=None) -> Optional[str]:
@@ -244,6 +259,35 @@ def series_key(txn: dict) -> str:
     if cleaned == desc:
         return desc[:35].strip()
     return re.sub(r"\s{2,}", " ", cleaned).strip()[:35].strip()
+
+
+def _byte_desc_key(t: dict) -> str:
+    """Pass 2's own byte-identical match key: whitespace-normalised, lowercased
+    `description` only, no merchant, no date-stripping. Shared with the
+    cross-account transfer-pair-suggestions path in analytics.py so that path
+    excludes exactly the pairs Pass 2 already handles, and never re-suggests
+    what the sync-time matcher already caught."""
+    return re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
+
+
+def refine_transfer_target(acc: Optional[dict]) -> Optional[str]:
+    """Given an account doc (or None/unknown), the Savings/Debt refinement
+    target for an own-transfer's CURRENT-account leg — Pass 2.6's rule,
+    shared with analytics.py's POST /transactions/confirm-transfer-pair so
+    both places apply the identical table:
+
+        acc is savings/ISA   -> "Savings"
+        acc is a credit card -> "Debt"
+        otherwise             -> None (both legs stay plain "Transfer")
+    """
+    if not acc:
+        return None
+    from app.services.companion import _is_savings  # deferred: companion -> analytics -> categorisation
+    if _is_savings(acc):
+        return "Savings"
+    if (acc.get("type") or "") == "credit_card":
+        return "Debt"
+    return None
 
 
 def normalise_merchant(merchant: str, description: str = "") -> str:
@@ -700,6 +744,14 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     """Apply merchant rules + structural passes to categorise transactions.
     Returns count of updated docs."""
     updated = 0
+    # _ids the structural learned-pair pass marks Transfer (populated below,
+    # only when structural=True) — Pass 2.5 AND Pass 4 (both key-level
+    # manual-override propagation, just keyed slightly differently) must not
+    # overwrite these; a learned pair confirmation is user intent too, and
+    # more specific than a key-level override from an unrelated row that
+    # happens to share the same (canonical key, direction). Initialised here
+    # (not inside `if structural:`) because Pass 4 runs unconditionally.
+    learned_pair_ids: set = set()
 
     if structural:
         # Pass 0: classify FT (funds transfer) lines via the user's identity
@@ -748,12 +800,13 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # Pass 2: match transfer pairs
         all_txns = await transactions_col.find(
             {"user_id": user_id, "custom_category": None, "description": {"$ne": None}},
-            {"description": 1, "amount": 1, "transaction_type": 1, "date": 1, "category": 1, "account_id": 1},
+            {"description": 1, "merchant_name": 1, "amount": 1, "transaction_type": 1,
+             "date": 1, "category": 1, "account_id": 1},
         ).to_list(None)
 
         desc_map: dict = defaultdict(list)
         for t in all_txns:
-            key = re.sub(r'\s+', ' ', (t.get("description") or "").strip().lower())
+            key = _byte_desc_key(t)
             if key:
                 desc_map[key].append(t)
 
@@ -775,6 +828,89 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                                 transfer_ids.append(c["_id"])
                             if d.get("category") != "Transfer":
                                 transfer_ids.append(d["_id"])
+
+        # Learned-pair pass: description-pair confirmations from
+        # POST /transactions/confirm-transfer-pair (analytics.py) survive
+        # month-to-month statement drift because they're keyed on
+        # canonical_merchant_key, not the byte-identical key above. Candidates
+        # are the SAME all_txns pool, just re-grouped once by
+        # canonical_merchant_key (O(n)); each learned pair then only scans its
+        # own two key-groups (O(pairs x candidates-per-key)), never the full
+        # transaction set.
+        learned_docs = await confirmed_transfer_pairs_col.find(
+            {"user_id": user_id}, {"key_a": 1, "key_b": 1}
+        ).to_list(None)
+        if learned_docs:
+            from datetime import datetime as _dt
+            # Owner device-testing fix 1 — widen the candidate pool beyond
+            # all_txns (custom_category: None only) to also include custom
+            # MOVEMENT-kind rows as ANCHORS. Without this, a debit the user
+            # already manually marked "Transfer" excludes itself from the
+            # None-only pool, so its Income-categorised counterpart could
+            # never be matched by sync — permanently unfixable AND, once a
+            # learned pair exists, permanently unsuggestable too. Anchors
+            # are NEVER rewritten: every write below still goes through the
+            # existing `custom_category: None` guard (transfer_ids'
+            # update_many, Pass 2.6's update_many), so an anchor's own
+            # custom_category is untouched regardless of what lands in
+            # transfer_ids/transfer_pairs/learned_pair_ids.
+            kind_map = await get_category_kinds(user_id)
+            anchor_txns = await transactions_col.find(
+                {"user_id": user_id, "custom_category": {"$ne": None},
+                 "description": {"$ne": None}},
+                {"description": 1, "merchant_name": 1, "amount": 1, "transaction_type": 1,
+                 "date": 1, "category": 1, "account_id": 1, "custom_category": 1},
+            ).to_list(None)
+            anchor_pool = [
+                t for t in anchor_txns
+                if kind_of(kind_map, t.get("custom_category")) == MOVEMENT
+            ]
+
+            key_map: dict = defaultdict(list)
+            for t in all_txns + anchor_pool:
+                k = canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
+                if k:
+                    key_map[k].append(t)
+            for doc in learned_docs:
+                key_a, key_b = doc.get("key_a"), doc.get("key_b")
+                if not key_a or not key_b:
+                    continue
+                pool_a = key_map.get(key_a, [])
+                pool_b = key_map.get(key_b, [])
+                # Both directions — the learned doc doesn't remember which
+                # leg was the credit vs. the debit, so try credits-from-A
+                # against debits-from-B, then credits-from-B against
+                # debits-from-A. When key_a == key_b, both passes are the
+                # same pool and the second is a harmless no-op repeat guarded
+                # by the c["_id"] != d["_id"] check below.
+                for pool_credits, pool_debits in ((pool_a, pool_b), (pool_b, pool_a)):
+                    credits = [t for t in pool_credits if t["transaction_type"] == "credit"]
+                    debits  = [t for t in pool_debits if t["transaction_type"] == "debit"]
+                    for c in credits:
+                        for d in debits:
+                            if c["_id"] == d["_id"]:
+                                continue
+                            # Same guard as the suggestion path
+                            # (_transfer_pair_suggestions in analytics.py) —
+                            # without this, a learned pair like ("atm", "atm
+                            # refund") stamps an Income credit and a Cash
+                            # debit on the SAME account as Transfer just
+                            # because they share a canonical key.
+                            if c.get("account_id") == d.get("account_id"):
+                                continue
+                            if abs(c["amount"] - d["amount"]) < 0.02:
+                                date_diff = (
+                                    abs((c["date"] - d["date"]).days)
+                                    if isinstance(c["date"], _dt) and isinstance(d["date"], _dt) else 999
+                                )
+                                if date_diff <= 5:
+                                    transfer_pairs.append((c, d))
+                                    learned_pair_ids.add(c["_id"])
+                                    learned_pair_ids.add(d["_id"])
+                                    if c.get("category") != "Transfer":
+                                        transfer_ids.append(c["_id"])
+                                    if d.get("category") != "Transfer":
+                                        transfer_ids.append(d["_id"])
 
         if transfer_ids:
             result = await transactions_col.update_many(
@@ -804,6 +940,14 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 {"_id": 1, "merchant_name": 1, "description": 1, "transaction_type": 1, "category": 1},
             ).to_list(None)
             for t in no_custom:
+                if t["_id"] in learned_pair_ids:
+                    # A learned-pair confirmation (POST /transactions/
+                    # confirm-transfer-pair) is user intent too, and more
+                    # specific than a key-level override propagated from some
+                    # unrelated row that happens to share the same
+                    # (canonical key, direction) — never let it clobber the
+                    # Transfer this pass' own learned-pair pass just wrote.
+                    continue
                 desc_key = canonical_merchant_key(t.get("merchant_name") or "", t.get("description") or "")
                 key = (desc_key, t.get("transaction_type", "debit"))
                 if key not in override_map:
@@ -832,8 +976,6 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # This is never "Income" — both legs are internal movements of the
         # user's own money. Savings/Debt are not in RAW_TRUELAYER_CATEGORIES,
         # so Pass 3 below leaves these rows alone.
-        from app.services.companion import _is_savings  # deferred: companion -> analytics -> categorisation
-
         acct_lookup = {
             str(acc["_id"]): acc
             async for acc in accounts_col.find(
@@ -843,13 +985,7 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
 
         def _refine_target(account_id) -> Optional[str]:
             acc = acct_lookup.get(str(account_id)) if account_id else None
-            if not acc:
-                return None
-            if _is_savings(acc):
-                return "Savings"
-            if (acc.get("type") or "") == "credit_card":
-                return "Debt"
-            return None
+            return refine_transfer_target(acc)
 
         refine_targets: dict = {}  # _id -> target category
 
@@ -1037,6 +1173,11 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             {"_id": 1, "merchant_name": 1, "description": 1, "category": 1, "transaction_type": 1},
         ).to_list(None)
         for t in all_auto:
+            if t["_id"] in learned_pair_ids:
+                # Same guard as Pass 2.5 above, and for the same reason — a
+                # learned-pair confirmation is more specific than a
+                # key-level override propagated from an unrelated row.
+                continue
             txn_type = t.get("transaction_type", "")
             for norm in (
                 canonical_merchant_key(t.get("merchant_name") or "", ""),

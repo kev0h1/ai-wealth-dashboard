@@ -296,7 +296,7 @@ export type PatchTransactionResult = {
 
 export type ResolveMovementResult = {
   updated: string;
-  resolution: "mine-goal" | "mine-offline" | "someone-else" | "spending";
+  resolution: "mine-here" | "mine-goal" | "mine-offline" | "someone-else" | "spending";
   custom_category?: string | null;
   linked_goal_id?: string;
   linked_offline_account_id?: string;
@@ -357,6 +357,11 @@ export type SpendVerdictUnresolved = {
     raw_description: string;
     amount: number;
     date: string;
+    /** The account this payment left from — optional/additive, absent on a
+     *  payload cached before this field existed. Lets the ask card and its
+     *  teaching-sheet handoff (SpendPage.tsx's onAskCorrect) show the real
+     *  account instead of a derived, often-useless provider display name. */
+    account_id?: string;
   } | null;
 };
 
@@ -366,6 +371,12 @@ export type SpendVerdictMoved = {
   amount: number;
   payments_count: number;
   goal_names?: string[];
+  /** Underlying spend categories this moved-money row aggregates (e.g.
+   *  ["Savings"] for pots) — optional/additive. Lets the row route into
+   *  /transactions scoped to exactly these categories; absent on an older
+   *  payload leaves the row non-interactive, same as before this field
+   *  existed. */
+  categories?: string[];
 };
 
 export type SpendVerdictPills = { spent: number; income: number; net: number };
@@ -806,6 +817,10 @@ export type PlanDest = {
   needs_total: number;
   needs_by: string;
   bills: PlanDestBill[];
+  // True when this destination has no in-window bill at all — the account
+  // is simply overdrawn right now (a live balance read, not a projection).
+  // `needs_total`/`bills`/`needs_by` carry no meaning in that case.
+  is_overdraft?: boolean;
 };
 
 export type PaydayProposal = {
@@ -1426,6 +1441,32 @@ export type TestPushResult = {
   };
 };
 
+// One leg (credit or debit) of a suggested cross-account transfer pair —
+// mirrors backend/app/routers/analytics.py's `_pair_leg` field-for-field.
+// `category` is the effective category (custom_category always wins, though
+// a suggested pair never has one — manual choices exclude a leg entirely).
+export type TransferPairLeg = {
+  id: string;
+  account_id: string;
+  date: string;
+  amount: number;
+  description: string | null;
+  merchant_name: string | null;
+  category: string | null;
+};
+
+// A candidate cross-account transfer pair the sync-time byte-identical
+// matcher missed — see GET /transactions/transfer-pair-suggestions.
+// `pair_key` is the two transaction _ids sorted and joined ("id1:id2"),
+// stable across requests, used both to dismiss (permanent, per-instance)
+// and to key React lists.
+export type TransferPairSuggestion = {
+  pair_key: string;
+  date_diff_days: number;
+  credit: TransferPairLeg;
+  debit: TransferPairLeg;
+};
+
 export const api = {
   health: () => get<{ status: string; truelayer_configured: boolean }>("/health"),
   getProfile: () => get<UserProfile>("/profile"),
@@ -1548,16 +1589,26 @@ export const api = {
   // `from`/`to` (ISO dates) scope to a pay period as a removable chip on the
   // hub — mirrors backend/app/routers/transactions.py's `from`/`to` query
   // params field-for-field. Both optional; omitted means all history.
-  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; merchants?: string; days?: number; from?: string; to?: string } = {}) => {
+  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit" } = {}) => {
     const p = new URLSearchParams();
     if (params.q) p.set("q", params.q);
     if (params.page) p.set("page", String(params.page));
     if (params.page_size) p.set("page_size", String(params.page_size));
-    if (params.category) p.set("category", params.category);
+    // `categories` is the repeated-query-param form (one `categories=` per
+    // name, no delimiter) — a custom category name can legally contain a
+    // comma, so this is the only unambiguous way to send several names at
+    // once (e.g. a "money you moved" row spanning Savings/Transfer/custom
+    // pots). Wins server-side over `category` when present and non-empty.
+    if (params.categories && params.categories.length > 0) {
+      for (const c of params.categories) p.append("categories", c);
+    } else if (params.category) {
+      p.set("category", params.category);
+    }
     if (params.merchants) p.set("merchants", params.merchants);
     if (params.days) p.set("days", String(params.days));
     if (params.from) p.set("from", params.from);
     if (params.to) p.set("to", params.to);
+    if (params.txn_type) p.set("txn_type", params.txn_type);
     const qs = p.toString();
     return get<PagedTransactions>(`/transactions/search${qs ? `?${qs}` : ""}`);
   },
@@ -1565,7 +1616,7 @@ export const api = {
   // POST /transactions/{id}/resolve-movement. See backend/app/routers/
   // transactions.py:resolve_movement for the full resolution contract.
   resolveMovement: (id: string, body: {
-    resolution: "mine-goal" | "mine-offline" | "someone-else" | "spending";
+    resolution: "mine-here" | "mine-goal" | "mine-offline" | "someone-else" | "spending";
     goal_id?: string;
     offline_pot_name?: string;
     note?: string;
@@ -1647,7 +1698,14 @@ export const api = {
   // periods — scopes the Spend page banner's count to the requested period
   // (a series counts only if at least one of its transactions falls inside
   // it). The review-sheet list (getMiscategorised, below) stays all-time.
-  getMiscategorisedCount: (offset = 0) => get<{ count: number; ids: string[] }>(`/transactions/miscategorised-count?offset=${offset}`),
+  // pair_count — additive: suggested cross-account transfer pairs (see
+  // getTransferPairSuggestions below) with a leg dated inside the requested
+  // period. Folds into the Spend banner's total alongside `count`.
+  // review_total — additive, all-time: mirrors exactly what the review sheet
+  // shows (series + pairs, uncapped-series-count + capped-pairs-count).
+  // Authoritative for the Spend banner when present; older cached payloads
+  // without it fall back to the period-scoped count/pair_count above.
+  getMiscategorisedCount: (offset = 0) => get<{ count: number; ids: string[]; pair_count?: number; review_total?: number }>(`/transactions/miscategorised-count?offset=${offset}`),
   getMiscategorised: () =>
     get<{
       items: {
@@ -1665,11 +1723,41 @@ export const api = {
         currency: string;
         category: string | null;
         transaction_type: string;
+        /** The account this series left from — optional/additive, absent on
+         *  a payload cached before this field existed. */
+        account_id?: string;
+        /** The individual payments this series groups (count > 1 rows) —
+         *  optional/additive, backs the review sheet's "see the payments"
+         *  disclosure. Absent on an older payload just hides that disclosure. */
+        members?: {
+          id: string;
+          date: string;
+          amount: number;
+          account_id: string;
+          description: string | null;
+          merchant_name: string | null;
+        }[];
+        /** Why this row was flagged as an own-transfer — optional/additive,
+         *  absent on a payload cached before this field existed. */
+        reason?: { kind: "name" } | { kind: "account"; account_id: string };
       }[];
     }>("/transactions/miscategorised"),
   dismissMiscategorised: (id: string) => post<{ ok: boolean }>(`/transactions/${id}/dismiss-miscategorised`, {}),
   dismissMiscategorisedSeries: (seriesKey: string) =>
     post<{ ok: boolean }>("/transactions/dismiss-miscategorised-series", { series_key: seriesKey }),
+  // Cross-account transfer-pair suggestions — companion to the
+  // miscategorised-transfers guardrail above. A candidate pair the sync-time
+  // byte-identical matcher missed (different descriptions on the two legs);
+  // confirming teaches the engine the description PAIR so future occurrences
+  // auto-match at the next sync.
+  getTransferPairSuggestions: () => get<{ items: TransferPairSuggestion[] }>("/transactions/transfer-pair-suggestions"),
+  confirmTransferPair: (creditId: string, debitId: string) =>
+    post<{ ok: boolean; credit_category: string; debit_category: string; learned: boolean }>(
+      "/transactions/confirm-transfer-pair",
+      { credit_id: creditId, debit_id: debitId },
+    ),
+  dismissTransferPair: (pairKey: string) =>
+    post<{ ok: boolean }>("/transactions/dismiss-transfer-pair", { pair_key: pairKey }),
   savingsInsights: () => get<SavingsInsights>("/savings/insights"),
   saveSavingsGoal: (goal: SavingsGoalInput) =>
     fetch(`${API_BASE}/savings/goal`, {

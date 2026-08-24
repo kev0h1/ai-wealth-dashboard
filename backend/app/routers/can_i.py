@@ -189,11 +189,128 @@ def _parse_headline_reply(raw: str) -> tuple[str, str]:
     return headline, reply
 
 
+_LEADING_VERDICT_CLAUSE_RE = re.compile(r"^(yes|no|tight),\s*", re.IGNORECASE)
+
+
+def _strip_leading_verdict_clause(reply: str) -> str:
+    """Belt-and-braces for the prompt clause telling the model resolved_verdict
+    is final and not to be echoed: strip a leading "Yes,"/"No,"/"Tight," off
+    the REPLY sentence and re-capitalise, rather than trust the prompt alone.
+    Only ever called when a verdict was actually derived server-side, so a
+    stray match here is always the model relapsing into its own guess, never
+    a legitimate reply that happens to start with one of these words."""
+    stripped = _LEADING_VERDICT_CLAUSE_RE.sub("", reply, count=1)
+    if stripped and stripped != reply:
+        stripped = stripped[0].upper() + stripped[1:]
+    return stripped or reply
+
+
+def _derive_verdict(what_ifs: dict, safe_to_spend: float) -> str | None:
+    """Deterministic yes/tight/no from the SAME precomputed what-if arithmetic
+    the facts card shows. The one word the user actually reads must never be
+    left to the LLM once the arithmetic already answers it — that was the
+    root cause of the golf-session bug: safe_to_spend is already net of
+    bills_total (see compute_safe_to_spend in analytics.py, which walks the
+    bill timeline before deriving the figure), but the model re-subtracted
+    bills a second time and answered "No" over a genuinely positive £61.
+
+    None (leave it to the LLM) in two cases:
+    - no amount was asked at all — the "name a thing, no price" path.
+    - months_until_target is set — a "save £2000 for Japan by December"
+      question carries an amount but free_after_spend is a THIS-PAY-PERIOD
+      figure; it is not what was asked. Answering a multi-month savings
+      question with a this-period afford/refuse verdict produced a card
+      with a "Not this one" headline sitting over "Saving at this pace,
+      about £1,600 by December" — two answers to two different questions on
+      one card. The offer/savable_by_target branch in _compose_facts owns
+      this case instead; see there.
+
+    "tight" carries both an absolute and a relative arm because either alone
+    misses a case the other catches: a large safe_to_spend pot where 20%
+    left over is still generous in proportion but the resulting per-day rate
+    is unliveable, or a small pot where the per-day rate looks fine in
+    isolation but the spend eats most of what's actually left.
+    """
+    if what_ifs.get("months_until_target"):
+        return None
+    amount = what_ifs.get("amount_asked")
+    after = what_ifs.get("free_after_spend")
+    if amount is None or after is None:
+        return None
+    if after < 0:
+        return "no"
+    per_day_after = what_ifs.get("per_day_after")
+    if after < 0.2 * safe_to_spend or (per_day_after is not None and per_day_after < 5):
+        return "tight"
+    return "yes"
+
+
+_VERDICT_HEADLINES = {
+    # "Not this one" is aimed at the purchase, not the person — a bare "No"
+    # reads as a rebuke. Exact strings, not composed, so this card can never
+    # drift from the copy the product owner signed off.
+    "no": "Not this one",
+    "tight": "Yes, but it'll be tight",
+    "yes": "Yes",
+}
+
+
+def _nearest_yes_amount(safe_to_spend: float) -> int | None:
+    """Largest round-£5 amount that actually fits within safe_to_spend — the
+    version of the ask that works, offered alongside a "Not this one" so the
+    refusal isn't the end of the conversation. Never £0: at or below zero
+    there IS no nearest yes, so this returns None and the caller emits
+    nothing rather than a suggestion nobody can act on."""
+    if safe_to_spend <= 0:
+        return None
+    amount = int(safe_to_spend // 5) * 5
+    return amount if amount >= 5 else None
+
+
+def _fmt_rate(amount: float) -> str:
+    """£ string for a derived daily rate. "About" and pence can't both be
+    true — implying audited, to-the-penny precision on a rounded rate reads
+    as false confidence. Whole pounds from £5/day up; pence only below that,
+    where the gap between e.g. £1.20 and £2 a day is a genuinely different
+    lived experience, not rounding noise."""
+    decimals = 0 if abs(amount) >= 5 else 2
+    return _fmt_gbp(amount, decimals=decimals)
+
+
+def _per_day_line(per_day: float) -> str:
+    return f"That's about {_fmt_rate(per_day)} a day"
+
+
 def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
-    """2-3 grounding lines, server-composed from the SAME figures the verdict
-    used — never re-derived, never LLM-authored. Always the free-until-payday
-    line and the per-day rate; the third line is whichever precomputed
-    what-if is most relevant to what was actually asked."""
+    """Server-composed grounding lines, from the SAME figures the verdict
+    used — never re-derived, never LLM-authored. Normally 3 lines:
+    free-until-payday, the per-day rate, then whichever precomputed what-if
+    is most relevant to what was actually asked.
+
+    When an amount was asked AND there's a material bill in the payday
+    window, the bills line and the what-if line are BOTH shown: bills is the
+    REASON, the what-if is the CONSEQUENCE, and letting one silently
+    displace the other is exactly how the golf-session transcript ended up
+    with "£100 leaves £61 free" reading like an approval under a "No". The
+    same applies when a "Not this one" verdict adds a nearest-yes line, or a
+    "tight" verdict adds the post-spend daily rate that's the actual reason
+    it's tight — reason/consequence/next-step all outrank a derived
+    PRE-spend rate once there's a concrete amount on the table, so per-day
+    is what gets cut to make room (never bills, never the what-if, never
+    nearest-yes/tight-rate), and the cap rises from 3 lines to 4.
+
+    A multi-month savings question ("save £2000 for Japan by December") is
+    NOT a this-pay-period affordability question even though it carries an
+    amount — free_after_spend answers a different question than the one
+    asked. months_until_target is the signal (not the `offer` dict, which is
+    a derived UI artifact built in its own try/except and can fail to build
+    even when the question genuinely named a future month): when it's set,
+    this-period framing (bills-collision, the what-if line, nearest-yes) is
+    suppressed entirely and the savings-pace line owns the card instead,
+    exactly like the pre-existing behaviour this endpoint had before verdict
+    derivation was added. _derive_verdict shares the same signal so the
+    headline can never disagree with what the facts card is showing.
+    """
     lines: list[str] = []
     free = facts.get("safe_to_spend") or 0.0
     next_payday = facts.get("next_payday")
@@ -208,13 +325,79 @@ def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
         else f"{_fmt_gbp(free)} free until payday"
     )
 
+    what_ifs = facts.get("what_ifs") or {}
+    amount_asked = what_ifs.get("amount_asked")
+    free_after_spend = what_ifs.get("free_after_spend")
+    is_multi_month = bool(what_ifs.get("months_until_target"))
+    bills_total = facts.get("bills_total")
+    bills_material = bool(bills_total)  # falsy for None/0 — nothing to explain
+
+    # safe_to_spend is already net of bills_total in the SAFETY sense (the
+    # bill timeline is walked before the floor is taken), but that isn't
+    # literally "subtracted from a balance you can point at" when income
+    # arrives before the bill and covers it without the running balance ever
+    # dipping — so this says "accounted for", not "taken off [a] figure",
+    # which would be false for that path. "due", not "land": a bill hasn't
+    # happened yet and this line must not read as a prediction that it will
+    # clear via a specific payment rail on a specific day.
+    bills_line = (
+        f"{_fmt_gbp(bills_total)} of bills due before payday, already accounted for"
+        if bills_material else None
+    )
+
+    # Multi-month savings question: the this-period what-if doesn't apply
+    # (see docstring) — suppress it so it can't sit next to, or replace, the
+    # savings-pace line below.
+    whatif_line = None
+    if not is_multi_month and amount_asked is not None and free_after_spend is not None:
+        whatif_line = (
+            f"£{amount_asked:,.0f} leaves {_fmt_gbp(free_after_spend)} free" if free_after_spend >= 0
+            else f"£{amount_asked:,.0f} would take you {_fmt_gbp(free_after_spend)}"
+        )
+
+    # _derive_verdict already returns None for the multi-month case, so
+    # nothing further needs to check is_multi_month explicitly below.
+    verdict = _derive_verdict(what_ifs, free)
+
+    nearest_yes_line = None
+    if verdict == "no":
+        nearest = _nearest_yes_amount(free)
+        if nearest is not None:
+            nearest_yes_line = f"{_fmt_gbp(nearest)} would work"
+
+    tight_rate_line = None
+    if verdict == "tight":
+        per_day_after = what_ifs.get("per_day_after")
+        if per_day_after is not None:
+            tight_rate_line = f"That leaves about {_fmt_rate(per_day_after)} a day until payday"
+
+    # Both-lines case: bills is material AND there's a spend consequence
+    # (what-if, nearest-yes, or the tight-rate line) to put next to it.
+    # Per-day is dropped here by design, not squeezed into a 4th slot
+    # alongside it — see docstring. Judged this cleaner than always maxing
+    # out at 4 lines: once the reader can see the exact bills figure and the
+    # exact result of their spend, a derived pre-spend £/day rate is
+    # redundant restatement, not new information.
+    if bills_material and (whatif_line is not None or nearest_yes_line is not None):
+        lines.append(bills_line)
+        if whatif_line:
+            lines.append(whatif_line)
+        if tight_rate_line:
+            lines.append(tight_rate_line)
+        if nearest_yes_line:
+            lines.append(nearest_yes_line)
+        return lines[:4]
+
     per_day = facts.get("per_day")
     if per_day is not None:
-        lines.append(f"That's about {_fmt_gbp(per_day, decimals=2)} a day")
+        lines.append(_per_day_line(per_day))
 
-    what_ifs = facts.get("what_ifs") or {}
     third: str | None = None
 
+    # Multi-month savings pace — the offer/savable branch WINS whenever it
+    # applies (see docstring): this is checked first, same priority it had
+    # before verdict derivation existed, and whatif_line is already None in
+    # this case so it can never be picked below instead.
     if offer and what_ifs.get("savable_by_target") is not None:
         try:
             target = date.fromisoformat(str(offer["target_date"])[:10])
@@ -224,13 +407,8 @@ def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
         if target_label:
             third = f"Saving at this pace, about {_fmt_gbp(what_ifs['savable_by_target'])} by {target_label}"
 
-    if third is None and what_ifs.get("amount_asked") is not None and what_ifs.get("free_after_spend") is not None:
-        amt = what_ifs["amount_asked"]
-        after = what_ifs["free_after_spend"]
-        third = (
-            f"£{amt:,.0f} leaves {_fmt_gbp(after)} free" if after >= 0
-            else f"£{amt:,.0f} would take you {_fmt_gbp(after)}"
-        )
+    if third is None:
+        third = whatif_line
 
     if third is None:
         mentioned = next(
@@ -239,11 +417,20 @@ def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
         )
         if mentioned and mentioned.get("usual_30d") is not None:
             third = f"{mentioned['category']} usual pace is about {_fmt_gbp(mentioned['usual_30d'])} this period"
-        elif facts.get("bills_total"):
-            third = f"{_fmt_gbp(facts['bills_total'])} of bills due before payday"
+        elif bills_line:
+            third = bills_line
 
     if third:
         lines.append(third)
+
+    # Tight-rate / standalone nearest-yes (bills weren't material, so no
+    # collision branch above) still outrank nothing further at this point —
+    # append whichever applies (mutually exclusive, since verdict is exactly
+    # one of no/tight/yes) and only then allow the 4th slot.
+    extra = tight_rate_line or nearest_yes_line
+    if extra and extra not in lines:
+        lines.append(extra)
+        return lines[:4]
     return lines[:3]
 
 
@@ -594,6 +781,19 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     facts["what_ifs"] = what_ifs
 
+    # Derived BEFORE the LLM call (not just after, as a post-parse override)
+    # so the prompt itself can tell the model the decision instead of asking
+    # it to guess and then silently overwriting the headline it guessed —
+    # the model's own REPLY sentence is never told the verdict otherwise,
+    # and (being free-form, not overridden) it can flatly contradict a
+    # headline it never saw. Injected into `facts` (LLM grounding only —
+    # this dict is never the response payload, see `resp_body` below) as
+    # `resolved_verdict` so it rides along in the same FACTS JSON block
+    # every other precomputed figure already does.
+    derived_verdict = _derive_verdict(what_ifs, safe_to_spend)
+    if derived_verdict is not None:
+        facts["resolved_verdict"] = _VERDICT_HEADLINES[derived_verdict]
+
     # ── Commitment hand-off offer (deterministic, never LLM-authored) ────
     # When the question carries both an amount and a target month, offer to
     # set the expense up as a commitment; the reply text already carries the
@@ -624,25 +824,44 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     system_prompt = (
         "You are Penny, the AI inside a personal money app. The user asks quick-fire "
         "spending questions. Reply in AT MOST 2 short sentences: verdict first (Yes / "
-        "Tight / No / or the number they asked for), then the single most important "
-        "implication. Zero fluff — no greetings, no caveats, no moralising, never "
-        "'you should'. British English. Every £ figure you write MUST be copied from "
-        "the facts JSON below, rounded to whole pounds — NEVER compute, derive or "
-        "invent a figure; the what_ifs are precomputed for you. If they name a thing "
+        "yes but tight / not this one / or the number they asked for), then the "
+        "single most important implication. Direct, never curt. No greetings, no "
+        "caveats, no moralising, never 'you should'. Write to a person: every line is "
+        "a phrase someone would actually say out loud, never a status or a fault "
+        "report. British English. Every £ figure you write MUST be copied from "
+        "the facts JSON below, rounded to whole pounds, NEVER compute, derive or "
+        "invent a figure; the what_ifs are precomputed for you. safe_to_spend is "
+        "ALREADY net of bills_total. The bills have been subtracted once, in the "
+        "backend, before you ever see this figure; never subtract bills_total "
+        "again from safe_to_spend or from free_after_spend. what_ifs.goes_negative "
+        "is the precomputed, final answer to 'does this spend break the budget'; "
+        "trust it over any mental arithmetic of your own. "
+        "If FACTS.resolved_verdict is present, that verdict has ALREADY been "
+        "decided by the backend and will be shown to the user as the headline "
+        "verbatim, exactly as written, no matter what you write. Copy it EXACTLY "
+        "as your HEADLINE line; do not choose a different verdict word, do not "
+        "soften it, do not contradict it. Your REPLY must not restate, echo or "
+        "re-derive the verdict either (do not open with your own 'Yes'/'No'/ "
+        "'Tight'); write ONLY the single most important implication, as a "
+        "sentence that assumes resolved_verdict is already true (for 'Yes, but "
+        "it'll be tight', explain what makes it tight; for 'Not this one', "
+        "explain what's in the way, never a second attempt at yes or no). If "
+        "FACTS.resolved_verdict is ABSENT, decide the verdict yourself as "
+        "instructed above. If they name a thing "
         "but no price and you'd need one, give the envelope from the facts (free "
         "until payday, or per-day rate) and ask for a number in the same sentence. "
         "active_goals (when present) lists the user's OWN active savings/commitment "
-        "goals by name, with their target amount and target_date — a question naming "
+        "goals by name, with their target amount and target_date; a question naming "
         "one of these (e.g. 'can I add to Japan?', 'more for the japan pot?') IS a "
         "real affordability question about the user's own money, even with no "
         "spend/save verb and no price: treat it exactly like 'name a thing, no price' "
         "above (give the envelope, ask how much), NEVER as out of scope. "
         "For future-month questions use months_until_target and savable_by_target. "
         "Entries in change_intents with mentioned_in_question=true MUST be "
-        "acknowledged in the answer, using ONLY the provided figures — when such "
+        "acknowledged in the answer, using ONLY the provided figures; when such "
         "an entry has would_take_to, that is the precomputed category total after "
         "this spend; copy it as-is (e.g. this £30 would take Eating Out to your "
-        "would_take_to figure of your usual_30d usual pace — still inside the "
+        "would_take_to figure of your usual_30d usual pace, still inside the "
         "change you asked for). Entries without mentioned_in_question=true may be "
         "ignored unless clearly relevant. Never moralise. "
         "General cost knowledge may be used ONLY as a clearly rough range "
@@ -651,9 +870,12 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "in the current facts JSON. Write in plain, human punctuation: no em-dashes "
         "(—) or en-dashes (–); use a comma, a full stop, or a plain conjunction "
         "instead. A plain hyphen is fine only inside a compound word or a range.\n\n"
-        "OUTPUT FORMAT — respond with EXACTLY two lines, nothing before or after:\n"
-        "HEADLINE: <the verdict ONLY — Yes / Tight / No / or the number they asked "
-        "for, under 8 words, no explanation>\n"
+        "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
+        "HEADLINE: <the verdict, under 8 words, phrased the way a person would "
+        "actually say it out loud, not a status report. Good: 'Yes' / 'Yes, but "
+        "it'll be tight' / 'Not this one' / 'How much are you thinking?' (only "
+        "when no price was named). Bad: 'No price given, need a number.' / "
+        "'Amount required' / any phrase with no subject.>\n"
         "REPLY: <your normal answer as instructed above, AT MOST 2 short sentences>\n"
         "If, despite everything above, this question truly is not about the user's "
         "own spending or affordability, respond with exactly:\n"
@@ -686,6 +908,17 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     await increment_ai_chat_usage(uid)
     headline, reply_text = _parse_headline_reply(raw_content)
+    # Belt-and-braces on top of the prompt injection above: `derived_verdict`
+    # was already computed before the LLM call and told to the model as
+    # resolved_verdict, but a temperature-0 model can still slip and echo
+    # its own guess. Re-applied here (same value, not recomputed) as the
+    # guarantee the card can never show a headline the arithmetic disagrees
+    # with; when no amount was extracted (the "name a thing, no price" path,
+    # or a multi-month savings question — see _derive_verdict's docstring)
+    # derived_verdict is None and the model's own headline is left as-is.
+    if derived_verdict is not None:
+        headline = _VERDICT_HEADLINES[derived_verdict]
+        reply_text = _strip_leading_verdict_clause(reply_text)
     resp_body: dict = {
         "reply": _house_style(reply_text),
         "headline": _house_style(headline),

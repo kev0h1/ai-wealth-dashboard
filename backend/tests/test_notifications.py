@@ -480,7 +480,8 @@ def test_category_pace_preference_off_suppresses(monkeypatch):
 
 # ── _maybe_classification_attention: unplaced + miscategorised, dedup on id ─
 
-def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=None, pref_on=True, state_docs=None):
+def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=None,
+                           pairs=None, pref_on=True, state_docs=None):
     state, sent = _patch_common(monkeypatch, pref_on=pref_on, state_docs=state_docs)
     txn_col = FakeTxnCol(txns)
     yapily_col = FakeTxnCol(yapily_txns)
@@ -491,6 +492,11 @@ def _patch_classification(monkeypatch, *, txns=None, yapily_txns=None, flagged=N
         return flagged or []
 
     monkeypatch.setattr(analytics, "_flagged_miscategorised", fake_flagged)
+
+    async def fake_pairs(uid):
+        return pairs if pairs is not None else []
+
+    monkeypatch.setattr(analytics, "_transfer_pair_suggestions", fake_pairs)
     return state, sent, txn_col, yapily_col
 
 
@@ -583,6 +589,116 @@ def test_classification_attention_combined_counts_wording(monkeypatch):
 
     assert len(sent) == 1
     assert sent[0]["body"] == "2 payments I could not place and 1 may be miscategorised"
+
+
+# ── _maybe_classification_attention: transfer-pair suggestions, separately
+# keyed dedup (`classification_pairs_seen` — a different id-space from the
+# transaction ids `classification_seen` tracks) ─────────────────────────────
+
+def _pair(id_a, id_b):
+    return {"pair_key": ":".join(sorted([id_a, id_b]))}
+
+
+def test_classification_attention_pairs_first_run_seeds_silently(monkeypatch):
+    """Rollout backlog (owner currently has ~10 live suggestions) must never
+    blast a push for history — only pairs newly appearing after this
+    baseline should notify."""
+    pairs = [_pair("c1", "d1"), _pair("c2", "d2")]
+    state, sent, *_ = _patch_classification(
+        monkeypatch, txns=[], flagged=[], pairs=pairs, state_docs={},
+    )
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert sent == []
+    assert set(state.docs["kevin"]["classification_pairs_seen"]) == {p["pair_key"] for p in pairs}
+
+
+def test_classification_attention_new_pair_after_baseline_notifies(monkeypatch):
+    baseline_pair = _pair("c1", "d1")
+    state, sent, *_ = _patch_classification(
+        monkeypatch, txns=[], flagged=[], pairs=[baseline_pair],
+        state_docs={"kevin": {
+            "classification_seen": [],
+            "classification_pairs_seen": [baseline_pair["pair_key"]],
+        }},
+    )
+
+    new_pair = _pair("c2", "d2")
+
+    async def fake_pairs(uid):
+        return [baseline_pair, new_pair]
+
+    monkeypatch.setattr(analytics, "_transfer_pair_suggestions", fake_pairs)
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["title"] == "Some payments need a look"
+    assert sent[0]["body"] == "1 possible transfer to confirm"
+    assert sent[0]["url"] == "/spend"
+    assert set(state.docs["kevin"]["classification_pairs_seen"]) == {
+        baseline_pair["pair_key"], new_pair["pair_key"],
+    }
+
+    # Re-running with no further change must not renotify (dedup on pair_key).
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+    assert len(sent) == 1
+
+
+def test_classification_attention_pair_already_seen_does_not_renotify(monkeypatch):
+    """Once notified (or already present at baseline), a pair_key stays
+    seen forever — including after the user dismisses or confirms it, since
+    the sheet itself stops returning it either way."""
+    pair = _pair("c1", "d1")
+    state, sent, *_ = _patch_classification(
+        monkeypatch, txns=[], flagged=[], pairs=[pair],
+        state_docs={"kevin": {
+            "classification_seen": [],
+            "classification_pairs_seen": [pair["pair_key"]],
+        }},
+    )
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert sent == []
+
+
+def test_classification_attention_pairs_plus_unplaced_combined_body(monkeypatch):
+    txns = [_txn("t1", category=None, custom_category=None)]
+    pair = _pair("c1", "d1")
+    state, sent, *_ = _patch_classification(
+        monkeypatch, txns=txns, flagged=[], pairs=[pair],
+        state_docs={"kevin": {"classification_seen": [], "classification_pairs_seen": []}},
+    )
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["body"] == "1 payment I could not place and 1 possible transfer to confirm"
+
+
+def test_classification_attention_pair_compute_failure_degrades_to_two_part(monkeypatch):
+    """A broken `_transfer_pair_suggestions` call must not take down the
+    existing unplaced/miscategorised push — it degrades to the original
+    two-part behaviour and leaves the pairs baseline untouched (so the next
+    successful run still seeds it fresh, not silently, once it recovers)."""
+    txns = [_txn("t1", category=None, custom_category=None)]
+    state, sent, *_ = _patch_classification(
+        monkeypatch, txns=txns, flagged=[],
+        state_docs={"kevin": {"classification_seen": []}},
+    )
+
+    async def fake_pairs_boom(uid):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(analytics, "_transfer_pair_suggestions", fake_pairs_boom)
+
+    asyncio.run(notifications._maybe_classification_attention("kevin"))
+
+    assert len(sent) == 1
+    assert sent[0]["body"] == "1 payment I could not place"
+    assert "classification_pairs_seen" not in state.docs["kevin"]
 
 
 def test_classification_attention_preference_off_does_no_query_work(monkeypatch):

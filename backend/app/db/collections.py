@@ -31,6 +31,13 @@ apns_tokens_col         = db["apns_tokens"]
 fcm_tokens_col          = db["fcm_tokens"]
 notification_state_col  = db["notification_state"]
 
+# Cross-account transfer-pair suggestions — learned description-pair
+# confirmations (see analytics.py POST /transactions/confirm-transfer-pair
+# and categorisation.py Pass 2's learned-pair matching). Keyed on
+# canonical_merchant_key, not the raw description, so a confirmed pair
+# survives month-to-month statement drift.
+confirmed_transfer_pairs_col = db["confirmed_transfer_pairs"]
+
 # Mono (Kenya)
 mono_connections_col    = db["mono_connections"]
 mono_accounts_col       = db["mono_accounts"]

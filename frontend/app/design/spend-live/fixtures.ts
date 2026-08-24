@@ -9,7 +9,7 @@
 // and the `reading` string is hand-derived from the same template logic as
 // `spend_verdict.py`'s `build_reading` so this route shows exactly what a
 // real payload in that state would say.
-import type { Checkpoint, SpendVerdict, SpendVerdictPaceEntry, SpendVerdictState, Transaction } from "@/lib/api";
+import type { Account, Checkpoint, SpendVerdict, SpendVerdictPaceEntry, SpendVerdictState, Transaction } from "@/lib/api";
 
 // Deterministic cumulative actual-vs-usual series for SpendHeader's pace
 // strip — linear interpolation from day 1 to `days`, endpoint-corrected so
@@ -75,13 +75,33 @@ export const PREVIEW_SIGNALS: Record<string, { suggested_aim: number | null; che
   },
 };
 
+// A full Account fixture — resolves `unresolved.largest.account_id` into a
+// display name for the ask card (mirroring what SpendPage.tsx's real
+// `accounts` state does), and also stands in as TeachingSheet's `account`
+// prop for this route's teaching-sheet demo buttons (Change 2c), so the
+// header's bank badge always has something real to render. provider
+// "Barclays" resolves to BANK_META's local logo file (no network
+// dependency), same deterministic choice as the miscategorised preview's
+// fixtures.
+export const PREVIEW_ACCOUNTS: Account[] = [
+  {
+    id: "fixture-account-barclays",
+    name: "Barclays Premier",
+    type: "current",
+    balance: 2140.55,
+    currency: "GBP",
+    provider: "Barclays",
+    status: "active",
+  },
+];
+
 const PERIOD_13 = { start: "2026-07-31", end: "2026-08-27", days_elapsed: 13, days_left: 15, offset: 0, closed: false };
 const PERIOD_3 = { start: "2026-07-31", end: "2026-08-27", days_elapsed: 3, days_left: 25, offset: 0, closed: false };
 
 const MOVED_FULL: SpendVerdict["moved"] = [
-  { kind: "pots", label: "To your pots", amount: 2724, payments_count: 49, goal_names: ["Japan", "Rainy Day Saver"] },
-  { kind: "credit_cards", label: "To your credit cards", amount: 834, payments_count: 2 },
-  { kind: "investments", label: "To your investments", amount: 400, payments_count: 1 },
+  { kind: "pots", label: "To your pots", amount: 2724, payments_count: 49, goal_names: ["Japan", "Rainy Day Saver"], categories: ["Savings"] },
+  { kind: "credit_cards", label: "To your credit cards", amount: 834, payments_count: 2, categories: ["Debt"] },
+  { kind: "investments", label: "To your investments", amount: 400, payments_count: 1, categories: ["Investment"] },
 ];
 
 const NORMAL: SpendVerdict = {
@@ -128,26 +148,38 @@ const NORMAL: SpendVerdict = {
   ],
   unresolved: {
     // The real, long provider string from the brief — proves the reserved
-    // truncate slot never wraps even at this length, and that the display
-    // name strips down to "Finexer" (not "FINEXER LTD OPENBANKINGPAYMENT
-    // FT." — a raw provider string never reaches the card).
-    total: 1020, payments_count: 1, ask_worthy: true, weight: "material",
+    // truncate slot never wraps even at this length. account_id resolves
+    // against PREVIEW_ACCOUNTS below (SpendLiveClient.tsx) to "Barclays
+    // Premier" — the account the payment left from now replaces the old
+    // derived-from-provider "Finexer" read (display_name stays on the
+    // fixture only as the documented fallback when account_id can't be
+    // resolved).
+    //
+    // payments_count 5 / total 1294 with largest.amount 1020 — the exact
+    // owner device-testing numbers (header said "UNPLACED · 5 PAYMENTS",
+    // body showed the single £1,020 payment, footnote said £1,294 unplaced)
+    // that exposed the "one vs 5" incoherence UnresolvedAskCard's
+    // biggest-of-N copy now fixes. Kept as the material-density showcase
+    // fixture (weight: "material") so /design/spend-live?state=normal
+    // reproduces the reported bug state exactly.
+    total: 1294, payments_count: 5, ask_worthy: true, weight: "material",
     largest: {
       id: "fixture-finexer-1",
       display_name: "Finexer",
       raw_description: "FINEXER LTD OPENBANKINGPAYMENT FT.",
       amount: 1020,
       date: "2026-08-04",
+      account_id: "fixture-account-barclays",
     },
   },
   moved: MOVED_FULL,
   // pills.spent = sum(notables.spent) 2705 + sum(majority.spent) 918 +
-  // unresolved.total 1020 = 4643 (reconciliation invariant, guarded below).
-  pills: { spent: 4643, income: 253, net: -4390 },
+  // unresolved.total 1294 = 4917 (reconciliation invariant, guarded below).
+  pills: { spent: 4917, income: 253, net: -4664 },
   period: PERIOD_13,
   // Established baseline (thin_history false) — real `usual` values.
-  // usualFinal 3,342 = actualFinal 4,643 - the 1,301 excess the reading names.
-  pace_series: linearSeries(13, 4643, 3342),
+  // usualFinal 3,616 = actualFinal 4,917 - the 1,301 excess the reading names.
+  pace_series: linearSeries(13, 4917, 3616),
   moved_total: 3958,
 };
 

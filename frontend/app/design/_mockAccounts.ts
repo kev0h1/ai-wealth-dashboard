@@ -339,6 +339,32 @@ export const mockAccounts: MockAccount[] = [
     ],
     lastTxn: { merchant: "Vanguard SIPP top-up", amount: 800, daysAgo: 14 },
   },
+
+  // ── Sign-direction coverage: a credit card in credit (balance > 0, the
+  // bank owes you) and an overdrawn current account (balance < 0, genuine
+  // risk) — exercises the "in credit" / "overdrawn" caption states so the
+  // corrected AccountLedgerRow/AccountTile logic is actually visible here. ──
+  {
+    id: "acc-26",
+    name: "Overpaid Store Card",
+    type: "Credit",
+    balance: 42.5,
+    currency: "GBP",
+    provider: "John Lewis",
+    status: "connected",
+    terms: "0% until Mar 2027",
+    limit: 2000,
+  },
+  {
+    id: "acc-27",
+    name: "Joint Current Account",
+    type: "Current",
+    balance: -18.75,
+    currency: "GBP",
+    provider: "TSB",
+    status: "connected",
+    lastTxn: { merchant: "Direct debit", amount: 40.0, daysAgo: 1 },
+  },
 ];
 
 // ── Detail-page fixtures ────────────────────────────────────────────────────

@@ -25,6 +25,29 @@ export default function TransactionsPage() {
   const router = useRouter();
 
   const [categoryFilter, setCategoryFilter] = useState<string | null>(() => searchParams.get("category"));
+  // Multi-category deep-link (e.g. SpendVerdictView's "money you moved"
+  // rows) — one `categories` query param per underlying category name, read
+  // with getAll rather than splitting a comma-joined string (a custom
+  // category name can legally contain a comma, which a delimiter can't
+  // represent unambiguously; see backend/app/routers/transactions.py
+  // `_search_query`). Mutually exclusive with `categoryFilter` in practice:
+  // a link sets one or the other, never both.
+  const [categoriesFilter, setCategoriesFilter] = useState<string[] | null>(() => {
+    const all = searchParams.getAll("categories");
+    return all.length > 0 ? all : null;
+  });
+  // Display label for the category chip/empty-state — set by a multi-
+  // category deep-link (e.g. SpendVerdictView's "money you moved" rows).
+  // Falls back to categoryFilter itself when absent, preserving every
+  // existing "?category=X" link's behaviour untouched.
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(() => searchParams.get("label"));
+  // Debit/credit scope from a deep-link (e.g. "money you moved" rows are
+  // always debit) — cleared together with categoryFilter/categoryLabel
+  // since it's the same filter unit, not an independently removable chip.
+  const [txnType, setTxnType] = useState<"debit" | "credit" | null>(() => {
+    const t = searchParams.get("txn_type");
+    return t === "debit" || t === "credit" ? t : null;
+  });
   // Merchant names from an insight deep-link ("?merchants=Ee Ltd,…") — up to
   // 3 display names, comma-separated. Shown as a removable chip alongside
   // the category filter so "see the payments behind this insight" lands on
@@ -60,18 +83,24 @@ export default function TransactionsPage() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // A new search or a cleared/changed category/merchants/period filter always restarts at page 1.
-  useEffect(() => { setPage(1); }, [debouncedQuery, categoryFilter, merchantsFilter, periodFrom, periodTo]);
+  // A new search or a cleared/changed category/merchants/period/txn-type filter always restarts at page 1.
+  useEffect(() => { setPage(1); }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api.transactionsSearch({
       q: debouncedQuery || undefined,
-      category: categoryFilter || undefined,
+      // `categories` (repeated-param, exact-match list) wins when present —
+      // mirrors the backend's own precedence in `_search_query`. Only fall
+      // back to the scalar `category` when there's no multi-category deep
+      // link, so the two never both hit the wire for one request.
+      categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
+      category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
       merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
       from: periodFrom || undefined,
       to: periodTo || undefined,
+      txn_type: txnType || undefined,
       page,
       page_size: PAGE_SIZE,
     })
@@ -89,28 +118,55 @@ export default function TransactionsPage() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [debouncedQuery, categoryFilter, merchantsFilter, periodFrom, periodTo, page]);
+  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, page]);
 
   // Rebuilds the URL from whichever filters remain after one is cleared —
   // every clear*Filter below keeps the others (an insight deep-link, or a
   // category tap from Spend, can carry category+period together).
-  function urlFor(overrides: { category?: string | null; merchants?: string[] | null; from?: string | null; to?: string | null }) {
+  function urlFor(overrides: {
+    category?: string | null;
+    categories?: string[] | null;
+    merchants?: string[] | null;
+    from?: string | null;
+    to?: string | null;
+    label?: string | null;
+    txnType?: "debit" | "credit" | null;
+  }) {
     const cat = overrides.category !== undefined ? overrides.category : categoryFilter;
+    const cats = overrides.categories !== undefined ? overrides.categories : categoriesFilter;
     const merch = overrides.merchants !== undefined ? overrides.merchants : merchantsFilter;
     const from = overrides.from !== undefined ? overrides.from : periodFrom;
     const to = overrides.to !== undefined ? overrides.to : periodTo;
+    const label = overrides.label !== undefined ? overrides.label : categoryLabel;
+    const tt = overrides.txnType !== undefined ? overrides.txnType : txnType;
     const params = new URLSearchParams();
-    if (cat) params.set("category", cat);
+    // Repeated `categories` param, no delimiter — mirrors how the deep link
+    // arrived (SpendPage's onOpenMoved) and how the backend reads it.
+    if (cats && cats.length > 0) {
+      for (const c of cats) params.append("categories", c);
+    } else if (cat) {
+      params.set("category", cat);
+    }
     if (merch && merch.length > 0) params.set("merchants", merch.join(","));
     if (from) params.set("from", from);
     if (to) params.set("to", to);
+    if (label) params.set("label", label);
+    if (tt) params.set("txn_type", tt);
     const qs = params.toString();
     return qs ? `/transactions?${qs}` : "/transactions";
   }
 
+  // Category, label and txn_type are one filter unit (a multi-category deep-
+  // link like "money you moved" always carries all three together) — clear
+  // them together so the chip's X never leaves a stuck debit-only scope or a
+  // stale label behind. Clearing wipes both the scalar and multi-category
+  // state so a genuinely unfiltered list results either way.
   function clearCategoryFilter() {
     setCategoryFilter(null);
-    router.replace(urlFor({ category: null }));
+    setCategoriesFilter(null);
+    setCategoryLabel(null);
+    setTxnType(null);
+    router.replace(urlFor({ category: null, categories: null, label: null, txnType: null }));
   }
 
   function clearMerchantsFilter() {
@@ -196,14 +252,14 @@ export default function TransactionsPage() {
         <div className="mt-2 flex items-center justify-between gap-2 min-h-[28px] flex-wrap">
           <p className="text-[11px] text-slate-600 dark:text-slate-400">{scopeLine}</p>
           <div className="flex items-center gap-1.5 flex-wrap">
-            {categoryFilter && (
+            {(categoryFilter || (categoriesFilter && categoriesFilter.length > 0)) && (
               <button
                 type="button"
                 onClick={clearCategoryFilter}
-                aria-label={`Remove ${categoryFilter} filter`}
+                aria-label={`Remove ${categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")} filter`}
                 className="flex-shrink-0 inline-flex items-center gap-1 min-h-[28px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:opacity-70 transition-opacity"
               >
-                {categoryFilter}
+                {categoryLabel ?? categoryFilter ?? categoriesFilter!.join(", ")}
                 <X size={10} />
               </button>
             )}
@@ -259,8 +315,8 @@ export default function TransactionsPage() {
               {items.length === 0 ? (
                 <div className="py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {searchQuery || categoryFilter || merchantsFilter
-                      ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryFilter || merchantsFilter!.join(", "))}`
+                    {searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter
+                      ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter!.join(", ")))}`
                       : hasPeriodFilter
                         ? "No payments in this period"
                         : "No payments yet"}

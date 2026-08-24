@@ -310,8 +310,12 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
         {/* Resolve-in-place: the amber pace badge crossfades (200ms, opacity
             only) to a neutral "resolved" chip. Both spans share one grid
             cell (col-start-1 row-start-1) so the swap never reflows — the
-            track sizes to the wider of the two, and only opacity animates. */}
-        <div className="relative grid flex-shrink-0">
+            track sizes to the wider of the two, and only opacity animates.
+            justify-items-end keeps each chip sized to its own content
+            (grid items stretch to the track's full width by default) while
+            still reserving the wider chip's width, so the shorter one never
+            inflates to match — no dead space inside the pill itself. */}
+        <div className="relative grid justify-items-end flex-shrink-0">
           <span
             className={`col-start-1 row-start-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 transition-opacity duration-200 ${
               localResolved ? "opacity-0 pointer-events-none" : "opacity-100"
@@ -451,23 +455,47 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
 // nothing here says it's urgent): smaller padding/figure, no explanatory
 // sentence line — one component, two densities, never a forked component.
 function UnresolvedAskCard({
-  largest, paymentsCount, periodOut, weight, onCorrect, onDismiss,
+  largest, paymentsCount, unresolvedTotal, periodOut, weight, accountName, onCorrect, onDismiss,
 }: {
   largest: NonNullable<SpendVerdictUnresolved["largest"]>;
   paymentsCount: number;
+  // unresolved.total — the sum of every unplaced payment, not just `largest`.
+  // Threaded through so the card can say how `largest` relates to the group
+  // ("all 5 together are £X") instead of leaving the reader to guess how a
+  // single £1,020 figure connects to a "5 PAYMENTS" header (owner device-
+  // testing finding: the two read as contradictory without this line).
+  unresolvedTotal: number;
   periodOut: number;
   weight: "material" | "routine";
+  // The account this payment left from, resolved by the caller (SpendPage's
+  // `accounts` state) off `largest.account_id`. Preferred over
+  // `largest.display_name`, which is often just a derived, useless read on
+  // the raw provider string ("Finexer") for exactly the unplaced payments
+  // this card exists to ask about. Undefined when the account can't be
+  // resolved (older cached payload without account_id, or no match) — falls
+  // back to today's display_name/date-only rendering, never a blank
+  // separator.
+  accountName?: string;
   onCorrect: () => void;
   onDismiss: () => void;
 }) {
   const routine = weight === "routine";
   const dateLabel = formatDate(largest.date);
-  // Reserved truncate slot (flex-1 + truncate) so the merchant name can
-  // never wrap onto a second line, regardless of length — the structural
-  // fix for a bug that hit even short strings ("£4.50 to Playtomic.") when
-  // the name sat at the end of running prose.
-  const nameSlot = largest.display_name ? `${largest.display_name} · ${dateLabel}` : dateLabel;
+  // Reserved truncate slot (flex-1 + truncate) so the name can never wrap
+  // onto a second line, regardless of length — the structural fix for a bug
+  // that hit even short strings ("£4.50 to Playtomic.") when the name sat at
+  // the end of running prose.
+  const nameSlot = accountName
+    ? `${accountName} · ${dateLabel}`
+    : largest.display_name
+    ? `${largest.display_name} · ${dateLabel}`
+    : dateLabel;
   const paymentWord = paymentsCount === 1 ? "PAYMENT" : "PAYMENTS";
+  // Group relationship — only says anything when there's a group. At
+  // paymentsCount === 1, `largest` IS the whole unplaced total, so today's
+  // simpler singular copy stays untouched (no "biggest of 1", no redundant
+  // "all 1 together" line).
+  const isGroup = paymentsCount > 1;
 
   return (
     <div className={`glass-card-flat rounded-2xl ${routine ? "p-3" : "p-4"}`}>
@@ -487,12 +515,23 @@ function UnresolvedAskCard({
 
       {!routine && (
         <p className="mt-1.5 text-[13px] font-normal text-slate-700 dark:text-slate-300">
-          I can&apos;t place this one yet.
+          {isGroup ? (
+            <>The biggest of the {paymentsCount}. I can&apos;t place it yet.</>
+          ) : (
+            "I can't place this one yet."
+          )}
         </p>
       )}
 
       <p className={`text-[11px] text-slate-500 dark:text-slate-400 ${routine ? "mt-1" : "mt-1.5"}`}>
-        Counted in your <span className="font-mono tabular-nums">{fmt(periodOut)}</span> out.
+        {isGroup ? (
+          <>
+            All {paymentsCount} together are <span className="font-mono tabular-nums">{fmt(unresolvedTotal)}</span>,
+            counted in your <span className="font-mono tabular-nums">{fmt(periodOut)}</span> out.
+          </>
+        ) : (
+          <>Counted in your <span className="font-mono tabular-nums">{fmt(periodOut)}</span> out.</>
+        )}
       </p>
 
       <div className={`flex items-center gap-4 ${routine ? "mt-2" : "mt-3"}`}>
@@ -546,7 +585,42 @@ function MajorityRowView({
   );
 }
 
-function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
+// ── The "Other" row — deliberately outside the counted majority list ───────
+// ENGINE.md keeps "Other" out of the majority baseline/multiple/peer-tile
+// machinery on purpose; this is the agreed compromise: one visually
+// subordinate row at the END of the section (never hidden behind "Show
+// all", never folded into the header's sum/count). Mirrors
+// MajorityRowView's row geometry (min-h-[44px], same padding, same amount
+// styling) but reuses IconChip's grey "Other" colour and drops every
+// judged-category signal (no pace tag, no amber, no multiple).
+function OtherRowView({ total, paymentsCount, colours, onOpen }: {
+  total: number;
+  paymentsCount: number;
+  colours: Record<string, string>;
+  onOpen: () => void;
+}) {
+  const s = paymentsCount === 1 ? "" : "s";
+  return (
+    <div className="mt-2 glass-card-flat rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full min-h-[44px] flex items-center gap-2.5 px-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+      >
+        <IconChip name="Other" colours={colours} size={28} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">Other</p>
+          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+            {paymentsCount} payment{s} · still placing
+          </p>
+        </div>
+        <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(total)}</span>
+      </button>
+    </div>
+  );
+}
+
+function MoneyYouMoved({ moved, onOpenRow }: { moved: SpendVerdictMoved[]; onOpenRow?: (m: SpendVerdictMoved) => void }) {
   const [open, setOpen] = useState(false);
   if (moved.length === 0) return null;
   const total = moved.reduce((sum, m) => sum + m.amount, 0);
@@ -575,8 +649,8 @@ function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
             const sub = m.goal_names?.length
               ? `${m.goal_names.join(" · ")} · ${m.payments_count} payment${s}`
               : `${m.payments_count} payment${s}`;
-            return (
-              <div key={m.kind} className="flex items-center gap-2.5 px-4 py-2.5 min-h-[44px]">
+            const rowContent = (
+              <>
                 <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-slate-100 dark:bg-slate-700/60">
                   <Icon size={13} className="text-slate-400 dark:text-slate-500" />
                 </span>
@@ -587,6 +661,28 @@ function MoneyYouMoved({ moved }: { moved: SpendVerdictMoved[] }) {
                 <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 flex-shrink-0 font-mono tabular-nums">
                   {fmt(m.amount)}
                 </span>
+              </>
+            );
+            // Every category row above (notables/majority) already routes
+            // into /transactions on tap (Show Your Working Rule) — these
+            // rows were plain non-interactive divs. `m.categories` is
+            // optional/additive: an older payload without it means the
+            // backend can't tell this row's underlying categories yet, so
+            // the row stays exactly as non-interactive as it was before
+            // this field existed, rather than routing to an empty filter.
+            const clickable = !!m.categories && m.categories.length > 0;
+            return clickable ? (
+              <button
+                key={m.kind}
+                type="button"
+                onClick={() => onOpenRow?.(m)}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 min-h-[44px] text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+              >
+                {rowContent}
+              </button>
+            ) : (
+              <div key={m.kind} className="flex items-center gap-2.5 px-4 py-2.5 min-h-[44px]">
+                {rowContent}
               </div>
             );
           })}
@@ -668,6 +764,21 @@ export interface SpendVerdictViewProps {
   // quiet, absent at zero, never an inbox.
   miscategorisedCount?: number;
   onMiscategorisedTap?: () => void;
+  // pairCount — additive count of suggested cross-account transfer pairs
+  // (own section of the same "Review these transfers" sheet, see
+  // MiscategorisedReviewSheet.tsx). Folds into the banner's total alongside
+  // miscategorisedCount; the banner's copy switches to naming both kinds of
+  // row once pairCount > 0, and stays exactly as shipped when it's 0.
+  pairCount?: number;
+  // reviewTotal — additive, all-time total mirroring exactly what the
+  // review sheet shows (series + pairs: uncapped series count + the
+  // pairs-suggestion endpoint's own cap of 10, see analytics.py). When
+  // present it is authoritative for both the banner's visibility and its
+  // copy — this is what fixes the banner-vs-sheet mismatch (period-scoped
+  // count opening an all-time sheet). When absent (an older cached payload
+  // fetched before this field existed), the component falls back to the
+  // previous miscategorisedCount + pairCount period-scoped logic unchanged.
+  reviewTotal?: number;
   // ── Resolve-in-place lifecycle (approved spend-bridge spec, ported) ──────
   // resolved — category → answer map, the controlled source of truth for
   // every card's resolve state (see NotableCardProps.resolved above). A
@@ -680,9 +791,19 @@ export interface SpendVerdictViewProps {
   // onNewNormalRequest — see NotableCardProps.onNewNormalRequest above;
   // threaded straight through to every notable card.
   onNewNormalRequest?: (category: string) => void;
+  // unresolvedAccountName — the account `unresolved.largest` left from,
+  // resolved by the caller (SpendPage.tsx's `accounts` state, matched off
+  // `unresolved.largest.account_id`) since this component has no accounts
+  // list of its own. See UnresolvedAskCard's `accountName` prop doc above.
+  unresolvedAccountName?: string;
+  // onOpenMoved — a "money you moved" row's tap target (Change 6, Show Your
+  // Working Rule parity with the notable/majority rows above it). Only
+  // called for rows SpendVerdictView itself has already gated on
+  // `m.categories` being present/non-empty — see MoneyYouMoved above.
+  onOpenMoved?: (m: SpendVerdictMoved) => void;
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, resolved, onResolved, onNewNormalRequest }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -727,8 +848,15 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
     <div>
       {/* Miscategorised-transfers guardrail — quiet, absent at zero, the
           body's own first card (see the prop doc above for why it lives
-          here rather than between the hero and the body). */}
-      {miscategorisedCount > 0 && (
+          here rather than between the hero and the body). Tapping it opens
+          a review sheet that has always listed the all-time backlog, so the
+          banner now counts by reviewTotal (also all-time) when the server
+          has sent it — the banner's number and the sheet's contents match
+          exactly, which is the whole point of this field. Older cached
+          payloads without reviewTotal fall back to the previous
+          period-scoped miscategorisedCount + pairCount total below; that
+          fallback is a live compatibility path, not dead code. */}
+      {(reviewTotal ?? (miscategorisedCount + pairCount)) > 0 && (
         <button
           type="button"
           onClick={onMiscategorisedTap}
@@ -736,7 +864,18 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
         >
           <ReceiptText size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
           <span className="flex-1 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400">
-            {miscategorisedCount} transfer{miscategorisedCount !== 1 ? "s" : ""} may be miscategorised
+            {/* reviewTotal, when present, is the all-time count the sheet
+                will actually show — plain "N to review", no scope caveat
+                needed since there's no mismatch left to explain. Without it
+                (old cached payload predating this field), fall back to the
+                original period-scoped wording: naming "this period"
+                explicitly, since that count vs. the sheet's all-time list
+                would otherwise read as contradictory. */}
+            {reviewTotal != null
+              ? `${reviewTotal} transfer${reviewTotal !== 1 ? "s" : ""} to review`
+              : pairCount > 0
+                ? `${miscategorisedCount + pairCount} transfer${miscategorisedCount + pairCount !== 1 ? "s" : ""} to review this period`
+                : `${miscategorisedCount} transfer${miscategorisedCount !== 1 ? "s" : ""} this period may be miscategorised`}
           </span>
           <ChevronRight size={12} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
         </button>
@@ -783,8 +922,10 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
             <UnresolvedAskCard
               largest={unresolved.largest}
               paymentsCount={unresolved.payments_count}
+              unresolvedTotal={unresolved.total}
               periodOut={pills.spent}
               weight={unresolved.weight}
+              accountName={unresolvedAccountName}
               onCorrect={() => (onAskCorrect ? onAskCorrect() : onOpenCategory("Other"))}
               onDismiss={handleDismissAsk}
             />
@@ -837,12 +978,23 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
             Nothing in {zeroRows.map((r) => r.category).join(" or ")} yet
           </p>
         )}
+        {/* "Other" — never counted in the header's sum/count above (see
+            OtherRowView doc), always rendered here regardless of
+            collapsed/expanded state so it's never hidden behind "Show all". */}
+        {unresolved.total > 0 && (
+          <OtherRowView
+            total={unresolved.total}
+            paymentsCount={unresolved.payments_count}
+            colours={colours}
+            onOpen={() => onOpenCategory("Other")}
+          />
+        )}
       </div>
 
       {/* Money you moved — id is the "Moved" tap's Show Your Working
           scroll target (SpendHeader's onMovedTap, once that prop lands). */}
       <div className="mt-3" id="spend-money-moved">
-        <MoneyYouMoved moved={moved} />
+        <MoneyYouMoved moved={moved} onOpenRow={onOpenMoved} />
       </div>
     </div>
   );

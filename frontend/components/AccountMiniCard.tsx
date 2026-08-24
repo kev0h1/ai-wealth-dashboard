@@ -298,6 +298,7 @@ export function BankBadge({
   initialsSize,
   altText,
   brandBg,
+  size,
 }: {
   logoSrc: string | null;
   initials: string;
@@ -305,8 +306,13 @@ export function BankBadge({
   altText: string;
   /** When provided, use this as the chip background for the initials fallback (calm branch). */
   brandBg?: string;
+  /** Overrides the default 36px (w-9 h-9) chip size. Omit for byte-identical
+   *  rendering to every pre-existing call site. */
+  size?: number;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
+  const sized = size !== undefined && size !== 36;
+  const radius = size !== undefined ? (size <= 20 ? 6 : size <= 28 ? 8 : 12) : undefined;
 
   if (logoSrc && !imgFailed) {
     return (
@@ -314,7 +320,8 @@ export function BankBadge({
         src={logoSrc}
         alt={altText}
         onError={() => setImgFailed(true)}
-        className="w-9 h-9 rounded-xl object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]"
+        className={`${sized ? "" : "w-9 h-9 rounded-xl"} object-contain bg-white p-0.5 ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
+        style={sized ? { width: size, height: size, borderRadius: radius } : undefined}
       />
     );
   }
@@ -324,8 +331,8 @@ export function BankBadge({
 
   return (
     <div
-      className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white ring-1 ring-black/[0.06] dark:ring-white/[0.12]"
-      style={{ background: brandBg ?? "rgba(255,255,255,0.25)", fontSize }}
+      className={`${sized ? "" : "w-9 h-9 rounded-xl"} flex items-center justify-center font-bold text-white ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
+      style={{ background: brandBg ?? "rgba(255,255,255,0.25)", fontSize, ...(sized ? { width: size, height: size, borderRadius: radius } : {}) }}
     >
       {text}
     </div>
@@ -375,10 +382,19 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
 
           {/* Balance — the hero. Neutral ink even when negative (Red Is Risk rule) */}
           <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 money leading-none">
-            {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
+            {hidden ? "••••" : `${balance < 0 ? "−" : ""}${balanceStr}`}
           </p>
-          {isCredit && !hidden && (
+          {/* Caption is sign-aware, not just isCredit — a credit card in
+              credit is money the bank owes you, never "owed" (and £0 is
+              paid off, so it gets no caption at all). */}
+          {!hidden && isCredit && balance < 0 && (
             <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">owed</p>
+          )}
+          {!hidden && isCredit && balance > 0 && (
+            <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">in credit</p>
+          )}
+          {!hidden && !isCredit && balance < 0 && (
+            <p className="mt-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">overdrawn</p>
           )}
 
           {/* Card-terms pill / Add-rates affordance / legacy APR chip — pinned
@@ -491,7 +507,7 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         className={`text-xl font-bold tracking-tight leading-none font-mono tabular-nums`}
         style={{ color: balance < 0 ? (tc === "#fff" ? "#fca5a5" : "#b91c1c") : tc }}
       >
-        {hidden ? "••••" : `${balance < 0 ? "-" : ""}${balanceStr}`}
+        {hidden ? "••••" : `${balance < 0 ? "−" : ""}${balanceStr}`}
       </p>
 
       {/* Masked account number — own line so reconnect button doesn't overlap */}

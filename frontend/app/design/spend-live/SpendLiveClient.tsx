@@ -30,7 +30,7 @@ import SpendHeader, { SpendPatternsToggle, RecentPeriodOption } from "@/componen
 import TeachingSheet from "@/components/TeachingSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
-import { SPEND_VERDICT_FIXTURES, PREVIEW_INCOME_TXNS, PREVIEW_SIGNALS } from "./fixtures";
+import { SPEND_VERDICT_FIXTURES, PREVIEW_INCOME_TXNS, PREVIEW_SIGNALS, PREVIEW_ACCOUNTS } from "./fixtures";
 import { api } from "@/lib/api";
 import type { SpendVerdictState, Transaction } from "@/lib/api";
 import { DEFAULT_PAY_PERIOD_CONFIG, prevPeriodWithConfig } from "@/lib/payPeriod";
@@ -82,6 +82,23 @@ const SPEND_FIXTURE_TX: Transaction = {
   category: "Shopping",
   transaction_type: "debit",
 };
+// Credit fork of movement-root (owner review defect 2) — a CREDIT already
+// sitting in a movement-kind category (mirrors the real £1,106 "TEST"
+// shape), so the sheet opens straight on movement-root exactly like
+// MOVE_FIXTURE_TX does for a debit, but renders the credit-appropriate
+// option list (Transfer / Income / something else) instead of the
+// debit-only mine-here/mine-goal/mine-offline destinations.
+const MOVE_CREDIT_FIXTURE_TX: Transaction = {
+  id: "fixture-test-credit-1",
+  account_id: "fixture-account",
+  date: "2026-08-01",
+  amount: 1106.77,
+  currency: "GBP",
+  description: "TEST",
+  merchant_name: undefined,
+  category: "Transfer",
+  transaction_type: "credit",
+};
 
 type Mode = "light" | "dark";
 const STATES: SpendVerdictState[] = ["normal", "nothing", "everything", "nobaseline", "early"];
@@ -115,8 +132,10 @@ export default function SpendLiveClient() {
   // via `?sheet=move` (movement fork, opens on the WISE transfer) or
   // `?sheet=spend` (spend fork, opens on the Playtomic miscategorisation).
   const sheetParam = params.get("sheet");
-  const [sheetOpen, setSheetOpen] = useState(sheetParam === "move" || sheetParam === "spend");
-  const [sheetTx, setSheetTx] = useState<Transaction>(sheetParam === "spend" ? SPEND_FIXTURE_TX : MOVE_FIXTURE_TX);
+  const [sheetOpen, setSheetOpen] = useState(sheetParam === "move" || sheetParam === "spend" || sheetParam === "movecredit");
+  const [sheetTx, setSheetTx] = useState<Transaction>(
+    sheetParam === "spend" ? SPEND_FIXTURE_TX : sheetParam === "movecredit" ? MOVE_CREDIT_FIXTURE_TX : MOVE_FIXTURE_TX
+  );
   // Mirrors SpendPage.tsx's askHandoffTxId — true only when the sheet was
   // opened via the ask card, not the movement/spend demo links below.
   const [sheetForceMovementRoot, setSheetForceMovementRoot] = useState(false);
@@ -237,6 +256,19 @@ export default function SpendLiveClient() {
                 hideReading
                 expandMajoritySignal={expandSignal}
                 aboveMajority={<SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />}
+                // Mirrors SpendPage.tsx's own resolve-off-accounts-state
+                // pattern (Change 3), against the small PREVIEW_ACCOUNTS
+                // fixture — proves the ask card renders the account name,
+                // not the raw provider-derived display_name.
+                unresolvedAccountName={PREVIEW_ACCOUNTS.find(a => a.id === verdict.unresolved.largest?.account_id)?.name}
+                // Money-you-moved rows (Change 6) — this route has no router
+                // navigation of its own, so the demo just surfaces which row
+                // was tapped and its resolved category filter, the same
+                // construction SpendPage.tsx's real onOpenMoved uses.
+                onOpenMoved={(m) => {
+                  if (!m.categories || m.categories.length === 0) return;
+                  window.alert(`Would open /transactions?category=${m.categories.join(",")}&txn_type=debit&label=${encodeURIComponent(m.label)}`);
+                }}
               />
             )}
           </div>
@@ -253,6 +285,13 @@ export default function SpendLiveClient() {
             </button>
             <button
               type="button"
+              onClick={() => { setSheetTx(MOVE_CREDIT_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
+              className="text-[11px] font-medium text-indigo-500/80 dark:text-indigo-400/80 active:opacity-70 transition-opacity"
+            >
+              teaching sheet — movement fork (credit) ↗
+            </button>
+            <button
+              type="button"
               onClick={() => { setSheetTx(SPEND_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
               className="text-[11px] font-medium text-indigo-500/80 dark:text-indigo-400/80 active:opacity-70 transition-opacity"
             >
@@ -266,6 +305,11 @@ export default function SpendLiveClient() {
             transaction={sheetTx}
             onClose={() => { setSheetOpen(false); setSheetForceMovementRoot(false); }}
             onUpdated={() => {}}
+            // fixture-only: the fixture transactions all carry account_id
+            // "fixture-account", which matches nothing in PREVIEW_ACCOUNTS, so
+            // hardcode PREVIEW_ACCOUNTS[0] here to always demonstrate the
+            // header's bank badge in this design-preview route.
+            account={PREVIEW_ACCOUNTS[0]}
             forceMovementRoot={sheetForceMovementRoot}
           />
         )}

@@ -555,8 +555,13 @@ export default function SpendHeader(props: SpendHeaderProps) {
         )}
 
         {/* The reading, now a caption under the instrument rather than the
-            card's own 20px hero line. */}
-        <p lang="en-GB" className="text-pretty mt-3 text-sm font-normal text-slate-600 dark:text-slate-300 line-clamp-3"><MoneyText text={reading} /></p>
+            card's own 20px hero line. Never clamped: this is Penny's verdict
+            and DESIGN.md's north star is "verdicts lead" — truncating it
+            with an ellipsis and no way to expand is a direct violation. The
+            backend already bounds reading length, so the unclamped cost is
+            at most a line or two of extra card height; no fixed-height
+            sibling below this depends on the reading staying short. */}
+        <p lang="en-GB" className="text-pretty mt-3 text-sm font-normal text-slate-600 dark:text-slate-300"><MoneyText text={reading} /></p>
       </div>
 
       {incomeExpanded && <IncomeDrilldown incomeTxns={incomeTxns} onTransactionClick={onTransactionClick} />}

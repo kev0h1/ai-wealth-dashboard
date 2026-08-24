@@ -1890,11 +1890,16 @@ export default function AccountsPage() {
           </div>
 
           <p
-            className={`text-[30px] leading-none font-bold money ${isCredit || balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+            className={`text-[30px] leading-none font-bold money ${balance < 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
           >
-            {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "-" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            {hideNetWorth ? "••••" : `${!isCredit && balance < 0 ? "−" : ""}${selectedAccount.currency === "KES" ? "KES " : "£"}${Math.abs(balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </p>
-          {isCredit && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+          {/* Caption is sign-aware, not just isCredit — an in-credit card
+              is money the bank owes you, never "owed"; £0 is paid off and
+              gets no caption. */}
+          {isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
+          {isCredit && balance > 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">in credit</p>}
+          {!isCredit && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
 
           {isCredit && (termsPill ? (
             <button
@@ -2181,7 +2186,7 @@ export default function AccountsPage() {
             transaction={selectedTx}
             onClose={() => setSelectedTx(null)}
             onUpdated={handleTxUpdated}
-            account={selectedAccount ? { name: selectedAccount.name, provider: selectedAccount.provider } : undefined}
+            account={selectedAccount}
           />
         )}
 

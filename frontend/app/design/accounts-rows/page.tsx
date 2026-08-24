@@ -59,7 +59,10 @@ function lensMatches(account: MockAccount, lens: Lens): boolean {
     case "Investments":
       return account.type.includes("Investment");
     case "Owed":
-      return account.type === "Credit" && account.balance < 0;
+      // Everything you're down on, cards and overdrafts alike — matches the
+      // live filterEstate() widening in lib/accountsEstate.ts: any negative
+      // balance, not just credit-kind rows.
+      return account.balance < 0;
   }
 }
 
@@ -124,6 +127,22 @@ function AccountLedgerRow({ account }: { account: MockAccount }) {
   const isCredit = account.type === "Credit";
   const isInvestment = account.type.includes("Investment");
   const muted = !!account.dormant;
+  // Direction of money, not just account kind — a credit card in credit is
+  // not debt, and a negative-balance current/savings account is genuine
+  // risk regardless of kind.
+  const negative = account.balance < 0;
+  const isOverdrawn = !isCredit && account.balance < 0;
+  const stateCaption = isCredit && account.balance < 0
+    ? "owed"
+    : isCredit && account.balance > 0
+    ? "in credit"
+    : isOverdrawn
+    ? "overdrawn"
+    : null;
+  // Unicode minus (U+2212) — a non-credit negative balance shows the signed
+  // figure; credit rows keep unsigned magnitude with the "owed" caption,
+  // matching the live AccountLedgerRow.tsx treatment.
+  const amountText = isOverdrawn ? `−${moneyStr(account.balance)}` : moneyStr(account.balance);
 
   return (
     <button
@@ -164,10 +183,10 @@ function AccountLedgerRow({ account }: { account: MockAccount }) {
 
       <div className="shrink-0 flex flex-col items-end gap-1">
         {isInvestment && account.series && <MiniSparkline series={account.series} />}
-        <p className={`text-[16px] font-semibold num ${isCredit ? "text-rose-400" : muted ? "text-slate-500" : "text-slate-100"}`}>
-          {moneyStr(account.balance)}
+        <p className={`text-[16px] font-semibold num ${negative ? "text-rose-400" : muted ? "text-slate-500" : "text-slate-100"}`}>
+          {amountText}
         </p>
-        {isCredit && <p className="text-[10px] text-slate-500 mt-0.5">owed</p>}
+        {stateCaption && <p className="text-[10px] text-slate-500 mt-0.5">{stateCaption}</p>}
       </div>
     </button>
   );

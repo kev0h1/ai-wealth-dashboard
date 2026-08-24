@@ -40,6 +40,13 @@ type VerdictMsg = {
   role: "assistant";
   kind: "verdict";
   headline: string;
+  /** The reasoning sentence(s) behind the headline, from POST /can-i's
+   * `reply` field. `headline` is the verdict alone (under 8 words); this is
+   * the "why" that makes the verdict legible instead of an abrupt one-liner
+   * over generic stats. Left unset on the degraded paths below, where
+   * `reply`'s content already lives in `headline` itself, so there's
+   * nothing to duplicate. */
+  reply?: string;
   facts?: string[];
   offer?: CanIOffer | null;
   outOfScope?: boolean;
@@ -92,6 +99,26 @@ function VerdictCard({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => v
         <p className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200"><MoneyText text={msg.headline} /></p>
       ) : (
         <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100"><MoneyText text={msg.headline} /></p>
+      )}
+      {/* Middle tier: the reasoning sentence behind the verdict. Suppressed
+          for two cases where it would echo something already on screen:
+          - `outOfScope`: the `facts` array below is deliberately doing the
+            explaining here (see this file's header comment) — `reply` on
+            that path is just a paraphrase of the same scope statement plus
+            the same worked example already in `facts`, so showing both
+            prints the "try: Can I spend £50..." example twice.
+          - `reply.startsWith(headline)`: the backend's defensive
+            `_parse_headline_reply` (can_i.py) sets `headline` to the FIRST
+            SENTENCE of `reply`, not necessarily the whole string, when the
+            model ignores the structured-output format. Plain inequality
+            only catches the case where they're identical; a model output
+            like reply="Yes. That leaves £61 free until Friday." with
+            headline="Yes." would pass `!==` and still duplicate the "Yes."
+            fragment across both tiers. Don't simplify this back to `!==`. */}
+      {msg.reply && !msg.outOfScope && !msg.reply.startsWith(msg.headline) && (
+        <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300">
+          <MoneyText text={msg.reply} />
+        </p>
       )}
       {msg.facts && msg.facts.length > 0 && (
         <div className="mt-2 space-y-1">
@@ -202,14 +229,14 @@ function ScenarioConfirmCard({
             return (
               <fieldset key={i} className="rounded-xl border border-slate-200 dark:border-slate-600 p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 px-0.5">
+                  <legend className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 px-0.5">
                     {d.kind === "removal" ? "Cancel" : d.kind === "income_change" ? "Income change" : "New cost"}
                   </legend>
                   <button
                     type="button"
                     onClick={() => remove(i)}
                     aria-label={`Remove ${d.label || "this item"}`}
-                    className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <X size={14} />
                   </button>
@@ -311,7 +338,7 @@ function ScenarioConfirmCard({
           })}
 
           {rejected.length > 0 && (
-            <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500 text-pretty">{rejected.join(" ")}</p>
+            <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
           )}
 
           <button
@@ -324,16 +351,22 @@ function ScenarioConfirmCard({
         </form>
       )}
       {drafts.length === 0 && rejected.length > 0 && (
-        <p className="mt-2 text-[12px] leading-snug text-slate-400 dark:text-slate-500 text-pretty">{rejected.join(" ")}</p>
+        <p className="mt-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{rejected.join(" ")}</p>
       )}
     </div>
   );
 }
 
+// Full-width, same shell as VerdictCard (glass-card rounded-2xl p-4) so the
+// answer fills this placeholder rather than replacing it — a small
+// left-aligned pill here was chat-bubble grammar on a surface that
+// deliberately has none (see this file's header comment), and the layout
+// jumped when the full-width card landed on top of it.
 function BouncingDots() {
   return (
-    <div className="flex justify-start">
-      <div className="glass-card rounded-2xl px-4 py-3 flex items-center gap-1">
+    <div className="glass-card rounded-2xl p-4 w-full">
+      <span className="sr-only">Penny is checking your numbers</span>
+      <div className="flex items-center gap-1">
         {[0, 150, 300].map((d) => (
           <span key={d} className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
         ))}
@@ -378,7 +411,7 @@ function SuggestionChip({ label, onTap, onDismiss }: { label: string; onTap: () 
           onDismiss();
         }}
         aria-label={`Dismiss suggestion: ${label}`}
-        className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-400 dark:text-slate-500 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         <X size={12} />
       </button>
@@ -442,7 +475,14 @@ export default function PennyConversation({
       // A scenario confirm card has no headline of its own — summarise it
       // by label so a follow-up question still has something sensible to
       // read as "what Penny said last".
-      const content = m.kind === "scenario" ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.` : m.headline;
+      // Prefer `reply` (the actual reasoning) over the bare headline so a
+      // follow-up question doesn't lose Penny's own working — a one-word
+      // deterministic headline like "Yes" carries nothing for the model to
+      // build on. Falls back to headline where reply is unset (degraded
+      // paths already fold reply into headline; see VerdictMsg's comment).
+      const content = m.kind === "scenario"
+        ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.`
+        : m.reply ?? m.headline;
       return { role: "assistant" as const, content };
     });
   }
@@ -462,7 +502,7 @@ export default function PennyConversation({
         // confirm, render `reply` as an ordinary plain-text message.
         assistantMsg = { role: "assistant", kind: "verdict", headline: res.reply, degraded: true };
       } else if (res.headline) {
-        assistantMsg = { role: "assistant", kind: "verdict", headline: res.headline, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, degraded: false };
+        assistantMsg = { role: "assistant", kind: "verdict", headline: res.headline, reply: res.reply, facts: res.facts, offer: res.offer ?? null, outOfScope: res.out_of_scope, degraded: false };
       } else {
         assistantMsg = { role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, degraded: true };
       }
@@ -522,10 +562,18 @@ export default function PennyConversation({
 
   // Scroll the newest turn into view as it lands — covers both the
   // ?ask= deep link ("scroll to answer") and any regular chip/composer ask.
+  // Depends on the `messages` array itself, not `messages.length`: once the
+  // thread hits HISTORY_CAP, every subsequent turn replaces one message for
+  // another via `.slice(-HISTORY_CAP)`, so the length pins at 6 and a
+  // length-only dependency would stop firing from the fourth exchange
+  // onward — exactly when the composer's dock at the bottom makes the
+  // missed scroll most visible. The ref scroll itself is idempotent, so
+  // re-running it on every array identity change (even ones that don't
+  // move anything) is harmless.
   useEffect(() => {
     if (messages.length === 0) return;
     threadEndRef.current?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "end" });
-  }, [messages.length]);
+  }, [messages]);
 
   function openOfferSheet() {
     setOfferSheetOpen(true);
@@ -537,23 +585,23 @@ export default function PennyConversation({
     <div className={className}>
       {/* Thread — in-flow, page-scrolled (no inner scroll container; the
           docked composer below is fixed to the viewport independent of
-          this). */}
-      {messages.length > 0 && (
-        <div aria-live="polite" role="log" className="space-y-3">
-          {messages.map((m, i) => {
-            if (m.role === "user") return <UserLine key={i} text={m.content} />;
-            if (m.kind === "scenario") {
-              return <ScenarioConfirmCard key={i} items={m.items} rejected={m.rejected} prefilled={m.prefilled} onRun={runScenario} />;
-            }
-            return <VerdictCard key={i} msg={m} onOfferTap={openOfferSheet} />;
-          })}
-          {loading && <BouncingDots />}
-          {error && !loading && <ErrorRetry onRetry={retry} />}
-          <div ref={threadEndRef} />
-        </div>
-      )}
-      {messages.length === 0 && loading && <BouncingDots />}
-      {messages.length === 0 && error && !loading && <ErrorRetry onRetry={retry} />}
+          this). Rendered unconditionally (not gated on messages.length): a
+          live region and its first content landing in the same commit is
+          silent on several screen readers, which only announce mutations
+          to a region that already existed on the page. Always mounting the
+          empty shell means the very first answer gets announced too. */}
+      <div aria-live="polite" role="log" className="space-y-3">
+        {messages.map((m, i) => {
+          if (m.role === "user") return <UserLine key={i} text={m.content} />;
+          if (m.kind === "scenario") {
+            return <ScenarioConfirmCard key={i} items={m.items} rejected={m.rejected} prefilled={m.prefilled} onRun={runScenario} />;
+          }
+          return <VerdictCard key={i} msg={m} onOfferTap={openOfferSheet} />;
+        })}
+        {loading && <BouncingDots />}
+        {error && !loading && <ErrorRetry onRetry={retry} />}
+        <div ref={threadEndRef} />
+      </div>
 
       {/* Persistent suggestion chips — survive an answer instead of
           disappearing (removed only once asked or explicitly dismissed).
@@ -591,6 +639,7 @@ export default function PennyConversation({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send(input)}
                 placeholder={placeholder}
+                aria-label="Ask Penny a spending question"
                 maxLength={160}
                 disabled={loading}
                 className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300"
@@ -605,7 +654,7 @@ export default function PennyConversation({
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500 mt-1.5">
+            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 mt-1.5">
               General information, not regulated financial advice.
             </p>
           </div>
@@ -685,7 +734,7 @@ export function PennyPromptBar({
         >
           <PennyMark size={13} className="text-white" />
         </span>
-        <span className="text-[14px] text-slate-400 dark:text-slate-500 truncate">
+        <span className="text-[14px] text-slate-500 dark:text-slate-400 truncate">
           Ask Penny&hellip; Can I spend <span className="font-mono tabular-nums">£45</span> this weekend?
         </span>
       </button>
@@ -704,7 +753,7 @@ export function PennyPromptBar({
               </button>
             ))}
           </div>
-          <p className="text-[11px] leading-snug text-slate-400 dark:text-slate-500 mt-2">
+          <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 mt-2">
             Suggestions come from your own spending and plans.
           </p>
         </>

@@ -375,6 +375,14 @@ export default function SpendPage() {
   const [isPro, setIsPro] = useState<boolean>(false);
   const [miscategorisedCount, setMiscategorisedCount] = useState(0);
   const [miscategorisedIds, setMiscategorisedIds] = useState<string[]>([]);
+  // Additive — suggested cross-account transfer pairs with a leg in the
+  // viewed period (see the banner's own comment in SpendVerdictView.tsx).
+  const [pairCount, setPairCount] = useState(0);
+  // Additive, all-time — mirrors the review sheet's actual total (series +
+  // pairs). Undefined until the first fetch resolves; SpendVerdictView
+  // treats undefined as "no value yet" and falls back to the period-scoped
+  // miscategorisedCount + pairCount below.
+  const [reviewTotal, setReviewTotal] = useState<number | undefined>(undefined);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
@@ -383,7 +391,7 @@ export default function SpendPage() {
   // the viewed period changes, not just on mount.
   const fetchMiscategorisedCount = useCallback((offset: number) => {
     api.getMiscategorisedCount(offset)
-      .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); })
+      .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); setPairCount(m.pair_count ?? 0); setReviewTotal(m.review_total); })
       .catch(() => {});
   }, []);
 
@@ -680,6 +688,8 @@ export default function SpendPage() {
               expandMajoritySignal={expandSignal}
               aboveMajority={<SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />}
               miscategorisedCount={miscategorisedCount}
+              pairCount={pairCount}
+              reviewTotal={reviewTotal}
               onMiscategorisedTap={handleMiscategorisedTap}
               // Task 3 — every category tap (notable card's "See the N
               // payments", every majority row) opens the global hub with
@@ -690,6 +700,35 @@ export default function SpendPage() {
                 params.set("category", name);
                 params.set("from", isoDate(periodStart));
                 params.set("to", isoDate(periodEnd));
+                router.push(`/transactions?${params.toString()}`);
+              }}
+              // The ask card's account line (Change 3) — resolved here off
+              // `accounts` state since SpendVerdictView has no accounts list
+              // of its own; undefined (never a blank separator) when the
+              // account can't be resolved, matching UnresolvedAskCard's own
+              // fallback.
+              unresolvedAccountName={accounts.find(a => a.id === verdict.unresolved.largest?.account_id)?.name}
+              // "Money you moved" rows (Change 6) — same route-construction
+              // pattern as onOpenCategory above (category/from/to), plus
+              // `txn_type=debit` (a moved-money row is never a refund/credit)
+              // and `label` so the removable chip on /transactions shows the
+              // row's own label ("To your pots") instead of a raw joined
+              // category list. SpendVerdictView only ever calls this for a
+              // row it has already gated on `m.categories` being non-empty.
+              onOpenMoved={(m) => {
+                if (!m.categories || m.categories.length === 0) return;
+                const params = new URLSearchParams();
+                // One `categories` param per name (not a comma-joined
+                // `category` string) — a custom movement category name can
+                // legally contain a comma, which a delimiter can't represent
+                // unambiguously. URLSearchParams handles the encoding, and
+                // the backend's `_search_query` reads the repeated param
+                // as an exact-match list (see transactions.py).
+                m.categories.forEach((c) => params.append("categories", c));
+                params.set("txn_type", "debit");
+                params.set("from", isoDate(periodStart));
+                params.set("to", isoDate(periodEnd));
+                params.set("label", m.label);
                 router.push(`/transactions?${params.toString()}`);
               }}
               signals={signals}
@@ -723,7 +762,11 @@ export default function SpendPage() {
                 setAskHandoffTxId(largest.id);
                 setSelectedTx({
                   id: largest.id,
-                  account_id: "",
+                  // account_id is now on the unresolved payload's largest
+                  // (Change 3) — fall back to "" only for a cached payload
+                  // fetched before the backend started sending it, same as
+                  // before this field existed.
+                  account_id: largest.account_id ?? "",
                   date: largest.date,
                   amount: largest.amount,
                   currency: region === "Kenya" ? "KES" : "GBP",
@@ -818,7 +861,7 @@ export default function SpendPage() {
           transaction={selectedTx}
           onClose={() => { setSelectedTx(null); setAskHandoffTxId(null); }}
           onUpdated={handleTxUpdated}
-          account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
+          account={accounts.find(a => a.id === selectedTx.account_id)}
           forceMovementRoot={selectedTx.id === askHandoffTxId}
         />
       )}
@@ -834,6 +877,12 @@ export default function SpendPage() {
             fetchMiscategorisedCount(periodOffset);
             fetchVerdict(periodOffset);
           }}
+          accounts={accounts}
+          // The sheet lists every flagged series all-time, but the banner
+          // that opens it is period-scoped — passing periodStart lets the
+          // sheet split into "This period"/"Earlier periods" so the two
+          // deliberately-different scopes read as explained, not buggy.
+          periodStart={periodStart}
         />
       )}
 

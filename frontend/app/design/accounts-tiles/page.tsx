@@ -70,6 +70,22 @@ function AccountTile({ account }: { account: MockAccount }) {
   const brand = accountBrand(account);
   const isCredit = account.type === "Credit";
   const pct = isCredit && account.limit ? Math.min(100, (Math.abs(account.balance) / account.limit) * 100) : 0;
+  // Direction of money, not just account kind — a credit card in credit is
+  // not debt, and a negative-balance current/savings account is genuine
+  // risk regardless of kind.
+  const negative = account.balance < 0;
+  const isOverdrawn = !isCredit && account.balance < 0;
+  const stateCaption = isCredit && account.balance < 0
+    ? "owed"
+    : isCredit && account.balance > 0
+    ? "in credit"
+    : isOverdrawn
+    ? "overdrawn"
+    : null;
+  // Unicode minus (U+2212) — a non-credit negative balance shows the signed
+  // figure; credit rows keep unsigned magnitude with the "owed" caption,
+  // matching the live AccountLedgerRow.tsx treatment.
+  const amountText = isOverdrawn ? `−${moneyStr(account.balance)}` : moneyStr(account.balance);
 
   return (
     <div className="glass-card-flat rounded-2xl p-4 relative min-h-[132px] flex flex-col h-full">
@@ -87,10 +103,10 @@ function AccountTile({ account }: { account: MockAccount }) {
         </div>
       </div>
 
-      <p className={`mt-2.5 text-xl font-bold num ${isCredit ? "text-rose-400" : "text-slate-100"}`}>
-        {moneyStr(account.balance)}
+      <p className={`mt-2.5 text-xl font-bold num ${negative ? "text-rose-400" : "text-slate-100"}`}>
+        {amountText}
       </p>
-      {isCredit && <p className="text-[10px] text-slate-500">owed</p>}
+      {stateCaption && <p className="text-[10px] text-slate-500">{stateCaption}</p>}
 
       <div className="mt-auto pt-2">
         {isCredit ? (

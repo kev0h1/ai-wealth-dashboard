@@ -18,6 +18,10 @@ function moneyStr(n: number): string {
   return `£${Math.abs(Math.round(n)).toLocaleString("en-GB")}`;
 }
 
+// Unicode minus (U+2212), matching MoneyText's CURRENCY_TOKEN regex and
+// AccountsPage's net-worth rendering — never a plain hyphen.
+const MINUS = "−";
+
 // ── Inline sparkline (investment rows) — 52x20, low-opacity indigo stroke,
 // a whisper of trend, not a chart. Matches the approved preview exactly. ──
 
@@ -128,6 +132,17 @@ export default function AccountLedgerRow({
   const muted = row.dormant;
   const isPinned = pinned ?? row.pinned;
 
+  // Direction of money, not just account kind — an overdrawn current/savings
+  // account is genuine risk (Red Is Risk), a credit card in credit is not
+  // debt at all. isDormant only ever matches balance === 0, so a negative
+  // balance is never also muted.
+  const isOverdrawn = !isCredit && row.balance < 0;
+  const isOwedOnCredit = isCredit && row.balance < 0;
+  const isCreditInCredit = isCredit && row.balance > 0;
+  const negative = row.balance < 0;
+  const amountText = isOverdrawn ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
+  const stateCaption = isOwedOnCredit ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
+
   return (
     <div
       role="button"
@@ -139,7 +154,7 @@ export default function AccountLedgerRow({
           onClick?.(row);
         }
       }}
-      aria-label={row.name}
+      aria-label={`${row.name}, ${moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}`}
       className="w-full min-h-[60px] flex items-center gap-3 px-4 py-2.5 active:bg-slate-50 dark:active:bg-white/5 transition-colors motion-reduce:transition-none text-left cursor-pointer"
     >
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
@@ -182,12 +197,12 @@ export default function AccountLedgerRow({
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
           className={`text-[16px] font-semibold money ${
-            isCredit ? "text-rose-600 dark:text-rose-400" : muted ? "text-slate-400 dark:text-slate-500" : "text-slate-900 dark:text-slate-100"
+            negative ? "text-rose-600 dark:text-rose-400" : muted ? "text-slate-400 dark:text-slate-500" : "text-slate-900 dark:text-slate-100"
           }`}
         >
-          {moneyStr(row.balance)}
+          {amountText}
         </p>
-        {isCredit && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">owed</p>}
+        {stateCaption && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted

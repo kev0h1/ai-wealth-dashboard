@@ -23,14 +23,19 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
+    confirmed_transfer_pairs_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import last_bank_sync
-from app.services.categorisation import series_key, has_date_fragment, is_own_transfer, user_identity
+from app.services.categorisation import (
+    series_key, has_date_fragment, own_transfer_evidence, user_identity,
+    canonical_merchant_key, refine_transfer_target, _byte_desc_key,
+    _CHANNEL_CODES,
+)
 from app.services.card_rates import is_credit_card_account
-from app.services.categories import get_category_kinds, is_non_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT
+from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -2368,12 +2373,25 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
     return result
 
 
-async def _flagged_miscategorised(uid: str) -> list:
+async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()) -> list:
     """Shared guardrail query: debit rows that look like own-account transfers
     (matched via user_identity/is_own_transfer) but sit in a spend category
     rather than a money-to-self category. Excludes rows/series already
     dismissed. Returns flat list of annotated txn docs (adds _series_key and
-    _effective_category)."""
+    _effective_category).
+
+    `exclude_ids` (owner device-testing fix 2) — the id of any transaction
+    that is currently a leg of a live transfer-pair suggestion (see
+    _transfer_pair_suggestions). Without this, a transaction could be asked
+    about TWICE in the same review sheet: once as a pair-suggestion leg, once
+    again inside its miscategorised series — reproduced live with a −£965
+    "To Kevin Maingi" debit that was both the pair-suggestion's debit leg AND
+    a member of the "To Kevin Maingi 2×" series. The pair is the better ask
+    (it fixes both legs and learns the description pair), so the pair wins
+    and the transaction is filtered out here, BEFORE grouping into series —
+    a series keeps its other members; only the specific flagged row that's
+    also a pair leg drops out. Callers must compute the pair-suggestion set
+    first and pass every leg id (credit and debit) in here."""
     identity = await user_identity(uid)
     # is_own_transfer treats "no identity data at all" as own (legacy default),
     # which would flag every spend row here. Guard: no identity → no guardrail.
@@ -2410,13 +2428,17 @@ async def _flagged_miscategorised(uid: str) -> list:
         tid = str(t["_id"])
         if tid in dismissed:
             continue
+        if tid in exclude_ids:
+            continue
         sk = series_key(t)
         if sk in dismissed_series:
             continue
         text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
-        if is_own_transfer(text, identity, own_account_id=t.get("account_id")):
+        evidence = own_transfer_evidence(text, identity, own_account_id=t.get("account_id"))
+        if evidence is not None:
             t["_series_key"] = sk
             t["_effective_category"] = t.get("custom_category") or t.get("category")
+            t["_evidence"] = evidence
             kept.append(t)
 
     return kept
@@ -2452,7 +2474,10 @@ def _series_touching_period(txns: list, period_start: _date, period_end: _date) 
 
 def _group_miscategorised(txns: list) -> list:
     """Group flagged transactions by recurrence series (_series_key). Each
-    group's representative is its most recent member."""
+    group's representative is its most recent member. Each result also
+    carries `account_id` (the representative's) and `members` (up to 20
+    individual transactions, date-descending) so the review sheet can list
+    the actual payments behind a group, not just its representative row."""
     groups: dict = defaultdict(list)
     for t in txns:
         groups[t["_series_key"]].append(t)
@@ -2483,10 +2508,42 @@ def _group_miscategorised(txns: list) -> list:
             "currency": rep.get("currency"),
             "category": rep.get("_effective_category"),
             "transaction_type": rep.get("transaction_type"),
+            "account_id": rep.get("account_id") or "",
+            # Real per-row evidence for the reason the representative was
+            # flagged as an own-transfer: {"kind": "account", "account_id": ...}
+            # or {"kind": "name"}. Representative wins; members aren't
+            # reconciled against each other.
+            "reason": rep.get("_evidence"),
+            # Individual transactions behind this series, date-descending
+            # (members is already sorted that way), capped at 20 — lets the
+            # review sheet list the actual payments rather than just the
+            # representative row.
+            "members": [
+                {
+                    "id": str(m["_id"]),
+                    "date": _iso(m.get("date")),
+                    "amount": m.get("amount"),
+                    "account_id": m.get("account_id") or "",
+                    "description": m.get("description"),
+                    "merchant_name": m.get("merchant_name"),
+                }
+                for m in members[:20]
+            ],
         })
 
     result.sort(key=lambda g: g.get("date") or "", reverse=True)
     return result
+
+
+def _pair_leg_ids(pairs: list[dict]) -> frozenset:
+    """Every transaction id (both legs) across a list of transfer-pair
+    suggestions — see _flagged_miscategorised's `exclude_ids` doc for why
+    (owner device-testing fix 2: one transaction, one ask)."""
+    ids: set[str] = set()
+    for p in pairs:
+        ids.add(p["credit"]["id"])
+        ids.add(p["debit"]["id"])
+    return frozenset(ids)
 
 
 @router.get("/transactions/miscategorised-count")
@@ -2504,7 +2561,14 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     figures elsewhere on the Spend page and inflated the banner. The sibling
     review-sheet endpoint (/transactions/miscategorised) deliberately stays
     all-time — it's a standalone "clean up your history" surface, not
-    period-anchored."""
+    period-anchored.
+
+    Additive field `review_total` breaks from the period-scoped semantics
+    above on purpose: it's the all-time count the review sheet will actually
+    show (series + pairs), so the Spend banner can say "N to review" and
+    have tapping it land on exactly N items instead of a smaller
+    period-scoped number. `count` and `pair_count` stay period-scoped
+    unchanged for whatever other UI still keys off them."""
     uid = user["email"]
     off = max(-60, min(0, int(offset)))
     cache_name = f"miscategorised_count:{off}"
@@ -2512,13 +2576,38 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     if cached is not None:
         return cached
 
-    txns = await _flagged_miscategorised(uid)
+    # Pair suggestions computed FIRST (owner device-testing fix 2) so their
+    # leg ids can be filtered out of the flagged-series set below — one
+    # transaction gets one ask, and the pair (fixes both legs + learns) beats
+    # the series ask. This also feeds `pair_count` further down, unchanged.
+    pairs = await _transfer_pair_suggestions(uid)
+    txns = await _flagged_miscategorised(uid, exclude_ids=_pair_leg_ids(pairs))
     period_start, period_end = await _resolve_period_bounds(uid, off)
     in_period_keys = _series_touching_period(txns, period_start, period_end)
     period_txns = [t for t in txns if t["_series_key"] in in_period_keys]
 
     groups = _group_miscategorised(period_txns)
-    result = {"count": len(groups), "ids": [g["id"] for g in groups][:50]}
+
+    def _leg_in_period(leg: dict) -> bool:
+        d = leg.get("date")
+        if not d:
+            return False
+        try:
+            leg_date = _date.fromisoformat(str(d)[:10])
+        except ValueError:
+            return False
+        return period_start <= leg_date <= period_end
+
+    pair_count = sum(1 for p in pairs if _leg_in_period(p["credit"]) or _leg_in_period(p["debit"]))
+
+    # review_total: the all-time total the review sheet will actually show
+    # (every flagged series, not just this period's, plus every suggested
+    # pair, already capped at 10 by _transfer_pair_suggestions itself) — so
+    # the Spend banner can report exactly what tapping it reveals. `count`
+    # and `pair_count` above stay period-scoped, unchanged, for other UI.
+    review_total = len(_group_miscategorised(txns)) + len(pairs)
+
+    result = {"count": len(groups), "ids": [g["id"] for g in groups][:50], "pair_count": pair_count, "review_total": review_total}
     response_cache.put(cache_name, uid, result)
     return result
 
@@ -2528,14 +2617,20 @@ async def get_miscategorised_transactions(user: dict = Depends(current_user)):
     """Grouped rows behind the miscategorised-transfers guardrail, for the
     'review miscategorised transfers' sheet. Recurring transfers (same payee,
     different dates) collapse to one series entry; dismissing a series hides
-    all its members, past and future."""
+    all its members, past and future.
+
+    A transaction that is currently a leg of a live transfer-pair suggestion
+    (this same sheet's own "Possibly the same transfer" section) is excluded
+    here (owner device-testing fix 2) — the pair is the better ask, and a
+    transaction must only be asked about once per sheet."""
     uid = user["email"]
     cache_name = "miscategorised_list"
     cached = response_cache.get(cache_name, uid)
     if cached is not None:
         return cached
 
-    items = _group_miscategorised(await _flagged_miscategorised(uid))[:50]
+    pairs = await _transfer_pair_suggestions(uid)
+    items = _group_miscategorised(await _flagged_miscategorised(uid, exclude_ids=_pair_leg_ids(pairs)))[:50]
     result = {"items": items}
     response_cache.put(cache_name, uid, result)
     return result
@@ -2554,6 +2649,7 @@ async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)
     )
     response_cache.invalidate(uid, "miscategorised_count")
     response_cache.invalidate(uid, "miscategorised_list")
+    response_cache.invalidate(uid, "transfer_pair_suggestions")
     return {"ok": True}
 
 
@@ -2572,6 +2668,459 @@ async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current
         upsert=True,
     )
     response_cache.invalidate(uid, "miscategorised_count")
+    response_cache.invalidate(uid, "miscategorised_list")
+    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    return {"ok": True}
+
+
+# ── Cross-account transfer-pair suggestions ─────────────────────────────────
+# Owner-designed companion to the miscategorised-transfers guardrail above.
+# The sync-time matcher (categorisation.py Pass 2) only pairs a credit+debit
+# when their normalised descriptions are byte-identical; when the two legs of
+# a real transfer carry different descriptions (different bank rails,
+# different narrative text) it never matches and the debit sits in spend.
+# This surface finds those candidate pairs, lets the user confirm/reject them
+# in the same "Review these transfers" sheet, and LEARNS a confirmed pair
+# (keyed on the description PAIR, via canonical_merchant_key) so future
+# occurrences auto-match at the next sync — see
+# POST /transactions/confirm-transfer-pair and categorisation.py's
+# learned-pair pass in Pass 2.
+
+# Month/date-fragment tokens that survive the alphabetic-only regex below
+# (numeric dates never match `[A-Za-z]+` so don't need listing here) — a
+# statement line sharing only "aug" or "on" with another isn't evidence of
+# anything, it's the two banks' shared date-stamping vocabulary.
+_MONTH_TOKENS = {
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+}
+
+# Generic UK bank-narrative boilerplate: words that show up on huge swathes
+# of UNRELATED statement lines (any "payment", any "transfer", any "direct
+# debit") and so carry no evidence of a link between two SPECIFIC
+# transactions, the same way a channel code or month doesn't. Confirmed live
+# (owner review fix 2 follow-up): "DIRECT DEBIT PAYMENT 1432" and "NATWEST
+# INITIAL PAYMENT" shared only the word "payment" and were flagged as an
+# unrelated coincidence, not a real transfer pair.
+_GENERIC_BANKING_TOKENS = {
+    "payment", "payments", "paid", "pay", "transfer", "transfers", "transferred",
+    "deposit", "deposits", "withdrawal", "withdrawals", "direct", "debit", "debits",
+    "credit", "credits", "standing", "order", "orders", "initial", "faster",
+    "request", "account", "accounts", "reference", "thank", "you", "from", "for",
+    "via", "the", "and", "of", "on", "at", "in", "out", "ltd", "limited", "plc",
+    "mr", "mrs", "ms", "dr", "bank", "banking", "card", "cards", "online", "mobile",
+    "new", "not", "your", "with", "ref",
+}
+
+
+def _meaningful_tokens(text: str) -> set[str]:
+    """Alphabetic tokens >=3 chars from `text`, excluding rail/channel codes
+    (FT, BGC, FP, ...), month names, and generic bank-narrative boilerplate
+    — the vocabulary two UNRELATED statement lines are likely to share by
+    pure coincidence (evidence-gate fix 2: a shared "atm"/"bgc"/"aug"/
+    "payment" is not evidence of a real transfer)."""
+    out: set[str] = set()
+    for tok in re.findall(r"[A-Za-z]+", text or ""):
+        if len(tok) < 3:
+            continue
+        low = tok.lower()
+        if tok.upper() in _CHANNEL_CODES:
+            continue
+        if low in _MONTH_TOKENS or low in _GENERIC_BANKING_TOKENS:
+            continue
+        out.add(low)
+    return out
+
+
+def _leg_tokens(t: dict) -> set[str]:
+    return _meaningful_tokens(f"{t.get('merchant_name') or ''} {t.get('description') or ''}")
+
+
+def _is_distinctive_amount(amount) -> bool:
+    """True when `amount` carries non-zero pence (owner review fix 2
+    follow-up). Round amounts are exactly where cross-account amount+date
+    coincidences concentrate — confirmed live: a round £20.00 "Payment from
+    <owner's name>" credit coincided with an unrelated £20.00 YouTube
+    Premium debit purely by chance. A distinctive pence amount is far less
+    likely to coincide with an unrelated transaction, so it's allowed to
+    lean on weaker (one-leg) identity evidence; a round amount is not."""
+    if amount is None:
+        return False
+    return abs(amount - round(amount)) > 0.005
+
+
+def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
+    """Evidence gate for a candidate transfer-pair suggestion (owner review
+    fix 2, tightened after a follow-up false positive): same amount + close
+    dates alone is not enough — two unrelated transactions can coincide on
+    both by chance (confirmed live: a client-income credit paired with an
+    unrelated ATM withdrawal; separately, a round-amount credit that merely
+    NAMES the owner paired with an unrelated subscription debit). Require
+    at least one of:
+      (a) `own_transfer_evidence` fires on BOTH legs' own texts — each side
+          independently looks like an own-account movement, not just one, or
+      (b) the two legs' texts share a meaningful token (>=3 chars,
+          alphabetic, not a rail/channel code, not a month name, not generic
+          banking boilerplate) — e.g. both sides carry "Main G" or a shared
+          reference/payee fragment, or
+      (c) `own_transfer_evidence` fires on exactly ONE leg AND the amount is
+          distinctive (non-zero pence) — one-leg evidence alone is too weak
+          exactly where coincidences concentrate: small ROUND amounts. A
+          distinctive pence amount is enough corroboration to accept it.
+    """
+    c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
+    d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
+    c_evidence = own_transfer_evidence(c_text, identity, own_account_id=c.get("account_id")) is not None
+    d_evidence = own_transfer_evidence(d_text, identity, own_account_id=d.get("account_id")) is not None
+    if c_evidence and d_evidence:
+        return True
+    if _leg_tokens(c) & _leg_tokens(d):
+        return True
+    if (c_evidence or d_evidence) and _is_distinctive_amount(c.get("amount")):
+        return True
+    return False
+
+
+def _too_generic_to_learn(key: str) -> bool:
+    """Owner review fix 3 — a `canonical_merchant_key` must be a real
+    merchant identity, not a bare rail/channel word, before it's allowed to
+    become a learned pair (which would auto-stamp Transfer on every future
+    row sharing it). Stronger than the original ">=3 chars" guard: an
+    "atm"-class key must never be learnable, even via a direct API call that
+    bypasses the suggestion-flow UI entirely."""
+    if len(key) < 6:
+        return True
+    if " " not in key and key.upper() in _CHANNEL_CODES:
+        return True
+    return False
+
+
+def _pair_leg(t: dict) -> dict:
+    """Serialise one leg of a suggested transfer pair for the API response."""
+    d = t.get("date")
+    return {
+        "id": str(t["_id"]),
+        "account_id": t.get("account_id") or "",
+        "date": d.isoformat() if hasattr(d, "isoformat") else d,
+        "amount": t.get("amount"),
+        "description": t.get("description"),
+        "merchant_name": t.get("merchant_name"),
+        # "Effective category" — custom_category always wins when present,
+        # though candidates with a custom_category on either leg are excluded
+        # from suggestion entirely (manual choices always win — see below).
+        "category": t.get("custom_category") or t.get("category"),
+    }
+
+
+async def _transfer_pair_suggestions(uid: str) -> list[dict]:
+    """Candidate cross-account transfer pairs the sync-time byte-identical
+    matcher missed: a credit + a debit that look like the two legs of one
+    real transfer (same amount, close dates, different accounts) but carry
+    different descriptions.
+
+    Candidates come from `transactions_col` only — the same stable-_id
+    caveat that applies to the miscategorised-dismiss machinery applies here
+    (other providers' collections get delete-reinserted on sync, so a stored
+    _id or pair_key would go stale).
+    """
+    kind_map = await get_category_kinds(uid)  # ONE read per request
+    identity = await user_identity(uid)  # ONE read per request — evidence gate below
+
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    dismissed_pairs = set(prefs.get("dismissed_transfer_pairs") or [])
+
+    learned_docs = await confirmed_transfer_pairs_col.find(
+        {"user_id": uid}, {"key_a": 1, "key_b": 1}
+    ).to_list(None)
+    learned_pair_keys = {
+        tuple(sorted((d["key_a"], d["key_b"])))
+        for d in learned_docs if d.get("key_a") and d.get("key_b")
+    }
+
+    # Manual choices win only when they mean "this leg is genuinely
+    # spending" (owner device-testing fix 1a) — a custom SPEND-kind category
+    # blocks the pair (the user explicitly said so, don't second-guess). A
+    # custom MOVEMENT-kind category (Transfer/Savings/Debt/Investment/a
+    # custom movement category) does NOT block: it agrees with the transfer
+    # hypothesis and ANCHORS it, so the pair still surfaces to fix the OTHER
+    # leg — confirm-transfer-pair below then leaves the movement-kind leg
+    # completely untouched and writes only the other. The query can no
+    # longer exclude custom_category at the source, so gating moves to
+    # Python (_leg_blocks_pair below).
+    txns = await transactions_col.find(
+        {"user_id": uid, "transaction_type": {"$in": ["credit", "debit"]}},
+        {"account_id": 1, "amount": 1, "date": 1, "description": 1,
+         "merchant_name": 1, "category": 1, "custom_category": 1,
+         "transaction_type": 1},
+    ).to_list(None)
+
+    def _effective_category(t: dict):
+        return t.get("custom_category") or t.get("category")
+
+    def _leg_blocks_pair(t: dict) -> bool:
+        cc = t.get("custom_category")
+        return cc is not None and is_spend(kind_map, cc)
+
+    def _debit_needs_fixing(cat) -> bool:
+        return cat == "Other" or is_spend(kind_map, cat)
+
+    def _credit_needs_fixing(cat) -> bool:
+        return cat in ("Income", "Other") or is_spend(kind_map, cat)
+
+    credits = [t for t in txns if t.get("transaction_type") == "credit" and t.get("date") is not None]
+    debits  = [t for t in txns if t.get("transaction_type") == "debit" and t.get("date") is not None]
+
+    def _day(t):
+        d = t["date"]
+        return d.date() if hasattr(d, "date") else d
+
+    candidates = []  # (date_diff, amount, credit, debit, pair_key)
+    for c in credits:
+        c_day = _day(c)
+        for d in debits:
+            if abs((c.get("amount") or 0) - (d.get("amount") or 0)) >= 0.02:
+                continue
+            if c.get("account_id") == d.get("account_id"):
+                continue
+            date_diff = abs((c_day - _day(d)).days)
+            if date_diff > 1:
+                continue
+            # Identical normalised descriptions are Pass 2's job at sync
+            # time — this path exists precisely for the pairs that ISN'T.
+            if _byte_desc_key(c) == _byte_desc_key(d):
+                continue
+            if _leg_blocks_pair(c) or _leg_blocks_pair(d):
+                continue
+            # Actionability (fix 1b) — at least one leg must still need
+            # fixing: the debit's effective category is spend-kind or
+            # Other, or the credit's effective category is Income, Other,
+            # or spend-kind. Both legs already movement-kind -> genuinely
+            # nothing to do -> skip.
+            c_eff = _effective_category(c)
+            d_eff = _effective_category(d)
+            if not (_debit_needs_fixing(d_eff) or _credit_needs_fixing(c_eff)):
+                continue
+            # Evidence gate (owner review fix 2) — same amount + close dates
+            # is not enough on its own; reject a coincidence like a £50
+            # client-income credit paired with an unrelated £50 ATM debit.
+            if not _has_pair_evidence(c, d, identity):
+                continue
+            pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
+            if pair_key in dismissed_pairs:
+                continue
+            c_key = canonical_merchant_key(c.get("merchant_name") or "", c.get("description") or "")
+            d_key = canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")
+            # A learned description-pair auto-matches at the next sync — no
+            # need to ask again.
+            if tuple(sorted((c_key, d_key))) in learned_pair_keys:
+                continue
+            candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
+
+    # Greedy matching: nearest date-diff first (same-day beats 1-day), then
+    # largest amount first, then pair_key as a final deterministic tiebreak
+    # (owner review fix 5) — the Mongo find() above has no explicit sort, so
+    # without this, two candidates tied on date-diff and amount could order
+    # differently between requests depending on unspecified document order,
+    # making the greedy match's outcome non-deterministic.
+    candidates.sort(key=lambda x: (x[0], -x[1], x[4]))
+
+    used_credits: set = set()
+    used_debits: set = set()
+    suggestions = []
+    for date_diff, amount, c, d, pair_key in candidates:
+        if c["_id"] in used_credits or d["_id"] in used_debits:
+            continue
+        used_credits.add(c["_id"])
+        used_debits.add(d["_id"])
+        suggestions.append({
+            "pair_key": pair_key,
+            "date_diff_days": date_diff,
+            "credit": _pair_leg(c),
+            "debit": _pair_leg(d),
+        })
+
+    suggestions.sort(key=lambda s: s["credit"]["amount"] or 0, reverse=True)
+    return suggestions[:10]
+
+
+@router.get("/transactions/transfer-pair-suggestions")
+async def get_transfer_pair_suggestions(user: dict = Depends(current_user)):
+    """Grouped candidate cross-account transfer pairs for the 'Review these
+    transfers' sheet's own section, above the miscategorised groups."""
+    uid = user["email"]
+    cache_name = "transfer_pair_suggestions"
+    cached = response_cache.get(cache_name, uid)
+    if cached is not None:
+        return cached
+    items = await _transfer_pair_suggestions(uid)
+    result = {"items": items}
+    response_cache.put(cache_name, uid, result)
+    return result
+
+
+@router.post("/transactions/confirm-transfer-pair")
+async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
+    """Confirm a suggested pair as one real transfer: categorise both legs
+    through the same refinement semantics as the sync-time matcher's Pass 2.6
+    (categorisation.py's `refine_transfer_target`), then learn the
+    description pair so future occurrences auto-match at the next sync."""
+    uid = user["email"]
+    credit_id = body.get("credit_id")
+    debit_id = body.get("debit_id")
+    if not credit_id or not debit_id:
+        raise HTTPException(400, "Provide 'credit_id' and 'debit_id'")
+
+    # `transactions_col` stores `_id` as the provider's own STRING id (e.g.
+    # "trn_JkdbofZuJjsJMymXsGSXaufHFWgj" or a bare hex string) — never a Mongo
+    # ObjectId. Look up by the raw string, exactly like every other
+    # transactions endpoint (see resolve_movement in transactions.py). An
+    # earlier version of this endpoint ran credit_id/debit_id through
+    # ObjectId(v) first and 400'd "Invalid transaction id" whenever that
+    # conversion failed — which was every real transaction, so confirm never
+    # worked on live data. Do not reintroduce ObjectId here.
+    credit_txn = await transactions_col.find_one({"_id": credit_id, "user_id": uid})
+    debit_txn = await transactions_col.find_one({"_id": debit_id, "user_id": uid})
+    if not credit_txn or not debit_txn:
+        raise HTTPException(404, "Transaction not found")
+    if credit_txn.get("transaction_type") != "credit" or debit_txn.get("transaction_type") != "debit":
+        raise HTTPException(400, "credit_id must be a credit and debit_id must be a debit")
+    if abs((credit_txn.get("amount") or 0) - (debit_txn.get("amount") or 0)) >= 0.02:
+        raise HTTPException(400, "Amounts do not match")
+    # Defence in depth (owner review fix 3) — the suggestion endpoint already
+    # enforces these, but confirm must not just trust the client; a caller
+    # could hit this endpoint directly with any two ids.
+    if credit_txn.get("account_id") == debit_txn.get("account_id"):
+        raise HTTPException(400, "credit_id and debit_id must be on different accounts")
+
+    def _day(dt):
+        return dt.date() if hasattr(dt, "date") else dt
+
+    c_date, d_date = credit_txn.get("date"), debit_txn.get("date")
+    # Slightly looser than the suggestion window's ±1 day so a pair the
+    # suggestion endpoint just offered can't be rejected by a boundary
+    # quirk (e.g. a timezone-adjacent date read).
+    if c_date is None or d_date is None or abs((_day(c_date) - _day(d_date)).days) > 2:
+        raise HTTPException(400, "credit_id and debit_id must be within 2 days of each other")
+
+    # Owner device-testing fix 1 — a leg's custom_category only blocks
+    # confirm when it's a SPEND-kind category (the user explicitly said
+    # that leg is spending, don't second-guess). A custom MOVEMENT-kind
+    # category (Transfer/Savings/Debt/Investment/a custom movement
+    # category) is fine: that leg is left COMPLETELY untouched below (it
+    # already agrees with the transfer hypothesis) and only the other leg
+    # gets written.
+    kind_map = await get_category_kinds(uid)
+
+    def _blocks_confirm(cc) -> bool:
+        return cc is not None and is_spend(kind_map, cc)
+
+    if _blocks_confirm(credit_txn.get("custom_category")) or _blocks_confirm(debit_txn.get("custom_category")):
+        raise HTTPException(400, "One of these transactions is confirmed as spending")
+
+    credit_locked = credit_txn.get("custom_category") is not None
+    debit_locked = debit_txn.get("custom_category") is not None
+
+    accts = {
+        str(a["_id"]): a
+        async for a in accounts_col.find({"user_id": uid}, {"type": 1, "subtype": 1, "account_subtype": 1})
+    }
+    c_target = refine_transfer_target(accts.get(str(credit_txn.get("account_id"))))
+    d_target = refine_transfer_target(accts.get(str(debit_txn.get("account_id"))))
+
+    # Mirrors categorisation.py Pass 2.6a exactly: whichever leg sits on the
+    # savings/ISA or credit-card account stays "Transfer"; the OTHER
+    # (current-account) leg carries the intent. Both or neither resolving ->
+    # both legs are plain "Transfer". Computed regardless of lock state —
+    # only the WRITE below is conditional on it.
+    if c_target and not d_target:
+        credit_category, debit_category = "Transfer", c_target
+    elif d_target and not c_target:
+        credit_category, debit_category = d_target, "Transfer"
+    else:
+        credit_category, debit_category = "Transfer", "Transfer"
+
+    # Write to the AUTO layer (`category`), NOT `custom_category` —
+    # deliberate. Pass 2.5 propagates a *manual* override to every future row
+    # sharing the same canonical_merchant_key; a custom "Transfer" stamped on
+    # a generic rail description (e.g. "FINEXER") would contaminate every
+    # future row carrying that description, regardless of real counterparty.
+    # The learned description-PAIR below (not a blanket description->category
+    # rule) is what makes the match durable across syncs instead. A locked
+    # (custom MOVEMENT-kind) leg is skipped entirely — it's the ANCHOR, not
+    # something to rewrite.
+    changed: list[str] = []
+    if not credit_locked:
+        await transactions_col.update_one(
+            {"_id": credit_id, "custom_category": None},
+            {"$set": {"category": credit_category}},
+        )
+        changed.append("credit")
+    if not debit_locked:
+        await transactions_col.update_one(
+            {"_id": debit_id, "custom_category": None},
+            {"$set": {"category": debit_category}},
+        )
+        changed.append("debit")
+
+    key_a = canonical_merchant_key(credit_txn.get("merchant_name") or "", credit_txn.get("description") or "")
+    key_b = canonical_merchant_key(debit_txn.get("merchant_name") or "", debit_txn.get("description") or "")
+
+    learned = False
+    if not _too_generic_to_learn(key_a) and not _too_generic_to_learn(key_b):
+        ka, kb = sorted((key_a, key_b))
+        await confirmed_transfer_pairs_col.update_one(
+            {"user_id": uid, "key_a": ka, "key_b": kb},
+            {"$setOnInsert": {"user_id": uid, "key_a": ka, "key_b": kb, "created_at": datetime.utcnow()}},
+            upsert=True,
+        )
+        learned = True
+
+    response_cache.invalidate(uid, "miscategorised_count")
+    response_cache.invalidate(uid, "miscategorised_list")
+    response_cache.invalidate(uid, "transfer_pair_suggestions")
+
+    # credit_category/debit_category reflect the FINAL effective category —
+    # the computed target for a leg we wrote, or the pre-existing (locked)
+    # custom_category for one we left alone — so the caller always sees the
+    # true resulting state regardless of which leg(s) actually changed.
+    final_credit_category = credit_txn.get("custom_category") if credit_locked else credit_category
+    final_debit_category = debit_txn.get("custom_category") if debit_locked else debit_category
+
+    return {
+        "ok": True,
+        "credit_category": final_credit_category,
+        "debit_category": final_debit_category,
+        "changed": changed,
+        "learned": learned,
+    }
+
+
+@router.post("/transactions/dismiss-transfer-pair")
+async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
+    """Dismiss a suggested transfer pair — permanent, per-instance (keyed on
+    the pair of stable transaction _ids). A different month's pair sharing
+    the same descriptions can still be suggested; dismissal doesn't teach the
+    engine anything about that description pair."""
+    uid = user["email"]
+    pair_key = body.get("pair_key")
+    if not pair_key:
+        raise HTTPException(400, "Provide 'pair_key'")
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$addToSet": {"dismissed_transfer_pairs": pair_key}, "$set": {"user_id": uid}},
+        upsert=True,
+    )
+    response_cache.invalidate(uid, "transfer_pair_suggestions")
+    response_cache.invalidate(uid, "miscategorised_count")
+    # Owner device-testing fix 2 — the dismissed pair's legs are no longer
+    # excluded from the miscategorised list (they only lose their exclusion
+    # once _pair_leg_ids no longer contains them, i.e. once the suggestions
+    # list is recomputed without this pair), so the cached list must be
+    # invalidated too or the transaction stays hidden from BOTH surfaces
+    # until the 90s response-cache TTL expires. Without this line the
+    # transaction only naturally reappears in miscategorised_list once its
+    # own TTL lapses, not immediately on dismissal.
     response_cache.invalidate(uid, "miscategorised_list")
     return {"ok": True}
 

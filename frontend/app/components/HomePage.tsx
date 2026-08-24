@@ -24,7 +24,7 @@ import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
-import HomeBrief from "@/components/HomeBrief";
+import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
@@ -66,6 +66,12 @@ export default function HomePage() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
+  // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
+  // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
+  // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
+  // the "cleared" row's derived state has to travel up via this callback
+  // instead of just being rendered in place.
+  const [clearedAdvice, setClearedAdvice] = useState<{ count: number; type: CompanionItem["type"] } | null>(null);
   const [needle, setNeedle] = useState<NeedleSummary | null>(null);
   const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">("loading");
 
@@ -308,6 +314,7 @@ export default function HomePage() {
               attnTarget={attn}
               dismissible
               hasAccounts={hasAccountsForBrief}
+              onClearedChange={setClearedAdvice}
             />
           </div>
 
@@ -373,6 +380,16 @@ export default function HomePage() {
                 }
                 return null;
               })()}
+
+              {/* Cleared-advice pointer — see HomeBriefClearedRow's doc
+                  comment in components/HomeBrief.tsx for why this state
+                  exists. Mounted here, below the verdict, rather than inside
+                  HomeBrief above it: Home's top slot answers "am I okay",
+                  and a routing pointer to Penny isn't that answer. Renders
+                  nothing when there's nothing cleared to point at. */}
+              {!loading && (
+                <HomeBriefClearedRow cleared={clearedAdvice} router={router} />
+              )}
 
               {/* Potential-savings index — "How your money behaves" (the
                   Mirror row) relocated to its own rich entry card on the

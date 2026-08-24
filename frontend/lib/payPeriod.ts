@@ -82,6 +82,26 @@ export function nextPeriod(end: Date): [Date, Date] {
   return getPayPeriod(dayAfter);
 }
 
+// Extract the calendar day encoded in an API date string as a UTC-midnight
+// timestamp, WITHOUT going through JS's local-time parsing of naive
+// datetimes. The API sends naive datetimes like "2026-07-31T00:00:00" (no
+// timezone offset) — `new Date(...)` parses a string with no zone info as
+// LOCAL time, so in BST (UTC+1) that instant becomes "2026-07-30T23:00:00Z",
+// which is earlier than a `periodStart` built with `Date.UTC(...)`. Net
+// effect if you use the raw parse: every transaction dated on day 1 of a pay
+// period silently fails the `d >= s` check below and vanishes from every
+// client-side filtered list (Income drill-down, Spend/Budget/Trends period
+// views) — the server-computed OUT/IN pills are unaffected because they
+// never run through this function. Parsing the calendar day straight out of
+// the string and rebuilding it as UTC midnight treats the date the way the
+// API actually meant it (a calendar day), not as a local instant. Do not
+// "simplify" this back to `new Date(dateStr).getTime()`.
+export function dateToUTCDay(dateStr: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (m) return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(dateStr).getTime(); // fallback for a shape this regex doesn't match
+}
+
 /** Filter transactions to those within [start, end] inclusive. */
 export function filterPeriod<T extends { date: string }>(
   txns: T[],
@@ -91,7 +111,7 @@ export function filterPeriod<T extends { date: string }>(
   const s = start.getTime();
   const e = end.getTime() + 86399999; // end of end day
   return txns.filter((t) => {
-    const d = new Date(t.date).getTime();
+    const d = dateToUTCDay(t.date);
     return d >= s && d <= e;
   });
 }
@@ -110,9 +130,21 @@ export function formatPeriod(start: Date, end: Date): string {
   return `${sd} ${sm} → ${ed} ${em}`;
 }
 
-/** Format a date as "25 Apr" */
+/** Format a date as "25 Apr" — extracts the calendar day via dateToUTCDay
+ * (see that function's comment above) rather than `new Date(dateStr)`
+ * directly. The API sends naive datetimes like "2026-07-17T00:00:00" (no
+ * timezone offset) for EVERY transaction date, including the review sheet's
+ * transfer-pair legs and miscategorised-series dates alike; `new Date(...)`
+ * parses a string with no zone info as LOCAL time, so in a positive-UTC-
+ * offset zone (e.g. BST, UTC+1) a stored midnight instant becomes the
+ * previous day once read back with getUTCDate(). Confirmed live: a pair leg
+ * stored as "2026-07-17T00:00:00" rendered as "16 Jul" in BST — a plain
+ * debit's non-midnight time (e.g. "04:20:31") only shifts within the same
+ * day, so this bug hid in plain sight until a leg happened to land exactly
+ * on midnight. Do not "simplify" this back to `new Date(dateStr)`. */
 export function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
+  const t = dateToUTCDay(dateStr);
+  const d = new Date(t);
   return `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`;
 }
 

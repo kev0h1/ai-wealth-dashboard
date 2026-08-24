@@ -71,7 +71,7 @@ UNRESOLVED_MATERIAL_FLOOR = 250.0     # flat £ floor
 _TXN_PROJ = {
     "amount": 1, "date": 1, "category": 1, "custom_category": 1,
     "transaction_type": 1, "description": 1, "merchant_name": 1, "merchant_key": 1,
-    "currency": 1,
+    "currency": 1, "account_id": 1,
 }
 
 # Money-you-moved destination groups, fixed display order.
@@ -104,7 +104,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
     figures beyond what the tiles above them show; fix-round LOW finding).
 
     Returns [{"date", "category", "amount" (always positive), "debit" (bool),
-    "description", "merchant_name", "merchant_key", "id"}].
+    "description", "merchant_name", "merchant_key", "id", "account_id"}].
     """
     region = await get_user_region(uid)
     home_currency = "KES" if region == "Kenya" else "GBP"
@@ -146,6 +146,7 @@ async def _load_period_txns(uid: str, start: date, end: date) -> list[dict]:
             "merchant_name": doc.get("merchant_name") or "",
             "merchant_key":  doc.get("merchant_key") or "",
             "id":            str(doc.get("_id") or ""),
+            "account_id":    str(doc.get("account_id") or ""),
         })
     return out
 
@@ -167,18 +168,23 @@ def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, f
                              "debit_txns": [txn, ...]}   # refund credits are
                              # netted into `spent` but never counted as a
                              # payment nor considered a spend "cause".
-    moved_groups[bucket]  = {"amount": float, "payments_count": int}  # bucket
-                             is one of "pots" / "credit_cards" / "investments";
-                             only outgoing (debit) legs count as money moved —
-                             an incoming own-transfer is not spend either, but
-                             it did not leave the user, so it does not appear
-                             here or in pills.spent.
+    moved_groups[bucket]  = {"amount": float, "payments_count": int,
+                             "categories": {str, ...}}  # bucket is one of
+                             # "pots" / "credit_cards" / "investments";
+                             # only outgoing (debit) legs count as money moved —
+                             # an incoming own-transfer is not spend either, but
+                             # it did not leave the user, so it does not appear
+                             # here or in pills.spent. `categories` is the set
+                             # of source category names bucketed here (e.g.
+                             # Savings, Transfer, a custom movement category all
+                             # land in "pots") — the UI's deep-link needs to
+                             # know which categories a bucket covers.
     income_total is the net of all income-kind rows (credit adds, debit —
     a correction/reversal — subtracts).
     """
     cat_agg: dict[str, dict] = {}
     moved_groups: dict[str, dict] = {
-        key: {"amount": 0.0, "payments_count": 0} for key, _ in _MOVED_ORDER
+        key: {"amount": 0.0, "payments_count": 0, "categories": set()} for key, _ in _MOVED_ORDER
     }
     income_total = 0.0
 
@@ -195,6 +201,7 @@ def bucket_transactions(txns: list[dict], kind_map: dict) -> tuple[dict, dict, f
                 bucket = moved_groups[_movement_bucket(cat)]
                 bucket["amount"] += t["amount"]
                 bucket["payments_count"] += 1
+                bucket.setdefault("categories", set()).add(cat)
             continue
 
         # Real spend (discretionary/commitment, incl. "Other" — carved out of
@@ -328,6 +335,7 @@ def build_unresolved(other_row: dict | None, total_out: float = 0.0) -> dict:
             "raw_description": raw_description,
             "amount":          largest_amount,
             "date":            largest_txn["date"].isoformat(),
+            "account_id":      largest_txn.get("account_id") or "",
         },
     }
 
@@ -403,7 +411,12 @@ def build_notables_and_majority(
 
 def build_moved(moved_groups: dict[str, dict], goal_names: list[str]) -> list[dict]:
     """Money-you-moved destination groups — never a minus sign, never a
-    category (Destination Rule). Zero-payment groups are omitted."""
+    category (Destination Rule). Zero-payment groups are omitted.
+
+    Each entry carries `categories`: the sorted list of source category
+    names bucketed into this destination group (e.g. "pots" covers Savings,
+    Transfer, and any custom movement category) — lets the UI deep-link
+    "To your pots" straight to the exact transactions behind it."""
     out: list[dict] = []
     for key, label in _MOVED_ORDER:
         g = moved_groups.get(key) or {}
@@ -414,6 +427,7 @@ def build_moved(moved_groups: dict[str, dict], goal_names: list[str]) -> list[di
             "label":           label,
             "amount":          round(g["amount"], 2),
             "payments_count":  g["payments_count"],
+            "categories":      sorted(g.get("categories") or []),
         }
         if key == "pots":
             entry["goal_names"] = goal_names

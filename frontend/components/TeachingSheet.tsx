@@ -6,9 +6,12 @@
 //
 // Progressive disclosure, two forks decided by the transaction's CURRENT
 // category kind (backend/app/services/categories.py via CategoriesContext):
-//   - movement-kind read  -> "Is this account yours?" (goal / offline pot /
-//     "no, this was spending" / "no, someone else") -> POST
-//     /transactions/{id}/resolve-movement
+//   - movement-kind read  -> "Is this account yours?" (another account here /
+//     goal / offline pot / "no, this was spending") -> POST
+//     /transactions/{id}/resolve-movement. ("No, someone else" was removed
+//     2026-08-23, owner decision — it duplicated "no, this was spending"
+//     confusingly; the backend someone-else resolution stays for API
+//     compatibility, just unreachable from this UI now.)
 //   - spend-kind read     -> category picker, user vocabulary first,
 //     "Something else…" born-in-context naming (spend-only kinds, per the
 //     Destination Rule — movement never gets named inline) -> PATCH
@@ -24,8 +27,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Check, Undo2, ChevronRight } from "lucide-react";
-import { Transaction, Commitment, api } from "@/lib/api";
+import { X, Check, Undo2, ChevronRight, ChevronLeft } from "lucide-react";
+import { Transaction, Commitment, Account, api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -36,8 +39,18 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
+import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 
 const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
+
+// Owner review defect 2 — surface the backend's own detail string when
+// present (toJson<T> in lib/api.ts already threads FastAPI's `detail` field
+// into Error.message for both patchTransaction and resolveMovement) rather
+// than always showing the fixed generic line. The fixed copy stays as the
+// fallback for failures with no message (e.g. a network drop).
+function saveErrorMessage(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : "That didn't save, try again.";
+}
 
 type Step =
   | "spend-root"
@@ -45,7 +58,6 @@ type Step =
   | "movement-root"
   | "movement-goal"
   | "movement-offline"
-  | "movement-someone"
   | "propose-rule"
   | "done";
 
@@ -55,7 +67,7 @@ interface TeachingSheetProps {
   /** Mirrors TransactionSheet's contract so existing callers (SpendPage's
    *  cache invalidation / verdict refetch) plug in unchanged. */
   onUpdated: (tx: Transaction, additionalIds?: string[]) => void;
-  account?: { name: string; provider: string };
+  account?: Account;
   /** Opens straight on "Is this account yours?" instead of the category
    *  picker, without changing what `transaction.category` says (so the
    *  header/undo copy stays honest). For the Spend ask card's "Tell me
@@ -112,7 +124,6 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }, [step, goals, goalsFailed]);
 
   const [offlineName, setOfflineName] = useState("");
-  const [someoneNote, setSomeoneNote] = useState("");
 
   const [namingText, setNamingText] = useState("");
   const [namingKind, setNamingKind] = useState<CategoryKind>("discretionary");
@@ -157,8 +168,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       } else {
         finish(`Filed as ${category}.`, () => undoToSpend(category));
       }
-    } catch {
-      setError("That didn't save, try again.");
+    } catch (e) {
+      setError(saveErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -194,18 +205,18 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   // ── Movement fork: destination resolutions ─────────────────────────────
   async function commitMovement(
-    resolution: "mine-goal" | "mine-offline" | "someone-else",
-    extra: { goal_id?: string; offline_pot_name?: string; note?: string },
+    resolution: "mine-here" | "mine-goal" | "mine-offline",
+    extra: { goal_id?: string; offline_pot_name?: string },
     successMessage: string,
   ) {
     setBusy(true);
     setError(null);
     try {
       await api.resolveMovement(transaction.id, { resolution, ...extra });
-      onUpdated({ ...transaction, category: resolution === "someone-else" ? originalCategory : "Transfer" });
+      onUpdated({ ...transaction, category: "Transfer" });
       finish(successMessage, undoMovement);
-    } catch {
-      setError("That didn't save, try again.");
+    } catch (e) {
+      setError(saveErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -214,6 +225,41 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   async function undoMovement() {
     try {
       await api.resolveMovement(transaction.id, { resolution: "spending", category: originalCategory });
+      onUpdated({ ...transaction, category: originalCategory });
+    } catch {
+      // see undoToSpend
+    }
+  }
+
+  // ── Movement fork, CREDIT side (owner review defect 2) ──────────────────
+  // A credit on movement-root is asking a different question than a debit
+  // ("where did this arrive FROM", not "where did it go") and its two real
+  // answers are ordinary category choices, not resolve-movement
+  // destinations — mine-here/mine-goal/mine-offline are debit-only concepts
+  // (a goal or offline pot is somewhere money goes, not where it came
+  // from), and resolve-movement 400s all three for a credit regardless
+  // ("Movement resolution only applies to outgoing payments"). Always the
+  // plain PATCH the spend fork already uses, never resolve-movement,
+  // regardless of the row's current category kind (isMovementRead) — a
+  // credit already sitting in "Transfer" re-confirming as "Transfer" is
+  // still just a PATCH, not a "spending" resolution (it isn't spending).
+  async function commitCreditMovement(category: "Transfer" | "Income") {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.patchTransaction(transaction.id, { category });
+      onUpdated({ ...transaction, category });
+      finish(`Filed as ${category}.`, undoCreditMovement);
+    } catch (e) {
+      setError(saveErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoCreditMovement() {
+    try {
+      await api.patchTransaction(transaction.id, { category: originalCategory });
       onUpdated({ ...transaction, category: originalCategory });
     } catch {
       // see undoToSpend
@@ -262,6 +308,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   const colour = getCategoryColour(originalCategory, colours);
   const CategoryIcon = getCategoryIcon(originalCategory, iconOverrides);
+  const brand = account ? accountBrand(account) : null;
 
   // kinds populates async from GET /categories and fails open to {} on a
   // slow/failed fetch — fall back to inferCategoryKind so an unresolved
@@ -315,19 +362,98 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <p className="text-[11px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400 truncate">
                 {name}
               </p>
-              <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
+              <p className="text-xl font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
                 {isCredit ? "+" : MINUS}
                 {formatCurrency(transaction.amount, transaction.currency)}
               </p>
-              <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              <p className="text-[13px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 {formatDate(transaction.date)}
-                {account ? ` · ${account.name}` : ""}
+                {account && brand && (
+                  <>
+                    {" · "}
+                    <BankBadge
+                      logoSrc={brand.logoSrc}
+                      initials={brand.initials}
+                      altText={brand.label}
+                      brandBg={brand.background}
+                      size={18}
+                      initialsSize="7px"
+                    />
+                    {account.name}
+                  </>
+                )}
               </p>
             </div>
           </div>
 
           {/* 2/3. The step content */}
-          {step === "movement-root" && (
+          {step === "movement-root" && isCredit && (
+            <>
+              {/* Credit fork (owner review defect 2) — a credit arriving
+                  asks "where is this FROM", never "where did it go", and
+                  goals/offline pots (destinations money moves TO) don't
+                  apply to money arriving. One fixed intro regardless of
+                  viaEscape/isAskHandoff — unlike the debit fork below, the
+                  underlying question is the same in every entry path here. */}
+              <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
+                Money arrived. Where is it from?
+              </p>
+              <p className="mt-3 text-[14px] font-semibold text-slate-900 dark:text-slate-100">
+                Is this from one of your own accounts?
+              </p>
+              <div className="mt-3 space-y-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => commitCreditMovement("Transfer")}
+                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
+                >
+                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                    Yes: from another of my accounts
+                  </span>
+                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                    filed as a transfer
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => commitCreditMovement("Income")}
+                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
+                >
+                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                    No: this was income
+                  </span>
+                </button>
+                {!viaEscape && (
+                  <button
+                    type="button"
+                    onClick={() => { setViaEscape(false); setStep("spend-root"); }}
+                    className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
+                  >
+                    <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                      No: something else
+                    </span>
+                    <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      opens the category picker
+                    </span>
+                  </button>
+                )}
+              </div>
+              {viaEscape && (
+                <button
+                  type="button"
+                  onClick={() => setStep("spend-root")}
+                  className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                >
+                  <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                  Back to categories
+                </button>
+              )}
+            </>
+          )}
+
+          {step === "movement-root" && !isCredit && (
             <>
               <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
                 {viaEscape
@@ -340,6 +466,27 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 Is this account yours?
               </p>
               <div className="mt-3 space-y-2">
+                {/* Listed first — the most common real case (owner decision
+                    2026-08-23): the transfer matcher already ran at sync and
+                    failed to find a counterpart (descriptions differ between
+                    legs), so this option doesn't search for one either; it
+                    just files the row as a plain Transfer. Same visual tier
+                    as the other destination options below it, no elevation,
+                    despite being the common case — a same-tier list of
+                    destination choices, not a recommendation. */}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => commitMovement("mine-here", {}, "Filed as a transfer.")}
+                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
+                >
+                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+                    Yes: to another of my accounts here
+                  </span>
+                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                    filed as a transfer
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setStep("movement-goal")}
@@ -375,23 +522,15 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                     </span>
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setStep("movement-someone")}
-                  className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity"
-                >
-                  <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                    No: it went to someone else
-                  </span>
-                </button>
               </div>
               {viaEscape && (
                 <button
                   type="button"
                   onClick={() => setStep("spend-root")}
-                  className="mt-3 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                  className="mt-3 inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
                 >
-                  ← Back to categories
+                  <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                  Back to categories
                 </button>
               )}
             </>
@@ -469,9 +608,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <button
                 type="button"
                 onClick={() => setStep("movement-root")}
-                className="mt-4 block text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                className="mt-4 inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
               >
-                ← Back
+                <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                Back
               </button>
             </>
           )}
@@ -501,53 +641,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   onClick={() => setStep("movement-root")}
-                  className="text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                  className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
                 >
-                  ← Back
-                </button>
-              </div>
-            </>
-          )}
-
-          {step === "movement-someone" && (
-            <>
-              <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
-                Who was it for? (optional, up to 50 characters)
-              </p>
-              <input
-                autoFocus
-                value={someoneNote}
-                onChange={(e) => setSomeoneNote(e.target.value.slice(0, 50))}
-                placeholder="e.g. my mum's rent"
-                maxLength={50}
-                className="mt-3 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[14px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => commitMovement(
-                    "someone-else",
-                    { note: someoneNote.trim() || undefined },
-                    // The backend only excludes this from spend when the row
-                    // was ALREADY movement-kind — reached via the spend
-                    // fork's escape hatch, it keeps its original spend-kind
-                    // category (backend/app/routers/transactions.py
-                    // resolve_movement's someone-else branch), so it still
-                    // counts as spending. Promising otherwise there was a
-                    // false-reassurance bug (fix-round MEDIUM finding).
-                    isMovementRead ? "Noted, it won't count as spending." : `Noted, still filed as ${originalCategory}.`,
-                  )}
-                  className="h-11 px-4 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("movement-root")}
-                  className="text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
-                >
-                  ← Back
+                  <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                  Back
                 </button>
               </div>
             </>
@@ -649,9 +746,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   onClick={() => setStep("spend-root")}
-                  className="text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
+                  className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
                 >
-                  ← Back
+                  <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
+                  Back
                 </button>
               </div>
             </>

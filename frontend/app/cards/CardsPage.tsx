@@ -230,6 +230,12 @@ export default function CardsPage() {
 
                 const key = c.account_id;
                 const balanceAbs = Math.abs(c.balance);
+                // Sign-aware caption — c.balance follows the same flipped
+                // TrueLayer convention as everywhere else (negative = owed,
+                // positive = in credit; see truelayer_sync.py). A card you
+                // have overpaid is never "owed", and a paid-off £0 card gets
+                // no caption at all.
+                const balanceCaption = c.balance < 0 ? "owed" : c.balance > 0 ? "in credit" : null;
 
                 return (
                   <div key={key} className="px-4 py-3 flex items-center gap-3">
@@ -269,9 +275,18 @@ export default function CardsPage() {
                           £0
                         </p>
                       )}
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 num">
-                        <span className="font-mono tabular-nums">{mask(`£${Math.round(balanceAbs).toLocaleString("en-GB")}`)}</span> owed
-                      </p>
+                      {balanceCaption && (
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 num">
+                          {/* Figure carries the colour, caption stays quiet
+                              slate — matches AccountLedgerRow.tsx. */}
+                          <span
+                            className={`font-mono tabular-nums ${c.balance < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}
+                          >
+                            {mask(`£${Math.round(balanceAbs).toLocaleString("en-GB")}`)}
+                          </span>{" "}
+                          {balanceCaption}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );

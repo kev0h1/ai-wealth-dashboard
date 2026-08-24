@@ -57,6 +57,12 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "miscategorised",
+    name: "miscategorised",
+    description: "Miscategorised-transfers review sheet · range/single/unresolved-account/capped-members/long-name fixtures (real component)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "type",
     name: "type",
     description: "Home hero · 4 typeface treatments (System / Figtree / DM Sans / Figtree+Mono)",

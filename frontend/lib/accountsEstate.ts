@@ -153,7 +153,11 @@ export function filterEstate(
 
   const lens = opts.lens ?? "All";
   if (lens === "Owed") {
-    result = result.filter((r) => r.kind === "Credit" && r.balance < 0);
+    // Everything you're down on, cards and overdrafts alike: any row with a
+    // negative balance, not just credit-kind rows. A credit card in credit
+    // (balance > 0) is money the bank owes you, not the other way round, so
+    // it's correctly excluded here too.
+    result = result.filter((r) => r.balance < 0);
   } else if (lens !== "All") {
     result = result.filter((r) => r.kind === lens);
   }

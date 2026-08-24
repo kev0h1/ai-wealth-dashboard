@@ -170,6 +170,19 @@ def _ceil5(amount: float) -> int:
     return math.ceil(amount / 5) * 5
 
 
+def _fmt_overdrawn(amount: float) -> str:
+    """Pence-precision string for a live overdrawn amount (no £ prefix), e.g.
+    2.48 -> "2.48", 2.0 -> "2". The overdraft trigger has no noise floor (any
+    strictly negative live balance qualifies — see `_overdraft_deficits`), so
+    rounding to whole pounds could turn a real -£0.30 deficit into "£0
+    overdrawn", which reads as nonsense. Whole-pound amounts still print
+    without pence, matching the rest of this file's £-formatting."""
+    a = abs(amount)
+    if abs(a - round(a)) < 0.005:
+        return f"{int(round(a)):,}"
+    return f"{a:,.2f}"
+
+
 def _clean_name(name: str | None, fallback: str = "") -> str:
     """Account names arrive from providers padded with whitespace; user-facing
     copy must never carry it."""
@@ -650,6 +663,158 @@ def _gate_recommendation(
     return real_bounced[0]
 
 
+# ── Overdraft destinations ────────────────────────────────────────────────────
+# An account can be genuinely negative today independent of any bill: either
+# with nothing due on it inside the window at all (`_walk_events` never seeds
+# `running`/`min_running` for such an account — only `assessable_bills`
+# accounts get seeded), or WITH a bill in the window whose every bounce is
+# `movement` (the user's own standing order) — `_gate_recommendation` gate (b)
+# deliberately suppresses THAT, because it exists to stop Penny nagging about
+# a PROJECTED shortfall the user created by moving their own money. That
+# suppression has no business hiding a card about money the user is ALREADY
+# overdrawn on TODAY — the live balance is a fact, not a forecast. These two
+# pure, DB-free helpers back the overdraft branch added to
+# `compute_today_items` (see "4b. OVERDRAFT SEEDING" and step 1's shortfall
+# collection) — same pattern as `_gate_recommendation`, unit-tested directly.
+
+def _overdraft_deficits(
+    accounts: list[dict],
+    live_balances: dict[str, float],
+) -> dict[str, float]:
+    """Every account whose LIVE balance today is strictly negative. Returns
+    {account_id: live_balance} for every qualifying account.
+
+    Deliberately INDEPENDENT of whether `_walk_events` touched the account
+    (i.e. whether it has an in-window bill) and independent of what
+    `_gate_recommendation` decided about any bill on it — the trigger is the
+    live balance alone. The caller decides separately (in `compute_today_
+    items`) whether an account already produced a bill-backed shortfall and,
+    if so, lets that win rather than double-emitting (see step 1).
+
+    TRIGGER — deliberately NO noise floor: any strictly negative live
+    balance qualifies. Unlike the -0.5 thresholds used elsewhere in this
+    file (`_REOPEN_THRESHOLD`, `_gate_recommendation`'s same-day-income
+    gate), this reads a REAL bank balance, not a projection — -£0.01 here is
+    a fact, not simulation noise, so there is no threshold to tidy into one.
+
+    Credit cards are excluded — a negative card balance is ordinary debt
+    against a credit limit, never an overdraft. Offline/manual accounts are
+    excluded by construction (`compute_today_items` only ever calls this
+    with `all_uk_accounts`, never `offline_accounts` — offline stays
+    source-only, per product decision) AND belt-and-braces here via the
+    `_offline` marker (`_is_offline`), in case a caller ever passes one in.
+    """
+    out: dict[str, float] = {}
+    for acc in accounts:
+        sid = acc.get("_str_id")
+        if not sid:
+            continue
+        if is_credit_card_account(acc) or _is_offline(acc):
+            continue
+        bal = live_balances.get(sid, 0.0)
+        if bal < 0:
+            out[sid] = bal
+    return out
+
+
+def _shortfall_for_destination(
+    dest_acct: str,
+    min_bal: float,
+    shortfall_bill: dict[str, dict],
+    bounced_bills: dict[str, list[dict]],
+    optimistic_min_running: dict[str, float],
+    overdraft_today: dict[str, float],
+    window_income: list[dict],
+    confirmed_income_keys: set,
+) -> tuple[int, float, dict | None] | None:
+    """Decide the single (days_away, shortfall_amount, bill | None) entry to
+    represent `dest_acct` with, or `None` to emit nothing for it — the "one
+    shortfall per destination, bill-backed wins" rule described in
+    `compute_today_items`' step 1. Pulled out as a pure, DB-free function so
+    the movement-only-bounce-but-live-overdrawn case and the no-double-
+    emission rule can be unit-tested directly (see
+    tests/test_companion_shortfall.py).
+
+    `dest_acct` reaches this via up to two independent routes:
+      - bill-backed: `dest_acct in shortfall_bill`, gated by
+        `_gate_recommendation` (same-day income + movement-only rules).
+      - overdraft: `dest_acct in overdraft_today` (a live negative balance
+        today, from `_overdraft_deficits` — independent of any bill), gated
+        by `_overdraft_covered_by_today_income`.
+
+    An account can genuinely qualify for both at once: overdrawn TODAY *and*
+    carrying an in-window bill whose every bounce is `movement` — gate (b)
+    suppresses recommending THAT specifically (it exists to stop Penny
+    nagging about a shortfall the user caused by moving their own money), but
+    that has no business hiding the fact that the account is ALSO overdrawn
+    right now, which is not a projection. The bill-backed route wins
+    whenever it fires (richer copy, and its `min_running`-derived amount
+    already clears the live deficit too, since the walk starts from that
+    same live balance) — the overdraft route is a fallback for when the
+    account is genuinely negative today but no bill-backed card says so.
+    """
+    if dest_acct in shortfall_bill:
+        # `_gate_recommendation` applies the two suppression rules (same-day
+        # income, movement-only) — see its docstring — and picks the right
+        # bill to represent the card with when it doesn't suppress.
+        _display_bill = _gate_recommendation(
+            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running
+        )
+        if _display_bill is not None:
+            return (_display_bill["days_away"], abs(min_bal), _display_bill)
+    if dest_acct in overdraft_today:
+        # OVERDRAFT fallback — either no bill drove this deficit at all, or
+        # the only bill(s) that did were movement-only and gate (b) rightly
+        # suppressed them above; the account is independently negative RIGHT
+        # NOW (`overdraft_today`, a live balance read). Size this off the
+        # LIVE balance, not `min_bal` — for an account that also has an
+        # in-window movement bill, `min_bal` is the CONSERVATIVE full-walk
+        # figure and can be more negative than the live balance (it already
+        # counts that suppressed movement going out). Sizing off `min_bal`
+        # here would silently fund the very movement gate (b) just declined
+        # to recommend covering — exactly what gate (b) exists to prevent.
+        # The live-balance figure is the honest "you're overdrawn right now"
+        # fact on its own.
+        _od_deficit = abs(overdraft_today[dest_acct])
+        # Gate (a)'s same-day-income spirit still applies, via
+        # `_overdraft_covered_by_today_income` (the shared walk never saw
+        # this account's income when it has no bill, so
+        # `optimistic_min_running` can't answer this for us either way).
+        # Sorted as days_away=0 by the caller: it's happening right now.
+        if not _overdraft_covered_by_today_income(
+            _od_deficit, dest_acct, window_income, confirmed_income_keys
+        ):
+            return (0, _od_deficit, None)
+    return None
+
+
+def _overdraft_covered_by_today_income(
+    deficit: float,
+    dest_acct: str,
+    window_income: list[dict],
+    confirmed_income_keys: set,
+) -> bool:
+    """True when reliable income already attributed to `dest_acct` (passing
+    `income_credit_ok`) and expected TODAY (`days_away == 0`) would, on its
+    own, clear the live deficit.
+
+    Mirrors gate (a) of `_gate_recommendation` for overdraft destinations,
+    which never enter the shared `_walk_events` simulation in the first
+    place (no bill on the account this window means no event, so the
+    walk never sees the account's income either — this reasons over
+    `window_income` directly instead). A recommendation is an instruction
+    to act; "move money" is wrong when the money that already clears the
+    account is landing there today anyway.
+    """
+    today_income = sum(
+        float(i["amount"])
+        for i in window_income
+        if i.get("days_away") == 0
+        and income_credit_ok(i, dest_acct, confirmed_income_keys)
+    )
+    return today_income >= deficit
+
+
 # A "done" recommendation only had a one-way lifecycle: nothing ever put it
 # back into play if the SAME fingerprinted shortfall reopened later. These two
 # pure, DB-free helpers back the reactivation pass in `compute_today_items`
@@ -879,6 +1044,27 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     _optimistic_events = sorted(events, key=lambda e: (e[0], 0 if e[3] else 1))
     _, optimistic_min_running, _, _ = _walk_events(_optimistic_events, _seed_balances)
 
+    # ── 4b. OVERDRAFT SEEDING ────────────────────────────────────────────────
+    # An account can be genuinely negative TODAY, independent of any bill (see
+    # `_overdraft_deficits`'s docstring — no-bill-in-window and movement-only-
+    # bounce are both covered). `_walk_events` above only ever seeds `running`/
+    # `min_running` for accounts that appear in `assessable_bills` (see its
+    # docstring); `_walk_events` itself, its inputs and its ordering are shared
+    # byte-for-byte with `spend_impact._bills_risk` and analytics.py's at-risk
+    # simulation, so they must not change. `_overdraft_today` is therefore
+    # computed unconditionally (every negative live balance, whether or not
+    # the walk touched that account), but only written into `running`/
+    # `min_running` for keys the walk left untouched — an account the walk DID
+    # compute already has the correct, more conservative figure there (its own
+    # bill-driven walk, which is at least as negative as the live balance), so
+    # writing over it would both be redundant and, worse, could UNDERSTATE a
+    # genuine bill-driven deficit with the smaller live-balance figure.
+    _overdraft_today = _overdraft_deficits(all_uk_accounts, live_balances)
+    for _od_acct, _od_bal in _overdraft_today.items():
+        if _od_acct not in running:
+            running[_od_acct] = _od_bal
+            min_running[_od_acct] = _od_bal
+
     # ── 5. Source-selection helpers (accounts already loaded in step 3) ─────
     # _is_savings, _is_current, _is_offline are module-level (above compute_today_items)
 
@@ -937,28 +1123,28 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
 
     # Step 1: Collect shortfalls — a destination only reaches the
     # recommendation engine (the "move money" cards below) when its deficit
-    # is BOTH (a) not just a same-day income timing artifact and (b)
-    # genuinely caused by an obligation, not only ever by the user's own
-    # movement (savings/transfer/investment/debt). Movement stays IN the
-    # conservative walk above — min_running/shortfall_bill/bounced_bills are
-    # untouched, so a movement can still starve a real bill further down the
-    # timeline and that bill still flags. This step only decides what Penny
-    # is willing to instruct the user to act on.
-    shortfalls = []  # (first_bounce_days_away, shortfall_amount, dest_acct, bill)
+    # is genuinely something Penny is willing to instruct the user to act on.
+    # `_shortfall_for_destination` (see its docstring) picks between the
+    # bill-backed route (`shortfall_bill` + `_gate_recommendation`'s same-day-
+    # income / movement-only gates) and the overdraft route (`_overdraft_
+    # today`, a live negative balance today, independent of any bill), and
+    # guarantees at most one entry per destination — the bill-backed route
+    # wins when both would otherwise fire.
+    #
+    # `bill` is `None` for an OVERDRAFT shortfall — every downstream consumer
+    # of `shortfalls` must check for that before reading bill fields.
+    shortfalls = []  # (first_bounce_days_away, shortfall_amount, dest_acct, bill | None)
     for dest_acct, min_bal in min_running.items():
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
-        if dest_acct not in shortfall_bill:
-            continue
-        # `_gate_recommendation` applies the two suppression rules (same-day
-        # income, movement-only) — see its docstring — and picks the right
-        # bill to represent the card with when it doesn't suppress.
-        _display_bill = _gate_recommendation(
-            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running
+        _result = _shortfall_for_destination(
+            dest_acct, min_bal, shortfall_bill, bounced_bills, optimistic_min_running,
+            _overdraft_today, window_income, confirmed_income_keys,
         )
-        if _display_bill is None:
+        if _result is None:
             continue
-        shortfalls.append((_display_bill["days_away"], abs(min_bal), dest_acct, _display_bill))
+        _days_away, _amt, _bill = _result
+        shortfalls.append((_days_away, _amt, dest_acct, _bill))
     shortfalls.sort(key=lambda t: (t[0], -t[1]))  # most urgent, then largest
 
     # Step 2: Track remaining source capacity across successive moves.
@@ -1009,19 +1195,48 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     covered: list[dict] = []     # each entry = list of leg dicts
     uncovered: list[dict] = []
     dest_summaries: dict[str, dict] = {}
+    # Per-destination shortfall amount actually used to size the move — kept
+    # so the emission loop and the fingerprint bucketing below (dest_bucketed)
+    # read the SAME figure Step 3 built legs against, rather than re-deriving
+    # it from `min_running` directly (which, for an overdraft destination
+    # that also carries a suppressed movement bill, can be more negative than
+    # the figure actually used here — see the branch immediately below).
+    dest_shortfall: dict[str, float] = {}
 
     for _days_away, _shortfall_amt, dest_acct, bill in shortfalls:
-        shortfall = abs(min_running[dest_acct])
+        # `bill` is None for an OVERDRAFT destination. Every field below that
+        # would normally come from the bill must be handled honestly instead
+        # of falling back to a fabricated one.
+        is_overdraft = bill is None
+
+        if is_overdraft:
+            # Size off the LIVE balance (`_overdraft_today`), not
+            # `min_running[dest_acct]`. The two coincide for an account with
+            # no in-window bill at all (nothing else ever touches
+            # `min_running` for it), but for an account that ALSO carries a
+            # movement-only bill gate (b) suppressed, `min_running` is the
+            # more negative post-movement figure — sizing off it here would
+            # silently fund the very movement gate (b) just declined to
+            # recommend covering. See step 1's matching comment.
+            shortfall = abs(_overdraft_today[dest_acct])
+        else:
+            shortfall = abs(min_running[dest_acct])
+        dest_shortfall[dest_acct] = shortfall
         amount_needed = _ceil5(shortfall) + 10
 
         # Bill details
-        bill_name = bill.get("name", "bill")
-        bill_amount = int(round(float(bill.get("amount", 0))))
-        bill_date = date.fromisoformat(bill["expected_date"])
-        bill_weekday = _when_label(bill_date, today_d)
+        if is_overdraft:
+            bill_name = None
+            bill_amount = None
+            bill_weekday = None
+        else:
+            bill_name = bill.get("name", "bill")
+            bill_amount = int(round(float(bill.get("amount", 0))))
+            bill_date = date.fromisoformat(bill["expected_date"])
+            bill_weekday = _when_label(bill_date, today_d)
 
         # Destination account details
-        dest_name = _clean_name(bill.get("account_name"), dest_acct)
+        dest_name = _clean_name(bill.get("account_name") if bill else None, dest_acct)
         dest_provider = "Bank"
         dest_balance = live_balances.get(dest_acct, 0.0)
         for acc in all_uk_accounts:
@@ -1031,43 +1246,66 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 dest_balance = live_balances.get(dest_acct, float(acc.get("balance") or 0))
                 break
 
-        # Fan-in destination summary: ALL of this account's in-window bills that land
-        # on or before its first income event (bills sort before income on the same
-        # day — conservative — so a bill on the income day is NOT covered by that
-        # income and must still be held in balance).
-        first_income_day = min(
-            (i["days_away"] for i in credited_incomes.get(dest_acct, [])), default=None
-        )
-        dest_bills = sorted(
-            (
-                b for b in assessable_bills
-                if (b["account_id"] or "__unknown__") == dest_acct
-                and (first_income_day is None or b["days_away"] <= first_income_day)
-            ),
-            key=lambda b: b["days_away"],
-        )
-        if not dest_bills:
-            dest_bills = [bill]
-        dest_summaries[dest_acct] = {
-            "account_id": dest_acct,
-            "name": dest_name,
-            "provider": dest_provider,
-            "balance": float(dest_balance),
-            "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
-            "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
-            "bills": [
-                {"label": _humanise_bill_name(b.get("name", "bill")), "amount": int(round(float(b["amount"])))}
-                for b in dest_bills
-            ],
-        }
+        if is_overdraft:
+            # No in-window bill exists at all — an empty bill list is the
+            # honest answer, not a fabricated one (see `_build_move_map`'s
+            # "no fallback" comment below for why the old `dest_bills =
+            # [bill]` line would have been wrong here).
+            dest_summaries[dest_acct] = {
+                "account_id": dest_acct,
+                "name": dest_name,
+                "provider": dest_provider,
+                "balance": float(dest_balance),
+                "needs_total": 0,
+                "needs_by": "",
+                "bills": [],
+                "is_overdraft": True,
+            }
+        else:
+            # Fan-in destination summary: ALL of this account's in-window bills that land
+            # on or before its first income event (bills sort before income on the same
+            # day — conservative — so a bill on the income day is NOT covered by that
+            # income and must still be held in balance).
+            first_income_day = min(
+                (i["days_away"] for i in credited_incomes.get(dest_acct, [])), default=None
+            )
+            dest_bills = sorted(
+                (
+                    b for b in assessable_bills
+                    if (b["account_id"] or "__unknown__") == dest_acct
+                    and (first_income_day is None or b["days_away"] <= first_income_day)
+                ),
+                key=lambda b: b["days_away"],
+            )
+            if not dest_bills:
+                dest_bills = [bill]
+            dest_summaries[dest_acct] = {
+                "account_id": dest_acct,
+                "name": dest_name,
+                "provider": dest_provider,
+                "balance": float(dest_balance),
+                "needs_total": int(round(sum(float(b["amount"]) for b in dest_bills))),
+                "needs_by": _when_label(date.fromisoformat(dest_bills[0]["expected_date"]), today_d),
+                "bills": [
+                    {"label": _humanise_bill_name(b.get("name", "bill")), "amount": int(round(float(b["amount"])))}
+                    for b in dest_bills
+                ],
+                "is_overdraft": False,
+            }
 
         def _build_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount):
             if src_own_bills > 0:
                 safe_note = f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
+            elif is_overdraft:
+                safe_note = "Nothing due from this account right now"
             else:
                 safe_note = f"Nothing due from this account before {bill_weekday}"
-            human_bill = _humanise_bill_name(bill_name)
-            incoming = f"£{bill_amount:,} {human_bill} expected {bill_weekday}"
+            if is_overdraft:
+                # Describe the actual state — there is no bill to name.
+                incoming = f"£{_fmt_overdrawn(dest_balance)} overdrawn right now"
+            else:
+                human_bill = _humanise_bill_name(bill_name)
+                incoming = f"£{bill_amount:,} {human_bill} expected {bill_weekday}"
             return {
                 "from": {
                     "account_id": src_id,
@@ -1181,6 +1419,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 "bill_amount": bill_amount,
                 "bill_weekday": bill_weekday,
                 "shortfall": shortfall,
+                "is_overdraft": is_overdraft,
             })
 
     # SOURCE SAFETY guarantee — checked GLOBALLY, across every card. A source may
@@ -1258,7 +1497,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # materially different problem produces a different card.
     dest_bucketed: dict[str, int] = {}
     for _da, _sa, dest_acct_fp, _bill in shortfalls:
-        dest_bucketed[dest_acct_fp] = round((_ceil5(abs(min_running[dest_acct_fp])) + 10) / 50) * 50
+        dest_bucketed[dest_acct_fp] = round((_ceil5(dest_shortfall[dest_acct_fp]) + 10) / 50) * 50
 
     # Grouped once, up front — shared by the Payday Plan card below and the
     # per-destination emission loop.
@@ -1632,12 +1871,21 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             # shown in the headline, then referred to as "it" on second
             # mention in the body (no repeated full name, no shouting caps).
             _dest_display = humanise_account_name(u["dest_name"])
-            headline = f"£{int(round(u['shortfall']))} gap before {_dest_display} payday."
-            body = (
-                f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} payment is expected "
-                f"{u['bill_weekday']}, but it's £{int(round(u['shortfall']))} short of cover, "
-                f"and there's no easy transfer source right now."
-            )
+            if u.get("is_overdraft"):
+                # OVERDRAFT, no viable source — describe the real state
+                # honestly rather than inventing a bill to blame it on.
+                headline = f"{_dest_display} is £{_fmt_overdrawn(u['shortfall'])} overdrawn."
+                body = (
+                    f"It's overdrawn right now, and there's no easy transfer source "
+                    f"that can safely cover it without leaving another account short."
+                )
+            else:
+                headline = f"£{int(round(u['shortfall']))} gap before {_dest_display} payday."
+                body = (
+                    f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} payment is expected "
+                    f"{u['bill_weekday']}, but it's £{int(round(u['shortfall']))} short of cover, "
+                    f"and there's no easy transfer source right now."
+                )
             item_doc = {
                 "_id": item_id,
                 "uid": uid,
@@ -1654,6 +1902,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 "_dest_bill_count": len(dest_summaries[dest_acct]["bills"]),
                 "_bill_name": u["bill_name"],
                 "_bill_amount": u["bill_amount"],
+                "_is_overdraft": bool(u.get("is_overdraft")),
                 "_no_source": True,
                 "_window_end": window_end.isoformat(),
             }
@@ -1710,11 +1959,18 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         # RATIONALE: the pooled figure counted bills on accounts with no balance
         # data (credit cards) that the cover plan cannot assess, so asserting it
         # on a card that fully covers its own destination was exactly the
-        # misrepresentation being fixed.
-        amount_needed = _ceil5(abs(min_running[dest_acct])) + 10
+        # misrepresentation being fixed. Re-reads `dest_shortfall` (built in
+        # Step 3) rather than `min_running[dest_acct]` directly — for an
+        # overdraft destination that also carries a suppressed movement bill,
+        # `min_running` is the more negative post-movement figure; `dest_
+        # shortfall` is the live-balance figure Step 3 actually built legs
+        # against, and this must stay consistent with that.
+        amount_needed = _ceil5(dest_shortfall[dest_acct]) + 10
         _raw_gap = amount_needed - sum(float(_l["amount"]) for _l in dest_legs)
         dest_gap = _raw_gap if _raw_gap > 4 else 0.0
         dest_covered = dest_gap <= 0.5
+
+        _is_overdraft_dest = bool(dest_summary.get("is_overdraft"))
 
         headline = f"Move £{total:,} to {dest_name}"
         if n_rows == 1:
@@ -1723,7 +1979,20 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             _ds = dest_summaries.get(dest_acct) or {}
             _ds_bills = _ds.get("bills") or []
             _shortfall_i = int(round(_r["shortfall"]))
-            if len(_ds_bills) > 1:
+            if _is_overdraft_dest:
+                # No bill drove this — the account is simply negative right
+                # now (a live balance read, not a projection; see
+                # `_overdraft_deficits`'s no-threshold rationale). Describe
+                # the actual state instead of inventing a bill.
+                _overdrawn_str = _fmt_overdrawn(_r["shortfall"])
+                _clears_phrase = (
+                    "clears it and leaves a small cushion." if dest_covered else "covers most of it."
+                )
+                body = (
+                    f"It's £{_overdrawn_str} overdrawn right now. "
+                    f"Moving £{total:,} from {_r['move_map']['from']['name']} {_clears_phrase}"
+                )
+            elif len(_ds_bills) > 1:
                 # Account-level story: several payments leave this account before
                 # payday; quote the total vs held so the shortfall is legible.
                 _spare = int(round(total - _r["shortfall"]))
@@ -1749,9 +2018,13 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
 
         residual = None
         if dest_gap > 0.5:
+            _residual_tail = (
+                "so it may need a different plan." if _is_overdraft_dest
+                else "so one payment may need a different plan."
+            )
             residual = (
                 f"These moves cover £{total:,}, but {dest_name} is still "
-                f"£{int(round(dest_gap))} short, so one payment may need a different plan."
+                f"£{int(round(dest_gap))} short, {_residual_tail}"
             )
 
         assumed_incomes = [
@@ -1776,6 +2049,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             "_dest_bill_count": len(dest_summary["bills"]),
             "_bill_name": rows[0]["bill_name"],
             "_bill_amount": rows[0]["bill_amount"],
+            "_is_overdraft": _is_overdraft_dest,
             "_window_end": window_end.isoformat(),
             "_total": total,
             "plan_dest": dest_summary,
@@ -1880,7 +2154,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             else "Sorted: those payments are covered"
         )
         _at_clause = f" at {dest_name}" if dest_name else ""
-        if needs_total and bill_count > 1:
+        if stored.get("_is_overdraft"):
+            body = "It's back above £0."
+        elif needs_total and bill_count > 1:
             body = f"£{int(round(float(needs_total))):,} of payments{_at_clause} are safe."
         elif bill_amount:
             body = f"The £{int(round(float(bill_amount))):,} {_humanise_bill_name(bill_name)} is safe."

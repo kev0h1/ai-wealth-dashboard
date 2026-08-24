@@ -207,6 +207,8 @@ def _search_query(
     uid: str, q: Optional[str], category: Optional[str], days: Optional[int],
     merchants: Optional[str] = None,
     date_from: Optional[str] = None, date_to: Optional[str] = None,
+    txn_type: Optional[str] = None,
+    categories: Optional[List[str]] = None,
 ) -> dict:
     """Filter shared by every collection in the global search's gather —
     generalises the account-scoped `q` clause in `get_transactions` above
@@ -225,7 +227,22 @@ def _search_query(
     take priority over `days` when present, and still resolve to a `date`
     range on the same (user_id, date) compound index every other path here
     uses — no new index, no collection scan. Absent both, the query is
-    unscoped by date (all history)."""
+    unscoped by date (all history).
+
+    `txn_type` is "debit" or "credit" — adds a straight equality clause on
+    `transaction_type`, same as the account-scoped `get_transactions` route.
+    Any other value (including absent) is ignored, so today's callers are
+    unaffected. Applied query-side (not a post-filter) so pagination/counts
+    stay correct.
+
+    `categories` is a repeated-query-param list of exact category names (e.g.
+    a "money you moved" deep link spanning Savings, Transfer, and any custom
+    movement category — including one whose name legally contains a comma,
+    which a delimited string could never represent unambiguously). When
+    present and non-empty it wins outright and `category` is ignored; each
+    name gets its own `_category_clause` and the results flatten into one
+    `$or`. Otherwise `category` behaves exactly as it always has (a single
+    exact name, no delimiter splitting)."""
     base: dict = {"user_id": uid}
     from_dt = _parse_date_bound(date_from)
     to_dt   = _parse_date_bound(date_to, end_of_day=True)
@@ -238,6 +255,8 @@ def _search_query(
         base["date"] = rng
     elif days:
         base["date"] = {"$gte": datetime.now() - timedelta(days=days)}
+    if txn_type in ("debit", "credit"):
+        base["transaction_type"] = txn_type
     clauses = [base]
     if q and q.strip():
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
@@ -245,7 +264,10 @@ def _search_query(
             {"description": rx}, {"merchant_name": rx}, {"merchant_key": rx},
             {"category": rx}, {"custom_category": rx},
         ]})
-    if category:
+    names = [c for c in (categories or []) if c]
+    if names:
+        clauses.append({"$or": [_category_clause(name) for name in names]})
+    elif category:
         clauses.append(_category_clause(category))
     if merchants:
         names = [n.strip() for n in merchants.split(",") if n.strip()]
@@ -284,10 +306,12 @@ async def search_transactions(
     page: int = 1,
     page_size: int = 20,
     category: Optional[str] = None,
+    categories: Optional[List[str]] = Query(None),
     merchants: Optional[str] = None,
     days: Optional[int] = None,
     date_from: Optional[str] = Query(None, alias="from"),
     date_to: Optional[str] = Query(None, alias="to"),
+    txn_type: Optional[str] = None,
     user: dict = Depends(current_user),
 ):
     """Global, paginated, searchable transaction list spanning every source
@@ -300,13 +324,24 @@ async def search_transactions(
     straight through rather than this endpoint owning period maths. Optional;
     absent means all history, matching today's behaviour exactly.
 
+    `categories` is the repeated-query-param form (`?categories=Savings&
+    categories=Transfer`) for a multi-category deep link like "To your pots"
+    (spans Savings, Transfer, and any custom movement category). Unlike a
+    delimited string, this cannot be ambiguous when a custom category name
+    legally contains a comma. When present and non-empty it wins outright and
+    `category` is ignored; otherwise `category` is a single exact name,
+    unchanged from its original behaviour (no delimiter splitting — see
+    `_category_clause`). `txn_type` ("debit" or "credit") narrows to one
+    direction, e.g. pairing with `categories` to show only the debits behind
+    a "money you moved" bucket.
+
     Read-only: no writes, no categorisation side effects."""
     uid       = user["email"]
     page      = max(1, page)
     page_size = max(1, min(page_size, 100))
     fetch_n   = page * page_size
 
-    query = _search_query(uid, q, category, days, merchants, date_from, date_to)
+    query = _search_query(uid, q, category, days, merchants, date_from, date_to, txn_type, categories)
     cols  = (transactions_col, yapily_transactions_col,
              statement_transactions_col, mono_transactions_col, mpesa_transactions_col)
 
@@ -481,6 +516,7 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     # invalidate so the flag/sheet reflects the change immediately.
     response_cache.invalidate(user["email"], "miscategorised_count")
     response_cache.invalidate(user["email"], "miscategorised_list")
+    response_cache.invalidate(user["email"], "transfer_pair_suggestions")
 
     # ENGINE.md "The One Stream Rule" — every teaching write appends to the
     # same uniform event feed, user-scoped (Firewall Rule).
@@ -511,7 +547,7 @@ def _try_oid(v: str):
 # it resolves to a destination (a goal or an offline pot) in the pot ledger,
 # and the category here only exists so the arithmetic knows "not spend".
 _MOVEMENT_CATEGORY = "Transfer"
-_MOVEMENT_RESOLUTIONS = {"mine-goal", "mine-offline", "someone-else", "spending"}
+_MOVEMENT_RESOLUTIONS = {"mine-here", "mine-goal", "mine-offline", "someone-else", "spending"}
 
 
 async def _log_teaching_event(
@@ -532,6 +568,13 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
     somewhere the engine can't see.
 
     resolution:
+      mine-here     — another account of the user's THAT THE ENGINE ALREADY
+                      SEES (both legs are connected accounts). The transfer
+                      matcher already ran at sync and failed to pair this row
+                      with its counterpart (descriptions differ between legs),
+                      so this resolution doesn't search for one either — it
+                      just files the row as movement. No linking (no goal, no
+                      offline pot), unlike mine-goal/mine-offline.
       mine-goal     — funds an existing commitment/goal. Recategorised as
                       movement AND linked, but only when that goal actually
                       exists for this user; otherwise 404 (no half-linked state).
@@ -548,6 +591,9 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                       forced into ordinary consumption category semantics
                       either. The only write is a user-scoped fact on the
                       teaching-event stream (Firewall Rule: never global).
+                      UI no longer offers this (owner decision 2026-08-23,
+                      it duplicated "no, this was spending" confusingly);
+                      endpoint kept for API compatibility.
       spending      — normal correction path. An optional `category` behaves
                       exactly like PATCH /transactions/{id}; omitted, it just
                       undoes a previous movement mis-resolution so the row
@@ -562,7 +608,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
     if not doc:
         raise HTTPException(404, "Transaction not found")
 
-    if resolution in ("mine-goal", "mine-offline") and doc.get("transaction_type") != "debit":
+    if resolution in ("mine-here", "mine-goal", "mine-offline") and doc.get("transaction_type") != "debit":
         # A movement resolution files the row under the movement-kind
         # _MOVEMENT_CATEGORY (Transfer), which the arithmetic then excludes
         # from both spend and income totals. That's only correct for money
@@ -577,7 +623,24 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
     result: dict = {"updated": transaction_id, "resolution": resolution}
     category_changed = False
 
-    if resolution == "mine-goal":
+    if resolution == "mine-here":
+        # No counterpart search, no linking — the transfer matcher already
+        # ran at sync and failed to pair this row (descriptions differ
+        # between legs), so this resolution doesn't try again. It just files
+        # the row as plain movement, same $unset hygiene as the other
+        # mine-* branches so a prior goal/offline link doesn't linger.
+        await transactions_col.update_one(
+            {"_id": transaction_id, "user_id": uid},
+            {"$set": {"custom_category": _MOVEMENT_CATEGORY},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+        )
+        category_changed = True
+        result["custom_category"] = _MOVEMENT_CATEGORY
+        await _log_teaching_event(
+            uid, "movement_mine_here", transaction_id=transaction_id, merchant_key=merchant_key,
+        )
+
+    elif resolution == "mine-goal":
         goal_id = body.get("goal_id")
         if not goal_id:
             raise HTTPException(400, "goal_id is required for resolution=mine-goal")
@@ -627,6 +690,8 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         )
 
     elif resolution == "someone-else":
+        # UI no longer offers this (owner decision 2026-08-23); kept for API
+        # compatibility.
         note = (body.get("note") or "").strip()[:50]
         await _log_teaching_event(
             uid, "movement_someone_else", transaction_id=transaction_id, merchant_key=merchant_key,
@@ -678,6 +743,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         _asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
         response_cache.invalidate(uid, "miscategorised_count")
         response_cache.invalidate(uid, "miscategorised_list")
+        response_cache.invalidate(uid, "transfer_pair_suggestions")
 
     return result
 

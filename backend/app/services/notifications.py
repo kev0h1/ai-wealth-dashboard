@@ -496,7 +496,7 @@ async def _maybe_category_pace(user_id: str, region: str) -> None:
     )
 
 
-def _classification_body(new_unplaced: set, new_miscategorised: set) -> str:
+def _classification_body(new_unplaced: set, new_miscategorised: set, new_pairs: set | None = None) -> str:
     parts: list[str] = []
     if new_unplaced:
         n = len(new_unplaced)
@@ -504,7 +504,16 @@ def _classification_body(new_unplaced: set, new_miscategorised: set) -> str:
     if new_miscategorised:
         n = len(new_miscategorised)
         parts.append(f"{n} may be miscategorised")
-    return " and ".join(parts)
+    if new_pairs:
+        n = len(new_pairs)
+        parts.append(f"{n} possible transfer{'s' if n != 1 else ''} to confirm")
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    # "a and b" for two parts, "a, b and c" for three — the Oxford-less
+    # British house style the rest of this check's copy already uses.
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
 
 
 async def _current_classification_flags(user_id: str) -> tuple[set[str], set[str]]:
@@ -541,9 +550,25 @@ async def _current_classification_flags(user_id: str) -> tuple[set[str], set[str
     return unplaced, miscategorised
 
 
+async def _current_transfer_pair_keys(user_id: str) -> set[str]:
+    """Stable `pair_key` strings (sorted "id1:id2" of the two transaction
+    ids) for the same candidate cross-account transfer pairs the 'Review
+    these transfers' sheet shows (`_transfer_pair_suggestions`, capped at
+    10). A different id-space from the unplaced/miscategorised transaction
+    ids above — a pair only stops appearing once both legs are fixed,
+    dismissed, or learned, mirroring that function's own dedup keys."""
+    from app.routers.analytics import _transfer_pair_suggestions
+
+    pairs = await _transfer_pair_suggestions(user_id)
+    return {p["pair_key"] for p in pairs}
+
+
 async def _maybe_classification_attention(user_id: str) -> None:
-    """Push once when a sync leaves NEW unplaced or miscategorised payments
-    behind — never the same payment twice (dedup on its stable id)."""
+    """Push once when a sync leaves NEW unplaced or miscategorised payments,
+    or a NEW transfer-pair suggestion, behind — never the same item twice
+    (dedup on its stable id, or `pair_key` for transfer pairs — a separate
+    id-space with its own silently-seeded baseline, see
+    `_current_transfer_pair_keys`)."""
     if not await notif_pref(user_id, "classification_attention"):
         return
 
@@ -553,31 +578,67 @@ async def _maybe_classification_attention(user_id: str) -> None:
         log.warning("classification attention compute failed for %s: %s", user_id, e)
         return
 
+    # Transfer-pair suggestions get their own try/except so a failure here
+    # degrades to the original two-part (unplaced/miscategorised) push
+    # rather than losing that push too — `pair_keys` stays None and the
+    # `classification_pairs_seen` state key is left untouched.
+    pair_keys: set[str] | None
+    try:
+        pair_keys = await _current_transfer_pair_keys(user_id)
+    except Exception as e:
+        log.warning("classification attention transfer-pair compute failed for %s: %s", user_id, e)
+        pair_keys = None
+
     all_current = unplaced | miscategorised
     state = await _state(user_id)
     seen_key = "classification_seen"
+    pairs_seen_key = "classification_pairs_seen"
 
-    # First run: seed the baseline silently, same convention as
-    # `_maybe_new_insights` — an existing backlog of unplaced/miscategorised
-    # payments at rollout must never blast a push for history, only for what
-    # a sync newly leaves behind from here on.
+    updates: dict = {}
+
+    # Unplaced/miscategorised: unchanged first-run convention, same
+    # backlog-must-never-push seeding `_maybe_new_insights` also uses.
     if seen_key not in state:
-        await notification_state_col.update_one(
-            {"_id": user_id}, {"$set": {seen_key: sorted(all_current)}}, upsert=True,
-        )
+        updates[seen_key] = sorted(all_current)
+        seen: set[str] = set(all_current)
+        new_unplaced: set[str] = set()
+        new_miscategorised: set[str] = set()
+    else:
+        seen = set(state.get(seen_key) or [])
+        new_unplaced = unplaced - seen
+        new_miscategorised = miscategorised - seen
+
+    # Transfer pairs: same silent-baseline convention, separately keyed
+    # (`classification_pairs_seen`) since pair_key lives in a different
+    # id-space than the transaction ids above. Skipped entirely if the
+    # compute above failed.
+    new_pairs: set[str] = set()
+    pairs_seen: set[str] = set()
+    if pair_keys is not None:
+        if pairs_seen_key not in state:
+            updates[pairs_seen_key] = sorted(pair_keys)
+            pairs_seen = set(pair_keys)
+        else:
+            pairs_seen = set(state.get(pairs_seen_key) or [])
+            new_pairs = pair_keys - pairs_seen
+
+    if not new_unplaced and not new_miscategorised and not new_pairs:
+        if updates:
+            await notification_state_col.update_one(
+                {"_id": user_id}, {"$set": updates}, upsert=True,
+            )
         return
 
-    seen = set(state.get(seen_key) or [])
-    new_unplaced = unplaced - seen
-    new_miscategorised = miscategorised - seen
-    if not new_unplaced and not new_miscategorised:
-        return
-
-    body = _classification_body(new_unplaced, new_miscategorised)
+    body = _classification_body(new_unplaced, new_miscategorised, new_pairs)
     await send_push_to_user(user_id, "Some payments need a look", body, "/spend")
 
+    if new_unplaced or new_miscategorised:
+        updates[seen_key] = sorted(seen | all_current)
+    if new_pairs:
+        updates[pairs_seen_key] = sorted(pairs_seen | pair_keys)
+
     await notification_state_col.update_one(
-        {"_id": user_id}, {"$set": {seen_key: sorted(seen | all_current)}}, upsert=True,
+        {"_id": user_id}, {"$set": updates}, upsert=True,
     )
 
 
