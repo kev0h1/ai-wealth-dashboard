@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ArrowLeftRight } from "lucide-react";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { api } from "@/lib/api";
@@ -47,6 +47,10 @@ const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
   pots: PiggyBank,
   credit_cards: CreditCard,
   investments: TrendingUp,
+  // Plain account-to-account shuffling (backend's "own_accounts" bucket) —
+  // deliberately NOT the piggy bank or any other genuine-destination icon;
+  // an exchange glyph reads as "moved between", not "put somewhere".
+  own_accounts: ArrowLeftRight,
 };
 
 function paceLine(multiple: number, excess: number, daysElapsed: number): string {

@@ -5,10 +5,12 @@ from datetime import date
 
 from app.services.categories import BUILTIN_CATEGORY_KINDS
 from app.services.spend_verdict import (
+    _movement_fallback_sentence,
     _unresolved_display_name,
     assemble_verdict,
     bucket_transactions,
     build_unresolved,
+    compose_reading,
     determine_state,
 )
 
@@ -343,3 +345,125 @@ def test_moved_omits_empty_groups_and_carries_goal_names():
     assert result["moved"][0]["kind"] == "pots"
     assert result["moved"][0]["goal_names"] == ["Japan"]
     assert result["moved"][0]["amount"] == 200
+
+
+# ── own_accounts split (owner complaint, 2026-08: "£8,087 to savings and
+# cards" named a destination for money that was mostly plain shuffling) ─────
+
+def test_bucket_transactions_transfer_goes_to_own_accounts_not_pots():
+    kind_map = KIND_MAP
+    txns = [
+        txn("Transfer", 6074.64, merchant="Kevin Maingi Barclays"),
+        txn("Savings", 497.05, merchant="Saving Challenge"),
+    ]
+    cat_agg, moved_groups, income_total = bucket_transactions(txns, kind_map)
+
+    # Transfer is no longer folded into "pots" — it earns its own bucket.
+    assert moved_groups["own_accounts"]["amount"] == 6074.64
+    assert moved_groups["own_accounts"]["categories"] == {"Transfer"}
+
+    # Savings still lands in "pots", undisturbed.
+    assert moved_groups["pots"]["amount"] == 497.05
+    assert moved_groups["pots"]["categories"] == {"Savings"}
+
+
+def test_bucket_transactions_custom_movement_category_defaults_to_pots():
+    """No reliable per-transaction signal exists to tell a goal-linked
+    custom movement category apart from a non-goal one here (see
+    `_movement_bucket`'s docstring): goal claims are keyed by the
+    destination account_id, but bucket_transactions only ever sees the
+    source (debit) leg. Absent that signal, a custom movement category
+    defaults to "pots" — misfiling a genuine goal contribution as
+    "shuffling" is the worse error of the two."""
+    kind_map = dict(KIND_MAP)
+    kind_map["House Fund"] = "movement"
+    txns = [txn("House Fund", 300, merchant="House Fund STO")]
+    cat_agg, moved_groups, income_total = bucket_transactions(txns, kind_map)
+
+    assert moved_groups["pots"]["amount"] == 300
+    assert moved_groups["own_accounts"]["amount"] == 0
+
+
+def test_movement_fallback_sentence_genuine_only_below_own_floor():
+    moved = [
+        {"kind": "pots", "amount": 400.0},
+        {"kind": "credit_cards", "amount": 100.0},
+        {"kind": "own_accounts", "amount": 10.0},  # below MOVED_MATERIAL_FLOOR
+    ]
+    sentence = _movement_fallback_sentence(moved)
+    assert sentence == "You also moved £500 to savings and cards."
+
+
+def test_movement_fallback_sentence_own_accounts_only():
+    moved = [
+        {"kind": "pots", "amount": 20.0},  # below floor
+        {"kind": "own_accounts", "amount": 6075.0},
+    ]
+    sentence = _movement_fallback_sentence(moved)
+    assert sentence == "You also moved £6,075 between your own accounts."
+    assert "savings" not in sentence  # never claim a destination for shuffling
+
+
+def test_movement_fallback_sentence_both_material_names_both_honestly():
+    moved = [
+        {"kind": "pots", "amount": 587.0},
+        {"kind": "credit_cards", "amount": 1090.0},
+        {"kind": "investments", "amount": 425.0},
+        {"kind": "own_accounts", "amount": 6075.0},
+    ]
+    sentence = _movement_fallback_sentence(moved)
+    assert sentence == (
+        "You also moved £2,102 to savings, cards and investments, "
+        "and £6,075 between your own accounts."
+    )
+
+
+def test_movement_fallback_sentence_never_names_an_empty_genuine_group():
+    # Genuine total clears the floor via pots alone; investments/credit_cards
+    # are present in the payload at £0 (e.g. omitted-in-build_moved groups
+    # never reach here in practice, but the helper must be defensive) and
+    # must never be named.
+    moved = [
+        {"kind": "pots", "amount": 200.0},
+        {"kind": "credit_cards", "amount": 0.0},
+        {"kind": "investments", "amount": 0.0},
+    ]
+    sentence = _movement_fallback_sentence(moved)
+    assert sentence == "You also moved £200 to savings."
+
+
+def test_movement_fallback_sentence_neither_side_material_returns_none():
+    moved = [
+        {"kind": "pots", "amount": 10.0},
+        {"kind": "own_accounts", "amount": 15.0},
+    ]
+    assert _movement_fallback_sentence(moved) is None
+
+
+def _no_consequence_impact():
+    return {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
+
+
+def test_compose_reading_wires_moved_list_into_fallback_sentence():
+    """End-to-end through compose_reading (not just the pure helper) —
+    confirms the `moved` list, not a collapsed float, is what actually
+    reaches the sentence composer."""
+    moved = [
+        {"kind": "pots", "amount": 497.0},
+        {"kind": "credit_cards", "amount": 1090.0},
+        {"kind": "investments", "amount": 425.0},
+        {"kind": "own_accounts", "amount": 6075.0},
+    ]
+    reading = compose_reading(
+        state="nothing",
+        base_reading="Nothing unusual to report.",
+        notables=[],
+        pace_totals={"excess": 0.0},
+        impact=_no_consequence_impact(),
+        moved=moved,
+        unresolved_total=0.0,
+    )
+    assert reading == (
+        "Nothing unusual to report. You also moved £2,012 to savings, cards and investments, "
+        "and £6,075 between your own accounts."
+    )

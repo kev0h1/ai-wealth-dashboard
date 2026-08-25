@@ -74,22 +74,62 @@ _TXN_PROJ = {
     "currency": 1, "account_id": 1,
 }
 
-# Money-you-moved destination groups, fixed display order.
+# Money-you-moved destination groups, fixed display order. "own_accounts"
+# sits last — it is the least reassuring of the four (nothing was put
+# anywhere, it just moved), so it reads as the sentence's trailing clause,
+# never the headline.
 _MOVED_ORDER = (
     ("pots", "To your pots"),
     ("credit_cards", "To your credit cards"),
     ("investments", "To your investments"),
+    ("own_accounts", "Between your accounts"),
 )
+
+#: Kinds that are a genuine destination (a pot, a card payment, an
+#: investment) as opposed to plain account-to-account shuffling — see
+#: `_movement_bucket`'s docstring for why "Transfer" alone earns the
+#: shuffling bucket. Order matches `_MOVED_ORDER`'s genuine-first display.
+_GENUINE_DESTINATION_KINDS = ("pots", "credit_cards", "investments")
 
 
 def _movement_bucket(category: str) -> str:
     """Which "money you moved" destination group a movement-kind category
-    belongs to — the Destination Rule's grouping, not a new category system."""
+    belongs to — the Destination Rule's grouping, not a new category system.
+
+    "Transfer" gets its own "own_accounts" bucket rather than folding into
+    "pots" (owner complaint, 2026-08: "You also moved £8,087 to savings and
+    cards" named a destination for money that was mostly plain
+    account-to-account shuffling). This is safe because "Transfer" is
+    already a RELIABLE negative signal, not a guess: `categorisation.py`
+    Pass 2.6 (`refine_transfer_target`) promotes the current-account leg of
+    every matched own-transfer pair to "Savings" or "Debt" the moment the
+    counterparty account is a savings/ISA or credit-card account. A row that
+    survives sync-time categorisation still tagged plain "Transfer" has
+    therefore already been checked and found NOT to resolve to a goal or a
+    card — the negative result is the signal, computed once at write time,
+    already sitting on `t["category"]` with no extra I/O here.
+
+    A user-created custom MOVEMENT-kind category gets no such refinement —
+    the engine never checks whether it points at a claimed goal/pot account,
+    and there is no reliable way to check that here either: goal claims
+    (`commitments.compute_pot_ledger`) are keyed by the CREDIT leg's
+    (destination) account_id, but `bucket_transactions` only ever sees the
+    DEBIT leg here (the source account money left FROM — see its docstring),
+    so there is no account_id on this row to join against a goal's pots even
+    with an extra query. Absent a reliable signal, this defaults a custom
+    movement category to "pots" rather than "own_accounts": misfiling a
+    genuine goal contribution (e.g. a custom "House Fund" category) as mere
+    "shuffling" is the more insulting error of the two, and "pots" is also
+    where every custom movement category has always landed — no behaviour
+    change for the common case, only "Transfer" moves.
+    """
     if category == "Investment":
         return "investments"
     if category == "Debt":
         return "credit_cards"
-    return "pots"  # Savings, Transfer, and any custom movement category
+    if category == "Transfer":
+        return "own_accounts"
+    return "pots"  # Savings, and any custom movement category (see above)
 
 
 # ── I/O: transaction load (kept separate from pace.py's load_spend_txns
@@ -729,9 +769,62 @@ def _first_sentence(text: str) -> str:
     return text[: idx + 1] if idx != -1 else text
 
 
+#: Sentence-2 noun for each genuine destination kind, in `_MOVED_ORDER`
+#: order — feeds `_join_names` so the fallback sentence only ever names
+#: destinations this period's data actually supports (never a hardcoded
+#: "savings, cards and investments" when, say, nothing went to investments).
+_GENUINE_LABEL = {"pots": "savings", "credit_cards": "cards", "investments": "investments"}
+
+
+def _movement_fallback_sentence(moved: list[dict]) -> str | None:
+    """Sentence-2's movement-reassurance fallback, split honestly per the
+    Destination Rule (owner complaint, 2026-08: "You also moved £8,087 to
+    savings and cards" named a destination for money that was mostly plain
+    account-to-account shuffling). Money moved to a genuine destination
+    (`_GENUINE_DESTINATION_KINDS` — pots/credit_cards/investments) is named;
+    money moved to "own_accounts" (see `_movement_bucket`) is described as
+    what it is and never folded into "savings".
+
+    Each half only speaks once it clears `MOVED_MATERIAL_FLOOR` ON ITS OWN —
+    a few pounds of shuffling alongside a big genuine move (or the reverse)
+    isn't worth its own clause, the same discipline the old single-total
+    gate applied. Returns None when neither half is material, exactly like
+    the old fallback returning no sentence 2 below the floor.
+    """
+    genuine_amount = round(
+        sum(m["amount"] for m in moved if m["kind"] in _GENUINE_DESTINATION_KINDS), 2
+    )
+    own_amount = round(
+        sum(m["amount"] for m in moved if m["kind"] == "own_accounts"), 2
+    )
+    # Only name a destination the money actually went to this period — a
+    # £0 genuine group (e.g. no investment payment happened) must never
+    # appear in the joined list even when genuine_amount overall clears
+    # the floor off the other groups.
+    genuine_labels = [
+        _GENUINE_LABEL[m["kind"]]
+        for m in moved
+        if m["kind"] in _GENUINE_DESTINATION_KINDS and m["amount"] > 0
+    ]
+
+    show_genuine = genuine_amount >= MOVED_MATERIAL_FLOOR
+    show_own = own_amount >= MOVED_MATERIAL_FLOOR
+
+    if show_genuine and show_own:
+        return (
+            f"You also moved £{genuine_amount:,.0f} to {_join_names(genuine_labels)}, "
+            f"and £{own_amount:,.0f} between your own accounts."
+        )
+    if show_genuine:
+        return f"You also moved £{genuine_amount:,.0f} to {_join_names(genuine_labels)}."
+    if show_own:
+        return f"You also moved £{own_amount:,.0f} between your own accounts."
+    return None
+
+
 def compose_reading(
     *, state: str, base_reading: str, notables: list[dict], pace_totals: dict,
-    impact: dict, moved_total: float, unresolved_total: float = 0.0,
+    impact: dict, moved: list[dict], unresolved_total: float = 0.0,
 ) -> str:
     """Recompose the verdict's `reading` as caption grammar: max 2 sentences,
     no em-dashes, always hedged, never "will".
@@ -761,8 +854,9 @@ def compose_reading(
     no-consequence period.
 
     Sentence 2 — the ONE consequence, by priority bills_risk > horizon >
-    move_delta > permission, else the movement-reassurance fallback when
-    `moved_total` is material, else nothing (sentence 1 stands alone).
+    move_delta > permission, else the movement-reassurance fallback
+    (`_movement_fallback_sentence`) when a genuine-destination or
+    own-accounts total is material, else nothing (sentence 1 stands alone).
     bills_risk only ever fires alongside a genuine excess (`excess > 0` —
     see spend_impact.py's causation test), so it never interacts with the
     excess < 0 branch below.
@@ -819,8 +913,8 @@ def compose_reading(
     elif consequence == "permission" and impact.get("move"):
         bigger = impact["move"]["projected"] - impact["move"]["usual"]
         sentence2 = f"Your move could be about £{bigger:,.0f} bigger this payday."
-    elif moved_total >= MOVED_MATERIAL_FLOOR:
-        sentence2 = f"You also moved £{moved_total:,.0f} to savings and cards."
+    else:
+        sentence2 = _movement_fallback_sentence(moved)
 
     if sentence2:
         return f"{_first_sentence(sentence1)} {sentence2}"
@@ -1018,7 +1112,7 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         notables=notables,
         pace_totals=pace_totals,
         impact=impact,
-        moved_total=moved_total,
+        moved=result["moved"],
         unresolved_total=unresolved_total,
     )
     result["pace_series"] = pace_series
