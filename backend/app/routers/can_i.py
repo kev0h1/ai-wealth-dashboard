@@ -718,6 +718,27 @@ def _per_day_line(per_day: float) -> str:
     return f"That's about {_fmt_rate(per_day)} a day"
 
 
+# Owner-approved fix (2026-08) — `safe_to_spend` is net of unpaid card
+# growth and can land at or below zero (a "short" pot). Three sites in this
+# file used to format it as a bare "£X free until <date>" figure with no
+# sign guard, so a cards-short user could be told "-£83 free until Fri 27
+# Aug. That's about -£28 a day." — a negative daily allowance is meaningless
+# and reads as permission to spend money that does not exist. This
+# deterministic replacement line is used at all three (never left to the
+# LLM, same rule as every other verdict word in this file) and matches the
+# frontend's own treatment for the identical figure (SafeToSpendCard.tsx's
+# `verdictText` branches, PennyConversation.tsx's payday-lead facts): the
+# two `short_reason` cases read differently on purpose — "bills" is a
+# genuine risk (bills come first, nothing is being hidden), "cards" means
+# bills ARE covered and the spare went on plastic instead, so a red
+# shortfall tone would be wrong.
+def _nothing_spare_line(payday_label: str | None, short_reason: str | None) -> str:
+    until = f"until {payday_label}" if payday_label else "until payday"
+    if short_reason == "cards":
+        return f"Bills are covered, but nothing spare {until}, it's gone on cards"
+    return f"Nothing spare {until}, bills come first"
+
+
 def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
     """Server-composed grounding lines, from the SAME figures the verdict
     used — never re-derived, never LLM-authored. Normally 3 lines:
@@ -797,9 +818,12 @@ def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
             payday_label = date.fromisoformat(str(next_payday)[:10]).strftime("%a %-d %b")
         except ValueError:
             payday_label = None
+    # free can be <= 0 (net of unpaid card growth) — see _nothing_spare_line.
     free_line = (
-        f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
-        else f"{_fmt_gbp(free)} free until payday"
+        (
+            f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
+            else f"{_fmt_gbp(free)} free until payday"
+        ) if free > 0 else _nothing_spare_line(payday_label, facts.get("short_reason"))
     )
 
     what_ifs = facts.get("what_ifs") or {}
@@ -886,7 +910,10 @@ def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
     # there's a delta, the post-spend £B in `whatif_line` already tells the
     # user where they'll stand, and a PRE-spend £/day rate sitting above it
     # is the exact standing-vs-delta contradiction this change exists to cut.
-    if not has_delta:
+    # Also only when free > 0 — a negative daily rate is meaningless and the
+    # nothing-spare line above already covers this case (see
+    # _nothing_spare_line).
+    if not has_delta and free > 0:
         per_day = facts.get("per_day")
         if per_day is not None:
             lines.append(_per_day_line(per_day))
@@ -1753,13 +1780,34 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
 #
 # Conservative on purpose, same asymmetry the brief calls out explicitly: a
 # FALSE NEGATIVE here just falls through to the existing affordability LLM
-# path — costs one Haiku call, still answers correctly via the general
-# system prompt's own "free until payday"/per-day facts. A FALSE POSITIVE
-# answers a DIFFERENT question with this fixed template and never lets the
-# LLM see the user's actual wording, which is worse: a non-responsive answer
-# reads as broken, a slightly more expensive correct one doesn't. So the
-# phrase list is short and literal, never a broad "sounds vaguely like
-# status" catch-all.
+# path — costs one Haiku call. A FALSE POSITIVE answers a DIFFERENT question
+# with this fixed template and never lets the LLM see the user's actual
+# wording, which is worse: a non-responsive answer reads as broken, a
+# slightly more expensive correct one doesn't. So the phrase list is short
+# and literal, never a broad "sounds vaguely like status" catch-all.
+#
+# Owner-reported trust bug, 2026-08-25 — "How much do I actually have until
+# payday" is unmistakably the SAME headroom question as "What's still due
+# before payday" (already covered) but didn't match any existing phrase, so
+# it fell through to the general LLM path exactly as the false-negative note
+# above says is fine. It wasn't: once safe_to_spend can land at/below zero
+# (net of unpaid card growth), a no-amount question with no resolved_verdict
+# to anchor it gave the model nothing but a bare instruction to "decide your
+# own HEADLINE" and an open fact pack — it invented a bills total from the
+# unrelated 90-day monthly-spending average, re-narrated the negative
+# per-day rate as an "overspend" pace, and claimed the (zero) savings buffer
+# "covers some of it". None of that is a phrase-list problem in general, it
+# is specific to the HEADROOM family of questions ("how much do I have",
+# "what's left", "how much can I spend") — the exact shape this template
+# already exists to answer. The fix widens the phrase list below to catch
+# that family properly, rather than adding a broader bypass keyed on
+# amount_asked/state alone: a genuinely different no-amount question asked
+# while short ("how am I doing this month?", "is my spending normal?") must
+# still reach the LLM and get a real answer, not this fixed "nothing spare,
+# it's gone on cards" reply, which would be a non-sequitur for it. The
+# system-prompt hardening near FACTS (see the "bills_total is the ONLY
+# figure..." instruction below) is the remaining backstop for any headroom
+# phrasing this list still misses.
 _PAYDAY_STATUS_PHRASES = [
     r"how\s*(?:'m|\s+am)\s+i\s+doing",
     r"how'?s\s+it\s+(?:going|looking)",
@@ -1772,6 +1820,17 @@ _PAYDAY_STATUS_PHRASES = [
     r"still\s+due",
     r"what'?s\s+(?:still\s+)?due",
     r"what'?s\s+left",
+    # Headroom family (owner-reported fix, 2026-08-25) — "how much do I have
+    # until payday" is the same question as "what's left", just asked with
+    # "how much" instead of "what's". amount_asked is None is already a hard
+    # precondition of _is_payday_status_question itself (checked before this
+    # phrase list ever runs), so "how much can I spend" here can only mean
+    # the un-priced "how much is there to spend", never a priced what-if
+    # (those never reach this matcher).
+    r"how\s+much\s+(?:do\s+i|have\s+i)\s+(?:actually\s+)?(?:have|got)",
+    r"what\s+do\s+i\s+(?:actually\s+)?have",
+    r"how\s+much\s+is\s+left",
+    r"how\s+much\s+can\s+i\s+spend",
 ]
 _PAYDAY_STATUS_PHRASE_RE = re.compile(r"\b(?:" + "|".join(_PAYDAY_STATUS_PHRASES) + r")\b", re.IGNORECASE)
 _PAYDAY_WORD_RE = re.compile(r"\bpayday\b", re.IGNORECASE)
@@ -1806,22 +1865,39 @@ def _is_payday_status_question(question: str, amount_asked: float | None) -> boo
 # convention as the affordability path's own headline logic/
 # _DEBT_VERDICT_HEADLINES above: the engine has ALREADY decided this word
 # from the live numbers, so no LLM ever gets a vote on it here.
+#
+# short_reason distinction (owner-approved fix, 2026-08) — `state == "short"`
+# now covers two different situations `compute_safe_to_spend` tells apart via
+# `short_reason` (see net_position.short_reason_for): "bills" is a genuine
+# risk of not covering bills, "cards" means bills ARE covered and the
+# shortfall is purely card-funded spending. "You're short until payday" is
+# only true for the "bills" case; saying it for "cards" would be wrong (there
+# is no bills risk) so that case gets its own, still deterministic, headline.
 _PAYDAY_STATUS_HEADLINES = {
     "comfortable": "You're doing fine until payday",
     "tight": "It's tight until payday",
     "short": "You're short until payday",
 }
+_PAYDAY_STATUS_SHORT_CARDS_HEADLINE = "Nothing spare until payday"
 
 
-async def _handle_payday_status_question(uid: str) -> dict:
+async def _handle_payday_status_question(uid: str, sts: dict | None = None) -> dict:
     """Deterministic payday-status reply. Every figure is copied straight
     from compute_safe_to_spend (analytics.py) — the SAME call the main
     affordability path below makes for the same user — never a second,
     divergent computation. No LLM call, no `increment_ai_chat_usage`: the
     ENGINE.md ladder only pays for reasoning where reasoning is genuinely
     needed, and a payday-status reassurance question needs none.
+
+    `sts` may be passed in already-fetched (the "short state, no amount
+    asked" short-circuit in `can_i` below does this, reusing the fact pack
+    it already fetched for itself) so this never queries compute_safe_to_spend
+    twice for one request. Falls back to fetching its own when called from
+    `_is_payday_status_question`'s own dedicated short-circuit, which runs
+    before the main fact pack exists yet.
     """
-    sts = await compute_safe_to_spend(uid)
+    if sts is None:
+        sts = await compute_safe_to_spend(uid)
     if sts.get("status") == "insufficient_data":
         # Same fixed wording as the main affordability path's own
         # insufficient_data branch below (see there) — one message for "no
@@ -1837,6 +1913,7 @@ async def _handle_payday_status_question(uid: str) -> dict:
     next_payday = sts.get("next_payday")
     bills_total = float(sts.get("bills_total") or 0.0)
     state = sts.get("state")
+    short_reason = sts.get("short_reason")
 
     payday_label = None
     if next_payday:
@@ -1848,12 +1925,17 @@ async def _handle_payday_status_question(uid: str) -> dict:
     # Mirrors _compose_facts's own phrasing for the same underlying figures
     # (free-until-payday, per-day rate, bills-already-accounted-for) so this
     # fixed template can never read as a different voice from the LLM-phrased
-    # affordability path answering the same underlying question.
-    facts = [
-        f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
-        else f"{_fmt_gbp(free)} free until payday",
-        _per_day_line(round(free / max(1, days_until_payday), 2)),
-    ]
+    # affordability path answering the same underlying question. free can be
+    # <= 0 (net of unpaid card growth) — the per-day rate is dropped
+    # entirely in that case, never shown negative; see _nothing_spare_line.
+    if free > 0:
+        facts = [
+            f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
+            else f"{_fmt_gbp(free)} free until payday",
+            _per_day_line(round(free / max(1, days_until_payday), 2)),
+        ]
+    else:
+        facts = [_nothing_spare_line(payday_label, short_reason)]
     if bills_total:
         facts.append(f"{_fmt_gbp(bills_total)} of bills due before payday, already accounted for")
     facts = facts[:3]
@@ -1873,6 +1955,8 @@ async def _handle_payday_status_question(uid: str) -> dict:
     # string is the correct "nothing to add beyond the facts" value: it
     # satisfies the string contract and renders nothing extra.
     headline = _PAYDAY_STATUS_HEADLINES.get(state, "Here's where things stand")
+    if state == "short" and short_reason == "cards":
+        headline = _PAYDAY_STATUS_SHORT_CARDS_HEADLINE
     return _domain_response(headline, "", facts)
 
 
@@ -2092,12 +2176,39 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "days_until_payday": sts.get("days_until_payday"),
         "next_payday":       sts.get("next_payday"),
         "state":             sts.get("state"),
+        # short_reason ("bills" vs "cards", see net_position.short_reason_for)
+        # rides along as LLM grounding only, same as `state` itself — the
+        # headline for this path is always the deterministic delta/fit
+        # sentence below (_derive_verdict), never this fact directly, but
+        # the model's free-form reply must never say "you're short" without
+        # knowing whether that's a genuine bills risk or card-funded
+        # spending with bills already covered.
+        "short_reason":      sts.get("short_reason"),
         "bills_total":       sts.get("bills_total"),
-        "card_debt":         sts.get("card_debt"),
+        # card_debt (total outstanding balance across cards, no due date at
+        # all) used to ride along here too, unexplained. It's the second
+        # unscoped, bills-shaped total the model latched onto (see the
+        # "Card-funded/bills shortfall" block below for the trust bug this
+        # caused) — removed rather than captioned, since nothing downstream
+        # of this fact pack (deterministic or LLM) actually needs it; a genuine
+        # "what's my card debt?" question belongs to the DEBT domain instead
+        # (_handle_debt_domain, routed above, well before this fact pack is
+        # ever built).
     }
     days_until_payday = sts.get("days_until_payday") or 1
     safe_to_spend = sts.get("safe_to_spend") or 0.0
-    facts["per_day"] = round(safe_to_spend / max(1, days_until_payday), 2)
+    # per_day is only a meaningful spend allowance when there's something
+    # positive to spread across the days to payday. The short-circuit above
+    # already keeps a NO-amount question out of the LLM entirely once
+    # safe_to_spend <= 0, but an amount-bearing question ("can I spend £50?")
+    # asked while already short still reaches here — omit the raw negative
+    # rate rather than hand the model a number it could re-narrate as an
+    # "overspend pace" (the exact class of invention this fix targets; see
+    # _nothing_spare_line's own comment for the sibling guard on this same
+    # figure elsewhere in this file). what_ifs.per_day_after (below) is the
+    # correct, still-precomputed post-spend rate for that case.
+    if safe_to_spend > 0:
+        facts["per_day"] = round(safe_to_spend / max(1, days_until_payday), 2)
     # Named goals the user might ask about by name ("can I add to Japan?")
     # without ever saying "spend" or a price — fetched above for the scope
     # gate, reused here so the LLM has something to ground the answer in
@@ -2361,6 +2472,51 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     except Exception:
         offer = None
 
+    # ── Card-funded/bills shortfall — deterministic reply, no LLM ────────
+    # Owner-reported trust bug, 2026-08-25 (round 2). derived_verdict can
+    # only be "no" here while state == "short": safe_to_spend is already
+    # <= 0, so subtracting any positive amount_asked keeps free_after_spend
+    # negative — _derive_verdict's own precondition. The HEADLINE for this
+    # case (the £ delta, e.g. "£45 would take you −£234") is already fully
+    # deterministic via resolved_headline above. The REPLY used to be left
+    # to the LLM as a "genuinely new interpretation" with the WHOLE facts
+    # pack in view — including monthly_spending (a 90-day average, not a
+    # bill) and card_debt (a raw total outstanding balance, no due date at
+    # all, now removed from the pack below). The model latched onto one of
+    # these unscoped, bills-shaped numbers and stated a false SPECIFIC DUE
+    # DATE for it ("£2,774 in bills hitting in three days" — bills_total for
+    # the window to payday is actually £0 here) and a prediction about
+    # payment method the engine cannot know ("this £45 goes on the card like
+    # the rest of your spending"). A prompt-only fix already failed once for
+    # the sibling no-amount version of this bug (see _PAYDAY_STATUS_PHRASES'
+    # own comment) — the fix here is structural, matching that one: this
+    # sentence is composed from the SAME `_nothing_spare_line` helper
+    # `_handle_payday_status_question` uses (cash left / card-growth-reserved
+    # framing for "cards", bills-come-first for "bills"), never left to the
+    # model. The LLM is skipped entirely for this branch (no call, no
+    # increment_ai_chat_usage — ENGINE.md's ladder only pays for reasoning
+    # where reasoning is genuinely needed, and there is nothing left to
+    # phrase once the headline and the reason are both derived).
+    if derived_verdict == "no" and sts.get("state") == "short":
+        _payday_label = None
+        _next_payday = sts.get("next_payday")
+        if _next_payday:
+            try:
+                _payday_label = date.fromisoformat(str(_next_payday)[:10]).strftime("%a %-d %b")
+            except ValueError:
+                _payday_label = None
+        resp_body = {
+            "reply": _house_style(_nothing_spare_line(_payday_label, sts.get("short_reason"))),
+            "headline": _house_style(resolved_headline),
+            "facts": _compose_facts(facts, offer),
+            "explainer": False,
+            "topic": None,
+            "out_of_scope": False,
+        }
+        if offer:
+            resp_body["offer"] = offer
+        return resp_body
+
     # ── System prompt ─────────────────────────────────────────────────
     import json
     system_prompt = (
@@ -2379,7 +2535,18 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "backend, before you ever see this figure; never subtract bills_total "
         "again from safe_to_spend or from free_after_spend. what_ifs.goes_negative "
         "is the precomputed, final answer to 'does this spend break the budget'; "
-        "trust it over any mental arithmetic of your own. "
+        "trust it over any mental arithmetic of your own. bills_total is the ONLY "
+        "figure that means bills due before payday; never call monthly_income, "
+        "monthly_spending or monthly_surplus a bill, and never say they are 'due' "
+        "or 'hitting the account' in some number of days, they are a rolling "
+        "90-day average, not a scheduled or upcoming event. Never claim savings_buffer "
+        "'covers' a shortfall, a card balance, or any part of safe_to_spend being "
+        "negative, that arithmetic is never done for you and would be invented. "
+        "If short_reason is 'cards', the shortfall is spending already put on a "
+        "card this period, bills are covered, never call it a bills shortfall or "
+        "say bills are due. Never state or predict HOW a spend would be paid "
+        "(card, debit, cash, overdraft), the engine has no way to know that, it "
+        "only knows what has already happened. "
         "If FACTS.resolved_verdict is present, that headline has ALREADY been "
         "decided by the backend, from the numbers alone, and will be shown to the "
         "user verbatim, exactly as written, no matter what you write. It is a "
@@ -2651,7 +2818,19 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
 
     free = float(sts.get("safe_to_spend") or 0.0)
     days_left = int(sts.get("days_until_payday") or 0)
-    context_line = f"{_fmt_gbp(free)} free · {days_left} day{'s' if days_left != 1 else ''} left"
+    # free can be <= 0 (net of unpaid card growth) — never show a negative
+    # "free" figure here either; see _nothing_spare_line.
+    if free > 0:
+        context_line = f"{_fmt_gbp(free)} free · {days_left} day{'s' if days_left != 1 else ''} left"
+    else:
+        payday_label = None
+        next_payday = sts.get("next_payday")
+        if next_payday:
+            try:
+                payday_label = date.fromisoformat(str(next_payday)[:10]).strftime("%a %-d %b")
+            except ValueError:
+                payday_label = None
+        context_line = _nothing_spare_line(payday_label, sts.get("short_reason"))
 
     chips: list[dict] = []
 

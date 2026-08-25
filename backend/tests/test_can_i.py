@@ -25,16 +25,22 @@ delta line as a fact underneath the headline — see the "no verdict word can
 be produced" and "delta absent from facts" tests below, which are this
 change's regression guard.
 """
+import asyncio
+
+import app.routers.can_i as can_i_module
 from app.routers.can_i import (
     _compose_facts,
     _DEBT_VERDICT_HEADLINES,
     _derive_verdict,
     _fmt_rate,
+    _handle_payday_status_question,
     _is_saving_vs_investing_question,
     _multimonth_fit_headline,
     _nearest_yes_amount,
+    _nothing_spare_line,
     _per_day_line,
     _whatif_delta_line,
+    can_i_suggestions,
 )
 
 
@@ -242,13 +248,14 @@ def test_per_day_line_uses_fmt_rate():
 
 # ── _compose_facts ───────────────────────────────────────────────────────
 
-def _facts(safe_to_spend, bills_total, wi, per_day=None):
+def _facts(safe_to_spend, bills_total, wi, per_day=None, short_reason=None):
     return {
         "safe_to_spend": safe_to_spend,
         "next_payday": "2026-08-28",
         "bills_total": bills_total,
         "per_day": per_day if per_day is not None else round(safe_to_spend / 5, 2),
         "what_ifs": wi,
+        "short_reason": short_reason,
     }
 
 
@@ -369,3 +376,389 @@ def test_saving_vs_investing_does_not_match_bare_co_occurrence():
     assert _is_saving_vs_investing_question(
         "How much do I have in savings and investments?", None
     ) is False
+
+
+# ── _nothing_spare_line + the negative-safe_to_spend guard (owner-approved
+# fix, 2026-08) — safe_to_spend is net of unpaid card growth and can land at
+# or below zero. These pin the three sites that used to format it as a bare
+# (possibly negative) "£X free" figure: _compose_facts's free_line/per-day,
+# _handle_payday_status_question's facts, and can_i_suggestions's
+# context_line. ──────────────────────────────────────────────────────────
+
+def test_nothing_spare_line_bills_reason():
+    assert _nothing_spare_line("Fri 28 Aug", "bills") == "Nothing spare until Fri 28 Aug, bills come first"
+
+
+def test_nothing_spare_line_cards_reason():
+    assert (
+        _nothing_spare_line("Fri 28 Aug", "cards")
+        == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"
+    )
+
+
+def test_nothing_spare_line_no_payday_label_falls_back_to_generic():
+    assert _nothing_spare_line(None, "bills") == "Nothing spare until payday, bills come first"
+    assert (
+        _nothing_spare_line(None, "cards")
+        == "Bills are covered, but nothing spare until payday, it's gone on cards"
+    )
+
+
+def test_nothing_spare_line_never_uses_em_dash():
+    for reason in (None, "bills", "cards"):
+        assert "—" not in _nothing_spare_line("Fri 28 Aug", reason)
+
+
+def test_compose_facts_negative_safe_to_spend_drops_free_line_and_per_day():
+    # No amount asked (no-delta path) — the standing free-until-payday line
+    # and the per-day rate are the whole answer on this branch (see
+    # _compose_facts's own docstring), so this is exactly the site that used
+    # to print "-£83 free until Fri 28 Aug" with a negative per-day rate
+    # right under it.
+    facts = _facts(-83.0, 0, {}, per_day=-16.6, short_reason="cards")
+    lines = _compose_facts(facts, None)
+    assert lines == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+    assert not any("-£" in line or "−£" in line for line in lines)
+
+
+def test_compose_facts_zero_safe_to_spend_bills_reason():
+    facts = _facts(0.0, 0, {}, per_day=0.0, short_reason="bills")
+    lines = _compose_facts(facts, None)
+    assert lines == ["Nothing spare until Fri 28 Aug, bills come first"]
+
+
+def test_handle_payday_status_question_negative_cards_short(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -83.0, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 0.0, "state": "short",
+            "short_reason": "cards",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    result = asyncio.run(_handle_payday_status_question("kevin"))
+    assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
+    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+    assert not any("-£" in f or "−£" in f for f in result["facts"])
+
+
+def test_handle_payday_status_question_negative_bills_short(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -40.0, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 120.0, "state": "short",
+            "short_reason": "bills",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    result = asyncio.run(_handle_payday_status_question("kevin"))
+    assert result["headline"] == "You're short until payday"
+    assert result["facts"][0] == "Nothing spare until Fri 28 Aug, bills come first"
+    assert not any("-£" in f or "−£" in f for f in result["facts"])
+
+
+def test_handle_payday_status_question_reuses_precomputed_sts(monkeypatch):
+    # `sts` may be passed in already-fetched, so a caller with its own fact
+    # pack in hand (there is none in `can_i` today, but the capability is
+    # kept for a future caller — see the function's own docstring) never
+    # forces a second compute_safe_to_spend call for one request.
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", _RaisingSts())
+    sts = {
+        "status": "ok", "safe_to_spend": -188.94, "days_until_payday": 3,
+        "next_payday": "2026-08-28", "bills_total": 0.0, "state": "short",
+        "short_reason": "cards",
+    }
+    result = asyncio.run(_handle_payday_status_question("kevin", sts))
+    assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
+    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+
+
+# ── /can-i wiring: a HEADROOM-intent question ("how much do I actually
+# have", "what's left", "how much can I spend") asked while "short" must
+# route to the deterministic payday-status template, never the free-form
+# affordability LLM — owner-reported trust bug, 2026-08-25. "How much do I
+# actually have until payday" didn't match _is_payday_status_question's old
+# phrase list, so it fell through to the LLM below with safe_to_spend able
+# to be negative (net of unpaid card growth) and nothing to anchor it: the
+# model invented a bills total from the unrelated 90-day monthly-spending
+# average, re-narrated the negative per-day rate as an "overspend" pace, and
+# claimed the savings buffer "covers some of it" — none of it derived, all
+# of it contradicting the Home card's "Bills are covered" for the same
+# state.
+#
+# The fix widens `_PAYDAY_STATUS_PHRASES` to catch the headroom family
+# properly (see that list's own comment) rather than bypassing the LLM for
+# every no-amount question while short: a genuinely different question with
+# no headroom intent ("is my spending normal?") must still reach the LLM and
+# get a real answer even while the user is short — see
+# test_can_i_non_headroom_question_while_short_still_reaches_llm below, the
+# regression guard for that narrower scope.
+class _RaisingSts:
+    """compute_safe_to_spend stand-in that raises if called a second time."""
+    def __init__(self):
+        self.calls = 0
+
+    async def __call__(self, uid):
+        self.calls += 1
+        raise AssertionError("compute_safe_to_spend should not be called twice")
+
+
+class _RaisingAsyncClient:
+    """httpx.AsyncClient stand-in — constructing it at all proves the LLM
+    path was reached, which this fix must prevent for a short-state,
+    no-amount question."""
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("httpx.AsyncClient should not be constructed on this path")
+
+
+class _RaisingFind:
+    """commitments_col stand-in for `_active_goals_summary`, which wraps its
+    whole body in a bare `except Exception: return []` — a synchronous raise
+    here is swallowed exactly like a real Mongo outage, giving an empty
+    active-goals list without ever touching real Mongo."""
+    def find(self, *args, **kwargs):
+        raise RuntimeError("no real Mongo access in this test")
+
+
+async def _noop_check_ai_chat_limit(email):
+    return None
+
+
+def _patch_can_i_common(monkeypatch):
+    monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
+    monkeypatch.setattr(can_i_module, "commitments_col", _RaisingFind())
+    monkeypatch.setattr(can_i_module.httpx, "AsyncClient", _RaisingAsyncClient)
+
+
+def test_can_i_headroom_intent_question_while_short_routes_deterministic_cards(monkeypatch):
+    # "How much do I actually have until payday" is headroom intent, not
+    # domain-routed, no £ amount — it must now match the widened
+    # _PAYDAY_STATUS_PHRASES and answer via _handle_payday_status_question,
+    # same as "What's still due before payday" always has. httpx.AsyncClient
+    # is patched to raise, proving the LLM is never touched.
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -188.94, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 0.0, "state": "short",
+            "short_reason": "cards", "card_debt": 372.98,
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "How much do I actually have until payday"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
+    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+    assert result["out_of_scope"] is False
+    # The invented-content regression this fix targets: no fabricated bills
+    # total, no re-narrated overspend rate, no invented buffer claim.
+    for blob in (result["headline"], result["reply"], *result["facts"]):
+        assert "bills totalling" not in blob.lower()
+        assert "a day" not in blob.lower()
+        assert "buffer" not in blob.lower()
+        assert "—" not in blob and "–" not in blob
+
+
+def test_can_i_headroom_intent_question_while_short_routes_deterministic_bills(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -40.0, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 120.0, "state": "short",
+            "short_reason": "bills",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "How much do I actually have until payday"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert result["headline"] == "You're short until payday"
+    assert result["facts"][0] == "Nothing spare until Fri 28 Aug, bills come first"
+    assert result["out_of_scope"] is False
+
+
+# ── /can-i wiring: an AMOUNT-BEARING question that resolves to a shortfall
+# ("no") while the user is already short must ALSO get a fully deterministic
+# reply, not just a deterministic headline — owner-reported trust bug,
+# 2026-08-25 (round 2). "Can I spend £45 until payday?" got the correct,
+# deterministic HEADLINE ("£45 would take you −£234", via resolved_headline/
+# _whatif_delta_line) but the REPLY was still handed to the LLM with the full
+# facts pack in view. The model latched onto `card_debt` (a raw outstanding
+# card balance, no due date at all — now removed from the pack) and asserted
+# a false, specific due date for it ("£2,774 in bills hitting in three days")
+# plus a prediction about payment method it cannot know ("this £45 goes on
+# the card like the rest of your spending"). Both violate the owner's
+# standing rule that bill/income timing is always hedged, never asserted.
+def test_can_i_amount_bearing_shortfall_cards_is_fully_deterministic(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -188.94, "safe_to_spend_cash": 184.04,
+            "card_growth_reserved": 372.98, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 0.0, "state": "short",
+            "short_reason": "cards",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "Can I spend £45 until payday?"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert result["headline"] == "£45 would take you −£234"
+    assert result["reply"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"
+    # The exact two fabrications this fix targets must be structurally
+    # impossible now, not just banned by a prompt clause: no bills total/due
+    # date invented, no payment-method prediction.
+    assert "2,774" not in result["reply"] and "£2,774" not in result["reply"]
+    assert "hitting" not in result["reply"].lower() and "due" not in result["reply"].lower()
+    assert "card like the rest" not in result["reply"].lower()
+    assert "—" not in result["reply"] and "–" not in result["reply"]
+
+
+def test_can_i_amount_bearing_shortfall_bills_is_fully_deterministic(monkeypatch):
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -40.0, "safe_to_spend_cash": -40.0,
+            "card_growth_reserved": 0.0, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 120.0, "state": "short",
+            "short_reason": "bills",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "Can I spend £20 until payday?"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert result["headline"] == "£20 would take you −£60"
+    assert result["reply"] == "Nothing spare until Fri 28 Aug, bills come first"
+
+
+def test_can_i_amount_bearing_not_short_still_reaches_llm(monkeypatch):
+    # The narrower scope of this fix: only a resolved "no" verdict WHILE
+    # state == "short" is rerouted deterministically. An amount-bearing
+    # question that resolves "tight" (state comfortable/tight, not short)
+    # must still reach the LLM for its interpretive reply, same as always —
+    # proven by letting the LLM boundary raise.
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": 161.0, "safe_to_spend_cash": 161.0,
+            "card_growth_reserved": 0.0, "days_until_payday": 20,
+            "next_payday": "2026-09-13", "bills_total": 0.0, "state": "tight",
+            "short_reason": None,
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "Can I spend £100 until payday?"}
+    try:
+        asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+        raised = False
+    except AssertionError as e:
+        raised = "httpx.AsyncClient should not be constructed" in str(e)
+    assert raised, "a non-short amount-bearing question should still reach the LLM boundary"
+
+
+def test_can_i_facts_pack_never_includes_ambiguous_card_debt_total(monkeypatch):
+    # card_debt (total outstanding balance across cards, no due date at all)
+    # was the second unscoped, bills-shaped number the model in the trust bug
+    # above latched onto — removed from the fact pack entirely rather than
+    # captioned, since nothing downstream needs it. Captured via a spy
+    # httpx.AsyncClient standing in for the real LLM call on a "tight" (not
+    # short, so still LLM-routed) amount-bearing question.
+    monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
+    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
+    monkeypatch.setattr(can_i_module, "commitments_col", _RaisingFind())
+
+    captured = {}
+
+    class _SpyResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": "HEADLINE: x\nREPLY: y"}}]}
+
+    class _SpyAsyncClient:
+        def __init__(self, *a, **kw):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def post(self, url, headers=None, json=None):
+            captured["messages"] = json["messages"]
+            return _SpyResponse()
+
+    monkeypatch.setattr(can_i_module.httpx, "AsyncClient", _SpyAsyncClient)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": 161.0, "safe_to_spend_cash": 161.0,
+            "card_growth_reserved": 0.0, "days_until_payday": 20,
+            "next_payday": "2026-09-13", "bills_total": 0.0, "state": "tight",
+            "short_reason": None, "card_debt": 2774.0,
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "Can I spend £100 until payday?"}
+    asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    system_prompt = captured["messages"][0]["content"]
+    assert "card_debt" not in system_prompt
+    assert "2774" not in system_prompt
+
+
+def test_can_i_non_headroom_question_while_short_still_reaches_llm(monkeypatch):
+    # The narrower fix's own regression guard, coordinator-requested
+    # 2026-08-25: a no-amount question with NO headroom intent ("is my
+    # spending normal?") must NOT be hijacked by the payday-status template
+    # just because the user happens to be short right now — that reply
+    # ("Nothing spare until payday, it's gone on cards") is a non-sequitur
+    # for this question. It must still reach the free-form LLM and get a
+    # real answer. Proven the same way as the amount-bearing test above,
+    # inverted: the httpx.AsyncClient boundary IS reached.
+    _patch_can_i_common(monkeypatch)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -188.94, "days_until_payday": 3,
+            "next_payday": "2026-08-28", "bills_total": 0.0, "state": "short",
+            "short_reason": "cards",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    body = {"question": "is my spending normal?"}
+    try:
+        asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+        raised = False
+    except AssertionError as e:
+        raised = "httpx.AsyncClient should not be constructed" in str(e)
+    assert raised, "non-headroom question while short should still reach the LLM boundary, not the payday-status template"
+
+
+def test_can_i_suggestions_context_line_negative_safe_to_spend(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": -12.0, "days_until_payday": 2,
+            "next_payday": "2026-08-28", "short_reason": "cards",
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    result = asyncio.run(can_i_suggestions(user={"email": "kevin"}))
+    assert result["context_line"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"
+    assert "-£" not in result["context_line"] and "−£" not in result["context_line"]
+    # Tight/negative-headroom branch — reassurance chips only, never a
+    # spend-suggesting chip (pre-existing gate, unaffected by this fix).
+    assert result["chips"]
