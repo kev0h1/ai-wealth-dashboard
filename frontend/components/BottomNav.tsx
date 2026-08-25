@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Home, PieChart, CalendarClock, Lightbulb } from "lucide-react";
 import { api, CompanionItem } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import { isPaydayWindowActive, PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
+import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
 
 // The two pages that already fetch safeToSpend + today for their own
 // purposes (Home's brief, the Penny screen itself) write-through the exact
@@ -100,6 +101,40 @@ function usePaydayWindowActive(skipSelfFetch: boolean): boolean {
   return active;
 }
 
+// Maps the current route to the sheet's `screen` context (PennySheetProvider.tsx)
+// so the conversation knows roughly what the user was looking at when they
+// opened it from the nav, without any page having to call `open()` itself.
+// "tax" is never produced here — that value is for TaxPennyEntry.tsx's own
+// entry point, a different door into the same sheet.
+// Exported (2026-08-25) so Sidebar.tsx's desktop Penny trigger can derive
+// the same screen context from the same pathname, rather than duplicating
+// this switch — one source of truth for "which route means which screen"
+// shared by both the mobile rail and the desktop rail.
+export function screenForPathname(pathname: string | null): PennyAskContext["screen"] {
+  switch (pathname) {
+    case "/": return "home";
+    case "/spend": return "spend";
+    case "/planning": return "planning";
+    case "/insights": return "insights";
+    // Both added 2026-08-25 for lib/pennyScreenConfig.tsx — confirmed real,
+    // separate routes on a route survey (find app -name page.tsx), not
+    // sub-views of Planning. DebtPlanPage.tsx (/debt-plan) renders this
+    // BottomNav itself, so this mapping is live there today. GrowVariant1
+    // (app/grow/GrowVariant1.tsx, the live variant behind /grow) does NOT
+    // currently render BottomNav at all — no Penny entry point exists on
+    // that screen yet, so this case is correct but inert until that file
+    // (outside this feature's file ownership) adds one.
+    case "/grow": return "grow";
+    case "/debt-plan": return "debt";
+    // "tax" is never produced here — that value is for TaxPennyEntry.tsx's
+    // own entry point, a different door into the same sheet. /insights/tax
+    // and /insights/receipts don't render BottomNav themselves (only their
+    // parent /insights does), so they fall to "other" like any other
+    // sub-route without its own nav instance.
+    default: return "other";
+  }
+}
+
 // 4 real tabs. Slot indices leave slot 2 (of 5) empty as the spacer the
 // raised Penny button floats over — mirrors app/design/_nav/NavPrototype.tsx.
 type TabId = "home" | "spend" | "planning" | "insights";
@@ -112,13 +147,18 @@ const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: n
 
 export default function BottomNav() {
   const pathname = usePathname();
-  const router = useRouter();
+  const { open: openPennySheet, close: closePennySheet, isOpen: pennySheetOpen } = usePennySheet();
   const newInsights = useNewInsightCount();
   const atRisk = useAtRiskCount();
   const paydayActive = usePaydayWindowActive(PAGES_THAT_SELF_REPORT_PAYDAY.includes(pathname ?? ""));
 
   const activeTab = TABS.find((t) => t.href === pathname);
-  const pennyActive = pathname === "/penny";
+  // Halo state: lit either on the /penny hub route itself, or while the
+  // floating chat window (PennySheetProvider.tsx) is open — the button
+  // is what the window visually "came out of" (PennySheet.tsx's header
+  // comment), so it should read as pressed/active for as long as that's
+  // true, not just while the user is on the hub page underneath it.
+  const pennyActive = pathname === "/penny" || pennySheetOpen;
 
   return (
     <>
@@ -133,11 +173,19 @@ export default function BottomNav() {
 
       {/* Floating cockpit rail (Nav A) — ported from the approved
           app/design/_nav/NavPrototype.tsx (mode="full") preview. Settings
-          left the bar (relocated to a top-right gear on Home); the raised
-          center Penny button navigates to the full Penny destination screen
-          (/penny) — brief, Payday Plan, Mirror entry, and the inline
-          "Can I…?" thread all live there now; this is no longer a sheet
-          launcher. */}
+          left the bar (relocated to a top-right gear on Home). The raised
+          center Penny button WAS a plain `router.push("/penny")` navigation
+          for a while (moving Penny's conversation to a full-page
+          destination); it is a sheet launcher again, opening
+          PennySheetProvider's bottom sheet over whatever screen the user is
+          already on, per the 2026-08 decision that a full-page destination
+          made the conversation feel like a chore to reach. `/penny` itself
+          survives, now reached only from a link inside the sheet (brief,
+          Payday Plan, Mirror entry, and the "cleared from Home" archive
+          still live there — non-conversational content the sheet doesn't
+          try to replace). If you're reading this because the button looks
+          like it's navigating again: it isn't meant to, check
+          PennySheetProvider.tsx first. */}
       <nav
         aria-label="Primary"
         className="lg:hidden fixed inset-x-0 z-50 flex justify-center"
@@ -151,18 +199,38 @@ export default function BottomNav() {
       >
         <div className="relative w-[calc(100%-28px)] max-w-[402px]">
           {/* Raised Penny button — the ONLY place the indigo→violet gradient
-              appears in this nav. Overlaps the rail's top edge. A real nav
-              destination now (router.push), not a sheet trigger. Active state
-              (on /penny) gets a soft indigo halo ring — same colour/alpha as
-              the rail's own sliding pill indicator, so it reads as part of
-              the same active-state language. The living dot mirrors the
-              amber Planning dot's treatment/position, lit whenever the
-              payday window (lib/paydayWindow.ts) is active. */}
+              appears in this nav. Overlaps the rail's top edge. Opens/closes
+              the Penny window (usePennySheet, PennySheetProvider.tsx) —
+              now a floating popover anchored to this button rather than an
+              edge-to-edge sheet (PennySheet.tsx's header comment) — over
+              whatever screen is underneath, rather than navigating; tapping
+              it a second time while the window is open closes it (same
+              button doubles as trigger and close control, 2026-08-25 owner
+              redesign). The halo (`pennyActive`, below) lights on the
+              /penny hub route OR while the window is open, since the
+              button is what the window visually emerged from — a soft
+              indigo halo ring, same colour/alpha as the rail's own sliding
+              pill indicator, so it reads as part of the same active-state
+              language. The living dot mirrors the amber
+              Planning dot's treatment/position, lit whenever the payday
+              window (lib/paydayWindow.ts) is active; when it's lit, `open()`
+              is handed `paydayActive: true` so the conversation surfaces the
+              live payday item first instead of a bare composer — the dot is
+              a promise that something specific is waiting, and a blank
+              conversation would break it. */}
           <button
             type="button"
-            onClick={() => router.push("/penny")}
+            // Toggle, not just launch — the owner's floating-window redesign
+            // (PennySheet.tsx) makes the button double as the window's own
+            // close control when it's already open, matching how a real
+            // popover trigger behaves. `aria-current="page"` stays tied to
+            // the actual route (not the window's open state, which is a
+            // transient overlay, not a page) — `aria-pressed` is the correct
+            // ARIA role for the toggle behaviour instead.
+            onClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname), paydayActive }))}
             aria-label="Penny"
-            aria-current={pennyActive ? "page" : undefined}
+            aria-current={pathname === "/penny" ? "page" : undefined}
+            aria-pressed={pennySheetOpen}
             className="absolute left-1/2 -translate-x-1/2 -top-7 z-10 w-14 h-14 rounded-2xl flex items-center justify-center active:scale-95 transition-transform motion-reduce:transition-none"
             style={{
               background: "linear-gradient(135deg, #4f46e5, #7c3aed)",

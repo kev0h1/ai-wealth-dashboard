@@ -632,13 +632,28 @@ export type CanISuggestions = {
  * `clarify` non-null means extraction found nothing usable; render `reply`
  * as an ordinary message, no confirm card. Otherwise `items` (max 3, backend-
  * capped) is the slot-extraction result the user must confirm/edit before
- * anything is simulated — see ScenarioItem below. */
+ * anything is simulated — see ScenarioItem below.
+ *
+ * `explainer`/`topic` are the fold-in of the retired TaxChat popup: a
+ * general-knowledge answer (e.g. tax) that isn't grounded in the user's own
+ * balances, so it gets no verdict headline, just a markdown `reply` under a
+ * quiet topic label. Checked in PennyConversation's `ask()` BEFORE the
+ * `headline` branch, since a backend could in principle set both. */
 export type CanIResponse = {
   reply: string;
   offer?: CanIOffer | null;
-  headline?: string;
+  /** The backend sends explicit JSON `null` here on the explainer/tax path
+   * and on the AI-unavailable fallback, not just "field absent" — `| null`
+   * reflects that wire shape (see backend/app/routers/can_i.py's resp_body
+   * literals). Every call site already uses a truthy check, so `null` and
+   * `undefined` behave identically today. */
+  headline?: string | null;
   facts?: string[];
   out_of_scope?: boolean;
+  explainer?: boolean;
+  /** Explicit JSON `null` on every non-explainer path (same reasoning as
+   * `headline` above), `"tax"` on the one path that's live today. */
+  topic?: string | null;
   scenario?: boolean;
   items?: ScenarioItem[];
   rejected?: string[];
@@ -1629,10 +1644,17 @@ export const api = {
     }).then((r) => toJson<ResolveMovementResult>(r)),
   syncAll: () => post<{ message: string }>("/accounts/sync", {}),
   autoCategorise: () => post<{ message: string }>("/transactions/auto-categorise", {}),
-  taxChat: (messages: { role: string; content: string }[]) =>
-    post<{ reply: string }>("/chat/tax", { messages }),
-  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>) =>
-    post<CanIResponse>("/can-i", { question, history }),
+  /** `context` (added 2026-08-25) is LLM grounding ONLY — e.g. "Planning
+   * screen: £165 free · 4 days left" — passed as its own field, NEVER
+   * concatenated into `question`. The backend's deterministic gates
+   * (`_extract_amount`, the spend/planning/debt domain router's tier-1
+   * checks, `_is_out_of_scope`, `_is_tax_question`) all read `question`
+   * verbatim; folding a context string like a bare "£165" into it makes an
+   * amount-free question look amount-bearing and silently breaks routing.
+   * See PennyConversation.tsx's `send()` for the one call site that uses
+   * this, and its header comment for the incident this fixes. */
+  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>, context?: string) =>
+    post<CanIResponse>("/can-i", { question, history, context }),
   // Confirmed (possibly user-edited) "what if" scenario items -> full
   // deterministic projection + one LLM-composed headline. See
   // backend/app/routers/scenario.py's /scenario/run for the validation and

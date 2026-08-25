@@ -17,7 +17,6 @@ import PlanOneOffSheet from "@/components/PlanOneOffSheet";
 import PlannedEditSheet from "@/components/PlannedEditSheet";
 import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import CommitmentSheet from "@/components/CommitmentSheet";
-import { PennyPromptBar } from "@/components/PennyConversation";
 import MoneyText from "@/components/MoneyText";
 
 function isCliffSoon(until: string): boolean {
@@ -965,11 +964,10 @@ export default function PlanningPage() {
                 onAdd={() => setCommitmentSheet({ editing: null })}
                 onEdit={(c) => setCommitmentSheet({ editing: c })}
               />
-              <PennyPromptBar
-                onCompose={() => router.push("/penny?compose=1")}
-                onAsk={(q) => router.push(`/penny?ask=${encodeURIComponent(q)}`)}
-                showChips={false}
-              />
+              {/* PennyPromptBar removed here too (owner, 2026-08-25: "I
+                  think we can remove penny from the planning page") — see
+                  the removal comment further below, where the bar used to
+                  sit in the main (non-empty) branch, for the full history. */}
             </div>
           );
         }
@@ -1361,11 +1359,28 @@ export default function PlanningPage() {
               onAdd={() => setCommitmentSheet({ editing: null })}
               onEdit={(c) => setCommitmentSheet({ editing: c })}
             />
-            <PennyPromptBar
-              onCompose={() => router.push("/penny?compose=1")}
-              onAsk={(q) => router.push(`/penny?ask=${encodeURIComponent(q)}`)}
-              showChips={false}
-            />
+            {/* PennyPromptBar removed here (owner, 2026-08-25: "I think we
+                can remove penny from the planning page"). HISTORY: this bar
+                was removed once before, on 2026-08-17, on the owner's
+                challenge that a one-tap-away control duplicated the bottom
+                nav and outranked the genuine-risk shortfall alert above it
+                on this page — then re-added when Penny became its own
+                /penny page and Planning needed an explicit door back in.
+                That reasoning no longer applies: Penny now opens as a
+                popover from the nav (usePennySheet,
+                components/PennySheetProvider.tsx) on every screen,
+                including this one, so the nav affordance the 2026-08-17
+                removal was protecting is already present in-place here —
+                this bar would just be a second, redundant one. Same logic,
+                same retirement; it should not come back a third time.
+                `planningSummary` (the runway/at-risk grounding string this
+                bar used to hand off via `open({ summary })`) was removed
+                alongside it: BottomNav.tsx's screenForPathname/
+                openPennySheet is the only other caller that opens the sheet
+                with `screen: "planning"`, and it passes only `{ screen,
+                paydayActive }`, no `summary` — so there was no other
+                reachable path left for that string to reach Penny through,
+                and it's gone rather than left as an orphaned computation. */}
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">

@@ -11,6 +11,7 @@ import ThemeColor from "@/components/ThemeColor";
 import BiometricLock from "@/components/BiometricLock";
 import { TutorialProvider } from "@/components/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import { PennySheetProvider } from "@/components/PennySheetProvider";
 
 export const metadata: Metadata = {
   title: "Sorted",
@@ -35,8 +36,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // `maximumScale: 1` and `userScalable: false` were deliberately removed
+  // (accessibility audit) — disabling pinch zoom is a named WCAG anti-pattern
+  // and this viewport export applies to every screen in the app. Do not
+  // reinstate them.
   viewportFit: "cover",
 };
 
@@ -98,11 +101,22 @@ export default function RootLayout({
             <TutorialOverlay />
             <ScrollReset />
             <Sidebar />
-            <div id="app-shell">
-              <BiometricLock>
-                {children}
-              </BiometricLock>
-            </div>
+            {/* PennySheetProvider wraps #app-shell rather than nesting
+                inside it: it renders <PennySheet /> (a portal to
+                document.body, so its actual DOM position is unaffected
+                either way) as its own extra child, alongside #app-shell
+                rather than inside it, so #app-shell stays the thing that
+                blurs behind the sheet (useSheetOpen toggles `.sheet-open`
+                on #app-shell by id, see lib/useSheetOpen.ts) instead of the
+                sheet risking being read as part of the content it's
+                fronting for. */}
+            <PennySheetProvider>
+              <div id="app-shell">
+                <BiometricLock>
+                  {children}
+                </BiometricLock>
+              </div>
+            </PennySheetProvider>
           </TutorialProvider>
         </Providers>
       </body>

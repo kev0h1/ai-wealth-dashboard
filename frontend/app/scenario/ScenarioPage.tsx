@@ -34,6 +34,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronLeft } from "lucide-react";
 import { api, ScenarioItem, ScenarioRunResponse } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
+import { usePennySheet } from "@/components/PennySheetProvider";
 import { goBack } from "@/lib/goBack";
 import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
@@ -386,6 +387,10 @@ export default function ScenarioPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { hideNetWorth } = usePreferences();
+  // Only the empty-state "Ask Penny" affordance below uses this — the Back
+  // button stays real navigation (goBack(router, "/penny")), this page-to-
+  // page hop is unrelated to opening the sheet.
+  const { open } = usePennySheet();
 
   const itemsParam = searchParams.get("items");
 
@@ -468,12 +473,13 @@ export default function ScenarioPage() {
             <p className="text-sm text-slate-700 dark:text-slate-200 text-pretty">
               No scenario to show yet. Ask Penny a &ldquo;what if&rdquo; question to see it here.
             </p>
-            <a
-              href="/penny"
+            <button
+              type="button"
+              onClick={() => open({ screen: "other" })}
               className="mt-3 min-h-[44px] flex items-center justify-center px-4 rounded-xl bg-indigo-600 text-white text-sm font-semibold active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
             >
               Ask Penny
-            </a>
+            </button>
           </div>
         ) : (
           <div className="mt-4 flex flex-col gap-4">

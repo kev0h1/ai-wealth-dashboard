@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ChevronRight, ScanFace } from "lucide-react";
 import { api, CompanionItem, SafeToSpend } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
-import PennyConversation from "@/components/PennyConversation";
+import { PennyPromptBar } from "@/components/PennyConversation";
+import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
 import { BriefBody, BriefSkeleton, PaydayPlanSection, isPennyVisible } from "@/components/HomeBrief";
@@ -16,14 +17,11 @@ import MoneyText from "@/components/MoneyText";
 
 export default function PennyPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { hideNetWorth } = usePreferences();
-  // ?ask=<question> submits once on mount; ?compose=1 just focuses the
-  // docked composer. Read once — PennyConversation only consumes the first
-  // value it sees (initialFiredRef), so a later param change on the same
-  // mount wouldn't resubmit anyway.
-  const askParam = searchParams.get("ask");
-  const composeParam = searchParams.get("compose") === "1";
+  // Opens the app-wide Penny sheet (components/PennySheetProvider.tsx) from
+  // this hub's own entry point (section e below) — the conversation itself
+  // no longer renders on this page, see that section's comment for why.
+  const { open } = usePennySheet();
   const [contextLine, setContextLine] = useState<string | null>(null);
   const [items, setItems] = useState<CompanionItem[]>([]);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
@@ -68,6 +66,22 @@ export default function PennyPage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Header context line ("£251 free · 10 days left") — used to arrive via
+  // PennyConversation's onContextLine callback (it made this exact fetch
+  // for its own suggestion chips and just handed the page a copy). Now
+  // that the conversation has moved into the app-wide sheet
+  // (components/PennySheetProvider.tsx) and no longer renders on this
+  // page, fetching it directly here was chosen over dropping it: it's the
+  // one piece of the old inline conversation's decorative context this hub
+  // can still show cheaply (one fire-and-forget GET, same endpoint,
+  // degrades to no line at all on failure/old backend, never blocks this
+  // page's own render).
+  useEffect(() => {
+    api.canISuggestions()
+      .then((s) => setContextLine(s?.context_line ?? null))
+      .catch(() => setContextLine(null));
+  }, []);
 
   useEffect(() => {
     api.getMirror()
@@ -126,7 +140,14 @@ export default function PennyPage() {
 
   return (
     <div
-      className="relative isolate min-h-dvh pb-[calc(15rem+env(safe-area-inset-bottom,0px))] lg:pb-40"
+      // pb was 15rem/lg:pb-40 (vs. every other page's standard 9rem/lg:pb-8
+      // below) to clear PennyConversation's own `position: fixed` composer,
+      // which floated above BottomNav even on desktop (no lg:hidden on that
+      // wrapper in components/PennyConversation.tsx's full-page mode). That
+      // composer no longer renders on this page at all, so the extra
+      // clearance is vestigial — back to the standard value every other
+      // BottomNav-bearing page uses.
+      className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" } as React.CSSProperties}
     >
       {/* rise-in lives on this inner content wrapper, not the outer
@@ -142,24 +163,29 @@ export default function PennyPage() {
           BottomNav-bearing ancestor for the same reason — this just brings
           Penny in line.
 
-          Second bite (owner caught this on iPhone Safari): moving rise-in
-          here still trapped PennyConversation's docked composer, because
-          that component was rendered INSIDE this div too — same hazard,
-          just relocated. A `position: fixed` descendant is contained by the
-          NEAREST transformed/filtered ancestor, so the fix isn't "move
-          rise-in to a lower wrapper", it's "don't let anything with a fixed
-          descendant live under a rise-in-bearing element at all". This div
-          now only wraps sections a-d (header, brief, payday plan, cleared
-          archive, Mirror entry) — none of which contain fixed elements.
-          PennyConversation (section e, with its fixed composer) is rendered
-          as this div's SIBLING below, so its containing block is the
-          viewport again, same as BottomNav. */}
+          History (kept for whoever next touches this div): this page used
+          to also render PennyConversation inline, section e, and that
+          component docks a `position: fixed` composer to the viewport
+          bottom. A fixed descendant is contained by the NEAREST
+          transformed/filtered ancestor, so a rise-in wrapper around it
+          trapped that composer too (caught on iPhone Safari) — the fix at
+          the time was keeping the conversation as a SIBLING of this div,
+          never nested inside it. That conversation has since moved into
+          the app-wide bottom sheet (components/PennySheetProvider.tsx) and
+          no longer renders on this page at all (see section e below, now
+          just an entry point with no fixed descendant of its own) — so the
+          specific hazard that shaped this div's boundary is gone. Collapsing
+          this wrapper back into the outer div was deliberately NOT done
+          here even so: the outer div still carries BottomNav as a sibling
+          below, and that reasoning (the first paragraph above) is
+          independent of the conversation and still holds on its own. */}
       <div className="px-4 pt-6 lg:px-0 lg:pt-6 lg:max-w-2xl lg:mx-auto rise-in" style={{ "--rise-index": 0 } as React.CSSProperties}>
         {/* a. Header — Penny's own gradient mark, the only gradient surface
             on this screen besides the nav button that led here. The context
-            line ("£251 free · 10 days left") comes from the conversation's
-            suggestions fetch below and is decorative only — its absence
-            (old/unreachable backend) just leaves the header without it. */}
+            line ("£251 free · 10 days left") is fetched directly by this
+            page (see the canISuggestions effect above) and is decorative
+            only — its absence (old/unreachable backend) just leaves the
+            header without it. */}
         <div className="flex items-center gap-2.5 mb-6">
           <span
             className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -277,33 +303,30 @@ export default function PennyPage() {
           </span>
           <ChevronRight size={16} aria-hidden="true" className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
         </button>
-      </div>
 
-      {/* e. The conversation — structured cards above stay put (cash moves,
-          payday, Mirror, per the owner's Penny hub IA rule); this is the
-          bounded oracle itself. Deep-linkable: ?ask=<question> submits on
-          mount and scrolls to the answer, ?compose=1 focuses the docked
-          composer without submitting anything.
-
-          Deliberately a SIBLING of the rise-in div above, not nested inside
-          it: PennyConversation docks a `position: fixed` composer to the
-          viewport bottom (components/PennyConversation.tsx), and a fixed
-          descendant of a rise-in ancestor gets trapped inside that
-          ancestor's box instead of the real viewport (see the rise-in
-          comment above). Rendering this section outside the transformed
-          subtree keeps its containing block as the viewport — same reason
-          BottomNav lives out here too. The px-4/lg:px-0/lg:max-w-2xl/
-          lg:mx-auto/pt classes are repeated from the rise-in div above so
-          the thread and chips still line up with the page content even
-          though this is no longer nested inside it; only the entrance
-          animation is lost for this section, which is an acceptable trade
-          for not trapping the composer. */}
-      <div className="px-4 lg:px-0 lg:max-w-2xl lg:mx-auto mt-6">
-        <PennyConversation
-          initialQuestion={askParam}
-          autoFocusComposer={composeParam}
-          onContextLine={setContextLine}
-        />
+        {/* e. Start a conversation — the hub's door into Penny's sheet, now
+            that the conversation itself no longer lives inline on this page
+            (moved app-wide, components/PennySheetProvider.tsx, so a thread
+            survives navigating to another screen mid-question — see this
+            file's other comments for the full history). Reuses
+            PennyPromptBar's exact visual grammar (glass-card row + gradient
+            chip + placeholder, components/PennyConversation.tsx) rather
+            than inventing a new control — the same component Planning uses
+            to open the sheet from its own dense list. showChips is off:
+            the full suggestion set already appears once the sheet is open,
+            and this page already makes its own canISuggestions() call
+            above for the header's context line, so a second chip fetch
+            here would just duplicate that GET for content the sheet is
+            about to show anyway. Safe to live inside this rise-in div
+            (unlike the old inline conversation) because this control has
+            no `position: fixed` descendant of its own. */}
+        <div className="mt-6">
+          <PennyPromptBar
+            onCompose={() => open({ screen: "home" })}
+            onAsk={(q) => open({ screen: "home", ask: q })}
+            showChips={false}
+          />
+        </div>
       </div>
 
       <BottomNav />
