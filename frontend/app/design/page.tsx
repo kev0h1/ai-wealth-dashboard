@@ -45,6 +45,18 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "penny-thread",
+    name: "penny-thread",
+    description: "Penny thread · question/answer contrast, 3 variants (quiet label / anchored / inset)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "penny-sheet",
+    name: "penny-sheet",
+    description: "Penny sheet · bottom sheet over the nav vs full-page, cards vs bubbles grammar (?g=cards|bubbles)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "penny-glyph",
     name: "penny-glyph",
     description: "Sparkle replacement · 3 settle-mark-derived glyph candidates",
