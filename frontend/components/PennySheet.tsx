@@ -354,20 +354,84 @@ export default function PennySheet() {
       <div
         className={`fixed z-[58] inset-x-0 px-3 bottom-[calc(110px+env(safe-area-inset-bottom,0px))] lg:inset-x-auto lg:left-auto lg:right-6 lg:bottom-6 lg:px-0 ${isOpen ? "" : "hidden"}`}
       >
+        {/* `ring-1 ring-black/[0.06] dark:ring-white/[0.12]` (2026-08-25,
+            owner: "in dark mode you can't really see the margin of the chat
+            window"). Root cause: `.glass-sheet` (app/globals.css) only
+            draws a `border-top` — meant for an edge-to-edge bottom sheet,
+            where the top edge is the only one that needs separating from
+            the page above it — but this shape (this file's own header
+            comment) is a fully rounded floating window with no natural top
+            edge, so that single border does nothing for a panel that needs
+            a boundary on all four sides. In light mode `shadow-xl` alone
+            was carrying the edge, faintly; in dark mode a near-black shadow
+            over a near-black page is invisible, so the panel had no visible
+            boundary at all, exactly what the owner's dark screenshots
+            showed. Not a new value: `ring-1 ring-black/[0.06]
+            dark:ring-white/[0.12]` is the established codebase pattern for
+            exactly this "barely-there in light, quiet-but-visible in dark"
+            edge (see e.g. AccountMiniCard.tsx, InvestmentMiniCard.tsx,
+            CommitmentSheet.tsx's own icon chips), reused here rather than
+            invented. `shadow-xl` stays as the panel's ONE shadow (The One
+            Shadow Rule, DESIGN.md — floating elements like this one and the
+            Penny FAB are the documented exception allowed a `shadow-xl`);
+            there is no established alternate dark-mode shadow token
+            anywhere in this codebase to swap it for (checked: no sheet or
+            dialog in components/ redefines shadow colour per theme), so the
+            ring is the fix, not the shadow. */}
         <div
           ref={isOpen ? panelRef : undefined}
           role="dialog"
           aria-modal="true"
           aria-label="Ask Penny"
-          className="mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"
-          // Capped to 65dvh — a compact popover, not a page. No `height` is
-          // set here, only this cap: the panel is a flex column with an
-          // indefinite (auto) main size, so it already sizes to its own
-          // content (header + thread + composer) and only grows up to this
-          // ceiling; above it, the thread's own `overflow-y-auto`
-          // (PennyConversation) scrolls internally rather than the panel
-          // growing further — same structural contract as before, just a
-          // lower ceiling to match the smaller floating shape.
+          className="mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"
+          // Capped to 65dvh — a compact popover, not a page. The panel is a
+          // flex column with an indefinite (auto) main size, so it already
+          // sizes to its own content (header + chip row + thread +
+          // composer) and only grows up to this ceiling; above it, the
+          // thread's own `overflow-y-auto` (PennyConversation) scrolls
+          // internally rather than the panel growing further — same
+          // structural contract as before, just a lower ceiling to match
+          // the smaller floating shape.
+          //
+          // MINIMUM height (2026-08-25, owner: "did the chat window
+          // shrink? seems very small"): auto-sizing-to-content cuts both
+          // ways — with a short thread (just-opened, or a payday lead plus
+          // one turn) the panel shrink-wraps down to almost nothing, and a
+          // window that small no longer reads as a chat window. A minimum
+          // height pins a floor; the thread pane (`flex-1` in
+          // PennyConversation) is the one region that absorbs the slack
+          // between the floor and whatever the content actually needs, so
+          // short content sits top-aligned in a stable window instead of
+          // the window hugging it. The floor is the sum of this panel's
+          // actual fixed chrome, not a round number picked by eye:
+          //   header (icon/title row, subordinate-links row at its own
+          //     min-h-[44px], spacing + divider, pt-3 top pad)   ~104px
+          //   chip row (pt-1 + one row of min-h-[28px] chips + pb-1)
+          //                                                       ~36px
+          //   composer (pt-2 + composerCard's own padding, input
+          //     row, disclaimer line + the new pb-6 bottom pad
+          //     from the Fix 2 below)                            ~114px
+          //   two-to-three compact bubbles + `space-y-3` gaps, the
+          //     "reads as a conversation" floor for the thread    ~160px
+          //   ------------------------------------------------------
+          //   total                                              ~414px
+          // ~414px rounds to 26rem (416px) — hence 26rem below.
+          //
+          // Interplay with the 65dvh cap above: a plain `min-h-[26rem]`
+          // CLASS would fight `maxHeight: 65dvh` on any viewport where
+          // 65dvh is actually shorter than 26rem (a short landscape phone,
+          // e.g. ~380px tall means 65dvh ≈ 247px) — min-height is a floor
+          // on the used size and can legally win the flex sizing over a
+          // smaller max-height in that case, forcing the panel past the
+          // cap or off-screen, the exact failure this fix must not
+          // introduce. So the floor is set inline instead, right next to
+          // the cap, as `minHeight: "min(26rem, 65dvh)"` — CSS's own
+          // `min()` picks whichever is smaller at render time, so the
+          // floor never exceeds the ceiling by construction: on a normal
+          // phone it resolves to 26rem (the stable-window floor this fix
+          // wants), on a short landscape viewport it collapses to the same
+          // 65dvh the cap already enforces, and the two values agree
+          // instead of racing.
           //
           // Entrance: scale + fade (`pennyPopIn` above), as if growing out
           // of whichever trigger sits underneath it — replaces the old
@@ -390,6 +454,7 @@ export default function PennySheet() {
           // fix (an off-viewport `focus()` call, independent of this shape).
           style={{
             maxHeight: "65dvh",
+            minHeight: "min(26rem, 65dvh)",
             marginBottom: keyboardInset,
             ...(isOpen ? { animation: "pennyPopIn 200ms var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)) backwards" } : {}),
           }}

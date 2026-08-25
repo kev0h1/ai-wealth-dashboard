@@ -72,14 +72,6 @@ export type PennyAskContext = {
    * existing `?ask=` deep-link convention, just carried in memory instead
    * of a query string). */
   ask?: string;
-  /** True when the nav's amber payday dot (usePaydayWindowActive in
-   * BottomNav.tsx, driven by lib/paydayWindow.ts) was lit at the moment the
-   * user tapped the Penny button. The dot is a promise that a payday plan
-   * is waiting — if the sheet opened to a bare composer instead, that
-   * promise would break. Set this so the conversation can surface the live
-   * payday item first instead. BottomNav.tsx is the only caller that sets
-   * it; every other `open()` call site simply omits it (falsy). */
-  paydayActive?: boolean;
 };
 
 type SheetState = {

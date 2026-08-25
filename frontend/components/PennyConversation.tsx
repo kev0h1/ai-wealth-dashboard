@@ -14,12 +14,15 @@
 // The one thing the owner was hesitant about with bubbles survives the
 // conversion: inside Penny's bubble the verdict headline is still the
 // FIRST and HEAVIEST element (bold, 15px), then the reasoning sentence
-// (14px, mid-muted), then the grounding facts (13px, lightest), then the
-// offer chip. A bubble must never flatten that hierarchy — see
-// VerdictBubble below. The explainer treatment (general knowledge, no
-// verdict) keeps its quiet uppercase TAX eyebrow and never gets a bold
-// headline, so it still reads as information rather than a read on the
-// user's money — see ExplainerBubble below.
+// (14px, mid-muted), then the offer chip. A bubble must never flatten
+// that hierarchy — see VerdictBubble below. The muted grey "facts" tier
+// that used to sit between the reasoning sentence and the offer chip
+// (13px, lightest) is gone — owner order, 2026-08-25, the "duplication
+// war": see VerdictBubble's own comment on the removed block. The
+// explainer treatment (general knowledge, no verdict) keeps its quiet
+// uppercase TAX eyebrow and never gets a bold headline, so it still reads
+// as information rather than a read on the user's money — see
+// ExplainerBubble below.
 //
 // Retires CanISection.tsx's launcher/bottom-sheet presentation (nothing
 // imports that file live any more — it was only reachable via the nav's
@@ -67,21 +70,6 @@
 //   context. `context` stays a structurally separate field, used only as
 //   LLM grounding, so this can't happen. See `send()`'s
 //   `summaryConsumedRef` for the one-request-per-screen limit.
-// - `askContext.paydayActive` (REVISED 2026-08-25, direct owner feedback:
-//   "every time I open it sends the message what is happening with my
-//   payday, does this go straight to the llm" — yes, it did, and it was
-//   rejected). The original version of this auto-fired one real, grounded
-//   question to /can-i on every open in the payday window — a real LLM call
-//   and quota unit the user never asked for, and a fake user bubble he
-//   never typed. That's gone. The replacement (`paydayLead` state, its own
-//   comment, and the effect below) is a deterministic, LLM-free lead built
-//   entirely from `api.safeToSpend()` fields — no network round-trip beyond
-//   that one fetch, no /can-i call, no fabricated user turn — rendered only
-//   when the thread is EMPTY (a live conversation is never interrupted).
-//   Same `askSeq`-keyed, once-per-open treatment as `askContext.ask` above
-//   (see `paydaySeqHandledRef`) — the payday window can still be active on
-//   a later open, and the lead's numbers (`days_until_payday` etc.) should
-//   refresh then too, not just the first time this session.
 //
 // Backend contract (CONTRACT, may not be live yet):
 //   GET /can-i/suggestions -> { chips: [{ label }], context_line }
@@ -178,40 +166,6 @@ function reducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Deterministic short form for a personalised `canISuggestions` chip
- * (2026-08-25, owner: chips "could be summarised and when the user selects
- * it, it fully populates"). These chips are always backend-phrased as "Can
- * I spend/put/afford <the interesting part>?" (lib/api.ts's
- * CanISuggestionChip, api.canISuggestions()), so stripping that fixed
- * lead-in leaves just the amount/context that actually varies, e.g. "Can I
- * spend £35 this week?" -> "£35 this week?". Falls back to the full label
- * unchanged when it doesn't start with one of those three lead-ins, rather
- * than guessing at a truncation that could cut the actual figure off —
- * this only ever shortens, never rewrites. The FULL label is still what's
- * sent to `/can-i` and what a screen reader hears (see the chip row's own
- * `ariaLabel` usage below); this is display-only. */
-function shortPersonalisedLabel(label: string): string {
-  const m = label.match(/^Can I (?:spend|put|afford) (.+)$/i);
-  return m ? m[1] : label;
-}
-
-/** Distance-aware date label for the payday lead's facts (see `paydayLead`
- * below) — same today/tomorrow/weekday-name/short-date convention already
- * used for `next_payday` in HomeBrief.tsx's `paydaySubline` and
- * SafeToSpendCard.tsx's own date line, so this doesn't invent a new date
- * format for the same field. */
-function formatPaydayDateLabel(iso: string): string {
-  const d = new Date(iso);
-  d.setHours(0, 0, 0, 0);
-  const today0 = new Date();
-  today0.setHours(0, 0, 0, 0);
-  const daysAway = Math.round((d.getTime() - today0.getTime()) / 86400000);
-  if (daysAway <= 0) return "today";
-  if (daysAway === 1) return "tomorrow";
-  if (daysAway < 7) return new Date(iso).toLocaleDateString("en-GB", { weekday: "long" });
-  return new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-}
-
 /** Right-aligned filled user bubble with a tail — the retired TaxChat
  * popup's exact treatment (`bg-violet-600 text-white rounded-2xl
  * rounded-br-sm`), ported per the owner's bubbles-over-cards call (see this
@@ -235,13 +189,16 @@ const PENNY_BUBBLE = "max-w-[90%] bg-slate-100 dark:bg-slate-700 rounded-2xl rou
 
 /** Penny's answer bubble. Anatomy is unchanged from the retired full-width
  * the retired full-width VerdictCard, just re-shelled into a bubble — bold headline first and
- * heaviest, then the reasoning sentence, then the muted grounding facts,
- * then the offer chip. This ordering/weighting is the non-negotiable part
- * of the bubbles conversion (see this file's header comment): a bubble
- * must never flatten the headline to the same weight as the facts.
- * Degraded (old-backend) replies render as plain 14px body text instead of
- * a bold headline, with no facts list. Out-of-scope answers use the exact
- * same bubble anatomy as any other verdict — no separate visual treatment. */
+ * heaviest, then the reasoning sentence, then the offer chip. This
+ * ordering/weighting is the non-negotiable part of the bubbles conversion
+ * (see this file's header comment): a bubble must never flatten the
+ * headline to the same weight as the rest. The muted grey "facts" tier
+ * that used to sit between the reasoning sentence and the offer chip is
+ * gone (owner order, 2026-08-25 — see the removed block's own comment
+ * further down for the full story). Degraded (old-backend) replies render
+ * as plain 14px body text instead of a bold headline. Out-of-scope
+ * answers use the exact same bubble anatomy as any other verdict — no
+ * separate visual treatment. */
 function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () => void }) {
   return (
     <div className="flex justify-start">
@@ -252,34 +209,40 @@ function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () =>
           <p className="text-[15px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words"><MoneyText text={msg.headline} /></p>
         )}
         {/* Middle tier: the reasoning sentence behind the verdict. Suppressed
-            for two cases where it would echo something already on screen:
-            - `outOfScope`: the `facts` array below is deliberately doing the
-              explaining here (see this file's header comment) — `reply` on
-              that path is just a paraphrase of the same scope statement plus
-              the same worked example already in `facts`, so showing both
-              prints the "try: Can I spend £50..." example twice.
-            - `reply.startsWith(headline)`: the backend's defensive
-              `_parse_headline_reply` (can_i.py) sets `headline` to the FIRST
-              SENTENCE of `reply`, not necessarily the whole string, when the
-              model ignores the structured-output format. Plain inequality
-              only catches the case where they're identical; a model output
-              like reply="Yes. That leaves £61 free until Friday." with
-              headline="Yes." would pass `!==` and still duplicate the "Yes."
-              fragment across both tiers. Don't simplify this back to `!==`. */}
-        {msg.reply && !msg.outOfScope && !msg.reply.startsWith(msg.headline) && (
+            when `reply.startsWith(headline)`: the backend's defensive
+            `_parse_headline_reply` (can_i.py) sets `headline` to the FIRST
+            SENTENCE of `reply`, not necessarily the whole string, when the
+            model ignores the structured-output format. Plain inequality
+            only catches the case where they're identical; a model output
+            like reply="Yes. That leaves £61 free until Friday." with
+            headline="Yes." would pass `!==` and still duplicate the "Yes."
+            fragment across both tiers. Don't simplify this back to `!==`.
+            `outOfScope` used to also suppress this tier (the removed grey
+            `facts` block below was doing the explaining on that path
+            instead) — no longer: the backend now folds that same scope
+            statement and worked example straight into `reply` itself (owner
+            order, 2026-08-25, `facts` is always `[]`), so this tier is the
+            ONLY place that content can render any more; suppressing it here
+            too would show the out-of-scope headline with nothing under it. */}
+        {msg.reply && !msg.reply.startsWith(msg.headline) && (
           <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
             <MoneyText text={msg.reply} />
           </p>
         )}
-        {msg.facts && msg.facts.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {msg.facts.map((f, i) => (
-              <p key={i} className="text-[13px] leading-snug text-slate-500 dark:text-slate-400 break-words">
-                <MoneyText text={f} />
-              </p>
-            ))}
-          </div>
-        )}
+        {/* The muted grey "facts" tier that used to render here is gone —
+            owner order, 2026-08-25 (the "duplication war": his own
+            screenshot showed a debt reply quoting "£23,587.71 carried
+            across five cards" with a grey line underneath reading "£24,261
+            total card debt", two unexplained aggregations of the same
+            debt, side by side. "all these grayed out answers can we remove
+            all of them."). The backend now always returns `facts: []`
+            (see can_i.py) and folds anything that list used to show into
+            `reply` itself instead; this block is removed rather than left
+            as a dead `msg.facts.length > 0` no-op so an old in-session
+            message that happens to carry a non-empty `facts` array (a
+            stale cached message from before this change, in a
+            long-lived session PennySheetProvider keeps alive) can never
+            render a grey line again either. */}
         {msg.offer && (
           <button
             type="button"
@@ -321,36 +284,6 @@ function ExplainerBubble({ msg }: { msg: ExplainerMsg }) {
         )}
         <div className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200">
           <ChatMarkdown>{msg.reply}</ChatMarkdown>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** The deterministic payday lead — see `paydayLead`'s state comment (in the
- * component below) for why this exists instead of an auto-submitted
- * question. Same PENNY_BUBBLE shell and bold-headline-then-muted-facts
- * anatomy as VerdictBubble, so it reads as one of Penny's turns rather than
- * a different kind of surface, but nothing here is a judgement call —
- * `headline` is a fixed string and `facts` are engine numbers already
- * formatted for display by the effect that builds this (see
- * `askContext.paydayActive`'s effect). No offer/button: the header's
- * existing "Your plan and updates" link (PennySheet.tsx) already reaches
- * the hub, so this lead stays a calm, one-way piece of information. Not a
- * `Msg`/rendered via `messages.map` on purpose — see `paydayLead`'s comment
- * and `buildHistory`'s comment for why it must never reach the LLM as a
- * prior turn. */
-function PaydayLeadBubble({ headline, facts }: { headline: string; facts: string[] }) {
-  return (
-    <div className="flex justify-start">
-      <div className={PENNY_BUBBLE}>
-        <p className="text-[15px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words">{headline}</p>
-        <div className="mt-2 space-y-1">
-          {facts.map((f, i) => (
-            <p key={i} className="text-[13px] leading-snug text-slate-500 dark:text-slate-400 break-words">
-              <MoneyText text={f} />
-            </p>
-          ))}
         </div>
       </div>
     </div>
@@ -710,7 +643,7 @@ function LinkChip({ label, onTap }: { label: string; onTap: () => void }) {
 // `import type` is erased entirely at compile time under isolatedModules,
 // so no import of this file's own module is ever emitted back into that
 // chain). See this file's header comment for the full `askContext`
-// rationale (`summary`/`paydayActive`/one-shot `ask`), which still lives
+// rationale (`summary`/one-shot `ask`), which still lives
 // here since it's about how THIS component consumes the type, not what
 // the type itself declares.
 
@@ -747,8 +680,8 @@ export default function PennyConversation({
   askContext?: PennyAskContext;
   /** PennySheetProvider's `openSeq` — increments on every `open()` call,
    * including a reopen of an already-open sheet. See this file's header
-   * comment on why the `askContext.ask`/`paydayActive` one-shot effects
-   * below key off this rather than a plain "have I ever fired" ref: this
+   * comment on why the `askContext.ask` one-shot effect
+   * below keys off this rather than a plain "have I ever fired" ref: this
    * component is mounted exactly once for the whole session (see
    * PennySheetProvider.tsx), so a plain ref would only ever fire on the
    * FIRST open of the session and silently do nothing on every open after
@@ -794,36 +727,10 @@ export default function PennyConversation({
   // already has a real, positive `askSeq`). See the effect below and this
   // file's header comment.
   const askSeqHandledRef = useRef(0);
-  // Same per-open-token treatment for the payday lead below — it should be
-  // able to (re)compute on a LATER open too, not just the first time the
-  // payday window was ever active this session (numbers like
-  // `days_until_payday` move day to day).
-  const paydaySeqHandledRef = useRef(0);
-  // Deterministic Penny-side lead shown when the sheet opens during the
-  // payday window with an EMPTY thread — see `paydayLead`'s own effect
-  // below for the full rationale. Replaces an earlier version of this
-  // feature (2026-08-25, killed on direct owner feedback: "every time I
-  // open it sends the message what is happening with my payday, does this
-  // go straight to the llm") that auto-submitted a fake "What's happening
-  // with my payday?" user turn through /can-i on every open in the window —
-  // a real LLM call and a quota unit the owner never asked for, rendering a
-  // bubble he never typed. This version costs neither: it's built entirely
-  // from `api.safeToSpend()` fields, formatted, no LLM involved.
-  const [paydayLead, setPaydayLead] = useState<{ headline: string; facts: string[] } | null>(null);
-  // Set when the payday-window fetch below fails or comes back non-ok —
-  // impeccable review, MEDIUM, 2026-08-25: a silent bail there broke the
-  // amber dot's promise (BottomNav.tsx lights it specifically because "a
-  // payday plan is waiting" — see PennyAskContext.paydayActive's own
-  // comment), leaving a user who tapped it looking at a bare composer with
-  // no explanation. Deliberately its own boolean rather than folded into
-  // `paydayLead` itself: the two are mutually exclusive outcomes of the
-  // same one-shot fetch, and keeping them separate means the render below
-  // doesn't have to infer "did this fail" from an absence.
-  const [paydayLeadFailed, setPaydayLeadFailed] = useState(false);
   // `askContext.summary` grounds ONE request only — the first this
-  // component ever sends, regardless of whether that's `askContext.ask`,
-  // the payday auto-ask, or a manually typed question (whichever fires
-  // first) — for the WHOLE SESSION, not per open. Deliberately left as a
+  // component ever sends, regardless of whether that's `askContext.ask`
+  // or a manually typed question (whichever fires first) — for the WHOLE
+  // SESSION, not per open. Deliberately left as a
   // plain forever-once ref, unlike the two refs above: repeating a screen
   // summary as LLM grounding on every reopen is not the same class of bug
   // as silently dropping a question the user (or a caller on their behalf)
@@ -873,15 +780,6 @@ export default function PennyConversation({
   // mode's own chip row (unchanged, never passes `askSeq`) still has an X
   // and still needs it.
 
-  // `paydayLead` (see its own state comment and effect below) is
-  // deliberately NOT folded into `msgs`/this function's output. It's an
-  // informational card built from raw `safeToSpend()` fields, not something
-  // Penny herself said in the conversation — feeding it back to /can-i as a
-  // prior assistant turn would let the LLM "build on" a message it never
-  // actually generated (and, since it's not a real answer to any question,
-  // there's no matching user turn to pair it with either). It lives in its
-  // own state slot and renders separately, above `messages`, precisely so
-  // it stays out of history the same way it stays out of the message array.
   function buildHistory(msgs: Msg[]): Array<{ role: "user" | "assistant"; content: string }> {
     return msgs.slice(-HISTORY_CAP).map((m) => {
       if (m.role === "user") return { role: "user" as const, content: m.content };
@@ -1015,57 +913,6 @@ export default function PennyConversation({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askContext?.ask, askSeq]);
 
-  // askContext.paydayActive — deterministic lead, NOT an auto-ask. See
-  // `paydayLead`'s state comment for why the old version of this effect
-  // (which auto-submitted "What's happening with my payday?" through
-  // /can-i, a real LLM call and quota unit on every open, rendering a user
-  // bubble the owner never typed) was killed on direct owner feedback
-  // (2026-08-25). This version fires once per `askSeq` (same per-open-token
-  // reasoning as the `askContext.ask` effect above — this component mounts
-  // once for the whole session, so a plain "ever fired" ref would only ever
-  // compute on the session's first open), only when `askContext.ask` didn't
-  // already claim the "first turn" slot, and only when the thread is EMPTY
-  // — see the guard below. `messages` is read but deliberately NOT a
-  // dependency: this should evaluate "was the thread empty at the moment
-  // the sheet opened", not refire as the user's own later turns land.
-  useEffect(() => {
-    if (!askContext?.paydayActive || askContext?.ask || askSeq == null) return;
-    if (paydaySeqHandledRef.current === askSeq) return;
-    if (messages.length > 0) return; // the user's own conversation wins — never inject into a live thread
-    paydaySeqHandledRef.current = askSeq;
-    setPaydayLeadFailed(false);
-    api.safeToSpend()
-      .then((sts) => {
-        // Non-ok is a real failure to surface here, not a silent bail — see
-        // `paydayLeadFailed`'s own comment. A quiet caption renders instead
-        // of the lead bubble (below), never a bold error treatment: this
-        // is informational, not something gone wrong in the user's money.
-        if (!sts || sts.status !== "ok") { setPaydayLeadFailed(true); return; }
-        const dateLabel = formatPaydayDateLabel(sts.next_payday);
-        // `safe_to_spend` is net of unpaid card growth and can land at or
-        // below zero (a "short" pot) — never turn that into a negative
-        // "free" figure or a negative daily rate, which would read as
-        // permission to spend money that isn't there.
-        const freeAmt = Math.round(sts.safe_to_spend);
-        const facts = freeAmt > 0
-          ? [`£${freeAmt.toLocaleString("en-GB")} free until ${dateLabel}`]
-          : [`Nothing spare until ${dateLabel}, bills come first`];
-        if (freeAmt > 0 && sts.days_until_payday > 0) {
-          const perDay = Math.round(freeAmt / sts.days_until_payday);
-          facts.push(`That's about £${perDay.toLocaleString("en-GB")} a day`);
-        }
-        // Estimate flag folded into the first (amount) fact line, muted
-        // text same as the rest of `facts` — DESIGN.md's "Do label
-        // estimates honestly" rule, same convention SafeToSpendCard.tsx
-        // uses inline after its own headline figure. Never on the bold
-        // headline itself: the headline stays a plain, calm verdict line.
-        if (sts.estimated) facts[0] = `${facts[0]} · estimated`;
-        setPaydayLead({ headline: "Payday is close.", facts });
-      })
-      .catch(() => setPaydayLeadFailed(true));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [askContext?.paydayActive, askContext?.ask, askSeq]);
-
   // ?compose=1 — focus the docked composer. Full-page mode only (no sheet
   // caller ever passes `autoFocusComposer`, but gated explicitly so this
   // can never be the thing that pops the on-screen keyboard on a sheet
@@ -1092,7 +939,8 @@ export default function PennyConversation({
   // Disabled entirely in sheet mode (2026-08-25, same owner feedback as
   // above): on a phone this refocus is what pops the keyboard back up the
   // instant any answer lands — including the payday auto-ask that used to
-  // fire on open (now removed; see `paydayLead`), and any chip/typed ask a
+  // fire on open (now removed, see the thread's opening-slot comment
+  // further down for the full history), and any chip/typed ask a
   // user sends. The intent was narrower ("keep this only when the user had
   // already focused the composer themselves, mid-conversation, not on a
   // fresh open"), but this component has no reliable signal for "the user
@@ -1117,7 +965,8 @@ export default function PennyConversation({
   // instead of visibly animating there. Sets `scrollTop` directly (no
   // `behavior: "smooth"`) — this is a jump, not a scroll. The old visible
   // "scrolling down" the owner saw was mostly a symptom of the removed
-  // payday auto-ask (see `paydayLead`) appending a message on open, which
+  // payday auto-ask (see the thread's opening-slot comment further down
+  // for the full history) appending a message on open, which
   // drove the smooth-scroll effect below; that trigger is gone, but this
   // covers the case on its own terms too — an existing thread should
   // already BE at the bottom on reopen, not animate its way there, whether
@@ -1216,6 +1065,29 @@ export default function PennyConversation({
   const personalisedSuggestions = screenConfig.personalisedChips
     ? visibleChips.map((c) => ({ source: "personalised" as const, label: c.label }))
     : [];
+  // DEDUPE (owner screenshot, 2026-08-25: "Still due?" sitting right next to
+  // "What's still due before payday?" in the chip row — the same question,
+  // twice). The backend's personalised `canISuggestions` are reassurance-
+  // shaped free text, not aware of this screen's config chips, so they can
+  // independently land on the exact same question a config `ask` chip
+  // already covers (PAYDAY_DUE_ASK above is the case that shipped this
+  // bug). Compared case-insensitively and whitespace-trimmed against every
+  // config `ask` chip's `q` (what it actually SENDS, not a paraphrase of
+  // it) and against every personalised suggestion already kept, so two
+  // backend suggestions that happen to collide with each other don't both
+  // render either. The config chip always wins a collision: it's already
+  // ahead of `personalisedSuggestions` in priority order below, so this
+  // only ever drops the personalised side.
+  const configAskQuestions = new Set(
+    visibleConfigChips.filter((c) => c.kind === "ask").map((c) => c.q.trim().toLowerCase())
+  );
+  const seenPersonalisedLabels = new Set<string>();
+  const dedupedPersonalisedSuggestions = personalisedSuggestions.filter((c) => {
+    const key = c.label.trim().toLowerCase();
+    if (configAskQuestions.has(key) || seenPersonalisedLabels.has(key)) return false;
+    seenPersonalisedLabels.add(key);
+    return true;
+  });
   const allChips: (
     | { source: "personalised"; label: string }
     | (PennyChip & { source: "config" })
@@ -1223,18 +1095,38 @@ export default function PennyConversation({
     ...deterministicAskChips.map((c) => ({ ...c, source: "config" as const })),
     ...linkChips.map((c) => ({ ...c, source: "config" as const })),
     ...llmAskChips.map((c) => ({ ...c, source: "config" as const })),
-    ...personalisedSuggestions,
+    ...dedupedPersonalisedSuggestions,
   ].slice(0, chipCap);
 
-  // The composer's inner markup is identical in both modes (same input,
-  // same send button, same disclaimer) — only what WRAPS it differs (fixed
-  // viewport dock vs. a plain flow child), so it's built once here and
-  // dropped into whichever wrapper the render below picks. Defined inline
-  // (not hoisted to a separate component) because it closes over this
-  // render's `input`/`loading`/`placeholder` state and `inputRef`; only one
-  // wrapper ever mounts it at a time, so there's no duplicate-instance risk.
-  const composerCard = (
-    <div className="glass-card rounded-2xl px-3 pt-2.5 pb-2 shadow-lg">
+  // The composer's inner markup (input + send button, then the disclaimer
+  // line) is identical in both modes — only the SHELL around it differs,
+  // and deliberately so, not as leftover duplication:
+  // - Full-page mode floats this composer `position: fixed` over the page
+  //   (see the render below), with no ambient panel behind it, so it needs
+  //   to BE a surface of its own: a `glass-card` fill, rounded corners, and
+  //   a shadow to lift it off whatever page content scrolls underneath.
+  // - Sheet mode already sits inside `glass-sheet`'s own panel
+  //   (PennySheet.tsx). Wrapping the same content in a second, nested card
+  //   there stacked that card's own `px-3` on top of the wrapper's `px-5`
+  //   below (owner screenshot, 2026-08-25: "this margin around the textbox
+  //   forces the padding on the send button and textbox to be more than
+  //   the other components") — the input and send button sat visibly
+  //   deeper from the panel edge than the chip row and thread above, which
+  //   share that same bare `px-5` with nothing layered on top. Sheet mode
+  //   therefore renders `composerContent` directly, with no card fill, no
+  //   rounded container, no shadow, and no inner horizontal padding — a
+  //   flush child of the `px-5 pt-2 pb-6` wrapper below, landing on the
+  //   exact same inset as the chip row and every bubble. The `<input>`
+  //   itself keeps its own pill styling (`rounded-full`, border,
+  //   background) in both modes either way — that's a form control's own
+  //   chrome, not the retired outer shell.
+  //
+  // Defined inline (not hoisted to a separate component) because it closes
+  // over this render's `input`/`loading`/`placeholder` state and
+  // `inputRef`; only one shell ever mounts it at a time, so there's no
+  // duplicate-instance risk.
+  const composerContent = (
+    <>
       <div className="flex items-center gap-2">
         <input
           ref={inputRef}
@@ -1261,46 +1153,23 @@ export default function PennyConversation({
       <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 mt-1.5">
         General information, not regulated financial advice.
       </p>
-    </div>
+    </>
+  );
+  // Full-page mode's own floating surface (see the comment above for why it
+  // still needs one) — sheet mode never uses this, it mounts
+  // `composerContent` bare instead. See the render below.
+  const composerCard = (
+    <div className="glass-card rounded-2xl px-3 pt-2.5 pb-2 shadow-lg">{composerContent}</div>
   );
 
-  // Render-time-only consecutive-fact dedupe (owner report, 2026-08-25: the
-  // payday lead's "£179 free until Friday" line, then every subsequent
-  // verdict's facts repeating "£179 free until Fri 28 Aug" — the same
-  // grounding line printed in two ADJACENT bubbles reads as clutter on a
-  // phone, whereas the same fact reappearing several turns later is fine,
-  // the thread has scrolled past it by then. This is PURELY what gets
-  // painted: `buildHistory` above and the `messages`/`paydayLead` state
-  // both keep every message's full, undeduped `facts` array untouched, so
-  // the LLM's own conversation history is unaffected. Never touches
-  // `headline`/`reply`, only `facts` lines, and only exact string matches.
-  //
-  // Walks `messages` in order, tracking the facts actually SHOWN (i.e.
-  // already deduped) in the nearest preceding assistant bubble:
-  // - Starts from `paydayLead`'s own facts, so the FIRST assistant bubble
-  //   in the thread dedupes against the lead too, not just against later
-  //   verdicts.
-  // - A user turn does not reset the pointer — "immediately previous
-  //   assistant bubble" skips right over any user message in between, it
-  //   only cares about the previous turn PENNY took.
-  // - A scenario/explainer bubble carries no facts of its own, so it
-  //   resets the pointer to empty: the next verdict after one of those has
-  //   nothing to dedupe against.
-  // - Compares against what was SHOWN (post-dedupe), not the raw
-  //   `msg.facts`, so a run of repeats collapses to one visible showing
-  //   instead of flip-flopping hidden/visible as the "previous" bubble's
-  //   own displayed lines change.
-  let prevAssistantFacts: string[] = paydayLead?.facts ?? [];
-  const displayMessages: Msg[] = messages.map((m) => {
-    if (m.role === "user" || m.kind !== "verdict") {
-      if (m.role === "assistant") prevAssistantFacts = [];
-      return m;
-    }
-    const rawFacts = m.facts ?? [];
-    const shown = rawFacts.filter((f) => !prevAssistantFacts.includes(f));
-    prevAssistantFacts = shown;
-    return shown.length === rawFacts.length ? m : { ...m, facts: shown };
-  });
+  // The consecutive-bubble fact-dedupe machinery that used to live here
+  // (`displayMessages`, a render-time-only pass over `messages` that
+  // suppressed a verdict's `facts` line when the immediately preceding
+  // assistant bubble had already shown the identical line) is dead: the
+  // grey facts tier it was deduplicating no longer renders at all (owner
+  // order, 2026-08-25, the duplication war — see VerdictBubble's own
+  // comment on the removed block). With nothing left to dedupe, this
+  // component now renders straight from `messages`.
 
   return (
     <div className={[inSheet ? "flex flex-col h-full min-h-0" : null, className].filter(Boolean).join(" ") || undefined}>
@@ -1322,23 +1191,56 @@ export default function PennyConversation({
           mask — `pointer-events-none` so it never eats a tap on a chip
           that happens to sit under it.
 
+          FULL SENTENCES, not summarised (2026-08-25, REVERTED from the
+          summarised form above — owner screenshot: the row showed "Still
+          due?" right next to "What's still due before payday?", the SAME
+          question twice, once via a config chip's now-unused `short` label
+          and once via a personalised suggestion whose full label came
+          through untransformed since `shortPersonalisedLabel` only stripped
+          "Can I spend/put/afford" lead-ins, not a reassurance-shaped
+          question like that one. Diagnosis: summarising also strips
+          meaning — "Still due?" isn't parseable on its own — and this row
+          scrolls horizontally precisely so a full question's length is
+          fine, per this block's own comment above. So every chip here now
+          renders its full `label`/`q` (`shortPersonalisedLabel` removed
+          entirely; `PennyChip.short`, lib/pennyScreenConfig.tsx, is kept in
+          the type but no longer read anywhere in this row — see that
+          field's own comment for why it wasn't ripped out of every config
+          entry). `ariaLabel` is dropped below for the same reason: it only
+          ever differed from the visible label to carry the FULL text for
+          screen readers when the visible text was shortened — with nothing
+          shortened any more, the visible label already IS the accessible
+          name (SuggestionChip falls back to its child text), same as
+          full-page mode's row further down always did.
+
+          DEDUPED before rendering (this render's `allChips`, built above
+          from `dedupedPersonalisedSuggestions`): a personalised suggestion
+          whose label collides, case-insensitively and trimmed, with a
+          config `ask` chip's `q` (or with another personalised suggestion
+          already kept) never reaches this row — the config chip wins. See
+          that dedupe's own comment above `allChips` for why the backend's
+          suggestions can collide with a screen's curated set at all.
+
           SELECTION BEHAVIOUR — the core change: an `ask` chip here no
           longer calls `send()`. It POPULATES the composer with the chip's
-          FULL question text (never the short label) and focuses it, so the
-          user can edit or just hit send. Focusing on tap is deliberately
-          fine here despite the sheet's established "never autofocus the
-          composer" rule (see `autoFocusComposer`'s and the loading-
-          transition effect's own comments above) — that rule is about
-          focus landing on the user WITHOUT them asking for it (on open, or
-          after an answer lands); this is a direct response to a tap they
-          just made, the same class of user-initiated focus a normal text
-          input gets when you tap it. `link` chips are unchanged: navigate
-          + close, same as the bottom row. No `onDismiss` is ever passed
-          here — see `SuggestionChip`'s own comment on why the X is gone
-          from this row specifically (population makes a chip zero-
-          commitment, nothing to dismiss). */}
+          FULL question text so the user can edit or just hit send.
+          NO FOCUS CALL (2026-08-25, owner reversal: "when a user selects a
+          chip it shouldn't automatically bring up the keyboard, or focus
+          on the text box"). An earlier version of this comment argued tap-
+          triggered focus was fine here as "the same class of user-
+          initiated focus a normal text input gets when you tap it" —
+          overruled by the owner above, not by a bug: populating the
+          composer already shows the chip's question was heard, and the
+          send button works perfectly well unfocused, so autofocus just
+          costs a keyboard popping up the user didn't ask for. That
+          reasoning is dead; do not restore the `.focus()` call on this
+          rule's authority. `link` chips are unchanged: navigate + close,
+          same as the bottom row. No `onDismiss` is ever passed here — see
+          `SuggestionChip`'s own comment on why the X is gone from this row
+          specifically (population makes a chip zero-commitment, nothing
+          to dismiss). */}
       {inSheet && allChips.length > 0 && (
-        <div className="shrink-0 relative px-1 pt-1">
+        <div className="shrink-0 relative px-5 pt-1">
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
             {allChips.map((c) => {
               if (c.source === "personalised") {
@@ -1346,9 +1248,8 @@ export default function PennyConversation({
                 return (
                   <SuggestionChip
                     key={`top-personalised-${c.label}`}
-                    label={shortPersonalisedLabel(full)}
-                    ariaLabel={full}
-                    onTap={() => { setInput(full); inputRef.current?.focus(); }}
+                    label={full}
+                    onTap={() => setInput(full)}
                   />
                 );
               }
@@ -1356,7 +1257,7 @@ export default function PennyConversation({
                 return (
                   <LinkChip
                     key={`top-config-link-${c.label}`}
-                    label={c.short ?? c.label}
+                    label={c.label}
                     onTap={() => { closePennySheet(); router.push(c.href); }}
                   />
                 );
@@ -1364,9 +1265,8 @@ export default function PennyConversation({
               return (
                 <SuggestionChip
                   key={`top-config-ask-${c.q}`}
-                  label={c.short ?? c.label}
-                  ariaLabel={c.label}
-                  onTap={() => { setInput(c.q); inputRef.current?.focus(); }}
+                  label={c.label}
+                  onTap={() => setInput(c.q)}
                 />
               );
             })}
@@ -1381,7 +1281,7 @@ export default function PennyConversation({
               would show. */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-1 w-6 bg-gradient-to-l from-white dark:from-slate-900 to-transparent"
+            className="pointer-events-none absolute inset-y-0 right-5 w-6 bg-gradient-to-l from-white dark:from-slate-900 to-transparent"
           />
         </div>
       )}
@@ -1403,31 +1303,27 @@ export default function PennyConversation({
         ref={inSheet ? scrollContainerRef : undefined}
         aria-live="polite"
         role="log"
-        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-1" : "space-y-3"}
+        className={inSheet ? "flex-1 min-h-0 overflow-y-auto space-y-3 px-5" : "space-y-3"}
       >
-        {/* Rendered ahead of `messages` (not part of that array — see
-            `paydayLead`'s state comment and `PaydayLeadBubble`'s doc
-            comment) so it reads as the first bubble in the thread without
-            being eligible for HISTORY_CAP eviction or LLM history. */}
-        {paydayLead && <PaydayLeadBubble headline={paydayLead.headline} facts={paydayLead.facts} />}
-        {/* Quiet fallback for the same slot — see `paydayLeadFailed`'s own
-            comment. A caption, not a bubble: this isn't Penny failing to
-            answer a question (ErrorRetry's job, with its "Try again"), it's
-            one background fetch that didn't come back, so it gets the
-            quietest treatment the thread has rather than an error surface. */}
-        {paydayLeadFailed && (
-          <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400 px-1">
-            Couldn&apos;t load your payday numbers right now.
-          </p>
-        )}
-        {displayMessages.map((m) => {
+        {/* A deterministic "Payday is close..." lead bubble used to render
+            here, ahead of `messages`, built from api.safeToSpend() to
+            honour the amber nav dot's promise that something payday-
+            specific was waiting when the sheet opened during the payday
+            window. Killed by the owner (2026-08-25): it duplicated the
+            Safe-to-Spend hero already visible on the Home page behind this
+            sheet — "the payday is close doesn't make sense, this is
+            already on the home page so isn't needed". That promise now
+            lands via the payday chip in the chip row above
+            (PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK, lib/pennyScreenConfig.tsx)
+            and the header's "Your plan and updates" link (PennySheet.tsx),
+            not a bubble injected on open. Do not rebuild this without
+            re-reading this comment; this surface has had features rebuilt
+            from misread history before. */}
+        {messages.map((m) => {
           // Keyed on `m.id`, NOT array index — see the `id` field comment
           // on the Msg union above (`messages` is a sliding window, so an
           // index key would reuse instances across shifted content once
-          // the thread exceeds HISTORY_CAP). `displayMessages` is a 1:1,
-          // same-order map over `messages` (see its own comment above) that
-          // only ever replaces a verdict's `facts` array for display, so
-          // this key contract is unaffected.
+          // the thread exceeds HISTORY_CAP).
           if (m.role === "user") return <UserBubble key={m.id} text={m.content} />;
           if (m.kind === "scenario") {
             // Full-width form, deliberately NOT a bubble — see the
@@ -1507,9 +1403,53 @@ export default function PennyConversation({
           child — no `fixed` positioning, no viewport-relative clearance
           math, because the sheet itself owns where the composer sits (the
           last child in its own flex column), per this file's header
-          comment and the two-prop contract. */}
+          comment and the two-prop contract. `px-5` (2026-08-25, owner: the
+          sheet's bubbles/chips/composer "don't look like they have
+          adequate space from the margin of the chat window" — this was
+          `px-1` and visibly kissed the panel's `rounded-3xl` edge) matches
+          CommitmentSheet's own content inset (components/CommitmentSheet.tsx,
+          `px-5` on both its header and its scrollable body) rather than
+          inventing a new value — same `glass-sheet` shell convention, so
+          this sheet's insets read as the same family. The thread container
+          and the top chip row further up share this same `px-5`, so the
+          composer, the chip row, and every bubble's edge line up on one
+          consistent inset instead of three different values.
+
+          `pb-6` (2026-08-25, owner: "there is no bottom margin from the
+          text box") — this wrapper is the LAST child in the panel's flex
+          column (PennySheet.tsx), so with only `pt-2` above and nothing
+          below, `composerCard`'s own bottom edge sat flush against the
+          panel's `rounded-3xl` bottom corners, same missing-breathing-room
+          bug as the `px-5` fix above but on the remaining axis. `1.5rem`
+          matches CommitmentSheet's own bottom-of-scroll-region inset
+          (components/CommitmentSheet.tsx, `paddingBottom: "calc(1.5rem +
+          env(safe-area-inset-bottom, 0px))"`) rather than inventing a new
+          value — same interior-padding scale as the `px-5` match above,
+          just the bottom-specific instance of it. The safe-area term isn't
+          carried over: CommitmentSheet is pinned to the literal bottom of
+          the viewport (`fixed inset-x-0 bottom-0`), so it needs the home-
+          indicator clearance; this floating panel already sits well clear
+          of the screen edge (PennySheet.tsx's `bottom-[calc(110px+env(
+          safe-area-inset-bottom,0px))]` wrapper), so `pb-6` alone is
+          genuine interior padding, not safe-area duplicated on top of an
+          already-safe position.
+          Composes cleanly with the on-screen-keyboard inset: that inset is
+          a `marginBottom` on the PANEL itself (PennySheet.tsx's
+          `keyboardInset`), pushing the whole floating window up as a unit
+          when the keyboard opens, not a property of this composer wrapper
+          — so this `pb-6` (interior space, panel-relative) and that
+          `marginBottom` (whole-panel position, viewport-relative) sit on
+          different elements and never fight each other.
+
+          Sheet mode mounts `composerContent` here, NOT `composerCard` — no
+          glass fill, no rounded shell, no shadow, no inner `px-3`. See the
+          comment above `composerContent`'s own declaration for why the two
+          modes' shells differ (floats-over-page vs flush-in-panel); this is
+          what makes the input's left edge land on the same `px-5` inset as
+          the chip row and every bubble above it instead of sitting deeper
+          from the panel edge than they do. */}
       {inSheet ? (
-        <div className="shrink-0 px-1 pt-2">{composerCard}</div>
+        <div className="shrink-0 px-5 pt-2 pb-6">{composerContent}</div>
       ) : (
         <div
           className="fixed inset-x-0 z-40 px-4 lg:px-0"

@@ -213,11 +213,17 @@ export default function BottomNav() {
               pill indicator, so it reads as part of the same active-state
               language. The living dot mirrors the amber
               Planning dot's treatment/position, lit whenever the payday
-              window (lib/paydayWindow.ts) is active; when it's lit, `open()`
-              is handed `paydayActive: true` so the conversation surfaces the
-              live payday item first instead of a bare composer — the dot is
-              a promise that something specific is waiting, and a blank
-              conversation would break it. */}
+              window (lib/paydayWindow.ts) is active. It used to also be
+              handed into `open()` as `paydayActive: true` so the sheet could
+              inject a deterministic lead bubble on open — removed
+              (2026-08-25, owner: that bubble duplicated the Safe-to-Spend
+              hero already on Home, see PennyConversation.tsx's own comment
+              at the thread's former lead-bubble slot for the full history).
+              The dot's promise is now redeemed inside the sheet itself, via
+              the payday chip in its chip row and the header's "Your plan
+              and updates" link (PennySheet.tsx), not by data forwarded at
+              open time — so `open()` here no longer takes a payday payload
+              at all. */}
           <button
             type="button"
             // Toggle, not just launch — the owner's floating-window redesign
@@ -227,7 +233,7 @@ export default function BottomNav() {
             // the actual route (not the window's open state, which is a
             // transient overlay, not a page) — `aria-pressed` is the correct
             // ARIA role for the toggle behaviour instead.
-            onClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname), paydayActive }))}
+            onClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname) }))}
             aria-label="Penny"
             aria-current={pathname === "/penny" ? "page" : undefined}
             aria-pressed={pennySheetOpen}
