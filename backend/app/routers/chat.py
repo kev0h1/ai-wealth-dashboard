@@ -1,4 +1,13 @@
-"""Tax chat endpoints."""
+"""Tax chat endpoints.
+
+`answer_tax_question` is the reusable core: deterministic tax fact pack
+(from preferences_col) + system prompt + OpenRouter call, returning the
+reply string. It deliberately does NOT touch the AI-chat usage limit
+(check_ai_chat_limit / increment_ai_chat_usage) — callers own that, so a
+single question is never counted twice against a user's quota. See
+app/routers/can_i.py's tax routing branch, which does its own limit check
+and increment around this call exactly once per /can-i request.
+"""
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
@@ -10,16 +19,13 @@ import httpx
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat/tax")
-async def tax_chat(body: dict, user: dict = Depends(current_user)):
-    messages = body.get("messages", [])
-    if not messages or not OPENROUTER_API_KEY:
-        raise HTTPException(400, "No messages or AI not configured")
-
-    uid  = user["email"]
-    await check_ai_chat_limit(uid)
-    name = user.get("name", "").split()[0] or "there"
-
+async def answer_tax_question(uid: str, name: str, messages: list[dict]) -> str:
+    """Deterministic tax fact pack (income, pension, bracket, child benefit,
+    adjusted net income, personal-allowance taper line) + system prompt,
+    then one OpenRouter call. Returns the reply string only — no limit
+    check, no usage increment, no HTTP status handling beyond raising on a
+    non-200 response; that's the caller's job (see module docstring).
+    """
     from app.db.collections import preferences_col
     prefs          = await preferences_col.find_one({"user_id": uid}) or {}
     income         = float(prefs.get("income_value", 0))
@@ -77,5 +83,25 @@ Write in plain, human punctuation: no em-dashes (—) or en-dashes (–); use a 
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")
 
+    return r.json()["choices"][0]["message"]["content"]
+
+
+# The app no longer calls this route after tax Q&A folded into POST /can-i
+# (see can_i.py's _is_tax_question routing branch, which calls
+# answer_tax_question directly). Left in place as a thin wrapper so nothing
+# that still points at it breaks; candidate for retirement in a later route
+# cleanup once the old Tax tab chat UI is confirmed gone from the frontend.
+@router.post("/chat/tax")
+async def tax_chat(body: dict, user: dict = Depends(current_user)):
+    messages = body.get("messages", [])
+    if not messages or not OPENROUTER_API_KEY:
+        raise HTTPException(400, "No messages or AI not configured")
+
+    uid  = user["email"]
+    await check_ai_chat_limit(uid)
+    name = user.get("name", "").split()[0] or "there"
+
+    reply = await answer_tax_question(uid, name, messages)
+
     await increment_ai_chat_usage(uid)
-    return {"reply": r.json()["choices"][0]["message"]["content"]}
+    return {"reply": reply}

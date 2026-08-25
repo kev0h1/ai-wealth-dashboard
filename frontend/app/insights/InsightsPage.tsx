@@ -18,7 +18,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
-import TaxChat from "@/components/TaxChat";
+import TaxPennyEntry from "@/components/TaxPennyEntry";
 import { usePreferences } from "@/components/PreferencesContext";
 import MoneyText from "@/components/MoneyText";
 
@@ -1370,6 +1370,7 @@ export default function InsightsPage() {
                     <ChevronLeft size={16} /> Ways to save
                   </button>
                   {taxBlock}
+                  <TaxPennyEntry />
                 </div>
               ) : (
                 waysBlock
@@ -1381,7 +1382,6 @@ export default function InsightsPage() {
         )}
       </div>
 
-      {!isDesktop && tab === "tax" && <TaxChat />}
       <BottomNav />
     </div>
   );

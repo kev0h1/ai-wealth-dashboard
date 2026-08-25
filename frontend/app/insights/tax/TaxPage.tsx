@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, CheckCircle2, AlertCircle, Info, Calendar, ChevronDown } from "lucide-react";
 import { api } from "@/lib/api";
 import Spinner from "@/components/Spinner";
-import TaxChat from "@/components/TaxChat";
+import TaxPennyEntry from "@/components/TaxPennyEntry";
 import MoneyText from "@/components/MoneyText";
 
 const PA = 12_570;
@@ -595,8 +595,8 @@ export default function TaxPage({
       </div>
       <div className="px-4 pt-4">
         {sections}
+        <TaxPennyEntry />
       </div>
-      <TaxChat />
     </div>
   );
 }

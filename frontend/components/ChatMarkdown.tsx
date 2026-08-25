@@ -1,7 +1,11 @@
 import Markdown from "react-markdown";
 
-// Renders assistant chat replies (markdown) inside chat bubbles. Colours are
-// inherited from the bubble; we only control spacing, list markers and weight.
+// Renders assistant markdown replies. Consumers: ExplainerBubble in
+// PennyConversation.tsx (the retired TaxChat popup's bubble usage is gone
+// along with that component), BudgetPage.tsx's inline advisor chat, and the
+// app/design/penny-thread preview. Colours are inherited from the
+// surrounding surface in each case, we only control spacing, list markers
+// and weight.
 export default function ChatMarkdown({ children }: { children: string }) {
   return (
     <Markdown
