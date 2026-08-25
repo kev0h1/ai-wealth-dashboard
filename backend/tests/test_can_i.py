@@ -1,7 +1,7 @@
 """Unit tests for the PURE (no-DB, no-network) seams in app.routers.can_i:
 `_derive_verdict`, `_nearest_yes_amount`, `_fmt_rate`/`_per_day_line`,
-`_compose_facts`, `_whatif_delta_line`, `_multimonth_fit_headline`,
-`_DEBT_VERDICT_HEADLINES`, and `_is_saving_vs_investing_question`.
+`_whatif_delta_line`, `_multimonth_fit_headline`, `_DEBT_VERDICT_HEADLINES`,
+and `_is_saving_vs_investing_question`.
 
 The whole point of moving the Can-I verdict off the LLM (see can_i.py's
 module docstring and _derive_verdict's own docstring) is that the headline
@@ -17,19 +17,27 @@ Owner decision, 2026-08-25: the headline itself is no longer a verdict word
 recommendation on what the user should do — even though the numbers behind
 them are entirely the user's own). `_derive_verdict`'s internal yes/tight/no
 result is UNCHANGED and still tested below (it still drives which
-consequence fact `_compose_facts` adds), but what is now SHOWN as the
-headline is either the factual what-if delta (`_whatif_delta_line`) or, for
-the one amount-bearing branch with no delta, a softened factual-conditional
-fallback (`_multimonth_fit_headline`). `_compose_facts` no longer echoes the
-delta line as a fact underneath the headline — see the "no verdict word can
-be produced" and "delta absent from facts" tests below, which are this
-change's regression guard.
+consequence the LLM is told to weave into its reply — the nearest-yes
+suggestion on "no", the post-spend daily rate on "tight"), but what is now
+SHOWN as the headline is either the factual what-if delta
+(`_whatif_delta_line`) or, for the one amount-bearing branch with no delta,
+a softened factual-conditional fallback (`_multimonth_fit_headline`).
+
+Owner order, 2026-08-25 (the "duplication war" — his own screenshot showed a
+debt reply quoting two different, unexplained debt totals side by side):
+"all these grayed out answers can we remove all of them." Every /can-i path
+now returns `facts: []`; `_compose_facts`, the function that used to build
+that muted grey list, was deleted outright (nothing else depended on it —
+see can_i.py's own comment where it used to live). The tests that exercised
+it directly are gone too; the arithmetic it assembled is still pinned above
+it in this file (`_nearest_yes_amount`, `_whatif_delta_line`,
+`_nothing_spare_line`) and below via the `/can-i` wiring tests, which now
+assert `facts == []` on every response shape they touch.
 """
 import asyncio
 
 import app.routers.can_i as can_i_module
 from app.routers.can_i import (
-    _compose_facts,
     _DEBT_VERDICT_HEADLINES,
     _derive_verdict,
     _fmt_rate,
@@ -46,7 +54,7 @@ from app.routers.can_i import (
 
 def what_ifs(amount, safe_to_spend, days_until_payday, months_until_target=None, savable_by_target=None):
     """Build a what_ifs dict the same way can_i.py's request handler does,
-    so tests exercise the exact fields _derive_verdict/_compose_facts read."""
+    so tests exercise the exact fields _derive_verdict reads."""
     after = round(safe_to_spend - amount)
     wi = {
         "amount_asked": amount,
@@ -246,94 +254,6 @@ def test_per_day_line_uses_fmt_rate():
     assert _per_day_line(1.2) == "That's about £1.20 a day"
 
 
-# ── _compose_facts ───────────────────────────────────────────────────────
-
-def _facts(safe_to_spend, bills_total, wi, per_day=None, short_reason=None):
-    return {
-        "safe_to_spend": safe_to_spend,
-        "next_payday": "2026-08-28",
-        "bills_total": bills_total,
-        "per_day": per_day if per_day is not None else round(safe_to_spend / 5, 2),
-        "what_ifs": wi,
-        "short_reason": short_reason,
-    }
-
-
-def test_compose_facts_transcript_scenario_delta_moved_to_headline():
-    # safe_to_spend 161, bills_total 206, amount 100, 5 days — the exact
-    # golf-session numbers. Verdict is "yes" (see test above). Owner
-    # decision, 2026-08-25: the what-if delta ("£100 leaves £61 free") is
-    # now the HEADLINE (see can_i.py's `can_i` handler), not an echoed fact
-    # — asserted absent here so it can never print twice under the headline
-    # that already shows the same sentence. The standing free-until-payday
-    # line is also dropped (has_delta), leaving only the bills REASON.
-    wi = what_ifs(100.0, 161.0, 5)
-    facts = _facts(161.0, 206, wi)
-    lines = _compose_facts(facts, None)
-    assert lines == [
-        "£206 of bills due before payday, already accounted for",
-    ]
-    assert "£100 leaves £61 free" not in lines  # now the headline, never a fact
-    assert "£161 free until Fri 28 Aug" not in lines  # standing line, dropped on delta path
-
-
-def test_compose_facts_bills_collision_refusal_gets_nearest_yes():
-    # Amount exceeds safe_to_spend with a material bill in the way: bills is
-    # the REASON, nearest-yes is the way forward — both must appear. The
-    # negative what-if delta ("£250 would take you −£89") is now the
-    # HEADLINE, not a fact (see the delta test above for why), and per-day
-    # is still dropped to make room, unchanged from before.
-    wi = what_ifs(250.0, 161.0, 5)
-    facts = _facts(161.0, 206, wi)
-    lines = _compose_facts(facts, None)
-    assert lines == [
-        "£206 of bills due before payday, already accounted for",
-        "£160 would work",
-    ]
-    assert "£250 would take you −£89" not in lines  # now the headline, never a fact
-
-
-def test_compose_facts_tight_verdict_shows_the_post_spend_rate():
-    # safe_to_spend 161, bills 420, amount 100, 20 days: tight via the
-    # per_day_after arm. The card must show the £3.05/day figure that IS
-    # the reason it's tight, not just a comfortable-looking "£61 free" —
-    # and the what-if delta itself ("£100 leaves £61 free") is now the
-    # HEADLINE, not a fact, same as the two tests above.
-    wi = what_ifs(100.0, 161.0, 20)
-    assert _derive_verdict(wi, 161.0) == "tight"
-    facts = _facts(161.0, 420, wi, per_day=round(161.0 / 20, 2))
-    facts["next_payday"] = "2026-09-13"  # 20 days out from the fixed 28 Aug default
-    lines = _compose_facts(facts, None)
-    assert lines == [
-        "£420 of bills due before payday, already accounted for",
-        "That leaves about £3.05 a day until payday",
-    ]
-    assert "£100 leaves £61 free" not in lines  # now the headline, never a fact
-
-
-def test_compose_facts_savings_by_december_offer_branch_wins():
-    # Review fix 1's traced failure: "Can I put £2000 aside for Japan in
-    # December?", safe_to_spend £300, bills £480, monthly_surplus £400. The
-    # this-period what-if (£2000 against £300 free) must NOT appear, no
-    # nearest-yes must appear (there is no this-period refusal to soften),
-    # and the savings-pace line must be the only third line — exactly the
-    # single coherent answer the endpoint gave before verdict derivation
-    # was added.
-    wi = what_ifs(2000.0, 300.0, 30, months_until_target=4, savable_by_target=1600)
-    assert _derive_verdict(wi, 300.0) is None
-    facts = _facts(300.0, 480, wi, per_day=round(300.0 / 30, 2))
-    offer = {"target_date": "2026-12-01"}
-    lines = _compose_facts(facts, offer)
-    assert lines == [
-        "£300 free until Fri 28 Aug",
-        "That's about £10 a day",
-        "Saving at this pace, about £1,600 by December 2026",
-    ]
-    joined = " ".join(lines)
-    assert "£2,000" not in joined and "2000" not in joined  # no this-period what-if
-    assert "would work" not in joined  # no nearest-yes
-
-
 # ── _is_saving_vs_investing_question ──────────────────────────────────────
 # Owner decision, 2026-08-25: "Should I be investing instead of saving?"
 # invites a personal investment recommendation (the FCA perimeter). Both
@@ -380,10 +300,9 @@ def test_saving_vs_investing_does_not_match_bare_co_occurrence():
 
 # ── _nothing_spare_line + the negative-safe_to_spend guard (owner-approved
 # fix, 2026-08) — safe_to_spend is net of unpaid card growth and can land at
-# or below zero. These pin the three sites that used to format it as a bare
-# (possibly negative) "£X free" figure: _compose_facts's free_line/per-day,
-# _handle_payday_status_question's facts, and can_i_suggestions's
-# context_line. ──────────────────────────────────────────────────────────
+# or below zero. These pin the sites that used to format it as a bare
+# (possibly negative) "£X free" figure: _handle_payday_status_question's
+# reply and can_i_suggestions's context_line. ─────────────────────────────
 
 def test_nothing_spare_line_bills_reason():
     assert _nothing_spare_line("Fri 28 Aug", "bills") == "Nothing spare until Fri 28 Aug, bills come first"
@@ -409,24 +328,6 @@ def test_nothing_spare_line_never_uses_em_dash():
         assert "—" not in _nothing_spare_line("Fri 28 Aug", reason)
 
 
-def test_compose_facts_negative_safe_to_spend_drops_free_line_and_per_day():
-    # No amount asked (no-delta path) — the standing free-until-payday line
-    # and the per-day rate are the whole answer on this branch (see
-    # _compose_facts's own docstring), so this is exactly the site that used
-    # to print "-£83 free until Fri 28 Aug" with a negative per-day rate
-    # right under it.
-    facts = _facts(-83.0, 0, {}, per_day=-16.6, short_reason="cards")
-    lines = _compose_facts(facts, None)
-    assert lines == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
-    assert not any("-£" in line or "−£" in line for line in lines)
-
-
-def test_compose_facts_zero_safe_to_spend_bills_reason():
-    facts = _facts(0.0, 0, {}, per_day=0.0, short_reason="bills")
-    lines = _compose_facts(facts, None)
-    assert lines == ["Nothing spare until Fri 28 Aug, bills come first"]
-
-
 def test_handle_payday_status_question_negative_cards_short(monkeypatch):
     async def fake_sts(uid):
         return {
@@ -438,8 +339,11 @@ def test_handle_payday_status_question_negative_cards_short(monkeypatch):
     monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
     result = asyncio.run(_handle_payday_status_question("kevin"))
     assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
-    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
-    assert not any("-£" in f or "−£" in f for f in result["facts"])
+    # Owner order, 2026-08-25: the grey facts tier is gone, so the content
+    # that used to live there is now the flowing REPLY prose instead.
+    assert result["facts"] == []
+    assert result["reply"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards."
+    assert not any(s in result["reply"] for s in ("-£", "−£"))
 
 
 def test_handle_payday_status_question_negative_bills_short(monkeypatch):
@@ -453,8 +357,12 @@ def test_handle_payday_status_question_negative_bills_short(monkeypatch):
     monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
     result = asyncio.run(_handle_payday_status_question("kevin"))
     assert result["headline"] == "You're short until payday"
-    assert result["facts"][0] == "Nothing spare until Fri 28 Aug, bills come first"
-    assert not any("-£" in f or "−£" in f for f in result["facts"])
+    assert result["facts"] == []
+    assert result["reply"] == (
+        "Nothing spare until Fri 28 Aug, bills come first. "
+        "£120 of bills due before payday, already accounted for."
+    )
+    assert not any(s in result["reply"] for s in ("-£", "−£"))
 
 
 def test_handle_payday_status_question_reuses_precomputed_sts(monkeypatch):
@@ -470,7 +378,8 @@ def test_handle_payday_status_question_reuses_precomputed_sts(monkeypatch):
     }
     result = asyncio.run(_handle_payday_status_question("kevin", sts))
     assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
-    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+    assert result["facts"] == []
+    assert result["reply"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards."
 
 
 # ── /can-i wiring: a HEADROOM-intent question ("how much do I actually
@@ -552,11 +461,13 @@ def test_can_i_headroom_intent_question_while_short_routes_deterministic_cards(m
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
 
     assert result["headline"] == can_i_module._PAYDAY_STATUS_SHORT_CARDS_HEADLINE
-    assert result["facts"] == ["Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"]
+    # Owner order, 2026-08-25: the grey facts tier is gone everywhere.
+    assert result["facts"] == []
+    assert result["reply"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards."
     assert result["out_of_scope"] is False
     # The invented-content regression this fix targets: no fabricated bills
     # total, no re-narrated overspend rate, no invented buffer claim.
-    for blob in (result["headline"], result["reply"], *result["facts"]):
+    for blob in (result["headline"], result["reply"]):
         assert "bills totalling" not in blob.lower()
         assert "a day" not in blob.lower()
         assert "buffer" not in blob.lower()
@@ -579,7 +490,11 @@ def test_can_i_headroom_intent_question_while_short_routes_deterministic_bills(m
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
 
     assert result["headline"] == "You're short until payday"
-    assert result["facts"][0] == "Nothing spare until Fri 28 Aug, bills come first"
+    assert result["facts"] == []
+    assert result["reply"] == (
+        "Nothing spare until Fri 28 Aug, bills come first. "
+        "£120 of bills due before payday, already accounted for."
+    )
     assert result["out_of_scope"] is False
 
 
@@ -613,6 +528,7 @@ def test_can_i_amount_bearing_shortfall_cards_is_fully_deterministic(monkeypatch
 
     assert result["headline"] == "£45 would take you −£234"
     assert result["reply"] == "Bills are covered, but nothing spare until Fri 28 Aug, it's gone on cards"
+    assert result["facts"] == []
     # The exact two fabrications this fix targets must be structurally
     # impossible now, not just banned by a prompt clause: no bills total/due
     # date invented, no payment-method prediction.
@@ -640,6 +556,7 @@ def test_can_i_amount_bearing_shortfall_bills_is_fully_deterministic(monkeypatch
 
     assert result["headline"] == "£20 would take you −£60"
     assert result["reply"] == "Nothing spare until Fri 28 Aug, bills come first"
+    assert result["facts"] == []
 
 
 def test_can_i_amount_bearing_not_short_still_reaches_llm(monkeypatch):
@@ -712,11 +629,70 @@ def test_can_i_facts_pack_never_includes_ambiguous_card_debt_total(monkeypatch):
     monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
 
     body = {"question": "Can I spend £100 until payday?"}
-    asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
 
     system_prompt = captured["messages"][0]["content"]
     assert "card_debt" not in system_prompt
     assert "2774" not in system_prompt
+    # Owner order, 2026-08-25: the grey facts tier is gone everywhere,
+    # including the general LLM-phrased affordability path.
+    assert result["facts"] == []
+
+
+def test_can_i_nearest_yes_amount_reaches_llm_grounding_on_shortfall(monkeypatch):
+    # Owner order, 2026-08-25: the "£X would work" nearest-yes suggestion
+    # used to live only in the grey facts list _compose_facts built (now
+    # deleted along with that list). It was genuinely useful, so it moves
+    # into what_ifs as LLM grounding instead of disappearing — this pins
+    # that it actually reaches the system prompt whenever the resolved
+    # verdict is a shortfall, on a state that is NOT "short" (so this goes
+    # through the general LLM path, not the fully-deterministic
+    # card-funded/bills-shortfall short-circuit tested above).
+    monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
+    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
+    monkeypatch.setattr(can_i_module, "commitments_col", _RaisingFind())
+
+    captured = {}
+
+    class _SpyResponse:
+        status_code = 200
+        def json(self):
+            return {"choices": [{"message": {"content": "HEADLINE: x\nREPLY: y"}}]}
+
+    class _SpyAsyncClient:
+        def __init__(self, *a, **kw):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def post(self, url, headers=None, json=None):
+            captured["messages"] = json["messages"]
+            return _SpyResponse()
+
+    monkeypatch.setattr(can_i_module.httpx, "AsyncClient", _SpyAsyncClient)
+
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "safe_to_spend": 161.0, "safe_to_spend_cash": 161.0,
+            "card_growth_reserved": 0.0, "days_until_payday": 5,
+            "next_payday": "2026-08-28", "bills_total": 0.0, "state": "comfortable",
+            "short_reason": None,
+        }
+
+    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+
+    # £250 against £161 free -> free_after_spend = -89 -> derived_verdict
+    # "no", state stays "comfortable" (not "short"), so this reaches the
+    # general LLM path, not the deterministic short-circuit.
+    body = {"question": "Can I spend £250 until payday?"}
+    result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
+
+    assert result["headline"] == "£250 would take you −£89"
+    assert result["facts"] == []
+    system_prompt = captured["messages"][0]["content"]
+    assert '"nearest_yes_amount": 160' in system_prompt
 
 
 def test_can_i_non_headroom_question_while_short_still_reaches_llm(monkeypatch):

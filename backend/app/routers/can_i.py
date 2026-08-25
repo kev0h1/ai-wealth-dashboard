@@ -620,8 +620,8 @@ def _derive_verdict(what_ifs: dict, safe_to_spend: float) -> str | None:
       question with a this-period afford/refuse verdict produced a card
       with a "Not this one" headline sitting over "Saving at this pace,
       about £1,600 by December" — two answers to two different questions on
-      one card. The offer/savable_by_target branch in _compose_facts owns
-      this case instead; see there.
+      one card. `_multimonth_fit_headline` (below) and the resolved_verdict
+      wiring in `can_i` own this case instead.
 
     "tight" carries both an absolute and a relative arm because either alone
     misses a case the other catches: a large safe_to_spend pot where 20%
@@ -655,19 +655,19 @@ def _derive_verdict(what_ifs: dict, safe_to_spend: float) -> str | None:
 # as a recommendation rather than a fact.
 #
 # _derive_verdict's own yes/tight/no return value is UNCHANGED below (still
-# used, unmodified, to choose which CONSEQUENCE fact _compose_facts adds —
-# the nearest-yes suggestion on "no", the post-spend daily rate on "tight",
-# see there); only what gets shown as the HEADLINE changes, in `can_i` below.
+# used, unmodified, to choose which CONSEQUENCE the LLM is told to weave into
+# its reply — the nearest-yes suggestion on "no" (see
+# `what_ifs["nearest_yes_amount"]` in `can_i`), the post-spend daily rate on
+# "tight" (already in what_ifs.per_day_after); only what gets shown as the
+# HEADLINE changes, in `can_i` below.
 
 
 def _whatif_delta_line(amount_asked: float, free_after_spend: float) -> str:
     """The factual what-if delta sentence — single source of this exact
     formatting so the affordability HEADLINE (this string is now shown
-    verbatim as the headline, see `can_i` below) and the identically-worded
-    line `_compose_facts` used to also echo underneath it (now suppressed
-    there — see that function's own comment — so it never prints twice) can
-    never drift apart. Formatting copied byte-for-byte from the inline
-    version this replaces."""
+    verbatim as the headline, see `can_i` below) never drifts from the
+    wording used anywhere else this same figure is computed. Formatting
+    copied byte-for-byte from the inline version this replaces."""
     return (
         f"£{amount_asked:,.0f} leaves {_fmt_gbp(free_after_spend)} free" if free_after_spend >= 0
         else f"£{amount_asked:,.0f} would take you {_fmt_gbp(free_after_spend)}"
@@ -739,228 +739,21 @@ def _nothing_spare_line(payday_label: str | None, short_reason: str | None) -> s
     return f"Nothing spare {until}, bills come first"
 
 
-def _compose_facts(facts: dict, offer: dict | None) -> list[str]:
-    """Server-composed grounding lines, from the SAME figures the verdict
-    used — never re-derived, never LLM-authored. Normally 3 lines:
-    free-until-payday, the per-day rate, then whichever precomputed what-if
-    is most relevant to what was actually asked.
-
-    IMPORTANT — this only trims what's ECHOED back to the user in the
-    returned list, never the grounding the LLM itself sees: `facts` (the
-    dict parameter here) still carries every number — safe_to_spend, per_day,
-    what_ifs, change_intents, all of it — into the system prompt unchanged
-    (see the `json.dumps(facts, ...)` call in `can_i` below). The model still
-    needs the full picture to phrase a correct reply; only the lines printed
-    UNDERNEATH that reply, in the same bubble, are affected by the logic
-    below. Conflating the two is an easy mistake to make reading this
-    function in isolation, so it's called out explicitly here.
-
-    STANDING vs DELTA (owner feedback, phone screenshot, 2026-08-24): the
-    Can-I popover floats OVER the app's own screens — the Safe-to-Spend hero
-    behind it already shows "£X free until <date>" and the per-day rate as
-    STANDING numbers the user can see without asking anything. Once a
-    question carries a DELTA (an amount was asked and the precomputed
-    "£A leaves £B free"/"£A would take you −£B" what-if line exists), echoing
-    those two standing lines again is pure noise ("I don't need to read it
-    again when I ask the question") — worse, a PRE-spend £X sitting under a
-    reply that concludes with the POST-spend £B reads as a contradiction,
-    not reinforcement. So on that path only whatever question-specific
-    consequence/next-step lines apply — bills, nearest-yes, the tight-rate —
-    is echoed; free-until-payday and per-day are dropped from THIS list only.
-    See `has_delta` below.
-
-    HEADLINE = DELTA (owner decision, 2026-08-25): the delta line itself
-    (`whatif_line`, built by `_whatif_delta_line`) is no longer echoed in the
-    list this function returns AT ALL, on either branch below — it is now
-    shown as the affordability HEADLINE instead (see `can_i`), so printing it
-    again here would duplicate the headline verbatim underneath itself. Every
-    other consequence/next-step line (bills, nearest-yes, the tight rate)
-    still prints exactly as before; only the delta's OWN line moved from
-    "third fact" to "the headline".
-
-    When there's no delta at all (no amount asked: the envelope-and-ask
-    path, the multi-month savings-pace path, or a degraded reply) the
-    standing lines ARE the answer and are left exactly as they always were.
-
-    When an amount was asked AND there's a material bill in the payday
-    window, the bills line and the what-if line are BOTH shown: bills is the
-    REASON, the what-if is the CONSEQUENCE, and letting one silently
-    displace the other is exactly how the golf-session transcript ended up
-    with "£100 leaves £61 free" reading like an approval under a "No". The
-    same applies when a shortfall verdict adds a nearest-yes line, or a
-    "tight" verdict adds the post-spend daily rate that's the actual reason
-    it's tight — reason/consequence/next-step all outrank a derived
-    PRE-spend rate once there's a concrete amount on the table, so per-day
-    is what gets cut to make room (never bills, never the what-if, never
-    nearest-yes/tight-rate), and the cap rises from 3 lines to 4. The
-    standing free-until-payday line is cut here too now, for the same
-    contradiction reason above, not just to make room.
-
-    A multi-month savings question ("save £2000 for Japan by December") is
-    NOT a this-pay-period affordability question even though it carries an
-    amount — free_after_spend answers a different question than the one
-    asked. months_until_target is the signal (not the `offer` dict, which is
-    a derived UI artifact built in its own try/except and can fail to build
-    even when the question genuinely named a future month): when it's set,
-    this-period framing (bills-collision, the what-if line, nearest-yes) is
-    suppressed entirely and the savings-pace line owns the card instead,
-    exactly like the pre-existing behaviour this endpoint had before verdict
-    derivation was added. _derive_verdict shares the same signal so the
-    headline can never disagree with what the facts card is showing. Because
-    the what-if line is suppressed in this case, `has_delta` is also False
-    here — this path counts as "no delta" and keeps its standing lines.
-    """
-    free = facts.get("safe_to_spend") or 0.0
-    next_payday = facts.get("next_payday")
-    payday_label = None
-    if next_payday:
-        try:
-            payday_label = date.fromisoformat(str(next_payday)[:10]).strftime("%a %-d %b")
-        except ValueError:
-            payday_label = None
-    # free can be <= 0 (net of unpaid card growth) — see _nothing_spare_line.
-    free_line = (
-        (
-            f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
-            else f"{_fmt_gbp(free)} free until payday"
-        ) if free > 0 else _nothing_spare_line(payday_label, facts.get("short_reason"))
-    )
-
-    what_ifs = facts.get("what_ifs") or {}
-    amount_asked = what_ifs.get("amount_asked")
-    free_after_spend = what_ifs.get("free_after_spend")
-    is_multi_month = bool(what_ifs.get("months_until_target"))
-    bills_total = facts.get("bills_total")
-    bills_material = bool(bills_total)  # falsy for None/0 — nothing to explain
-
-    # safe_to_spend is already net of bills_total in the SAFETY sense (the
-    # bill timeline is walked before the floor is taken), but that isn't
-    # literally "subtracted from a balance you can point at" when income
-    # arrives before the bill and covers it without the running balance ever
-    # dipping — so this says "accounted for", not "taken off [a] figure",
-    # which would be false for that path. "due", not "land": a bill hasn't
-    # happened yet and this line must not read as a prediction that it will
-    # clear via a specific payment rail on a specific day.
-    bills_line = (
-        f"{_fmt_gbp(bills_total)} of bills due before payday, already accounted for"
-        if bills_material else None
-    )
-
-    # Multi-month savings question: the this-period what-if doesn't apply
-    # (see docstring) — suppress it so it can't sit next to, or replace, the
-    # savings-pace line below.
-    whatif_line = None
-    if not is_multi_month and amount_asked is not None and free_after_spend is not None:
-        whatif_line = _whatif_delta_line(amount_asked, free_after_spend)
-
-    # _derive_verdict already returns None for the multi-month case, so
-    # nothing further needs to check is_multi_month explicitly below.
-    verdict = _derive_verdict(what_ifs, free)
-
-    nearest_yes_line = None
-    if verdict == "no":
-        nearest = _nearest_yes_amount(free)
-        if nearest is not None:
-            nearest_yes_line = f"{_fmt_gbp(nearest)} would work"
-
-    tight_rate_line = None
-    if verdict == "tight":
-        per_day_after = what_ifs.get("per_day_after")
-        if per_day_after is not None:
-            tight_rate_line = f"That leaves about {_fmt_rate(per_day_after)} a day until payday"
-
-    # See the "STANDING vs DELTA" docstring section above: `whatif_line` IS
-    # the delta fact ("£A leaves £B free" / "£A would take you −£B"), already
-    # gated above to only exist for a this-period, amount-bearing question
-    # (never multi-month). Its presence is therefore the exact signal for
-    # "drop the standing free-until-payday/per-day lines from what's echoed
-    # here" — `nearest_yes_line`/`tight_rate_line` can only be non-None when
-    # `_derive_verdict` resolved a verdict, which itself requires an amount
-    # (and no months_until_target), so they can never fire without
-    # `whatif_line` also being set; no separate check needed for them.
-    has_delta = whatif_line is not None
-
-    # `lines` starts empty on the delta path (the standing free-until-payday
-    # line is withheld, not appended-then-trimmed) and with the standing
-    # free-until-payday line on every other path, unchanged from before.
-    lines: list[str] = [] if has_delta else [free_line]
-
-    # Both-lines case: bills is material AND there's a spend consequence
-    # (what-if, nearest-yes, or the tight-rate line) to put next to it.
-    # Per-day is dropped here by design, not squeezed into a 4th slot
-    # alongside it — see docstring. Judged this cleaner than always maxing
-    # out at 4 lines: once the reader can see the exact bills figure and the
-    # exact result of their spend, a derived pre-spend £/day rate is
-    # redundant restatement, not new information. `lines` already omits the
-    # standing free-until-payday line here too (has_delta is always True in
-    # this branch — see docstring), so bills/tight-rate/nearest-yes get the
-    # remaining slots to themselves. `whatif_line` itself is deliberately
-    # NOT appended here (see the "HEADLINE = DELTA" docstring section above)
-    # — it is the headline now, so bills is the REASON and tight-rate/
-    # nearest-yes are the remaining consequence/next-step lines.
-    if bills_material and (whatif_line is not None or nearest_yes_line is not None):
-        lines.append(bills_line)
-        if tight_rate_line:
-            lines.append(tight_rate_line)
-        if nearest_yes_line:
-            lines.append(nearest_yes_line)
-        return lines[:4]
-
-    # Standing per-day rate: only on the no-delta path (see docstring) — once
-    # there's a delta, the post-spend £B in `whatif_line` already tells the
-    # user where they'll stand, and a PRE-spend £/day rate sitting above it
-    # is the exact standing-vs-delta contradiction this change exists to cut.
-    # Also only when free > 0 — a negative daily rate is meaningless and the
-    # nothing-spare line above already covers this case (see
-    # _nothing_spare_line).
-    if not has_delta and free > 0:
-        per_day = facts.get("per_day")
-        if per_day is not None:
-            lines.append(_per_day_line(per_day))
-
-    third: str | None = None
-
-    # Multi-month savings pace — the offer/savable branch WINS whenever it
-    # applies (see docstring): this is checked first, same priority it had
-    # before verdict derivation existed, and whatif_line is already None in
-    # this case so it can never be picked below instead.
-    if offer and what_ifs.get("savable_by_target") is not None:
-        try:
-            target = date.fromisoformat(str(offer["target_date"])[:10])
-            target_label = f"{MONTH_NAMES[target.month - 1].capitalize()} {target.year}"
-        except (KeyError, ValueError, IndexError):
-            target_label = None
-        if target_label:
-            third = f"Saving at this pace, about {_fmt_gbp(what_ifs['savable_by_target'])} by {target_label}"
-
-    # `whatif_line` is deliberately NOT a candidate for `third` any more (see
-    # the "HEADLINE = DELTA" docstring section above) — it is the headline
-    # whenever it exists, never a fact line, so it is skipped straight to the
-    # next candidate here.
-    if third is None:
-        mentioned = next(
-            (ci for ci in facts.get("change_intents", []) if ci.get("mentioned_in_question")),
-            None,
-        )
-        if mentioned and mentioned.get("usual_30d") is not None:
-            third = f"{mentioned['category']} usual pace is about {_fmt_gbp(mentioned['usual_30d'])} this period"
-        elif bills_line:
-            third = bills_line
-
-    if third:
-        lines.append(third)
-
-    # Tight-rate / standalone nearest-yes (bills weren't material, so no
-    # collision branch above) still outrank nothing further at this point —
-    # append whichever applies (mutually exclusive, since verdict is exactly
-    # one of no/tight/yes) and only then allow the 4th slot.
-    extra = tight_rate_line or nearest_yes_line
-    if extra and extra not in lines:
-        lines.append(extra)
-        return lines[:4]
-    return lines[:3]
-
-
+# `_compose_facts` used to live here: it built the muted grey "facts" list
+# shown underneath Penny's reply bubble. Owner order, 2026-08-25 (the
+# "duplication war" — his own screenshot showed a debt reply quoting
+# "£23,587.71 carried across five cards" with a grey line underneath reading
+# "£24,261 total card debt", two unexplained aggregations of the same debt,
+# side by side): "all these grayed out answers can we remove all of them."
+# Every /can-i path now returns `facts: []`; every figure that list used to
+# echo either already lives in the LLM's own grounding (bills_total,
+# what_ifs.per_day_after, ...) or has been added to it here (see
+# `what_ifs["nearest_yes_amount"]` below) with a prompt instruction to weave
+# it into the REPLY prose where relevant, instead of printing it twice. The
+# function was calling only `_nearest_yes_amount` (still used directly
+# below), `_whatif_delta_line`, `_per_day_line` and `_nothing_spare_line`
+# (all four still used elsewhere in this file) — nothing else depended on
+# it, so it was deleted outright rather than left dead.
 def _extract_amount(question: str) -> float | None:
     """Largest plausible £ figure mentioned in the question, or None.
 
@@ -1119,8 +912,10 @@ async def _call_penny_phrasing(system_prompt: str, question: str, history: list[
 def _domain_response(headline: str, reply_text: str, facts: list[str]) -> dict:
     """Same response contract every path in this file already returns:
     reply/headline/facts/explainer/topic/out_of_scope. `facts` is left
-    un-house-styled on purpose, matching `_compose_facts`'s output in the
-    affordability path below (only reply/headline are voice-scrubbed)."""
+    un-house-styled on purpose (only reply/headline are voice-scrubbed).
+    Every caller now passes `[]` here — the muted grey facts tier under
+    Penny's reply was removed outright, owner order 2026-08-25 — but the
+    parameter stays so a future path can't quietly forget the contract."""
     return {
         "reply": _house_style(reply_text),
         "headline": _house_style(headline),
@@ -1395,12 +1190,22 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
         )
 
     reading = verdict.get("reading")
+    # Translate the one jargon "move" sentence compose_reading can produce
+    # BEFORE it goes anywhere — see _translate_move_jargon docstring. Every
+    # other sentence shape passes through unchanged.
+    #
+    # IMPORTANT — `translated_reading` is GROUNDING for the LLM only (see
+    # `grounding["reading"]` below) and material for the LLM-failure
+    # fallback reply (see the `except` block below); it must NEVER be
+    # appended to `facts`. `facts` is never shown to the user at all any
+    # more (`_domain_response`'s third argument is always `[]` now, owner
+    # order 2026-08-25 — the grey facts tier under Penny's reply is gone),
+    # but `translated_reading` still shouldn't duplicate the Spend page's
+    # own summary sentence (owner screenshot, 2026-08-25) inside `facts`,
+    # since `facts` also feeds the LLM-failure fallback reply below and
+    # would otherwise print that sentence twice in the degraded case.
+    translated_reading = _translate_move_jargon(reading) if reading else None
     facts: list[str] = []
-    if reading:
-        # Translate the one jargon "move" sentence compose_reading can
-        # produce BEFORE it becomes a chat fact — see _translate_move_jargon
-        # docstring. Every other sentence shape passes through unchanged.
-        facts.append(_translate_move_jargon(reading))
     notables = verdict.get("notables") or []
     if notables:
         top = notables[0]
@@ -1420,7 +1225,13 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
         resolved_headline = _spend_pace_headline(verdict.get("state"), reading)
     else:
         resolved_headline = _spend_resolved_headline(verdict.get("state"), notables)
+    # `grounding["grounding"]` stays the ECHOED `facts` list (unchanged
+    # contract for the prompt template's own JSON shape); `grounding["reading"]`
+    # is the ONLY place `translated_reading` reaches the model — grounding,
+    # never something shown to the user directly.
     grounding: dict = {"state": verdict.get("state"), "question_type": subintent, "grounding": facts}
+    if translated_reading:
+        grounding["reading"] = translated_reading
     if resolved_headline:
         grounding["resolved_verdict"] = resolved_headline
 
@@ -1435,11 +1246,19 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
         # that answer without the prose polish rather than a 500. No usage
         # increment: a failed call must not cost the user a quota unit, same
         # rule the pre-existing tax/affordability paths already follow.
+        #
+        # The REPLY text on this path is composed from `translated_reading`
+        # first (when present), not from the trimmed `facts` alone — unlike
+        # the successful-LLM path, there is no model prose here at all, so
+        # this fallback reply is the ONLY content the user gets. The THIRD
+        # argument to `_domain_response` is always `[]` (see that function's
+        # own docstring) regardless of what fed the REPLY string.
         logger.warning("can_i: spend domain phrasing call failed for %s, serving engine-only reply", uid)
+        fallback_lines = ([translated_reading] if translated_reading else []) + facts
         return _domain_response(
             resolved_headline or "Your spending so far",
-            _fallback_reply_from_facts(facts),
-            facts,
+            _fallback_reply_from_facts(fallback_lines),
+            [],
         )
     await increment_ai_chat_usage(uid)
     headline, reply_text = _parse_headline_reply(raw)
@@ -1448,7 +1267,7 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
     # model to copy resolved_verdict verbatim, this line guarantees it.
     if resolved_headline:
         headline = resolved_headline
-    return _domain_response(headline, reply_text, facts)
+    return _domain_response(headline, reply_text, [])
 
 
 _PLANNING_SYSTEM_TEMPLATE = (
@@ -1599,7 +1418,7 @@ async def _handle_planning_domain(
         return _domain_response(
             resolved_headline or "Your plans",
             _fallback_reply_from_facts(facts),
-            facts,
+            [],
         )
     await increment_ai_chat_usage(uid)
     headline, reply_text = _parse_headline_reply(raw)
@@ -1610,7 +1429,7 @@ async def _handle_planning_domain(
     # temperature-0 model still slips.
     if resolved_headline:
         headline = resolved_headline
-    return _domain_response(headline, reply_text, facts)
+    return _domain_response(headline, reply_text, [])
 
 
 # Fixed strings, never composed from a variable, so this card can never
@@ -1655,6 +1474,16 @@ _DEBT_SYSTEM_TEMPLATE = (
     "soften it, do not contradict it. Your REPLY must not restate or echo "
     "the verdict either, write only the single most important supporting "
     "detail. "
+    "FACTS.carried_debt is the ONLY figure for the user's total card debt: "
+    "use it, and only it, every time you refer to their overall card debt, "
+    "worded the same way each time (e.g. '£X total card debt' or '£X "
+    "carried on your cards'). NEVER sum, recompute or otherwise derive a "
+    "second debt total from anything else in FACTS, and never quote more "
+    "than one debt total in the same reply, even if it looks like it would "
+    "add useful detail, that is exactly the kind of unexplained second "
+    "number that reads as a mistake. If FACTS.monthly_cleared is present, "
+    "describe it as spending the user clears in full each month, never as "
+    "debt, and never combine it with carried_debt into a new figure. "
     "Direct, never curt, never moralising, "
     "never 'you should'. British English. Write in plain, human "
     "punctuation: no em-dashes (—) or en-dashes (–); use a comma, "
@@ -1704,7 +1533,29 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
             [],
         )
 
-    facts: list[str] = [f"{_fmt_gbp(debt)} total card debt"]
+    # Owner-reported trust bug, 2026-08-24 (his own screenshot): a debt
+    # reply quoted "£23,587.71 carried across five cards" in the REPLY
+    # sentence with "£24,261 total card debt" sitting underneath as a grey
+    # fact, two different aggregations of the same debt, unexplained, side
+    # by side. `totals["debt"]` sums EVERY card's balance, including cards
+    # the user clears in full each month (classification "cleared_monthly")
+    # — that float is monthly spending, not carried debt. `lead_debt` below
+    # picks the SAME one true "carried" figure the debt page itself leads
+    # with (DebtPlanPage.tsx's VerdictBlock: `buckets.carried_total` when
+    # there's a material cleared-monthly float, else the plain `totals.debt`
+    # when there isn't one to separate out) — this handler must never quote
+    # both numbers, and the prompt instruction below (FACTS.carried_debt)
+    # backs that up structurally rather than just asking nicely.
+    buckets = totals.get("buckets") or {}
+    float_total = float(buckets.get("float_total") or 0)
+    carried_total = buckets.get("carried_total")
+    lead_debt = (
+        float(carried_total)
+        if float_total >= 1 and carried_total is not None
+        else debt
+    )
+
+    facts: list[str] = [f"{_fmt_gbp(lead_debt)} total card debt"]
     monthly_interest = totals.get("monthly_interest_now")
     if monthly_interest:
         facts.append(f"About {_fmt_gbp(monthly_interest)} in interest this month, from observed charges")
@@ -1713,6 +1564,8 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
         facts.append(f"On current pace, clear by around {_month_label_to_human(str(debt_free_month))}")
     else:
         facts.append("No clear debt-free date on current pace yet")
+    if float_total >= 1:
+        facts.append(f"{_fmt_gbp(float_total)} of monthly spending cleared in full, not carried debt")
     facts = facts[:4]
 
     # Resolved verdict — see _DEBT_VERDICT_HEADLINES above. `totals["verdict"]`
@@ -1724,7 +1577,22 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
     # taking down an otherwise-answerable chat reply.
     resolved_headline = _DEBT_VERDICT_HEADLINES.get(totals.get("verdict"))
 
-    grounding: dict = {"totals": totals, "grounding": facts}
+    # Curated grounding, NOT the raw `totals` dict — the raw dict carries
+    # several genuinely different debt aggregations side by side
+    # (`totals["debt"]`, `buckets.carried_total`, `buckets.float_total`, ...)
+    # and handing all of them to the model as one opaque JSON blob is
+    # exactly how it ended up quoting two of them in one reply (see the
+    # comment above `lead_debt`). Only the single resolved `carried_debt`
+    # figure, and the float amount under its own honestly-described name,
+    # ever reach the model now.
+    grounding: dict = {
+        "carried_debt": lead_debt,
+        "monthly_cleared": float_total if float_total >= 1 else None,
+        "monthly_interest_now": monthly_interest,
+        "debt_free_month": debt_free_month,
+        "verdict": totals.get("verdict"),
+        "grounding": facts,
+    }
     if resolved_headline:
         grounding["resolved_verdict"] = resolved_headline
 
@@ -1746,7 +1614,7 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
         return _domain_response(
             resolved_headline or "Your card debt",
             _fallback_reply_from_facts(facts),
-            facts,
+            [],
         )
     await increment_ai_chat_usage(uid)
     headline, reply_text = _parse_headline_reply(raw)
@@ -1758,7 +1626,7 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
     # off — see the golf-session note on `_derive_verdict`).
     if resolved_headline:
         headline = resolved_headline
-    return _domain_response(headline, reply_text, facts)
+    return _domain_response(headline, reply_text, [])
 
 
 # ── Payday-status reassurance — deterministic template, no LLM ──────────────
@@ -1922,42 +1790,34 @@ async def _handle_payday_status_question(uid: str, sts: dict | None = None) -> d
         except ValueError:
             payday_label = None
 
-    # Mirrors _compose_facts's own phrasing for the same underlying figures
-    # (free-until-payday, per-day rate, bills-already-accounted-for) so this
-    # fixed template can never read as a different voice from the LLM-phrased
-    # affordability path answering the same underlying question. free can be
-    # <= 0 (net of unpaid card growth) — the per-day rate is dropped
-    # entirely in that case, never shown negative; see _nothing_spare_line.
+    # These used to be the composed grey "facts" lines shown underneath an
+    # empty `reply` (free-until-payday, per-day rate, bills-already-
+    # accounted-for). Owner order, 2026-08-25: the grey facts tier is gone
+    # everywhere, so this content has nowhere left to live except `reply`
+    # itself — `lines` below is the same set of sentences, in the same
+    # order, now joined into flowing prose by `_fallback_reply_from_facts`
+    # (the same "each line becomes its own sentence" join every domain
+    # handler's LLM-failure fallback already uses) rather than printed as a
+    # separate list. `headline` still carries the verdict word; this stays a
+    # zero-LLM path exactly as before. free can be <= 0 (net of unpaid card
+    # growth) — the per-day rate is dropped entirely in that case, never
+    # shown negative; see _nothing_spare_line.
     if free > 0:
-        facts = [
+        lines = [
             f"{_fmt_gbp(free)} free until {payday_label}" if payday_label
             else f"{_fmt_gbp(free)} free until payday",
             _per_day_line(round(free / max(1, days_until_payday), 2)),
         ]
     else:
-        facts = [_nothing_spare_line(payday_label, short_reason)]
+        lines = [_nothing_spare_line(payday_label, short_reason)]
     if bills_total:
-        facts.append(f"{_fmt_gbp(bills_total)} of bills due before payday, already accounted for")
-    facts = facts[:3]
+        lines.append(f"{_fmt_gbp(bills_total)} of bills due before payday, already accounted for")
+    lines = lines[:3]
 
-    # No connective sentence here on purpose: every figure this handler has
-    # to offer (free-until-payday, the per-day rate, the bills note) is
-    # already in `facts` above, and `headline` already carries the verdict
-    # word. A previous version ran `facts` through `_fallback_reply_from_
-    #_facts` and put THAT in `reply` too, so the bubble printed the same
-    # three lines twice: once concatenated into the reply paragraph, again
-    # as the facts list (`reply.startsWith(headline)`, PennyConversation.tsx's
-    # only dedupe guard, never fires here because the concatenated reply
-    # starts with a £ figure, not the headline text). `reply: str` is the
-    # wire contract (see CanIResponse in frontend/lib/api.ts — never nullable
-    # here, unlike `headline`), and PennyConversation's bubble only renders
-    # the reply paragraph when it's truthy (`msg.reply && ...`), so an empty
-    # string is the correct "nothing to add beyond the facts" value: it
-    # satisfies the string contract and renders nothing extra.
     headline = _PAYDAY_STATUS_HEADLINES.get(state, "Here's where things stand")
     if state == "short" and short_reason == "cards":
         headline = _PAYDAY_STATUS_SHORT_CARDS_HEADLINE
-    return _domain_response(headline, "", facts)
+    return _domain_response(headline, _fallback_reply_from_facts(lines), [])
 
 
 @router.post("/can-i")
@@ -2149,14 +2009,16 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         except Exception:
             pass
         worked_example = f"Can I spend £{example_amount} {timeframe}?"
+        # The old grey facts list (scope statement + "Try:" example) is gone,
+        # owner order 2026-08-25 — folded into `reply` itself as one short
+        # sentence instead of a separate echoed list.
         return {
-            "reply": f'I can answer spending questions, try "{worked_example}".',
+            "reply": (
+                "I answer spending, affordability and UK tax questions from "
+                f'your live numbers, try "{worked_example}".'
+            ),
             "headline": "That one's outside what I can work out from your numbers.",
-            "facts": [
-                "I answer spending and affordability questions from your live balances.",
-                "I can also answer UK tax and allowance questions.",
-                f"Try: {worked_example}",
-            ],
+            "facts": [],
             "explainer": False,
             "topic": None,
             "out_of_scope": True,
@@ -2410,9 +2272,9 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     #     what-if delta ("£35 leaves £149 free" / "£250 would take you
     #     −£66") necessarily exists too — same preconditions, see
     #     `_whatif_delta_line`. That factual sentence becomes the headline
-    #     directly; `_compose_facts` no longer echoes it as a fact line (see
-    #     its own "HEADLINE = DELTA" docstring section) so it never prints
-    #     twice.
+    #     directly; it is never separately echoed anywhere else in the
+    #     response (the grey facts tier this used to also print in is gone,
+    #     owner order 2026-08-25) so it never prints twice.
     # (2) FIT headline — the one amount-bearing branch with no delta to use:
     #     a multi-month savings question. `_derive_verdict` is deliberately
     #     never hijacked for this case, so `_multimonth_fit_headline` stands
@@ -2446,6 +2308,19 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     if resolved_headline is not None:
         facts["resolved_verdict"] = resolved_headline
+
+    # Nearest-yes amount — GROUNDING for the LLM's reply, not a separate
+    # echoed fact any more (the grey facts tier that used to show "£180
+    # would work" underneath a "no" verdict is gone, owner order
+    # 2026-08-25). Genuinely useful information, so it moves into what_ifs
+    # instead of disappearing: the system prompt below explicitly asks the
+    # model to weave it into the REPLY sentence when present. Same gating
+    # `_nearest_yes_amount` itself already applies (a "no" verdict, and only
+    # when a smaller round amount actually fits).
+    if derived_verdict == "no":
+        _nearest = _nearest_yes_amount(safe_to_spend)
+        if _nearest is not None:
+            what_ifs["nearest_yes_amount"] = _nearest
 
     # ── Commitment hand-off offer (deterministic, never LLM-authored) ────
     # When the question carries both an amount and a target month, offer to
@@ -2508,7 +2383,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         resp_body = {
             "reply": _house_style(_nothing_spare_line(_payday_label, sts.get("short_reason"))),
             "headline": _house_style(resolved_headline),
-            "facts": _compose_facts(facts, offer),
+            "facts": [],
             "explainer": False,
             "topic": None,
             "out_of_scope": False,
@@ -2561,7 +2436,16 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "ONLY the single most important NEW interpretation, a sentence that assumes "
         "resolved_verdict is already true (name the daily rate that makes a "
         "tight-looking delta tight; name what's in the way of a shortfall, or what "
-        "would work instead; never a second attempt at a verdict). If "
+        "would work instead; never a second attempt at a verdict). When "
+        "resolved_verdict is a shortfall (the £ delta is negative) and "
+        "what_ifs.nearest_yes_amount is present, weave it into your REPLY as the "
+        "amount that would actually work instead, e.g. 'X would work' or 'X still "
+        "fits' — this is the single most useful thing you can tell them, prefer it "
+        "over any other detail when both are available. When resolved_verdict is "
+        "tight, use what_ifs.per_day_after for the daily-rate detail. When a "
+        "material bills_total sits in the same payday window, you may name it as "
+        "the reason, but never invent a due date or payment method for it beyond "
+        "what bills_total/upcoming_bills already state. If "
         "FACTS.resolved_verdict is ABSENT (this only happens when no amount was "
         "named at all), there is no headline to copy: decide your own HEADLINE as "
         "instructed below. If they name a thing "
@@ -2644,7 +2528,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     resp_body: dict = {
         "reply": _house_style(reply_text),
         "headline": _house_style(headline),
-        "facts": _compose_facts(facts, offer),
+        "facts": [],
         "explainer": False,
         "topic": None,
         "out_of_scope": False,
