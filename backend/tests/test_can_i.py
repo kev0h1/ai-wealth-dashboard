@@ -1,23 +1,40 @@
 """Unit tests for the PURE (no-DB, no-network) seams in app.routers.can_i:
-`_derive_verdict`, `_nearest_yes_amount`, `_fmt_rate`/`_per_day_line`, and
-`_compose_facts`.
+`_derive_verdict`, `_nearest_yes_amount`, `_fmt_rate`/`_per_day_line`,
+`_compose_facts`, `_whatif_delta_line`, `_multimonth_fit_headline`,
+`_DEBT_VERDICT_HEADLINES`, and `_is_saving_vs_investing_question`.
 
 The whole point of moving the Can-I verdict off the LLM (see can_i.py's
-module docstring and _derive_verdict's own docstring) is that the one word
+module docstring and _derive_verdict's own docstring) is that the headline
 the user reads becomes testable arithmetic instead of a temperature-0 guess.
 These tests pin that arithmetic down, in particular the golf-session bug
 (a positive free_after_spend must never render as a refusal) and the
 follow-up review findings: a multi-month savings question must not be
 answered as a this-pay-period affordability question, and a "tight" verdict
 must always carry the number that makes it tight.
+
+Owner decision, 2026-08-25: the headline itself is no longer a verdict word
+("Yes"/"Not this one"/"Yes, but it'll be tight" all read as advice — a
+recommendation on what the user should do — even though the numbers behind
+them are entirely the user's own). `_derive_verdict`'s internal yes/tight/no
+result is UNCHANGED and still tested below (it still drives which
+consequence fact `_compose_facts` adds), but what is now SHOWN as the
+headline is either the factual what-if delta (`_whatif_delta_line`) or, for
+the one amount-bearing branch with no delta, a softened factual-conditional
+fallback (`_multimonth_fit_headline`). `_compose_facts` no longer echoes the
+delta line as a fact underneath the headline — see the "no verdict word can
+be produced" and "delta absent from facts" tests below, which are this
+change's regression guard.
 """
 from app.routers.can_i import (
     _compose_facts,
+    _DEBT_VERDICT_HEADLINES,
     _derive_verdict,
     _fmt_rate,
+    _is_saving_vs_investing_question,
+    _multimonth_fit_headline,
     _nearest_yes_amount,
     _per_day_line,
-    _VERDICT_HEADLINES,
+    _whatif_delta_line,
 )
 
 
@@ -116,10 +133,66 @@ def test_derive_verdict_multi_month_target_is_never_hijacked():
     assert _derive_verdict(wi, 300.0) is None
 
 
-def test_verdict_headlines_exact_strings():
-    assert _VERDICT_HEADLINES["no"] == "Not this one"
-    assert _VERDICT_HEADLINES["tight"] == "Yes, but it'll be tight"
-    assert _VERDICT_HEADLINES["yes"] == "Yes"
+# ── Affordability/debt HEADLINE strings (owner decision, 2026-08-25) ─────
+# The exact strings below are now the product's voice, not an implementation
+# detail — pinned the same way _fmt_rate/_per_day_line are, so drift is
+# caught here, not by a screenshot months later.
+
+def test_whatif_delta_line_positive_is_the_delta_headline():
+    # This exact sentence is now shown as the affordability HEADLINE itself
+    # (see can_i.py's `can_i` handler) whenever _derive_verdict resolves.
+    assert _whatif_delta_line(100.0, 61.0) == "£100 leaves £61 free"
+
+
+def test_whatif_delta_line_negative_is_the_delta_headline():
+    assert _whatif_delta_line(250.0, -89.0) == "£250 would take you −£89"
+
+
+def test_multimonth_fit_headline_covers_target_is_that_fits():
+    # savable_by_target (2000) covers amount_asked (1600) -> fits.
+    assert _multimonth_fit_headline(2000, 1600) == "That fits"
+
+
+def test_multimonth_fit_headline_short_of_target_is_that_doesnt_fit():
+    # savable_by_target (1600) falls short of amount_asked (2000) -> doesn't fit.
+    assert _multimonth_fit_headline(1600, 2000) == "That doesn't fit"
+
+
+def test_multimonth_fit_headline_exactly_equal_counts_as_fits():
+    # >= , not > — exactly covering the target is still a fit, not a miss.
+    assert _multimonth_fit_headline(2000, 2000) == "That fits"
+
+
+def test_debt_verdict_headlines_exact_strings():
+    # Debt counselling is a regulated activity — these strings are strictly
+    # descriptive (what the numbers are doing), never advisory.
+    assert _DEBT_VERDICT_HEADLINES["bad"] == "Growing, not clearing"
+    assert _DEBT_VERDICT_HEADLINES["drifting"] == "Pace has slipped"
+    assert _DEBT_VERDICT_HEADLINES["good"] == "Clearing steadily"
+
+
+# Regression guard for the owner's advice-exposure decision: none of these
+# words may ever be producible as an affordability or debt headline again,
+# under any input. If a future change reintroduces one of them (e.g. by
+# adding it back to _DEBT_VERDICT_HEADLINES, or by some new code path
+# formatting a bare verdict word into a headline string), this test fails.
+_BANNED_VERDICT_WORDS = {"Yes", "No", "Not this one", "Needs attention"}
+
+
+def test_no_banned_verdict_word_producible_as_a_headline():
+    affordability_headlines = {
+        _whatif_delta_line(100.0, 61.0),
+        _whatif_delta_line(100.0, -3.0),
+        _whatif_delta_line(250.0, -89.0),
+        _multimonth_fit_headline(1600, 2000),
+        _multimonth_fit_headline(2000, 1600),
+    }
+    debt_headlines = set(_DEBT_VERDICT_HEADLINES.values())
+    all_headlines = affordability_headlines | debt_headlines
+    assert not (all_headlines & _BANNED_VERDICT_WORDS), all_headlines & _BANNED_VERDICT_WORDS
+    # Old debt strings must also be gone, not just the affordability ones.
+    assert "Slipping, not clearing" not in debt_headlines
+    assert "Clearing on track" not in debt_headlines
 
 
 # ── _nearest_yes_amount ──────────────────────────────────────────────────
@@ -179,52 +252,56 @@ def _facts(safe_to_spend, bills_total, wi, per_day=None):
     }
 
 
-def test_compose_facts_transcript_scenario_reads_as_approval_not_refusal():
+def test_compose_facts_transcript_scenario_delta_moved_to_headline():
     # safe_to_spend 161, bills_total 206, amount 100, 5 days — the exact
-    # golf-session numbers. Verdict is "yes" (see test above); the bills
-    # line and the what-if line must both be present and neither may read
-    # like it's telling a different story from the other.
+    # golf-session numbers. Verdict is "yes" (see test above). Owner
+    # decision, 2026-08-25: the what-if delta ("£100 leaves £61 free") is
+    # now the HEADLINE (see can_i.py's `can_i` handler), not an echoed fact
+    # — asserted absent here so it can never print twice under the headline
+    # that already shows the same sentence. The standing free-until-payday
+    # line is also dropped (has_delta), leaving only the bills REASON.
     wi = what_ifs(100.0, 161.0, 5)
     facts = _facts(161.0, 206, wi)
     lines = _compose_facts(facts, None)
     assert lines == [
-        "£161 free until Fri 28 Aug",
         "£206 of bills due before payday, already accounted for",
-        "£100 leaves £61 free",
     ]
+    assert "£100 leaves £61 free" not in lines  # now the headline, never a fact
+    assert "£161 free until Fri 28 Aug" not in lines  # standing line, dropped on delta path
 
 
 def test_compose_facts_bills_collision_refusal_gets_nearest_yes():
     # Amount exceeds safe_to_spend with a material bill in the way: bills is
-    # the reason, the negative what-if is the consequence, nearest-yes is
-    # the way forward — all three must appear, per-day must not (it's
-    # dropped to make room).
+    # the REASON, nearest-yes is the way forward — both must appear. The
+    # negative what-if delta ("£250 would take you −£89") is now the
+    # HEADLINE, not a fact (see the delta test above for why), and per-day
+    # is still dropped to make room, unchanged from before.
     wi = what_ifs(250.0, 161.0, 5)
     facts = _facts(161.0, 206, wi)
     lines = _compose_facts(facts, None)
     assert lines == [
-        "£161 free until Fri 28 Aug",
         "£206 of bills due before payday, already accounted for",
-        "£250 would take you −£89",
         "£160 would work",
     ]
+    assert "£250 would take you −£89" not in lines  # now the headline, never a fact
 
 
 def test_compose_facts_tight_verdict_shows_the_post_spend_rate():
     # safe_to_spend 161, bills 420, amount 100, 20 days: tight via the
     # per_day_after arm. The card must show the £3.05/day figure that IS
-    # the reason it's tight, not just a comfortable-looking "£61 free".
+    # the reason it's tight, not just a comfortable-looking "£61 free" —
+    # and the what-if delta itself ("£100 leaves £61 free") is now the
+    # HEADLINE, not a fact, same as the two tests above.
     wi = what_ifs(100.0, 161.0, 20)
     assert _derive_verdict(wi, 161.0) == "tight"
     facts = _facts(161.0, 420, wi, per_day=round(161.0 / 20, 2))
     facts["next_payday"] = "2026-09-13"  # 20 days out from the fixed 28 Aug default
     lines = _compose_facts(facts, None)
     assert lines == [
-        "£161 free until Sun 13 Sep",
         "£420 of bills due before payday, already accounted for",
-        "£100 leaves £61 free",
         "That leaves about £3.05 a day until payday",
     ]
+    assert "£100 leaves £61 free" not in lines  # now the headline, never a fact
 
 
 def test_compose_facts_savings_by_december_offer_branch_wins():
@@ -248,3 +325,47 @@ def test_compose_facts_savings_by_december_offer_branch_wins():
     joined = " ".join(lines)
     assert "£2,000" not in joined and "2000" not in joined  # no this-period what-if
     assert "would work" not in joined  # no nearest-yes
+
+
+# ── _is_saving_vs_investing_question ──────────────────────────────────────
+# Owner decision, 2026-08-25: "Should I be investing instead of saving?"
+# invites a personal investment recommendation (the FCA perimeter). Both
+# phrasings the grow-screen chip actually sends must route to the fixed
+# general-information explainer; an ordinary "am I saving enough?" question
+# (no investing word at all) must NOT, so it keeps going to the general
+# affordability path as before.
+
+def test_saving_vs_investing_matches_instead_of_phrasing():
+    assert _is_saving_vs_investing_question(
+        "Should I be investing instead of saving?", None
+    ) is True
+
+
+def test_saving_vs_investing_matches_vs_phrasing():
+    assert _is_saving_vs_investing_question(
+        "Saving vs investing, how does it work?", None
+    ) is True
+
+
+def test_saving_vs_investing_does_not_match_saving_enough():
+    # No investing word at all — must fall through harmlessly, never a false
+    # positive on ordinary "saving" vocabulary.
+    assert _is_saving_vs_investing_question("Am I saving enough?", None) is False
+
+
+def test_saving_vs_investing_does_not_match_with_a_priced_amount():
+    # A priced question is a real affordability ask the existing what-if
+    # machinery already answers — never this fixed explainer, which has no
+    # way to engage with a specific amount.
+    assert _is_saving_vs_investing_question(
+        "Can I afford to put £50 into an investment instead of savings?", 50.0
+    ) is False
+
+
+def test_saving_vs_investing_does_not_match_bare_co_occurrence():
+    # Both words present but no comparison connector — an ordinary accounts
+    # question, not a "how does this work" ask. Conservative on purpose (see
+    # the matcher's own comment): a false negative just falls through.
+    assert _is_saving_vs_investing_question(
+        "How much do I have in savings and investments?", None
+    ) is False
