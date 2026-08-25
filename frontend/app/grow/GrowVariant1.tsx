@@ -30,6 +30,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import MoneyText from "@/components/MoneyText";
 import SavingsGoalSheet from "@/components/SavingsGoalSheet";
 import SavingsPlanCard from "@/components/SavingsPlanCard";
+import BottomNav from "@/components/BottomNav";
 
 // ── formatting ───────────────────────────────────────────────────────────
 
@@ -341,7 +342,7 @@ export default function GrowVariant1() {
 
   return (
     <>
-    <div className="min-h-dvh pb-12 lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-xl mx-auto">
         <button
           onClick={() => goBack(router)}
@@ -501,6 +502,8 @@ export default function GrowVariant1() {
           </div>
         )}
       </div>
+
+      <BottomNav />
     </div>
 
     {sheetOpen && (

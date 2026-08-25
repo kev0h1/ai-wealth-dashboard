@@ -384,6 +384,11 @@ export default function SpendPage() {
   // miscategorisedCount + pairCount below.
   const [reviewTotal, setReviewTotal] = useState<number | undefined>(undefined);
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Guards the ?review=1 auto-open effect below against reading the counts'
+  // initial/default state as "zero candidates" — flips true once
+  // fetchMiscategorisedCount's request for the current period has settled
+  // (success or failure), never on the very first synchronous render.
+  const [miscategorisedLoaded, setMiscategorisedLoaded] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
   // Banner count is period-scoped server-side now (a series counts only if
@@ -392,7 +397,8 @@ export default function SpendPage() {
   const fetchMiscategorisedCount = useCallback((offset: number) => {
     api.getMiscategorisedCount(offset)
       .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); setPairCount(m.pair_count ?? 0); setReviewTotal(m.review_total); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setMiscategorisedLoaded(true));
   }, []);
 
   const loadData = useCallback(async () => {
@@ -413,6 +419,48 @@ export default function SpendPage() {
   useEffect(() => {
     fetchMiscategorisedCount(periodOffset);
   }, [periodOffset, fetchMiscategorisedCount]);
+
+  // Penny's spend chip ("Review transfers", lib/pennyScreenConfig.tsx) links
+  // here as /spend?review=1 instead of trying to open the sheet itself
+  // (MiscategorisedReviewSheet is this page's own component state, no route
+  // of its own). Auto-open it on arrival, same one-shot-query-param idiom as
+  // PlanningPage's ?day=/?bill= deep link and AccountsPage's ?cardTerms=:
+  // read the param, act on it, then router.replace it away so a refresh or
+  // back-navigation never replays it.
+  //
+  // RACE: reviewTotal/miscategorisedCount/pairCount above start at their
+  // empty defaults and only reflect the real answer once
+  // fetchMiscategorisedCount's request for the current period resolves — on
+  // a cold direct visit to /spend?review=1 that fetch hasn't landed yet on
+  // this effect's first pass. Gating on `miscategorisedLoaded` (set in
+  // fetchMiscategorisedCount's .finally above, on both success and failure)
+  // rather than reading the counts' initial zero values means this effect
+  // waits and re-checks once the real data lands, instead of misreading
+  // "not loaded yet" as "zero candidates" and wrongly bouncing to
+  // /transactions when there was actually something to review.
+  //
+  // This also covers the PRIMARY flow: the chip can be tapped from Penny's
+  // sheet while it's open OVER /spend itself (pathname unchanged). The
+  // chip's own generic handler (PennyConversation.tsx's link-chip tap)
+  // closes the sheet and does router.push("/spend?review=1") — same
+  // pathname, new query string. Next's app router still gives an
+  // already-mounted page a fresh useSearchParams() value on a same-route
+  // navigation, so this effect re-runs against the new `searchParams`
+  // reference and fires normally; no remount required.
+  useEffect(() => {
+    if (searchParams.get("review") !== "1") return;
+    if (!miscategorisedLoaded) return;
+    const hasCandidates = (reviewTotal ?? (miscategorisedCount + pairCount)) > 0;
+    if (!hasCandidates) {
+      router.replace("/transactions");
+      return;
+    }
+    setReviewOpen(true);
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete("review");
+    const q = rest.toString();
+    router.replace(q ? `/spend?${q}` : "/spend", { scroll: false });
+  }, [searchParams, miscategorisedLoaded, reviewTotal, miscategorisedCount, pairCount, router]);
 
   useEffect(() => {
     api.getSubscription()

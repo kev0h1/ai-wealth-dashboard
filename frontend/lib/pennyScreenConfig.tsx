@@ -52,16 +52,22 @@ import type { PennyAskContext } from "@/components/PennySheetProvider";
 export type PennyChip =
   | { kind: "ask"; label: string; q: string; deterministic?: boolean; short?: string }
   | { kind: "link"; label: string; href: string; short?: string };
-// `short` (2026-08-25, owner: chips become "a horizontally scrollable row
-// at the top ... summarised"): the compact label shown in the sheet's new
-// scrollable chip row (PennyConversation.tsx's top row, sheet mode only).
-// `label`/`q` stay the full question text — `short` is purely a display
-// affordance, never what gets sent or matched against `askedLabels`/
-// `dismissedChips` (those still key off `q`, see this file's header
-// comment). Optional: every `link` chip's `label` here is already short
-// ("Tax", "Receipts", "Your plan", "Fix a category"), so those fall back to
-// `label` unshortened (PennyConversation.tsx does `c.short ?? c.label`)
-// rather than adding a redundant field with the same value.
+// `short` — DEPRECATED, no longer read anywhere (2026-08-25, REVERTED: the
+// compact chip-row label added the same day for "a horizontally scrollable
+// row at the top ... summarised"). Owner screenshot found the actual bug
+// this shipped: the row showed "Still due?" right next to "What's still
+// due before payday?", the SAME question twice — once via a config chip's
+// `short` and once via a personalised suggestion whose full label rendered
+// untransformed, since summarising also strips meaning a short label like
+// "Still due?" isn't parseable on its own once separated from its chip.
+// PennyConversation.tsx's sheet-mode chip row now always renders `label`/
+// `q` in full (the row scrolls horizontally precisely so length is fine)
+// and no longer reads this field at all. Left in the type and on every
+// existing entry below rather than stripped out — the render change is the
+// decision that matters here, not a mechanical field removal across every
+// chip in this file — but treat it as dead: do not add `short` to a new
+// chip, and do not resurrect the old `c.short ?? c.label` read without
+// re-litigating this owner call first.
 
 export type PennyHeaderLink = { label: string; href: string };
 
@@ -128,18 +134,18 @@ const CONFIGS: Record<Exclude<PennyAskContext["screen"], "other">, ScreenConfig>
     chips: [
       { kind: "ask", label: "Where did my money go this month?", q: "Where did my money go this month?", short: "Where'd it go?" },
       { kind: "ask", label: "Am I spending more than usual?", q: "Am I spending more than usual?", short: "Spending more?" },
-      // /transactions is the real, routable categorisation surface. The two
-      // targets this feature's brief guessed at don't qualify: the
-      // Categories tab under Spend is retired (SpendPage.tsx's own comment:
-      // "the old three-way Categories/Transactions/Trends tabs are
-      // retired"), and the miscategorised-transfers review sheet has no
-      // route or query param of its own, it's local `reviewOpen` state on
-      // SpendPage opened only from that page's own in-page banner.
-      // /transactions ("the global transactions hub", per its own header
-      // comment) is where category correction actually lives app-wide,
-      // reached through TeachingSheet same as every other recategorise
-      // flow, so it's the honest "more on how to categorise" door.
-      { kind: "link", label: "Fix a category", href: "/transactions" },
+      // Was a blunt "Fix a category" link straight to /transactions — the
+      // owner's actual complaint (his screenshot: the Spend page's own "N
+      // transfers to review" banner opens a same-transfer-pairs review
+      // sheet with Penny-attributed reasons and confirm/reject, but this
+      // chip skipped straight past it to the raw all-transactions list).
+      // MiscategorisedReviewSheet is SpendPage's own component state with no
+      // route of its own, so this now points at /spend?review=1:
+      // SpendPage.tsx's own ?review= effect opens that exact sheet once its
+      // candidate counts have loaded, and — if there's genuinely nothing to
+      // review right now — self-falls-back to router.replace("/transactions")
+      // so this chip still lands somewhere useful either way.
+      { kind: "link", label: "Review transfers", href: "/spend?review=1" },
     ],
     personalisedChips: false,
   },
