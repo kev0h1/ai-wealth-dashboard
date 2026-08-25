@@ -65,6 +65,13 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   // back to 0 when there's no "ok" data yet; the hook itself no-ops until the
   // card actually renders these values.
   const okData = data?.status === "ok" ? data : null;
+  // Keyed off the raw backend fields on `okData`, not the locally remapped
+  // `state` computed further down: the rounding guard down there (freeAmount
+  // > -1 ⇒ "comfortable") exists to swallow float noise, not a real card
+  // reserve, so a "short"/"cards" pair must never get laundered into
+  // "comfortable" — see that remap's own comment. Computed this early so it
+  // can also gate the FREE tile's colour/word choice below.
+  const isCardsShort = okData?.state === "short" && okData?.short_reason === "cards";
   const nowTarget = okData?.spendable_now ?? 0;
   const billsTarget = zeroSafe(okData?.bills_total ?? 0);
   const freeTarget = okData ? Math.abs(zeroSafe(okData.safe_to_spend)) : 0;
@@ -97,20 +104,26 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
     safe_to_spend,
     state: rawState,
     next_payday,
-    bills_total,
     estimated,
     spendable_now,
     payday_income,
     card_debt,
+    short_reason,
+    card_growth_reserved,
+    safe_to_spend_cash,
   } = data;
 
   // Normalised free-cash figure — see zeroSafe above. A backend "short"
   // state only earns the alarm verdict/colour when the shortfall is real
   // (≥ £1 after normalisation); anything smaller is rounding noise and
   // falls through to the normal on-track ("comfortable") verdict path.
+  // Exception: a "short"/"cards" pair (isCardsShort, computed above) is
+  // never rounding noise, it's a real reserve the backend has already
+  // priced in, so it's excluded from the remap regardless of how small the
+  // sub-£1 gap looks.
   const freeAmount = zeroSafe(safe_to_spend);
   const state: "comfortable" | "tight" | "short" =
-    rawState === "short" && freeAmount > -1 ? "comfortable" : rawState;
+    rawState === "short" && !isCardsShort && freeAmount > -1 ? "comfortable" : rawState;
 
   const gap = Math.abs(freeAmount); // used when short (guaranteed >= 1 here)
 
@@ -128,49 +141,45 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
     : daysAway < 7 ? new Date(next_payday).toLocaleDateString("en-GB", { weekday: "long" })
     : new Date(next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-  // Non-colour state cue: distinct icon per state for colour-blind users
+  // Non-colour state cue: distinct icon per state for colour-blind users.
+  // Cards-short reads AMBER, the same signifier `tight` uses — bills are
+  // covered, nothing is genuinely at risk, so this must never render the
+  // red AlertTriangle (Red Is Risk Rule).
   const StateIcon =
     state === "comfortable" ? ShieldCheck
-    : state === "tight" ? AlertCircle
+    : state === "tight" || isCardsShort ? AlertCircle
     : AlertTriangle;
 
   const stateIconClass =
     state === "comfortable"
       ? "text-emerald-600 dark:text-emerald-400"
-      : state === "tight"
+      : state === "tight" || isCardsShort
       ? "text-amber-500 dark:text-amber-400"
       : "text-red-500 dark:text-red-400";
 
-  // ── Net-after-cards flow ────────────────────────────────────────────────
-  // Card growth so far this pay period, from GET /needle/summary. Framed as a
-  // flow ("in hand once that's counted"), never as a scary position — and
-  // never coloured red/rose per the Red Is Risk rule.
-  const cardDelta = cardDeltaSoFar ?? null;
-  const showCardStrip =
-    cardDelta !== null && (card_debt ?? 0) > 0 && freeAmount > 0;
-  const cardsGrew = showCardStrip && (cardDelta as number) >= 10;
-  const cardsDown = showCardStrip && (cardDelta as number) <= -10;
-  const netAfterCards = cardsGrew ? freeAmount - (cardDelta as number) : null;
+  // Card growth reserved this period, used by the verdict headline when
+  // isCardsShort. `cardDeltaSoFar` is a fallback only, for callers still on
+  // the older GET /needle/summary prop wiring; `card_growth_reserved` from
+  // this endpoint is the real source.
+  const cardGrowthAmount = card_growth_reserved ?? cardDeltaSoFar ?? gap;
 
   // ── 1. Verdict headline ───────────────────────────────────────────────────
+  // `safe_to_spend` is already net of unpaid card growth (single source of
+  // truth), so the headline never does its own arithmetic on it. The only
+  // extra branch is "short because of cards" — bills are covered, the spare
+  // just went on plastic — which reads AMBER (isCardsShort, defined above),
+  // not the red genuine-shortfall case reserved for `short_reason ===
+  // "bills"`.
   let verdictText: string;
   if (state === "comfortable") {
     verdictText = `You're okay. ${fmt(freeAmount)} to spare this pay period.`;
-    if (cardsGrew && netAfterCards !== null) {
-      verdictText = netAfterCards > 0
-        ? `You're okay. ${fmt(freeAmount)} to spare, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `You're okay for bills. ${fmt(freeAmount)} to spare, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
-    }
   } else if (state === "tight") {
     verdictText = `Tight until your pay period ends. ${fmt(freeAmount)} in hand.`;
-    if (cardsGrew && netAfterCards !== null) {
-      verdictText = netAfterCards > 0
-        ? `Tight until period end. ${fmt(freeAmount)} cash in hand, ${fmt(netAfterCards)} ahead once credit cards are counted.`
-        : `Tight until period end. ${fmt(freeAmount)} cash in hand, though credit cards have grown ${fmt(cardDelta as number)} this month.`;
-    }
+  } else if (isCardsShort) {
+    verdictText = `Bills are covered, but ${fmt(cardGrowthAmount)} has gone on cards this period. Nothing spare until payday.`;
   } else {
-    // Only reached when state === "short" AND freeAmount <= -1 (genuine
-    // shortfall) — see the remap above.
+    // Only reached when state === "short" AND short_reason === "bills" (or
+    // freeAmount <= -1 with no reason at all) — see the remap above.
     verdictText = `Short this pay period. ${fmt(gap)} to cover.`;
   }
 
@@ -178,7 +187,7 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   const freeClass =
     state === "comfortable"
       ? "text-emerald-600 dark:text-emerald-400"
-      : state === "tight"
+      : state === "tight" || isCardsShort
       ? "text-slate-900 dark:text-slate-100"
       : "text-red-500 dark:text-red-400";
 
@@ -187,14 +196,47 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
   const hasCardDebt = (card_debt ?? 0) >= 1000;
   const freshnessLabel = data.status === "ok" ? syncAgeLabel(data.last_synced) : null;
 
+  // ── Cash-vs-cards balance line ──────────────────────────────────────────
+  // The card's whole card story lives here, alongside the NOW/BILLS/FREE
+  // tiles: one verdict frame, cash in hand vs bills vs what's gone on
+  // cards. (No second, period-to-date flow frame on this card any more —
+  // that in/out review question belongs to Spend, whose header already
+  // shows OUT/IN pills.) Legitimate arithmetic (unlike the old equation
+  // strip this replaces, which subtracted a flow from a runway):
+  // chainBeforeCards minus the card reserve is exactly the FREE tile's
+  // figure, so this line spells out the sum the tile above no longer shows.
+  // Renders whenever the reserve is material, independent of state — it
+  // reads as a shortfall ("... short") or as headroom that survives the
+  // reserve ("... free"), whichever direction the balance actually lands.
+  //
+  // `safe_to_spend_cash` is NOT raw cash: compute_safe_to_spend walks the
+  // timeline from the spendable-account balance through upcoming bills and
+  // pre-payday income, takes the MINIMUM running balance, then subtracts
+  // safe_to_spend_buffer and commitments_reserved — all of that has already
+  // happened by the time this figure is captured, right before the card
+  // reserve is applied. It only equals `spendable_now` (the NOW tile) when
+  // bills, the buffer and commitments are all zero, which is why the label
+  // below describes its relationship to the card reserve ("before cards"),
+  // never claims to be a raw balance, and must never be swapped for
+  // `spendable_now` — that would silently break the arithmetic whenever
+  // bills or commitments are non-zero.
+  const showChainLine = (card_growth_reserved ?? 0) >= 10;
+  const chainBeforeCards = safe_to_spend_cash ?? nowTarget;
+  const chainWord = freeAmount < 0 ? "short" : "free";
+
   // ── CTA logic ────────────────────────────────────────────────────────────
   // If tight+card_debt: show "See your cards ›" CTA — taps through to /cards story.
   // If short: CTA goes to /planning.
   // If comfortable: no CTA.
   const showDebtCTA = state === "tight" && hasCardDebt;
   const showSpendCTA = state === "short";
-  // The chain strip already routes to /cards — this CTA is only a fallback when the strip can't render (no needle data)
-  const debtCTAVisible = showDebtCTA && !suppressCTA && !showCardStrip;
+  // The chain line above is already a card-relevant explanation whenever it
+  // renders (same >= £10 condition, `showChainLine`) — stacking a second
+  // "go look at cards" affordance directly under it reads as two competing
+  // taps rather than one calm verdict, so this CTA is suppressed in that
+  // case. When the chain line isn't showing, this CTA is the only card
+  // pointer and stays.
+  const debtCTAVisible = showDebtCTA && !suppressCTA && !showChainLine;
 
   return (
     <div className="hero-arrive sts-card relative rounded-3xl p-5 glass-hero">
@@ -235,8 +277,14 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Bills</span>
             <span className="text-base font-semibold text-slate-800 dark:text-slate-100 money text-left">{billsTarget > 0 ? "−" : ""}{hidden ? "£••••" : fmt(billsCounted)}</span>
           </div>
-          {/* FREE — minus sign (and red, via freeClass) only for a genuine
-              shortfall (state === "short", already gated to <= −£1). */}
+          {/* FREE — the real net figure, negative and all. A cards-driven
+              shortfall (isCardsShort) stays ink, not red — bills are
+              covered, the amber signifier lives on the state icon above,
+              not here — while a bills-driven shortfall keeps the red minus,
+              the only genuine-risk case (freeClass already encodes this).
+              NOW − BILLS no longer equals FREE once a card or commitments
+              reserve is in play; the chain line below carries that
+              explanation instead of the tiles pretending to sum. */}
           <div className="flex flex-col gap-0.5 items-start rounded-xl glass-tile px-3 py-2.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 text-left">Free</span>
             <span className={`text-base font-semibold money text-left ${freeClass}`}>
@@ -245,53 +293,20 @@ export default function SafeToSpendCard({ data, loading, suppressCTA, cardDeltaS
           </div>
         </div>
       )}
-      {/* The chain — this month as one equation, tappable through to /cards.
-          Inline spans on a shared baseline: glyphs can never float, and the
-          words replace eyebrow labels so column widths can't wander. */}
-      {showCardStrip && (
-        <button
-          onClick={() => router.push("/cards")}
-          className="w-full rounded-xl glass-tile px-3 py-2.5 flex items-center justify-between gap-3 active:scale-[0.98] transition-transform text-left"
-          aria-label={
-            cardsGrew
-              ? "See what drove this month's credit card spending"
-              : cardsDown
-              ? "See this month's credit card paydown"
-              : "See your credit cards"
-          }
-        >
-          <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-            {cardsGrew && netAfterCards !== null ? (
-              <>
-                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
-                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">−</span>
-                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(cardDelta as number)}</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">on credit cards</span>
-                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">=</span>
-                <span className={`text-base font-semibold money ${netAfterCards > 0 ? "text-slate-900 dark:text-slate-100" : "text-slate-900 dark:text-slate-100"}`}>
-                  {hidden ? "£••••" : fmt(Math.abs(netAfterCards))}
-                </span>
-                <span className={`text-[13px] ${netAfterCards > 0 ? "text-slate-500 dark:text-slate-400" : "text-amber-600 dark:text-amber-400"}`}>
-                  {netAfterCards > 0 ? "net" : "behind"}
-                </span>
-              </>
-            ) : cardsDown ? (
-              <>
-                <span className="text-base font-semibold money text-emerald-600 dark:text-emerald-400">{hidden ? "£••••" : fmt(Math.abs(cardDelta as number))}</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">paid off credit cards</span>
-              </>
-            ) : (
-              <>
-                <span className="text-base font-semibold money text-slate-600 dark:text-slate-300">{hidden ? "£••••" : fmt(freeAmount)}</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">free</span>
-                <span className="text-[13px] text-slate-400 dark:text-slate-500" aria-hidden="true">·</span>
-                <span className="text-[13px] text-slate-500 dark:text-slate-400">credit cards steady this month</span>
-              </>
-            )}
-          </p>
-          <span className="text-slate-400 dark:text-slate-500 text-sm flex-shrink-0" aria-hidden="true">›</span>
-        </button>
+      {/* Cash-vs-cards balance line — see showChainLine's own comment. Plain
+          supporting text, not a tile or a button: it explains the FREE
+          figure above, it isn't a separate verdict. The amber dot is the
+          only caution signifier (DESIGN.md "Figures Are Ink"): the figures
+          themselves never take amber or red. */}
+      {showChainLine && (
+        <p className="text-[13px] text-slate-500 dark:text-slate-400 num text-pretty flex items-center gap-1.5">
+          {chainWord === "short" && (
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400 flex-shrink-0" aria-hidden="true" />
+          )}
+          <MoneyText
+            text={`${hidden ? "£••" : fmt(chainBeforeCards)} before cards · ${hidden ? "£••" : fmt(card_growth_reserved ?? 0)} on cards · ${hidden ? "£••" : fmt(freeCounted)} ${chainWord}`}
+          />
+        </p>
       )}
       </div>
       <div className="space-y-1">

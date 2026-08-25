@@ -366,7 +366,7 @@ export type SpendVerdictUnresolved = {
 };
 
 export type SpendVerdictMoved = {
-  kind: "pots" | "credit_cards" | "investments";
+  kind: "pots" | "credit_cards" | "investments" | "own_accounts";
   label: string;
   amount: number;
   payments_count: number;
@@ -484,6 +484,8 @@ export type SafeToSpend =
   | { status: "insufficient_data" }
   | {
       status: "ok";
+      /** Single source of truth for "what's free right now" — NET of any
+       * unpaid credit card growth reserved against the pot. */
       safe_to_spend: number;
       next_payday: string;
       days_until_payday: number;
@@ -505,6 +507,13 @@ export type SafeToSpend =
        * (monthly)" instead of the ambiguous "/period". Null/absent when
        * the user's rhythm is custom/irregular — render unqualified. */
       commitments_reserved_period_label?: string | null;
+      /** The old cash-only runway (after commitments, before the card
+       * reserve) — kept for reference, not the figure to lead with. */
+      safe_to_spend_cash?: number;
+      /** >= 0, unpaid credit card growth reserved out of the pot. */
+      card_growth_reserved?: number;
+      /** Non-null only when state === "short" — which kind of shortfall. */
+      short_reason?: "bills" | "cards" | null;
     };
 
 // ── Commitments — named future big expenses (holiday, car, fees) ─────────────

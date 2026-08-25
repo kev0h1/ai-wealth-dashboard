@@ -1042,9 +1042,16 @@ export default function PennyConversation({
         // is informational, not something gone wrong in the user's money.
         if (!sts || sts.status !== "ok") { setPaydayLeadFailed(true); return; }
         const dateLabel = formatPaydayDateLabel(sts.next_payday);
-        const facts = [`£${Math.round(sts.safe_to_spend).toLocaleString("en-GB")} free until ${dateLabel}`];
-        if (sts.days_until_payday > 0) {
-          const perDay = Math.round(sts.safe_to_spend / sts.days_until_payday);
+        // `safe_to_spend` is net of unpaid card growth and can land at or
+        // below zero (a "short" pot) — never turn that into a negative
+        // "free" figure or a negative daily rate, which would read as
+        // permission to spend money that isn't there.
+        const freeAmt = Math.round(sts.safe_to_spend);
+        const facts = freeAmt > 0
+          ? [`£${freeAmt.toLocaleString("en-GB")} free until ${dateLabel}`]
+          : [`Nothing spare until ${dateLabel}, bills come first`];
+        if (freeAmt > 0 && sts.days_until_payday > 0) {
+          const perDay = Math.round(freeAmt / sts.days_until_payday);
           facts.push(`That's about £${perDay.toLocaleString("en-GB")} a day`);
         }
         // Estimate flag folded into the first (amount) fact line, muted
