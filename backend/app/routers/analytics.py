@@ -2141,9 +2141,30 @@ async def compute_safe_to_spend(uid: str) -> dict:
        (negative) and pre-payday non-salary income (positive). Pool all accounts
        into one running balance seeded at the spendable cash sum.
     5. Track the MINIMUM running balance across the window — this is the safe floor.
-    6. safe_to_spend = min_running_balance − buffer.
-    7. Compute state: comfortable / tight / short.
+    6. safe_to_spend = min_running_balance − buffer − commitments_reserved.
+    6c. safe_to_spend_cash = safe_to_spend at this point (pre-card-reserve).
+        Reserve any unpaid credit-card growth this period
+        (`net_position.card_growth_unpaid`) so a user funding life on a card
+        never reads as having spare cash. safe_to_spend then becomes this NET
+        figure — the single source of truth every downstream engine (pace,
+        spend_impact, can_i) reads. See app/services/net_position.py.
+    7. Compute state: comfortable / tight / short (on the NET figure), plus
+       short_reason ("bills" vs "cards" — see net_position.short_reason_for).
     8. estimated = True when history is thin (n_months < 2).
+
+    NOTE — `net_position` (period_net's period-to-date income/outflow/
+    card-growth flow frame) is deliberately NOT computed here, unlike
+    card_growth_unpaid above, and is NOT attached to this endpoint's
+    response either (owner decision, 2026-08: the Home card's period-to-date
+    ledger that used to read it was removed from the frontend). This
+    function is also called directly, bypassing the 90s response cache, from
+    several hot paths (can_i.py's payday-status/affordability/what-if
+    handlers, planned.py's one-off preview) that never needed net_position —
+    attaching a full-period transaction scan + get_category_kinds read to
+    every one of those calls would be a real perf regression regardless.
+    `period_net` itself still lives in app/services/net_position.py; its
+    only consumer now is spend_impact.compute_spend_impact's net-negative
+    permission gate, which fetches it directly, on its own request path.
     """
     from datetime import date as _date_cls, timedelta as _td
     from app.services.income import get_confirmed_payday as _gcp
@@ -2265,9 +2286,31 @@ async def compute_safe_to_spend(uid: str) -> dict:
         logger.exception("commitments reserve failed for %s — using zero", uid)
         commitments_reserved, commitments_count = 0, 0
 
+    # ── 6c. Card growth reserve ────────────────────────────────────────────────
+    # See app/services/net_position.py's module docstring: the figure above is
+    # a forward-looking cash STOCK that never sees credit-card balance growth,
+    # so it can hand out spending permission the user is quietly funding on a
+    # card. Reserve any unpaid card growth this period, net of any scheduled
+    # card payment already inside `window_bills` (the double-count guard).
+    # Failure-tolerant: any error → zero reserve, matching the pattern above.
+    safe_to_spend_cash = safe_to_spend
+    card_growth_reserved = 0.0
+    try:
+        from app.services.net_position import card_growth_unpaid
+        _period_start, _ = get_pay_period_for_date(_today_d, _pay_cfg)
+        card_growth_reserved = await card_growth_unpaid(uid, _period_start, _today_d, window_bills)
+        if card_growth_reserved:
+            safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
+    except Exception:
+        logger.exception("card growth reserve failed for %s — using zero", uid)
+        card_growth_reserved = 0.0
+
     # ── 7. State: comfortable / tight / short ─────────────────────────────────
     # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
     # whichever is higher — calibrated to be meaningful but not alarmist.
+    # Derived on the NET figure (post card-growth-reserve), so every
+    # downstream engine (pace, spend_impact, can_i) inherits the conservative
+    # number.
     _region = await _get_region(uid)
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
@@ -2282,24 +2325,45 @@ async def compute_safe_to_spend(uid: str) -> dict:
     else:
         state = "comfortable"
 
+    # short_reason distinguishes a genuine bills-risk short (safe_to_spend_cash
+    # itself non-positive — the only case that earns red) from a short that's
+    # purely card-funded spending (bills ARE covered). Pure derivation lives in
+    # net_position.short_reason_for so it's unit-testable in isolation.
+    from app.services.net_position import short_reason_for
+    short_reason = short_reason_for(state, safe_to_spend_cash)
+
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
 
     _sync_ts = await last_bank_sync(uid)
 
+    # `net_position` (period_net's income/outflow/card-growth flow frame) is
+    # deliberately NOT computed here. compute_safe_to_spend is called
+    # directly — bypassing the 90s response cache below — from several hot
+    # paths (can_i.py's payday-status/affordability/what-if handlers,
+    # planned.py's one-off preview, which calls it twice) that never read
+    # net_position; it exists purely for the Home card's period-to-date
+    # ledger. A full-period transaction scan across two collections plus a
+    # get_category_kinds read on every one of those calls would be a real
+    # perf regression. It's attached to the result in get_safe_to_spend
+    # below instead, so only the cached GET /safe-to-spend response pays
+    # for it, once per 90s per user.
     return {
         "status":              "ok",
         "safe_to_spend":       safe_to_spend,
+        "safe_to_spend_cash":  safe_to_spend_cash,
         "next_payday":         next_payday.isoformat(),
         "days_until_payday":   days_until_payday,
         "bills_total":         bills_total,
         "income_before_payday": income_before,
         "buffer":              buffer,
         "state":               state,
+        "short_reason":        short_reason,
         "estimated":           estimated,
         "spendable_now":       round(spendable_cash, 2),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
+        "card_growth_reserved": card_growth_reserved,
         "commitments_reserved": int(commitments_reserved),
         "commitments_count":   commitments_count,
         "commitments_reserved_period_label": (

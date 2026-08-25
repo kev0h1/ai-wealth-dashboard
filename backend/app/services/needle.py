@@ -23,6 +23,8 @@ from app.db.collections import (
     accounts_col,
     behaviour_portrait_col,
     needle_history_col,
+    yapily_accounts_col,
+    yapily_transactions_col,
 )
 
 log = logging.getLogger(__name__)
@@ -47,13 +49,32 @@ def _abs_amounts(txns: list[dict]) -> tuple[float, float]:
 
 
 async def _credit_card_account_ids(uid: str) -> set[str]:
-    """Return account_ids that are credit-card accounts for this user."""
+    """Return account_ids that are credit-card accounts for this user,
+    across BOTH providers (accounts_col — TrueLayer/Finexer — and
+    yapily_accounts_col).
+
+    Owner-approved fix (2026-08): this used to query accounts_col only, so a
+    Yapily-connected card was invisible to every caller of this helper (the
+    net-position card-growth reserve, the needle month-close movement fact,
+    the cards-story/companion/cycle-story surfaces) — silently, with no
+    exception. compute_safe_to_spend's own balance/card-debt maths
+    (analytics.py:2188-2213) and spend_verdict's `_load_period_txns`
+    already union both providers; this helper now matches them.
+
+    `is_credit_card_account` (card_rates.py) is reused rather than
+    reimplementing the check inline — its docstring confirms it is already
+    written to work against a Yapily account doc's shape (Yapily docs store
+    a lowercased `type` only, no `subtype`, per `yapily_sync.py`; the helper's
+    `acc.get("account_type") or acc.get("type")` fallback already covers
+    that, same test this function used inline before).
+    """
+    from app.services.card_rates import is_credit_card_account
+
     raw = await accounts_col.find({"user_id": uid}).to_list(None)
+    raw += await yapily_accounts_col.find({"user_id": uid}).to_list(None)
     ids = set()
     for a in raw:
-        subtype = (a.get("account_subtype") or a.get("subtype") or "").upper()
-        atype = (a.get("account_type") or a.get("type") or "").lower()
-        if "CREDIT" in subtype or atype in ("credit", "credit_card"):
+        if is_credit_card_account(a):
             ids.add(str(a.get("account_id") or a.get("_id")))
     return ids
 
@@ -112,7 +133,9 @@ async def _txns_for_period(
     period_end: date,
     account_ids: set[str] | None = None,
 ) -> list[dict]:
-    """Fetch transactions for uid in [period_start, period_end] inclusive.
+    """Fetch transactions for uid in [period_start, period_end] inclusive,
+    across BOTH providers (transactions_col + yapily_transactions_col) — see
+    `_credit_card_account_ids`'s docstring for why the union matters.
     Optionally filtered to `account_ids`.
     """
     start_dt = datetime(period_start.year, period_start.month, period_start.day)
@@ -125,7 +148,9 @@ async def _txns_for_period(
     if account_ids:
         query["account_id"] = {"$in": list(account_ids)}
 
-    return await transactions_col.find(query).to_list(None)
+    out = await transactions_col.find(query).to_list(None)
+    out += await yapily_transactions_col.find(query).to_list(None)
+    return out
 
 
 def _card_delta(txns: list[dict]) -> float:
