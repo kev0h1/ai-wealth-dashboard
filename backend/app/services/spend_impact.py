@@ -134,6 +134,23 @@ GOAL_HORIZON_MAX_PERIODS = 120  # cap on a re-projected goal ETA (~10yr of perio
 # is the honest way to earn a bigger claim over time.
 HORIZON_CLAIM_CAP_MONTHS = 12
 
+# HEADROOM CAP (owner-approved fix, 2026-08) — the permission direction
+# (`delta < 0`, under usual pace) used to compute `projected = usual_move +
+# abs(delta)`, i.e. the FULL rate-delta on top of the usual move, with no
+# check against money that actually exists. `_compute_move_and_horizon`'s
+# `headroom` parameter (the caller's net Safe-to-Spend pot, floored at 0,
+# from `net_position.card_growth_unpaid`'s reserve via
+# `compute_safe_to_spend`) caps the extra at `min(abs(delta), headroom)`, so
+# the promise can never exceed real spare cash. If the capped extra falls
+# below the same silence threshold used to decide whether to speak at all,
+# the move is dropped rather than surfaced as a trivial promise. The
+# over-pace direction (`delta > 0`, projected shrinks) is unaffected — a
+# shrinking move was never a promise of extra money. `compute_spend_impact`
+# additionally gates the "permission" consequence outright when the period's
+# flow is net negative or headroom is exhausted (see there) — a user who is
+# net down, or has no real headroom, must never be told there is spare money
+# to move.
+
 # MOVE-CONSEQUENCE CONFIDENCE GATE — a near-new user with no established
 # payday-move habit (moved_total £0, nothing yet in companion._usual_payday_moves'
 # 4-payday history) must never be told their move "shrinks to about £0": there
@@ -600,10 +617,21 @@ async def _goal_horizon(uid: str, delta: float, pay_cfg: dict) -> dict | None:
         return None
 
 
-async def _compute_move_and_horizon(uid: str, delta: float, pay_cfg: dict) -> tuple[dict | None, dict | None]:
+async def _compute_move_and_horizon(
+    uid: str, delta: float, pay_cfg: dict, headroom: float | None = None,
+) -> tuple[dict | None, dict | None]:
     """`delta` is the signed excess (positive = over usual, so the move
     shrinks / payoff slips; negative = under usual, so the move grows /
-    payoff pulls forward). Returns (move, horizon), either may be None."""
+    payoff pulls forward). Returns (move, horizon), either may be None.
+
+    `headroom` — the net Safe-to-Spend pot, floored at 0 — caps the
+    permission direction (`delta < 0`): the "extra" money promised on top
+    of the usual move can never exceed money that actually exists (see
+    HEADROOM CAP in the module docstring). `None` (the default) means no
+    cap — used by `compute_intent_preview`, which prices a hypothetical
+    "file this as my new normal" excess rather than today's actual payday
+    move, so there is no real pot to cap it against.
+    """
     usual_move, salary_acct, evidence_paydays = await _usual_move_total(uid, pay_cfg)
 
     move_out = None
@@ -611,8 +639,19 @@ async def _compute_move_and_horizon(uid: str, delta: float, pay_cfg: dict) -> tu
     if salary_acct is not None and usual_move > 0 and has_move_confidence:
         threshold = max(MOVE_SILENCE_ABS, MOVE_SILENCE_FRAC * usual_move)
         if abs(delta) >= threshold:
-            projected = max(0.0, usual_move - delta)
-            move_out = {"usual": round(usual_move, 2), "projected": round(projected, 2)}
+            if delta < 0:
+                # Permission direction — the extra can never exceed real
+                # headroom (HEADROOM CAP, module docstring).
+                extra = abs(delta)
+                if headroom is not None:
+                    extra = min(extra, max(0.0, headroom))
+                if extra >= threshold:
+                    move_out = {"usual": round(usual_move, 2), "projected": round(usual_move + extra, 2)}
+                # else: capped extra is trivial — fall through silently
+                # rather than make a promise not worth making.
+            else:
+                projected = max(0.0, usual_move - delta)
+                move_out = {"usual": round(usual_move, 2), "projected": round(projected, 2)}
     # Gated (no real move habit on file): fall through silently — the caller
     # already tries horizon next, then the movement/none fallback. No
     # substitute promise is fabricated here.
@@ -654,6 +693,18 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
     not be built on a slice of OUT this incomplete. bills_risk is never
     touched here: it's a fact about an existing bill, not a promise about a
     payday move or a pushed-out schedule.
+
+    Headroom cap + net-negative gate (owner-approved fix, 2026-08) — see
+    HEADROOM CAP in the module docstring. The net Safe-to-Spend pot
+    (`compute_safe_to_spend`, floored at 0) is fetched once and passed into
+    `_compute_move_and_horizon` as `headroom`, capping the permission
+    direction's promised "extra" at real spare cash. Additionally, when the
+    resolved consequence is "permission" and either the period's flow
+    (`net_position.period_net`) is net negative or headroom is exhausted,
+    the consequence is dropped entirely — a user who is net down this
+    period, or who has no real headroom, must never be told there is spare
+    money to move. `bills_risk` is completely untouched by this: it is a
+    fact about a bill, not a promise.
     """
     empty = {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
 
@@ -671,7 +722,28 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
         return empty
 
     pay_cfg = await _pay_cfg(uid)
-    move_out, horizon_out = await _compute_move_and_horizon(uid, total_excess, pay_cfg)
+
+    headroom = 0.0
+    try:
+        from app.routers.analytics import compute_safe_to_spend
+
+        sts = await compute_safe_to_spend(uid)
+        if sts.get("status") == "ok":
+            headroom = max(0.0, float(sts.get("safe_to_spend") or 0.0))
+    except Exception:
+        logger.exception("spend_impact: headroom lookup failed for %s — treating as 0", uid)
+        headroom = 0.0
+
+    net_pos = None
+    try:
+        from app.services.net_position import period_net
+
+        net_pos = await period_net(uid)
+    except Exception:
+        logger.exception("spend_impact: period_net lookup failed for %s", uid)
+        net_pos = None
+
+    move_out, horizon_out = await _compute_move_and_horizon(uid, total_excess, pay_cfg, headroom=headroom)
     bills_risk_out = await _bills_risk(uid, total_excess, period)
 
     if bills_risk_out is not None:
@@ -682,6 +754,12 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
         consequence = "move_delta" if total_excess > 0 else "permission"
     else:
         consequence = None
+
+    if consequence == "permission":
+        net_negative = net_pos is not None and float(net_pos.get("net") or 0.0) < 0
+        if net_negative or headroom <= 0:
+            consequence = None
+            move_out = None
 
     unresolved_total = verdict_ctx.get("unresolved_total") or 0.0
     unresolved_hedge = consequence is not None and is_unresolved_material(unresolved_total, total_excess)
