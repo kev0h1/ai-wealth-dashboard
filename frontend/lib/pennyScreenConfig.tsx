@@ -105,7 +105,24 @@ const PAYDAY_DUE_ASK: PennyChip = {
   short: "Still due?",
 };
 
-const CONFIGS: Record<Exclude<PennyAskContext["screen"], "other">, ScreenConfig> = {
+// "accounts" isn't yet a member of `PennyAskContext["screen"]`
+// (PennySheetProvider.tsx's own union — this feature's owning file, out of
+// scope for this change; see the report this shipped with for the
+// one-line addition it needs) — added here as a LOCAL, forward-compatible
+// widening rather than blocked on that edit landing first. A strict
+// SUPERSET of `PennyAskContext["screen"]` (keeps "other" and every real
+// screen, adds "accounts"), not a replacement for it, so every existing
+// caller passing a real `PennyAskContext["screen"] | undefined` still
+// type-checks unchanged. `getPennyScreenConfig` below accepts this wider
+// type, so the moment the provider's union gains "accounts" (and
+// BottomNav.tsx's screenForPathname can start returning it), the
+// `accounts` entry below is already live with zero further changes here.
+// Until then this key is simply unreachable — no real
+// `PennyAskContext["screen"]` value can ever equal "accounts" — so it
+// costs nothing to have ready.
+type ConfigScreenKey = PennyAskContext["screen"] | "accounts";
+
+const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
   home: {
     headerLinks: [
       { label: "Your plan and updates", href: "/penny" },
@@ -134,6 +151,11 @@ const CONFIGS: Record<Exclude<PennyAskContext["screen"], "other">, ScreenConfig>
     chips: [
       { kind: "ask", label: "Where did my money go this month?", q: "Where did my money go this month?", short: "Where'd it go?" },
       { kind: "ask", label: "Am I spending more than usual?", q: "Am I spending more than usual?", short: "Spending more?" },
+      // Fixed, backend-deterministic explainer (2026-08-26) — same class as
+      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above and the `grow` entry's
+      // saving-vs-investing chip below: general mechanics, not a verdict on
+      // the user's own transactions, so it's answered without an LLM call.
+      { kind: "ask", label: "How do categories work?", q: "How do categories work?", deterministic: true },
       // Was a blunt "Fix a category" link straight to /transactions — the
       // owner's actual complaint (his screenshot: the Spend page's own "N
       // transfers to review" banner opens a same-transfer-pairs review
@@ -214,6 +236,21 @@ const CONFIGS: Record<Exclude<PennyAskContext["screen"], "other">, ScreenConfig>
     ],
     personalisedChips: false,
   },
+  // Not yet reachable — see `ConfigScreenKey`'s own comment above. Added
+  // 2026-08-26 for the accounts redesign's Penny entry point.
+  accounts: {
+    headerLinks: DEFAULT_HEADER_LINKS,
+    chips: [
+      // Fixed, backend-deterministic explainer, same class as
+      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above.
+      { kind: "ask", label: "How do I add an ISA?", q: "How do I add an ISA?", deterministic: true },
+      // No "Your accounts" link chip here — the user is already ON that
+      // page, so it would be a link back to itself. Mirror is the sensible
+      // next door instead (same choice Home's header row makes).
+      { kind: "link", label: "Mirror", href: "/mirror" },
+    ],
+    personalisedChips: false,
+  },
 };
 
 /** "other"/no-screen fallback — preserves today's actual behaviour exactly:
@@ -229,8 +266,14 @@ const OTHER_CONFIG: ScreenConfig = {
 /** Single lookup PennySheet.tsx and PennyConversation.tsx both call.
  * `screen` is optional only for defensive typing against `ctx` being
  * `undefined` (PennySheetProvider's initial state before any `open()` call)
- * — every real call site already passes a `screen` (see PennyAskContext). */
-export function getPennyScreenConfig(screen: PennyAskContext["screen"] | undefined): ScreenConfig {
+ * — every real call site already passes a `screen` (see PennyAskContext).
+ * Accepts `ConfigScreenKey` (i.e. also "accounts") rather than just
+ * `PennyAskContext["screen"]` — every actual caller today only ever HAS a
+ * real `PennyAskContext["screen"]` to pass (a subtype), so this widening is
+ * forward-compatible and changes nothing for them; it just means this
+ * function doesn't need editing again once "accounts" becomes a real,
+ * producible screen value (see `ConfigScreenKey`'s own comment). */
+export function getPennyScreenConfig(screen: ConfigScreenKey | undefined): ScreenConfig {
   if (!screen || screen === "other") return OTHER_CONFIG;
   return CONFIGS[screen];
 }

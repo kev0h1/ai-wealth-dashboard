@@ -63,7 +63,10 @@ export type PennyAskContext = {
   // real, separate routes (/grow, /debt-plan) on a route survey done for
   // that work, not sub-views of Planning as assumed going in. See
   // BottomNav.tsx's screenForPathname for where these two get produced.
-  screen: "planning" | "tax" | "home" | "spend" | "insights" | "grow" | "debt" | "other";
+  // "accounts" added 2026-08-26 for the accounts redesign's Penny entry
+  // point (lib/pennyScreenConfig.tsx already had a config entry waiting on
+  // this exact addition — see that file's `ConfigScreenKey` comment).
+  screen: "planning" | "tax" | "home" | "spend" | "insights" | "grow" | "debt" | "accounts" | "other";
   /** One short line describing what the user was looking at when they
    * opened the sheet from that screen. Decorative context for the
    * conversation, not required. */

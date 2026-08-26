@@ -121,6 +121,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { X, ChevronRight } from "lucide-react";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -129,6 +130,23 @@ import PennyConversation from "@/components/PennyConversation";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { getPennyScreenConfig } from "@/lib/pennyScreenConfig";
 import { usePennySheetState } from "./PennySheetProvider";
+// `screenForPathname` — the same route -> screen mapping BottomNav.tsx's
+// own nav uses, and Sidebar.tsx's desktop trigger already reuses from here
+// too (one source of truth for "which route means which screen" — see that
+// function's own comment in BottomNav.tsx). Importing it here does draw a
+// cycle on paper (PennySheetProvider.tsx imports this file's default
+// export; this file would import from BottomNav.tsx; BottomNav.tsx imports
+// `usePennySheet`/`PennyAskContext` from PennySheetProvider.tsx) — but every
+// cross-file reference in that cycle is either a type-only import (erased)
+// or a hoisted function declaration that's only ever CALLED from inside
+// another function's body (a component's render, an effect), never at
+// module-evaluation time, so there's nothing for the cycle to deadlock on:
+// by the time any of these functions actually runs, the whole module graph
+// has already finished loading. Moving `screenForPathname` out of
+// BottomNav.tsx instead would break Sidebar.tsx's own existing import of it
+// from there — a file outside this change's ownership — so reusing it
+// in place, rather than relocating it, is the smaller and safer change.
+import { screenForPathname } from "./BottomNav";
 
 /** On-screen keyboard avoidance — same technique as components/BankPickerSheet.tsx
  * (visualViewport shrinks when the keyboard appears; window.innerHeight does
@@ -196,7 +214,63 @@ function KeyboardInsetGate({ onChange }: { onChange: (inset: number) => void }) 
 }
 
 export default function PennySheet() {
-  const { isOpen, ctx, openSeq, close } = usePennySheetState();
+  const { isOpen, ctx, openSeq, open, close } = usePennySheetState();
+  const pathname = usePathname();
+
+  // LIVE THREAD SWITCH ON NAVIGATION (2026-08-26, owner-authorised): with
+  // PennyConversation's per-screen thread buckets (see that file's header
+  // comment, "PER-SCREEN THREADS"), the visible bucket only ever changes on
+  // a fresh `open()` call (a new `openSeq`) — before this effect, the ONLY
+  // way to get one was tapping the Penny button again. But nothing stops a
+  // user from tapping a NAV TAB (Home/Spend/Planning/Insights) while this
+  // floating window is already open: BottomNav.tsx's rail stays visible and
+  // interactive underneath it by design (this file's header comment,
+  // "SHAPE" — no scrim, page fully present), and those tab `<Link>`s don't
+  // close the sheet. Without this effect, the window would keep showing
+  // whichever screen it was opened over while the page underneath had
+  // already moved on — exactly the "old thread over a new page" confusion
+  // per-screen threads exist to kill.
+  //
+  // GUARDED to fire only on a genuine screen CHANGE (`screen !==
+  // ctx?.screen`), not on every render this pathname happens to be stable
+  // for. This is also what keeps it from looping: `open()` always
+  // reassigns the module-level `sheetState` and notifies every subscriber
+  // (PennySheetProvider.tsx), which re-renders this component — but that
+  // re-render doesn't change `pathname` or `isOpen` (this effect's only
+  // dependencies), so the effect itself does not re-run; it only reads the
+  // freshly-updated `ctx` the NEXT time one of those two actually changes.
+  // Concretely: the call sets `ctx.screen` to the same value this effect
+  // just computed, so even if something else forced a re-check, the
+  // condition would already be false. There is no path from calling
+  // `open()` here back into a reason to call it again with the same inputs.
+  //
+  // Does NOT fire while closed (`!isOpen` guard) — there is no visible
+  // bucket to switch for a closed sheet, and `close()` deliberately doesn't
+  // reset `ctx` (PennySheetProvider.tsx), so `ctx?.screen` still holds
+  // whatever screen the sheet was last open over. Without this guard,
+  // simply navigating around the app with the sheet closed would silently
+  // spam `open()` calls (and `openSeq` bumps nothing asked to see) on every
+  // route change, forever, for the whole session.
+  //
+  // Does NOT clobber a pending `askContext.ask`: the only ways `ctx.ask`
+  // gets set are TaxPennyEntry.tsx / ScenarioPage.tsx / Planning's prompt
+  // bar calling `open({ screen, ask })` directly from a click — a distinct
+  // `open()` call this effect never races, since it isn't triggered by a
+  // pathname change at all. The other route into `ctx.ask` being live is a
+  // sheet-internal `link` chip (PennyConversation.tsx's `LinkChip`
+  // `onTap`), which calls `closePennySheet()` BEFORE `router.push(...)` —
+  // so by the time THAT pathname change reaches this effect, `isOpen` is
+  // already `false` and it no-ops. The only pathname changes this effect
+  // ever actually acts on are nav-tab taps while the sheet stays open, and
+  // `screenForPathname` alone never carries an `ask` — so this can only
+  // ever open a plain screen switch, never re-fire or override a one-shot
+  // question someone else set up.
+  useEffect(() => {
+    if (!isOpen) return;
+    const screen = screenForPathname(pathname);
+    if (screen !== ctx?.screen) open({ screen });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, isOpen]);
 
   // Derived fresh on every render from the CURRENT `ctx` (not cached in a
   // ref/state) so the header links follow the screen the sheet opened over
@@ -509,7 +583,13 @@ export default function PennySheet() {
                 </Link>
               ))}
             </div>
-            <div className="border-b border-slate-200/70 dark:border-slate-700 mt-1.5" />
+            {/* `mt-1` (was `mt-1.5`) — design review, 2026-08-25: the header
+                links row, this divider, and the chip row just below it
+                (PennyConversation.tsx's `inSheet` chip row, `pt-0.5` for the
+                same reason) read as two separated bands of tap targets
+                rather than one utility cluster sitting above the thread.
+                Tightened by one spacing step on each side of the seam. */}
+            <div className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
           </div>
 
           {/* Body — PennyConversation owns its own internally-scrolling

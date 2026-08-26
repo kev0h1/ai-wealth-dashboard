@@ -126,6 +126,10 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     // (outside this feature's file ownership) adds one.
     case "/grow": return "grow";
     case "/debt-plan": return "debt";
+    // Added 2026-08-26, once PennySheetProvider.tsx's `PennyAskContext["screen"]`
+    // union gained "accounts" — lib/pennyScreenConfig.tsx already had a real
+    // `accounts` config entry (chips, header links) waiting on exactly this.
+    case "/accounts": return "accounts";
     // "tax" is never produced here — that value is for TaxPennyEntry.tsx's
     // own entry point, a different door into the same sheet. /insights/tax
     // and /insights/receipts don't render BottomNav themselves (only their

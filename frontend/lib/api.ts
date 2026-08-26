@@ -1661,9 +1661,19 @@ export const api = {
    * verbatim; folding a context string like a bare "£165" into it makes an
    * amount-free question look amount-bearing and silently breaks routing.
    * See PennyConversation.tsx's `send()` for the one call site that uses
-   * this, and its header comment for the incident this fixes. */
-  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>, context?: string) =>
-    post<CanIResponse>("/can-i", { question, history, context }),
+   * this, and its header comment for the incident this fixes.
+   *
+   * `screen` (added 2026-08-26) is a DIFFERENT kind of context from
+   * `context` above, and the two are not interchangeable: `context` is a
+   * one-shot summary sent only on the first request of a screen's session
+   * (deliberately, per its own comment); `screen` is cheap structured data
+   * (one of PennyAskContext's enum values, e.g. "planning"/"spend") sent on
+   * EVERY request while the sheet is open, because any question mid-
+   * conversation can reference "this page" and the backend needs to know
+   * what that page is each time, not just at the start. See
+   * PennyConversation.tsx's `ask()`/`send()` for the call site. */
+  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>, context?: string, screen?: string) =>
+    post<CanIResponse>("/can-i", { question, history, context, screen }),
   // Confirmed (possibly user-edited) "what if" scenario items -> full
   // deterministic projection + one LLM-composed headline. See
   // backend/app/routers/scenario.py's /scenario/run for the validation and

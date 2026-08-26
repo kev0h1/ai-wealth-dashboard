@@ -110,18 +110,6 @@ function IncomeDrilldown({ incomeTxns, onTransactionClick }: { incomeTxns: Trans
   );
 }
 
-// Whether the instrument should glow — the ONE glow-as-attention condition
-// for this card (globals.css's `.needs-you`, at most one per screen: it
-// signals "your move", not decoration, so it must actually gate on
-// something). True only when the strip has a known usual AND today's
-// actual has run past it — never when there's no strip at all, or no
-// baseline yet.
-function isOverPace(series?: SpendVerdictPaceEntry[]): boolean {
-  if (!series || series.length === 0) return false;
-  const last = series[series.length - 1];
-  return last.usual != null && last.actual > last.usual;
-}
-
 // Monotone cubic Hermite interpolation (Fritsch-Carlson, i.e. d3's
 // curveMonotoneX) — builds a smooth <path> "d" string through points that
 // are monotone (non-decreasing) in x, WITHOUT ever overshooting above or
@@ -422,10 +410,6 @@ export default function SpendHeader(props: SpendHeaderProps) {
   // older payloads (unresolved_material undefined) just like hasStrip/
   // hasMoved above.
   const showUnresolvedFootnote = !!unresolved_material && unresolved_total !== undefined;
-  // Glow only when the instrument actually needs the user (see isOverPace
-  // above) — never unconditional. The bordered .glass-tile inset below
-  // stays permanent; only this boolean gates `.needs-you`.
-  const glowInstrument = isOverPace(pace_series);
 
   return (
     <div className="px-4 pt-6">
@@ -487,20 +471,18 @@ export default function SpendHeader(props: SpendHeaderProps) {
 
         {/* The instrument — cells + pace strip treated as ONE unit, always
             housed in a bordered inset (the lit-panel identity, permanent).
-            The app's glow-as-attention treatment (.needs-you, at most one
-            per screen) layers on top of that inset ONLY when glowInstrument
-            is true (see isOverPace above) — a card glows because it needs
-            the user, never as permanent decoration (the same contract
-            HomeBrief.tsx/PaydayPlanCard.tsx/SafeToSpendCard.tsx/
-            UpcomingBillsStrip.tsx gate on). Combining a Tailwind `border`
-            utility with `.needs-you` mirrors that existing pattern —
-            `.needs-you` supplies the border colour + lit background + glow,
-            the utility supplies the border width/style, and both are
-            present regardless so the inset never visibly "pops" when the
-            glow toggles on. */}
-        <div
-          className={`mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3${glowInstrument ? " needs-you" : ""}`}
-        >
+            This card deliberately never takes the app's glow-as-attention
+            treatment (.needs-you). Running ahead of usual pace is
+            information, not an action for the user to take: the category
+            rows already carry their own "N× usual" amber chip, and the
+            reading states the same fact in words underneath. `.needs-you`
+            means "your move" and stays reserved for cards that actually
+            have one (HomeBrief.tsx/PaydayPlanCard.tsx/SafeToSpendCard.tsx/
+            UpcomingBillsStrip.tsx). An earlier version of this card lit up
+            whenever the strip read over-pace, including on closed past
+            periods that nobody can act on, which is what this comment now
+            rules out. */}
+        <div className="mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3">
           <div className="flex divide-x divide-slate-200/70 dark:divide-slate-700/70">
             <button
               type="button"

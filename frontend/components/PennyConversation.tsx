@@ -5,15 +5,17 @@
 // verdict cards to messenger bubbles (2026-08-25) per the owner's side-by-
 // side call on app/design/penny-sheet/{CardsGrammar,BubblesGrammar}.tsx:
 // people expect bubbles in a conversation. Ported treatment (do not
-// re-litigate): user turn right-aligned `bg-violet-600 text-white
-// rounded-2xl rounded-br-sm`, Penny turn left-aligned `bg-slate-100
+// re-litigate): user turn right-aligned `bg-indigo-600 text-white
+// rounded-2xl rounded-br-sm` (recoloured from the originally-ported
+// `bg-violet-600` by a 2026-08-25 design review — see UserBubble's own
+// comment, the Penny Gradient Rule), Penny turn left-aligned `bg-slate-100
 // dark:bg-slate-700 rounded-2xl rounded-bl-sm`. Contrast checked at build
-// time: white-on-violet-600 is ~5.70:1, clears WCAG AA's 4.5:1 for normal
+// time: white-on-indigo-600 is ~6.29:1, clears WCAG AA's 4.5:1 for normal
 // text with room to spare.
 //
 // The one thing the owner was hesitant about with bubbles survives the
 // conversion: inside Penny's bubble the verdict headline is still the
-// FIRST and HEAVIEST element (bold, 15px), then the reasoning sentence
+// FIRST and HEAVIEST element (bold, 16px), then the reasoning sentence
 // (14px, mid-muted), then the offer chip. A bubble must never flatten
 // that hierarchy — see VerdictBubble below. The muted grey "facts" tier
 // that used to sit between the reasoning sentence and the offer chip
@@ -79,6 +81,34 @@
 //   site treats it as decorative, fire-and-forget); a /can-i reply with no
 //   `headline` renders `reply` as plain body text in the same bubble shell
 //   instead of a bold verdict headline (see AssistantBubble's `degraded` case).
+//
+// PER-SCREEN THREADS (owner decision, 2026-08-26, REVERSING the above from
+// lived use): yesterday's one-thread-with-page-seam-markers model read fine
+// on paper but confused the owner in actual use — "this one thread many
+// conversations can get quite confusing, why can't we switch between
+// threads as we navigate different pages?" The thread is now bucketed by
+// screen (see `ThreadBucket`/`buckets` below, keyed by
+// `PennyAskContext["screen"]` including "other"): navigating to a
+// different screen and reopening Penny shows THAT screen's own
+// conversation, not a shared scroll with a divider marking where it
+// changed. The page-seam machinery that model needed — `MarkerMsg`,
+// `PennyThreadMarker`, `SCREEN_DISPLAY_NAMES`, `lastSendScreenRef` — is
+// gone entirely: the bucket switch itself is now the indicator, there is
+// nothing left for a divider to announce. Do not rebuild any of it from
+// stale memory of "how Penny's thread used to work"; this comment is the
+// record of why it changed.
+// - INACTIVITY TTL (`PENNY_THREAD_TTL_MS`) is unchanged in duration and
+//   intent but now applies PER BUCKET: each bucket carries its own
+//   `lastActivityAt`, checked only when that bucket becomes visible (an
+//   open, or a screen switch — which, per PennySheet.tsx's own mount
+//   comment, always arrives as a fresh open too, since the sheet closes on
+//   navigation), and an expiry silently clears only that one bucket. A
+//   stale morning Spend thread no longer wipes a same-session Home thread
+//   just because they used to share one TTL clock. See the `askSeq`-keyed
+//   effect below (still deliberately declared BEFORE the `askContext.ask`
+//   one-shot effect — see that effect's own ordering comment) and
+//   `bucketsRef`/`setBucket` for why event-handler reads go through a ref
+//   rather than the `buckets` state variable directly.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -96,16 +126,24 @@ import { getPennyScreenConfig, type PennyChip } from "@/lib/pennyScreenConfig";
 const BG = BRAND_GRADIENT;
 const HISTORY_CAP = 6;
 const DEFAULT_PLACEHOLDER = "Ask Penny: Can I spend £45 this weekend?";
+// How long a bucket's thread survives with no activity before that bucket
+// becoming visible again (an open, or a screen switch — see this file's
+// header comment, "PER-SCREEN THREADS") silently resets it (see the
+// `askSeq`-keyed expiry effect below). 30 minutes: long enough that a phone
+// call mid-conversation doesn't wipe it, short enough that a morning "can I
+// afford lunch" thread isn't still there at 11pm asking about lunch.
+const PENNY_THREAD_TTL_MS = 30 * 60 * 1000;
 
 // Every message carries a stable `id`, assigned once at creation (see
 // `newMsgId()` below) and never recomputed. Keying the thread render on
-// this instead of array index matters because `messages` is a SLIDING
-// WINDOW (every `setMessages` call ends in `.slice(-HISTORY_CAP)`) — once
-// the thread exceeds the cap, index-keyed nodes have content shift under
-// them instead of nodes being added/removed, and `ScenarioConfirmCard`'s
-// lazy `useState(() => items.map(toDraft))` initialiser only runs on
-// mount, so a reused instance under a shifted index kept a STALE draft
-// from a different scenario message.
+// this instead of array index matters because a bucket's `messages` is a
+// SLIDING WINDOW (every append goes through `capMessages`, which ends in
+// `.slice(-HISTORY_CAP)`) — once a bucket's thread exceeds the cap,
+// index-keyed nodes have content shift under them instead of nodes being
+// added/removed, and `ScenarioConfirmCard`'s lazy `useState(() =>
+// items.map(toDraft))` initialiser only runs on mount, so a reused instance
+// under a shifted index kept a STALE draft from a different scenario
+// message.
 type UserMsg = { id: number; role: "user"; content: string };
 type VerdictMsg = {
   id: number;
@@ -160,22 +198,76 @@ type ExplainerMsg = {
   topic?: string | null;
 };
 type AssistantMsg = VerdictMsg | ScenarioMsg | ExplainerMsg;
+// MarkerMsg — a page-seam divider inserted between turns from different
+// screens — died with the one-thread model it belonged to (see this file's
+// header comment, "PER-SCREEN THREADS", 2026-08-26). A per-screen bucket
+// has no seam to mark inside its own thread; do not resurrect this type or
+// the PennyThreadMarker component that used to render it.
 type Msg = UserMsg | AssistantMsg;
+
+/** One conversation per screen (owner decision, 2026-08-26 — see this
+ * file's header comment, "PER-SCREEN THREADS"). Keyed by
+ * `PennyAskContext["screen"]`, including "other" (full-page mode never
+ * sets `askContext` at all, so it always resolves to this one bucket — see
+ * `currentScreen` in the component below). Only these three fields move
+ * per-bucket; `dismissedChips` and the `canISuggestions` fetch stay a
+ * single global set/request (see their own declarations below) — a
+ * dismissed chip and the personalised suggestions themselves aren't
+ * screen-specific the way a conversation or its asked-question set is. */
+type ThreadBucket = {
+  messages: Msg[];
+  askedLabels: Set<string>;
+  lastActivityAt: number;
+};
+
+function newBucket(): ThreadBucket {
+  return { messages: [], askedLabels: new Set(), lastActivityAt: Date.now() };
+}
+
+/** Every screen gets its own fresh bucket up front, rather than lazily
+ * creating one on first visit, so `buckets[screen]` is never a lookup that
+ * can miss. Every `PennyAskContext["screen"]` member is listed explicitly
+ * (not derived/looped over the type) so that adding a new screen to that
+ * union without adding a matching entry here is a compile error, not a
+ * silent runtime `undefined` the first time that screen opens Penny. */
+function newBuckets(): Record<PennyAskContext["screen"], ThreadBucket> {
+  return {
+    home: newBucket(),
+    spend: newBucket(),
+    planning: newBucket(),
+    insights: newBucket(),
+    grow: newBucket(),
+    debt: newBucket(),
+    tax: newBucket(),
+    // Added 2026-08-26 alongside PennySheetProvider.tsx's union gaining
+    // "accounts" — exactly the compile error this function's own comment
+    // predicted, not a surprise.
+    accounts: newBucket(),
+    other: newBucket(),
+  };
+}
 
 function reducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Right-aligned filled user bubble with a tail — the retired TaxChat
- * popup's exact treatment (`bg-violet-600 text-white rounded-2xl
- * rounded-br-sm`), ported per the owner's bubbles-over-cards call (see this
- * file's header comment). Capped at 85% width; Penny's bubble below is
- * deliberately wider, they are not symmetric in importance. White-on-
- * violet-600 measures ~5.70:1 contrast, clears WCAG AA (4.5:1). */
+/** Right-aligned filled user bubble with a tail — originally ported from the
+ * retired TaxChat popup's exact treatment verbatim, `bg-violet-600`
+ * included; a design review (2026-08-25) flagged that violet-600 is the
+ * literal hex DESIGN.md reserves as Penny Violet, the brand-gradient stop
+ * that belongs to Penny's own identity alone (see ExplainerBubble's comment
+ * below on the same rule) — the user's own words were wearing Penny's
+ * colour. Recoloured to `bg-indigo-600`, the app's ordinary Adviser Indigo
+ * action token, used everywhere else for "this is interactive/mine", not
+ * Penny's. Per the Penny Gradient Rule (DESIGN.md), do not put violet back
+ * on this bubble. Capped at 85% width; Penny's bubble below is deliberately
+ * wider, they are not symmetric in importance. White-on-indigo-600 measures
+ * ~6.29:1 contrast, clears WCAG AA (4.5:1) with more room than the old
+ * violet-600 fill (~5.70:1). */
 function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] bg-violet-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5">
+      <div className="max-w-[85%] bg-indigo-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5">
         <p className="text-[14px] leading-snug break-words"><MoneyText text={text} /></p>
       </div>
     </div>
@@ -206,7 +298,14 @@ function VerdictBubble({ msg, onOfferTap }: { msg: VerdictMsg; onOfferTap: () =>
         {msg.degraded ? (
           <p className="text-[14px] leading-relaxed text-slate-700 dark:text-slate-200 break-words"><MoneyText text={msg.headline} /></p>
         ) : (
-          <p className="text-[15px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words"><MoneyText text={msg.headline} /></p>
+          // 16px, not the previously-used 15px (design review, 2026-08-25:
+          // 15px wasn't on DESIGN.md's type ramp). This is the same
+          // Card/section-title token already used elsewhere for a verdict
+          // line (e.g. ScenarioConfirmCard's "Here's what I understood"
+          // heading and PennySheet.tsx's own header title, both
+          // `text-[16px] font-bold` below) — reusing it here rather than
+          // inventing a new size.
+          <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words"><MoneyText text={msg.headline} /></p>
         )}
         {/* Middle tier: the reasoning sentence behind the verdict. Suppressed
             when `reply.startsWith(headline)`: the backend's defensive
@@ -698,15 +797,41 @@ export default function PennyConversation({
   // Full-page mode's own composer/close affordances are unaffected; a link
   // chip closing an already-closed sheet is a harmless no-op.
   const { close: closePennySheet } = usePennySheet();
-  const [messages, setMessages] = useState<Msg[]>([]);
+  // One conversation per screen (see `ThreadBucket`'s own comment above,
+  // "PER-SCREEN THREADS"). `currentScreen` falls back to "other" both for
+  // full-page mode (no `askContext` at all) and for a sheet opened from an
+  // unrecognised route (`askContext.screen === "other"`) — either way
+  // there's exactly one bucket for it. Recomputed fresh every render so a
+  // reopen over a different screen (this component is mounted once for the
+  // whole session, see this file's header comment) picks up that screen's
+  // own bucket immediately.
+  const currentScreen: PennyAskContext["screen"] = askContext?.screen ?? "other";
+  const [buckets, setBuckets] = useState<Record<PennyAskContext["screen"], ThreadBucket>>(newBuckets);
+  // `messages`/`askedLabels` below name exactly the two fields the rest of
+  // this component already reads by these names (rendering, chip
+  // filtering, the scroll-on-new-message effect) — deriving them from the
+  // current bucket here means none of that downstream code needs to know
+  // buckets exist at all.
+  const { messages, askedLabels } = buckets[currentScreen];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [offer, setOffer] = useState<CanIOffer | null>(null);
   const [offerSheetOpen, setOfferSheetOpen] = useState(false);
   const [input, setInput] = useState("");
+  // Personalised £-chips (canISuggestions) and dismissed-chip bookkeeping
+  // both stay GLOBAL, not per-bucket (owner spec, 2026-08-26, "PER-SCREEN
+  // THREADS": only the conversation itself — messages, askedLabels,
+  // lastActivityAt — is bucketed). `chips` is one app-wide fetch (see the
+  // effect below) grounded in the user's own balances, not in which screen
+  // opened Penny, so there's nothing screen-specific to bucket. A chip a
+  // user dismissed with the X (full-page mode's row only, see
+  // `SuggestionChip`'s own comment) is a "don't show me this one again"
+  // decision, not a per-conversation one, so it stays suppressed
+  // everywhere too — unlike `askedLabels`, which deliberately DOES move
+  // per-bucket (see `send()`) so a chip already asked on Spend still shows
+  // up as an option on Home.
   const [chips, setChips] = useState<CanISuggestionChip[]>([]);
   const [dismissedChips, setDismissedChips] = useState<Set<string>>(new Set());
-  const [askedLabels, setAskedLabels] = useState<Set<string>>(new Set());
   const [placeholder, setPlaceholder] = useState(DEFAULT_PLACEHOLDER);
   const inputRef = useRef<HTMLInputElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
@@ -744,6 +869,35 @@ export default function PennyConversation({
     nextMsgIdRef.current += 1;
     return nextMsgIdRef.current;
   }
+  // Mirrors `buckets` state for reads inside event handlers (`send`,
+  // `retry`) and the TTL-expiry effect below, instead of those functions
+  // closing over the `buckets` state variable directly. Why this matters:
+  // React only makes a new state value visible in closures created during
+  // the NEXT render — not to code still running later in the SAME commit's
+  // effect phase. The TTL-expiry effect and the `askContext.ask` one-shot
+  // effect below can both fire in that same commit (a reopen after 30+
+  // idle minutes that also carries a fresh `ask`), and the second effect
+  // calls `send()`, a function closed over THIS render's now-stale
+  // `buckets`. The THREAD ITSELF still ends up correct either way (every
+  // `setBucket` call uses an updater function, and React feeds each queued
+  // updater the PRIOR updater's result as `prev`, so the clear-then-append
+  // sequence resolves correctly) — but anything `send()` reads OUTSIDE
+  // that updater's `prev` argument (the LLM `history` payload) would
+  // otherwise still see the pre-clear, 30-minutes-stale bucket. Reading
+  // `bucketsRef.current` instead of `buckets` in those spots sidesteps the
+  // staleness entirely. Kept in lockstep with `buckets` through `setBucket`
+  // below — every mutation goes through that one function, never a bare
+  // `setBuckets` call, so the two can never drift apart.
+  const bucketsRef = useRef<Record<PennyAskContext["screen"], ThreadBucket>>(newBuckets());
+  /** Updates ONE bucket, leaving every other screen's thread untouched.
+   * `updater` receives that bucket's value from `bucketsRef` (not the
+   * `buckets` state variable — see that ref's own comment above) so a
+   * caller building on `prev` never reads a stale pre-commit snapshot. */
+  function setBucket(screen: PennyAskContext["screen"], updater: (prev: ThreadBucket) => ThreadBucket) {
+    const next = { ...bucketsRef.current, [screen]: updater(bucketsRef.current[screen]) };
+    bucketsRef.current = next;
+    setBuckets(next);
+  }
 
   // Suggestions — fire-and-forget, decorative only. A missing/old backend
   // (404, or a payload without `chips`) just leaves the chip row empty and
@@ -780,33 +934,72 @@ export default function PennyConversation({
   // mode's own chip row (unchanged, never passes `askSeq`) still has an X
   // and still needs it.
 
+  /** Slides a bucket's thread window to the newest `HISTORY_CAP` messages.
+   * Kept as its own named step (rather than an inline `.slice(-HISTORY_CAP)`
+   * at each append site) since every append to a bucket's `messages` needs
+   * it applied identically. Used to also skip past page-seam markers
+   * without letting them consume a slot — markers are gone entirely now
+   * (see this file's header comment, "PER-SCREEN THREADS"), so this is a
+   * plain slice with nothing left to skip. */
+  function capMessages(msgs: Msg[]): Msg[] {
+    return msgs.slice(-HISTORY_CAP);
+  }
+
   function buildHistory(msgs: Msg[]): Array<{ role: "user" | "assistant"; content: string }> {
-    return msgs.slice(-HISTORY_CAP).map((m) => {
-      if (m.role === "user") return { role: "user" as const, content: m.content };
-      // A scenario confirm card has no headline of its own — summarise it
-      // by label so a follow-up question still has something sensible to
-      // read as "what Penny said last". An explainer turn contributes its
-      // markdown `reply` verbatim, so a follow-up tax question keeps the
-      // same context a verdict follow-up already gets.
-      // Prefer `reply` (the actual reasoning) over the bare headline so a
-      // follow-up question doesn't lose Penny's own working — a one-word
-      // deterministic headline like "Yes" carries nothing for the model to
-      // build on. Falls back to headline where reply is unset (degraded
-      // paths already fold reply into headline; see VerdictMsg's comment).
-      const content = m.kind === "scenario"
-        ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.`
-        : m.kind === "explainer"
-        ? m.reply
-        : m.reply ?? m.headline;
-      return { role: "assistant" as const, content };
-    });
+    // `.slice` here is a defensive no-op against the live bucket state,
+    // which `capMessages` above already keeps capped to `HISTORY_CAP` by
+    // construction — kept in case `buildHistory` is ever called with an
+    // uncapped array from a future call site.
+    return msgs
+      .slice(-HISTORY_CAP)
+      .map((m) => {
+        if (m.role === "user") return { role: "user" as const, content: m.content };
+        // A scenario confirm card has no headline of its own — summarise it
+        // by label so a follow-up question still has something sensible to
+        // read as "what Penny said last". An explainer turn contributes its
+        // markdown `reply` verbatim, so a follow-up tax question keeps the
+        // same context a verdict follow-up already gets.
+        // Prefer `reply` (the actual reasoning) over the bare headline so a
+        // follow-up question doesn't lose Penny's own working — a one-word
+        // deterministic headline like "Yes" carries nothing for the model to
+        // build on. Falls back to headline where reply is unset (degraded
+        // paths already fold reply into headline; see VerdictMsg's comment).
+        const content = m.kind === "scenario"
+          ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.`
+          : m.kind === "explainer"
+          ? m.reply
+          : m.reply ?? m.headline;
+        return { role: "assistant" as const, content };
+      });
   }
 
   async function ask(question: string, history: Array<{ role: "user" | "assistant"; content: string }>, context?: string) {
+    // `askContext?.screen` is read HERE, at send time, not captured once
+    // into a ref — `askContext` is a prop that PennySheet.tsx re-passes
+    // fresh from its own live `ctx` on every render (see
+    // PennySheetProvider.tsx's `usePennySheetState`), so a reopen of this
+    // session-long component over a DIFFERENT screen already re-renders
+    // this component with the new `askContext` before any further question
+    // can be typed or sent. Reading it directly here — captured into a
+    // local BEFORE the `await` below, so it reflects whatever screen was
+    // current at the moment this call fired rather than whatever screen
+    // happens to be current by the time the response lands — is what makes
+    // that hold, and now does double duty: `sendScreen` is both the value
+    // sent to the backend (unchanged: `undefined` in full-page mode, a real
+    // screen or "other" in sheet mode) AND, via `bucketScreen`, which
+    // bucket the eventual answer is appended to. That second part matters
+    // because this component never unmounts and the sheet closes on
+    // navigation (see this file's header comment, "PER-SCREEN THREADS") —
+    // a slow answer can easily land after the user has already switched to
+    // a different screen and reopened over it, and it must still land in
+    // the bucket that actually asked, not whichever bucket is on screen
+    // when the response arrives.
+    const sendScreen = askContext?.screen;
+    const bucketScreen: PennyAskContext["screen"] = sendScreen ?? "other";
     setError(false);
     setLoading(true);
     try {
-      const res = await api.canI(question, history, context);
+      const res = await api.canI(question, history, context, sendScreen);
       // One id per answer turn, shared across whichever branch below fires
       // (see the Msg union's `id` comment for why every message needs one).
       const id = newMsgId();
@@ -829,7 +1022,16 @@ export default function PennyConversation({
       } else {
         assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, offer: res.offer ?? null, degraded: true };
       }
-      setMessages((prev) => [...prev, assistantMsg].slice(-HISTORY_CAP));
+      // Appended to the bucket the question was ASKED from (`bucketScreen`,
+      // captured above), not necessarily whatever bucket is on screen now.
+      // Also TTL bookkeeping (see `PENNY_THREAD_TTL_MS` and the expiry
+      // effect below) — resets that bucket's idle clock, same as `send()`
+      // does for its own bucket on the way out.
+      setBucket(bucketScreen, (prev) => ({
+        ...prev,
+        messages: capMessages([...prev.messages, assistantMsg]),
+        lastActivityAt: Date.now(),
+      }));
       setOffer(res.offer ?? null);
     } catch {
       setError(true);
@@ -857,11 +1059,28 @@ export default function PennyConversation({
   function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
-    const history = buildHistory(messages);
-    setMessages((prev) => [...prev, { id: newMsgId(), role: "user" as const, content: trimmed }].slice(-HISTORY_CAP));
+    // Reads `bucketsRef.current`, not the `buckets` state variable — see
+    // that ref's own comment on why event handlers go through it (the
+    // short version: this function's closure can be stale by the time it
+    // actually runs, specifically when the TTL-expiry effect below clears
+    // this bucket in the SAME commit that also fires the `askContext.ask`
+    // effect that calls this).
+    const priorMessages = bucketsRef.current[currentScreen].messages;
+    const history = buildHistory(priorMessages);
+    // Appends the user's turn AND marks it asked, in ONE bucket update —
+    // `currentScreen`'s own thread, never any other screen's (see this
+    // file's header comment, "PER-SCREEN THREADS"). `askedLabels` moving
+    // per-bucket here (rather than staying a single global set, the way
+    // `dismissedChips` does — see that state's own comment above) is the
+    // point of a chip asked on Spend staying offered on Home: this only
+    // ever touches Spend's bucket.
+    setBucket(currentScreen, (prev) => ({
+      messages: capMessages([...prev.messages, { id: newMsgId(), role: "user" as const, content: trimmed }]),
+      askedLabels: new Set(prev.askedLabels).add(trimmed),
+      lastActivityAt: Date.now(),
+    }));
     setInput("");
     setOffer(null);
-    setAskedLabels((prev) => new Set(prev).add(trimmed));
     // askContext.summary grounds the FIRST request from a sheet caller's
     // screen only (see PennyAskContext's doc comment and this file's header
     // comment). It is sent as its own `context` argument to `api.canI` —
@@ -874,6 +1093,17 @@ export default function PennyConversation({
     // silently mis-routes it. `context` is grounding for the LLM only, kept
     // structurally separate on the wire for exactly that reason. Do not
     // "simplify" this back into a single string.
+    //
+    // Contrast with `askContext.screen`, sent alongside this on every call
+    // (inside `ask()` itself, not computed here): `summary` is deliberately
+    // ONE-SHOT (`summaryConsumedRef` above gates it to the first request per
+    // screen) because it's a free-text sentence that would get stale and
+    // repetitive if resent on every follow-up. `screen` is the opposite —
+    // cheap structured data (an enum tag, not prose), so there's no cost to
+    // resending it, and the whole point of having it is that ANY question
+    // mid-conversation ("what about this page") needs the CURRENT screen,
+    // not just whichever screen was open when the thread started. Don't
+    // fold `screen` into this one-shot gate.
     const context = askContext?.summary && !summaryConsumedRef.current ? askContext.summary : undefined;
     if (context) summaryConsumedRef.current = true;
     ask(trimmed, history, context);
@@ -881,9 +1111,13 @@ export default function PennyConversation({
 
   function retry() {
     if (loading) return;
-    const last = messages[messages.length - 1];
+    // `bucketsRef.current`, not `buckets` state — see that ref's comment.
+    // Retries the last user turn in the CURRENTLY VIEWED bucket — the same
+    // thread the error/retry bubble is rendered in.
+    const current = bucketsRef.current[currentScreen].messages;
+    const last = current[current.length - 1];
     if (!last || last.role !== "user") return;
-    const history = buildHistory(messages.slice(0, -1));
+    const history = buildHistory(current.slice(0, -1));
     ask(last.content, history);
   }
 
@@ -895,6 +1129,51 @@ export default function PennyConversation({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
+
+  // Inactivity TTL (`PENNY_THREAD_TTL_MS`, 30 minutes) — checked once per
+  // bucket becoming VISIBLE (`askSeq` territory), not on a background
+  // timer: this is a client component with no polling loop, and a stale
+  // thread only matters at the moment the user actually comes back to look
+  // at it. "Becoming visible" covers both an open and a screen switch —
+  // PennySheet.tsx's own mount comment notes the sheet closes on
+  // navigation, so a switch always arrives as a fresh open too, i.e. a
+  // fresh `askSeq` — see this file's header comment, "PER-SCREEN THREADS".
+  // Only `currentScreen`'s OWN bucket is checked/cleared here; every other
+  // bucket's clock keeps running untouched until IT becomes visible.
+  // `askSeq == null` guards the full-page caller the same way the effect
+  // below does — full-page mode has no reopen concept to key this off.
+  //
+  // ORDERING, load-bearing: this effect MUST be declared (and therefore
+  // run) BEFORE the `askContext.ask` effect immediately below. Both are
+  // plain `useEffect`s that can fire on the SAME `askSeq` change (a reopen
+  // after 30+ idle minutes that also carries a fresh one-shot `ask`), and
+  // React runs same-phase effects in the order they were declared during
+  // render — so listing this one first guarantees its clear happens before
+  // that effect's `send()` call. Concretely: `setBucket` here resets
+  // `bucketsRef.current[currentScreen]` (synchronously, on the spot) and
+  // queues the state update. By the time the next effect runs `send()`,
+  // that bucket is already a fresh, empty one — so `send()` builds its LLM
+  // history from a genuinely empty prior thread and treats the question as
+  // the first message of a new conversation, rather than reading the
+  // just-expired, 30-minutes-stale thread through a closure that hasn't
+  // re-rendered yet. Reordering these two effects, or merging them into
+  // one, would silently break that guarantee — do not do either without
+  // re-verifying this reasoning holds.
+  //
+  // Expiry is SILENT — no "this conversation expired" system message added
+  // to the fresh bucket. A notice would memorialise a conversation the
+  // user has already forgotten they had; the entire point of the TTL is
+  // that a stale morning thread shouldn't greet them at night, not that it
+  // should announce its own death on the way out.
+  useEffect(() => {
+    if (askSeq == null) return;
+    const bucket = bucketsRef.current[currentScreen];
+    const idleFor = Date.now() - bucket.lastActivityAt;
+    if (idleFor > PENNY_THREAD_TTL_MS && bucket.messages.length > 0) {
+      setBucket(currentScreen, () => newBucket());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askSeq, currentScreen]);
 
   // askContext.ask — sheet-mode equivalent of the `initialQuestion` effect
   // above, but fires once per `askSeq` (once per `open()` call) rather than
@@ -1240,7 +1519,13 @@ export default function PennyConversation({
           specifically (population makes a chip zero-commitment, nothing
           to dismiss). */}
       {inSheet && allChips.length > 0 && (
-        <div className="shrink-0 relative px-5 pt-1">
+        // `pt-1` -> `pt-0.5` (design review, 2026-08-25): paired with
+        // PennySheet.tsx's header divider `mt-1.5` -> `mt-1` change, tightens
+        // the seam between the header's links row/divider and this chip row
+        // so the two read as one utility cluster above the thread rather
+        // than two separated bands of tap targets. 44px chip/link targets
+        // are untouched, only the padding around them shrank.
+        <div className="shrink-0 relative px-5 pt-0.5">
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
             {allChips.map((c) => {
               if (c.source === "personalised") {
@@ -1471,16 +1756,25 @@ export default function PennyConversation({
           onSaved={(item) => {
             setOffer(null);
             setOfferSheetOpen(false);
-            setMessages((prev) => [
+            // Lands in `currentScreen`'s bucket — the offer that triggered
+            // this sheet came from that bucket's own thread, so the
+            // confirmation belongs there too. Also counts as an answer
+            // landing for TTL purposes, same bookkeeping as `ask()`'s own
+            // `lastActivityAt` touch.
+            setBucket(currentScreen, (prev) => ({
               ...prev,
-              {
-                id: newMsgId(),
-                role: "assistant" as const,
-                kind: "verdict" as const,
-                headline: `Set up: £${Math.round(item.per_period_slice).toLocaleString("en-GB")} ${item.period_label ? `each pay period (${item.period_label})` : "a period"} reserved.`,
-                degraded: true,
-              },
-            ].slice(-HISTORY_CAP));
+              messages: capMessages([
+                ...prev.messages,
+                {
+                  id: newMsgId(),
+                  role: "assistant" as const,
+                  kind: "verdict" as const,
+                  headline: `Set up: £${Math.round(item.per_period_slice).toLocaleString("en-GB")} ${item.period_label ? `each pay period (${item.period_label})` : "a period"} reserved.`,
+                  degraded: true,
+                },
+              ]),
+              lastActivityAt: Date.now(),
+            }));
           }}
         />
       )}
