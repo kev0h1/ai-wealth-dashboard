@@ -9,7 +9,7 @@ import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
 import TransactionRow from "@/components/TransactionRow";
-import TransactionSheet from "@/components/TransactionSheet";
+import TeachingSheet from "@/components/TeachingSheet";
 import BottomNav from "@/components/BottomNav";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useAuth } from "@/components/AuthProvider";
@@ -51,12 +51,23 @@ export default function HomePage() {
   const { colours } = useColours();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
+  // Fed only by the lazy 90-day bulk fetch below, gated on homePinnedWidget —
+  // the sole remaining consumer is the pinned chart widget via homeTxns.
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  // Recent Transactions' own small fetch, via the same GET /transactions/search
+  // the /transactions hub uses (server-sorted across every source) — replaces
+  // reading off the 90-day bulk fetch so the section paints without waiting
+  // on it, and correction lands through TeachingSheet like everywhere else.
+  const [recentTxns, setRecentTxns] = useState<Transaction[]>([]);
+  // Bumped once per loadData call (mount and every handleSync) — re-couples
+  // the lazy bulk-fetch effect below to loadData without pulling the fetch
+  // itself back into loadData's own body. See that effect's comment.
+  const [bulkNonce, setBulkNonce] = useState(0);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [loading, setLoading] = useState(true);
   // Per-fetch skeleton gates: the Safe-to-Spend tile and the transactions
   // list each clear as soon as their OWN request settles — nothing waits on
-  // the heavy 90-day transactions call.
+  // the heavy 90-day transactions call (which no longer feeds this list at all).
   const [stsLoading, setStsLoading] = useState(true);
   const [txLoading, setTxLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -79,16 +90,26 @@ export default function HomePage() {
     setLoadError(false);
     try {
       await ensureAuth();
-      // Fire the fast calls — and the heavy 90-day transactions fetch — all
-      // in parallel and set each state as its own promise resolves. The
-      // Safe-to-Spend tile and brief never wait for siblings, and the
-      // transactions request starts alongside accounts instead of after it.
+      // Fire the fast calls all in parallel and set each state as its own
+      // promise resolves. The Safe-to-Spend tile and brief never wait for
+      // siblings, and Recent Transactions gets its own small search-endpoint
+      // request here instead of reading off the heavy 90-day bulk fetch
+      // (that one is now lazy — see the homePinnedWidget effect below).
       const accsP = api.accounts();
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
       const needleP = api.getNeedleSummary();
-      const txP = api.allTransactions(90).catch(() => [] as Transaction[]);
+      // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
+      // (round-ups, penny transfers) can drop rows, and asking the server
+      // for exactly 6 could leave fewer than 6 on screen after filtering.
+      const recentTxP = api.transactionsSearch({ page: 1, page_size: 12 });
+      // This is where the old code kicked off the 90-day bulk fetch
+      // directly. It's lazy now (see the homePinnedWidget effect below), but
+      // every loadData call — mount and every manual sync — still needs to
+      // trigger a refresh of it when the widget is pinned, so bump the nonce
+      // that effect is keyed on instead of awaiting the fetch here.
+      setBulkNonce((n) => n + 1);
 
       invP.then((v) => setInvestmentAccounts(v)).catch(() => {});
       safeP
@@ -96,6 +117,10 @@ export default function HomePage() {
         .catch(() => {})
         .finally(() => setStsLoading(false));
       todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
+      recentTxP
+        .then((r) => setRecentTxns(r.items))
+        .catch(() => setRecentTxns([]))
+        .finally(() => setTxLoading(false));
       // Write-through for BottomNav's Penny dot (see lib/paydayWindow.ts) —
       // Home already fetches both of these for its own brief, so once they
       // resolve, hand the same boolean to the nav's cache instead of letting
@@ -123,23 +148,45 @@ export default function HomePage() {
       }
 
       // Let the remaining fast calls settle, then clear the page-level
-      // skeletons — before the transactions fetch starts blocking anything.
-      await Promise.allSettled([invP, safeP, todayP, needleP]);
+      // skeletons. recentTxP and safeP each clear their own skeleton
+      // (txLoading, stsLoading) independently as they settle, above.
+      await Promise.allSettled([invP, safeP, todayP, needleP, recentTxP]);
       setLoading(false);
-
-      // One bulk call (already server-sorted) instead of one per account.
-      // Only the recent-transactions skeleton (txLoading) waits on this.
-      const allTxns = await txP;
-      if (loadedAccounts.length > 0) setTransactions(allTxns);
     } catch {}
     finally {
       setLoading(false);
       setStsLoading(false);
+      // Belt-and-braces: if an early exit (e.g. ensureAuth throwing) lands us
+      // here before recentTxP was ever created, its own .finally above never
+      // runs and this skeleton would otherwise be stuck on forever.
       setTxLoading(false);
     }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // The 90-day bulk fetch (transactions state) now feeds only the opt-in
+  // pinned chart widget below, via homeTxns — Recent Transactions has its
+  // own small fetch above. Deferred to its own effect, keyed on
+  // homePinnedWidget, so the common case (nothing pinned) never pays for a
+  // 90-day fetch across every account. homePinnedWidget comes from
+  // usePreferences() and can arrive after first paint (it fetches
+  // /preferences once, async), so this effect re-fires whenever the value
+  // changes rather than running once on mount — it no-ops while unset.
+  // bulkNonce is what re-couples this fetch to loadData/handleSync: it's
+  // bumped once per loadData call, so a manual sync still refreshes the
+  // pinned widget's data exactly as it did before this fetch was pulled out
+  // of loadData's own body — while an unpinned widget still costs nothing,
+  // since the guard below returns before the fetch (or any nonce bump from
+  // this effect itself) can happen.
+  useEffect(() => {
+    if (!homePinnedWidget) return;
+    let cancelled = false;
+    api.allTransactions(90)
+      .then((v) => { if (!cancelled) setTransactions(v); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [homePinnedWidget, bulkNonce]);
 
   // Cross-page pin staleness (F3 review correction): PreferencesContext
   // fetches /preferences exactly once per full page load and never
@@ -194,13 +241,17 @@ export default function HomePage() {
   }, []);
 
   function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
-    setTransactions((prev) =>
+    const patch = (prev: Transaction[]) =>
       prev.map((t) => {
         if (t.id === updated.id) return { ...t, category: updated.category };
         if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };
         return t;
-      })
-    );
+      });
+    // `transactions` still feeds the pinned chart widget below; `recentTxns`
+    // is what this screen's own Recent Transactions row actually renders —
+    // both need the correction so it's visible immediately, wherever it's read.
+    setTransactions(patch);
+    setRecentTxns(patch);
   }
 
   // Spending totals are home-currency only; the recent list still shows
@@ -211,8 +262,9 @@ export default function HomePage() {
   );
 
   // Micro pot-shuffles (round-ups, penny transfers) aren't "activity" worth
-  // a slot on the home screen
-  const recent = transactions
+  // a slot on the home screen — this is why recentTxns over-fetches 12
+  // above, so 6 real rows usually survive this filter.
+  const recent = recentTxns
     .filter(t => !(t.category === "Transfer" && t.amount < 1))
     .slice(0, 6);
 
@@ -590,11 +642,11 @@ export default function HomePage() {
       </div>
 
       {selectedTx && (
-        <TransactionSheet
+        <TeachingSheet
           transaction={selectedTx}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
-          account={accounts.find(a => a.id === selectedTx.account_id) ? { name: accounts.find(a => a.id === selectedTx.account_id)!.name, provider: accounts.find(a => a.id === selectedTx.account_id)!.provider } : undefined}
+          account={accounts.find(a => a.id === selectedTx.account_id)}
         />
       )}
 
