@@ -17,10 +17,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
-from app.db.collections import cashflow_cache_col, commitments_col, savings_goals_col
+from app.db.collections import (
+    accounts_col, cashflow_cache_col, commitments_col, savings_goals_col, savings_insights_col,
+    transactions_col, yapily_transactions_col,
+)
 from app.routers.analytics import compute_safe_to_spend, _build_cashflow_response
 from app.routers.savings import _cashflow, _current_savings
 from app.routers.scenario import looks_like_scenario, parse_question
+from app.services.card_rates import is_credit_card_account
 from app.services.categories import BUILTIN_CATEGORIES, get_category_kinds, is_discretionary
 from app.services.region import get_user_region
 
@@ -200,6 +204,82 @@ def _is_out_of_scope(question: str, amount_asked: float | None, active_goal_name
     return True
 
 
+# ── ISA capability question (deterministic, no LLM, no quota) ───────────────
+# Owner report, 2026-08-26: "how can I add an ISA" on the Accounts screen was
+# grabbed by the bare-ISA tax Tier 2 (_TAX_TIER2_RE below matches bare "isa",
+# and this question carries none of the spend/contribution signals that tier
+# checks for) and answered as a tax question — wrong intent entirely. The
+# user is asking what the APP can do with an ISA, not asking a tax mechanics
+# question. Checked BEFORE `_is_tax_question` in the `can_i` handler so it
+# wins that collision outright, same "more specific check goes first" rule
+# `_TAX_TIER1_PATTERNS` already uses against Tier 2.
+#
+# Verb-plus-"isa" shape, not bare "isa" alone: "add|track|connect|link|
+# upload|open" near the word "isa", both sides `\b`-bounded — the same
+# protection this file's tax tiers already rely on to keep "isa" from
+# matching inside "Lisa"/"visa"/"advisable" (see `_TAX_TIER1_PATTERNS`'s own
+# comment for that precedent). ".{0,20}" between the verb and "isa" allows
+# the natural "add an ISA"/"add my ISA to the app" phrasings without turning
+# into an unbounded, over-matching search across the whole question.
+_ISA_CAPABILITY_RE = re.compile(
+    r"\b(?:add|track|connect|link|upload|open)\b.{0,20}\bisa\b",
+    re.IGNORECASE,
+)
+
+
+def _is_isa_capability_question(question: str, amount_asked: float | None) -> bool:
+    """True for "can the app add/track/connect/link/upload/open an ISA"
+    shaped questions. amount_asked is None guard mirrors every other
+    deterministic gate in this file (see _is_out_of_scope's own docstring):
+    a priced question ("Can I put £50 toward my ISA?") is a real
+    affordability ask the existing what-if machinery already answers
+    correctly today, and none of this matcher's verbs collide with that
+    phrasing anyway, but the guard keeps this gate structurally consistent
+    with the rest of the file rather than relying on that coincidence alone.
+    """
+    if amount_asked is not None:
+        return False
+    return bool(_ISA_CAPABILITY_RE.search(question))
+
+
+# Fixed string, verified against the actual code before writing it (owner
+# instruction: never invent a capability the app doesn't have). Confirmed by
+# reading `backend/app/routers/investments.py` (`investment_upload`,
+# `llm_parse_investment_statement` in `app/services/pdf.py` — its own prompt
+# example text is literally "e.g. Vanguard ISA" with "account_type" examples
+# including "ISA"/"Stocks and Shares ISA") and the Accounts page's Add menu
+# (`frontend/app/components/AccountsPage.tsx`, the "Investment" menu item
+# opens the statement-upload flow). Open banking has no ISA read scope, so
+# there is no live feed; statement upload is the real, already-shipped
+# alternative, not an invented one. No em-dash (house style), no personal
+# figures, same "never LLM-authored, never drifts" doctrine as
+# _GREETING_REPLY/_SAVE_INVEST_REPLY above.
+_ISA_CAPABILITY_REPLY = (
+    "Investment ISAs cannot be connected through open banking the way "
+    "current accounts are, so live automatic tracking isn't available for "
+    "them. You can still keep one on your Accounts page though, use Add, "
+    "then Investment, to upload your ISA provider's statement and it sets "
+    "the balance from that document. Upload a fresh statement whenever you "
+    "want the figure to catch up."
+)
+
+
+def _isa_capability_response() -> dict:
+    """Same explainer shape every fixed, no-LLM reply in this file uses
+    (headline=None, facts=[], explainer=True). Topic "accounts" since this
+    describes an Accounts-page capability, not a tax rule, so it renders
+    under that eyebrow rather than being confused with the (deleted) tax
+    routing this question used to fall into."""
+    return {
+        "reply": _house_style(_ISA_CAPABILITY_REPLY),
+        "headline": None,
+        "facts": [],
+        "explainer": True,
+        "topic": "accounts",
+        "out_of_scope": False,
+    }
+
+
 # ── Tax question detection (deterministic, no LLM) ───────────────────────────
 # Same doctrine as _is_out_of_scope above and ENGINE.md generally: the engine
 # decides routing, the LLM only phrases the answer once routed. Every entry
@@ -274,6 +354,638 @@ def _is_tax_question(question: str, amount_asked: float | None) -> bool:
         or (_PUT_RE.search(q) and _PUT_TARGET_RE.search(q))
     )
     return not looks_like_spend
+
+
+# ── Category spend history (deterministic, no LLM, no quota) ────────────────
+# Owner's live failure, 2026-08-26: "How much was my golf spend in the last
+# 3 months" got answered "£3 would take you −£215" — `_extract_amount`'s
+# bare-number rule read the "3" out of "last 3 months" as a £3 spend ask
+# (fixed separately, see `_TIME_UNIT_WORD_RE`'s own comment above), and the
+# resulting delta arithmetic did the rest. But even with that extraction bug
+# fixed, "how much was my X spend in the last N months" was never an
+# AFFORDABILITY question at all — it names no forward spend to weigh against
+# safe-to-spend, it asks for a SUM the database already knows. Answered here
+# as a real, deterministic query: no LLM, no quota, same ENGINE.md doctrine
+# every other computed reply in this file already follows (the engine
+# computes, the LLM never does arithmetic).
+#
+# Owner's SECOND live failure, an hour after this feature first shipped:
+# "What did I spend on eating out in april" missed it entirely and landed on
+# the current-period spend domain, which answered about Entertainment and
+# apologised for having no eating-out breakdown. Root cause was the ORIGINAL
+# `_HISTORY_LOOKUP_SHAPE_RE` gate below — a rigid "how much (was|did) my/I
+# ... spend/spent (on)" sentence template. "What did I spend on X" simply
+# isn't that shape (no "how much"), and the window parser only knew rolling
+# "last/past N <unit>"/"this year"/"since <month>" phrases, not "in <month>"
+# meaning a specific PAST calendar month. Eating Out is a real category,
+# April was in the data, this handler would have answered perfectly if it
+# had ever been reached.
+#
+# Rebuilt as a PRESENCE-based gate, not a sentence template: route here when
+# a spend word is present ANYWHERE, a real user category is named ANYWHERE,
+# and a past window is named ANYWHERE, in any order, with no required
+# sentence shape connecting them at all. This handler is deterministic and
+# cheap (a database SUM, not an LLM call), and a false positive just returns
+# a true category sum for the resolved window rather than a wrong or
+# nonsensical answer — so presence beats templates here far more safely than
+# it would for a routing decision with real stakes. The week's whole lesson
+# is that users never phrase things the way a matcher expects; a template
+# will always be one sentence behind the next live failure, a presence check
+# only needs the right INGREDIENTS to be somewhere in the question.
+#
+# Checked here, right after the tax gate and before every other deterministic
+# gate below it (saving-vs-investing, categorisation explainer, page
+# explainer, domain routing) — a history lookup is the MORE SPECIFIC
+# question whenever it matches at all: "how much did I spend on holiday in
+# the last 3 months" also carries "spend" (SPEND screen vocab) and possibly a
+# goal/category name, so it must win that collision by running first, same
+# "more specific check goes first" rule the tax tiers themselves already use
+# against each other.
+#
+# ALL of the following must be present (see `_is_category_spend_history_
+# question` below), no shape requirement between them:
+#   1. A spend word, `_SPEND_WORD_RE` — spend/spent/spending, word-boundary.
+#   2. A past window, `_extract_history_bounds` — see that function and the
+#      guard below for exactly which shapes count and why.
+#   3. One of the user's OWN category names, `_resolve_history_category` —
+#      word-boundary matched, never invented, checked LAST because it is the
+#      one signal that needs the user's own data (fetched once in `can_i`,
+#      same convention `active_goal_names` already uses for the planning
+#      domain's own goal-name match).
+#
+# PAST-VS-FUTURE GUARD — this is the piece that keeps the new "in <month>"/
+# bare "<month>" window shapes from stealing a genuinely forward question.
+# Unlike the original four window shapes (all unambiguously past — "last N
+# months", "this year", "since March"), a bare month name alone is tense-
+# neutral: "can I spend £50 in October" and "what did I spend on golf in
+# October" both name October, but only one of them is a history lookup. So a
+# month-named window (via "in"/"during"/bare) only counts when the question
+# ALSO carries an explicit past-tense spend context — "spent", "did I
+# spend", or a "did"/"was"/"were" auxiliary sitting near the spend word
+# (`_PAST_TENSE_SPEND_RE`) — OR one of the original, structurally-past window
+# phrases is present regardless (`last`/`past`/`since`/`this year`, i.e. the
+# rolling-window branch of `_extract_history_bounds`). A bare "can I spend
+# £50 in October?" carries neither: no past-tense marker, and its own
+# extracted amount already fails signal 1's sibling gate below anyway, so it
+# stays on the ordinary forward affordability path exactly as before. This
+# guard is also why the added month shapes are checked separately from, not
+# folded into, "an explicit past window phrase" for guard purposes below.
+_SPEND_WORD_RE = re.compile(r"\b(?:spend|spent|spending)\b", re.IGNORECASE)
+
+_PAST_TENSE_SPEND_RE = re.compile(
+    r"\bspent\b"
+    r"|\b(?:did|was|were)\b.{0,25}?\bspen[dt]\b",
+    re.IGNORECASE,
+)
+
+# Past-window phrases. "last/past N <unit>" is the general case (owner's own
+# sentence, "the last 3 months"); "this year" and "since <month>" name an
+# exact start date instead of a rolling count, so they get actual elapsed-
+# calendar-day maths rather than the N*30ish rolling approximation; a bare
+# "last month"/"last week"/"last year" (no number at all) defaults sensibly
+# to N=1 of that unit, per the brief. Every shape in THIS block is
+# unambiguously past on its own — none of them needs the past-tense guard
+# above, they ARE the "explicitly past window" half of that guard.
+_WINDOW_N_RE = re.compile(
+    r"\b(?:last|past)\s+(\d{1,2})\s+(day|days|week|weeks|month|months|year|years)\b",
+    re.IGNORECASE,
+)
+_WINDOW_THIS_YEAR_RE = re.compile(r"\bthis\s+year\b", re.IGNORECASE)
+_WINDOW_SINCE_MONTH_RE = re.compile(
+    r"\bsince\s+(" + "|".join(MONTH_NAMES) + r")\b", re.IGNORECASE
+)
+_WINDOW_BARE_RE = re.compile(r"\b(?:last|past)\s+(day|week|month|year)\b", re.IGNORECASE)
+
+_WINDOW_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+
+
+def _has_explicit_past_window_phrase(question: str) -> bool:
+    """True when one of the four structurally-past rolling window phrases
+    above is present — the "OR an explicitly past window" half of the
+    past-vs-future guard on the new month-named shapes (see the module
+    comment above `_SPEND_WORD_RE`). Deliberately excludes the new "in
+    <month>"/"during <month>"/bare "<month>" shapes: those are tense-neutral
+    on their own (see that same comment) and must rely on
+    `_PAST_TENSE_SPEND_RE` instead, never on this check.
+    """
+    return bool(
+        _WINDOW_N_RE.search(question)
+        or _WINDOW_THIS_YEAR_RE.search(question)
+        or _WINDOW_SINCE_MONTH_RE.search(question)
+        or _WINDOW_BARE_RE.search(question)
+    )
+
+
+def _extract_history_window(question: str, today: date) -> tuple[int, str] | None:
+    """(rolling window in days, hedged label e.g. "the last 3 months") for a
+    past-window phrase named in `question`, or None if none is present.
+    Deliberately rolling N*30ish days for the "last/past N <unit>" and bare
+    "last <unit>" shapes (a calendar-exact month boundary is not worth the
+    complexity for a hedged, already-approximate figure) — "this year" and
+    "since <month>" name an actual start date instead, so those two use real
+    elapsed calendar days. Unchanged from this feature's first ship: the new
+    "in <month>"/bare "<month>" shape below needs actual CALENDAR bounds (a
+    specific month has a specific start and end, not a rolling day count), so
+    it is handled by the separate `_extract_month_window` below instead of
+    being folded in here, and the two are combined by
+    `_extract_history_bounds` for every caller that needs actual dates.
+    """
+    m = _WINDOW_N_RE.search(question)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower().rstrip("s")
+        days = _WINDOW_UNIT_DAYS[unit] * n
+        label = f"the last {n} {unit}{'s' if n != 1 else ''}"
+        return days, label
+    if _WINDOW_THIS_YEAR_RE.search(question):
+        start = date(today.year, 1, 1)
+        return max((today - start).days, 1), "this year"
+    m = _WINDOW_SINCE_MONTH_RE.search(question)
+    if m:
+        month_name = m.group(1).lower()
+        month_idx = MONTH_NAMES.index(month_name) + 1
+        year = today.year if month_idx <= today.month else today.year - 1
+        start = date(year, month_idx, 1)
+        return max((today - start).days, 1), f"since {month_name.title()}"
+    m = _WINDOW_BARE_RE.search(question)
+    if m:
+        unit = m.group(1).lower()
+        return _WINDOW_UNIT_DAYS[unit], f"the last {unit}"
+    return None
+
+
+# "in <month>"/"during <month>" and a bare "<month>" name, meaning the MOST
+# RECENT occurrence of that calendar month in the past — never the rolling
+# N*30ish approximation the shapes above use, because a specific named month
+# has actual calendar bounds (asked 2026-08-26, "april" means 2026-04-01 to
+# 2026-04-30, not "30 days ago"). Checked only after every rolling shape
+# above has already failed to match (see `_extract_history_bounds`), so
+# "since March" or "the last 3 months" never falls through to this coarser
+# path just because the sentence also happens to contain a month name.
+_MONTH_IN_DURING_RE = re.compile(
+    r"\b(?:in|during)\s+(" + "|".join(MONTH_NAMES) + r")\b", re.IGNORECASE
+)
+_BARE_MONTH_NAME_RE = re.compile(r"\b(" + "|".join(MONTH_NAMES) + r")\b", re.IGNORECASE)
+
+
+def _extract_month_window(question: str, today: date) -> tuple[date, date, str] | None:
+    """(start date, end date, hedged label) for a named calendar month, or
+    None if no month name is present at all. "in"/"during" is checked before
+    a bare month name so "in October" and a stray bare "October" resolve
+    identically — the preposition adds no information once a month name is
+    found, both mean the same calendar month.
+
+    Year resolution: an explicit year pairing ("in april 2025") wins
+    outright, reusing `_extract_month_year` (this file's own existing
+    month+year parser, built for the Japan-2027 horizon fix) rather than a
+    second copy of that parsing. Otherwise the MOST RECENT past occurrence of
+    the named month is assumed — this year if the month has already started
+    or is the current month (`month_idx <= today.month`), last year if the
+    month is still ahead of today in the calendar (`month_idx > today.month`,
+    e.g. asked in August, "October" means last October, not the one still to
+    come). `end` is capped at `today` — a "current, still in progress" month
+    has no future days to sum spending over yet.
+
+    Label carries the year ONLY when the resolved year crossed a year
+    boundary (or was named explicitly) — "April" reads naturally as "...in
+    April" once `_handle_category_spend_history` substitutes it into its own
+    "on {category} in {window_label}" template (the same bare-phrase
+    convention every other window label in this file already follows — "the
+    last 3 months", "since March", "this year" — none of them carry their
+    own leading "in"/"since" twice over); "October 2025" disambiguates the
+    wrapped-around case the same way `_WINDOW_SINCE_MONTH_RE`'s "since
+    October" never needs to (that shape can only ever mean the nearest past
+    occurrence too, but is always phrased with the implicit year already
+    understood by the user asking "since").
+    """
+    m = _MONTH_IN_DURING_RE.search(question) or _BARE_MONTH_NAME_RE.search(question)
+    if not m:
+        return None
+    month_name = m.group(1).lower()
+    month_idx = MONTH_NAMES.index(month_name) + 1  # 1..12
+    explicit = _extract_month_year(question)
+    if explicit and explicit[0] == month_name:
+        year = explicit[1]
+    else:
+        year = today.year if month_idx <= today.month else today.year - 1
+    start = date(year, month_idx, 1)
+    end = date(year, 12, 31) if month_idx == 12 else date(year, month_idx + 1, 1) - timedelta(days=1)
+    end = min(end, today)
+    label = (
+        month_name.title()
+        if year == today.year
+        else f"{month_name.title()} {year}"
+    )
+    return start, end, label
+
+
+def _extract_history_bounds(question: str, today: date) -> tuple[date, date, str] | None:
+    """Single entry point for ACTUAL calendar (start, end, label) bounds,
+    combining the two window families above: the rolling shapes
+    (`_extract_history_window`, converted from a day count to `today -
+    timedelta(days)..today`) tried first, falling back to the calendar-exact
+    month shape (`_extract_month_window`) only when no rolling phrase
+    matched. Both `_is_category_spend_history_question` (presence check) and
+    `_handle_category_spend_history` (the actual query) call this ONE
+    function so the two can never resolve the same question to two different
+    windows.
+    """
+    rolling = _extract_history_window(question, today)
+    if rolling is not None:
+        days, label = rolling
+        return today - timedelta(days=days), today, label
+    return _extract_month_window(question, today)
+
+
+def _resolve_history_category(question: str, category_names: list[str]) -> str | None:
+    """First of the user's OWN category names mentioned in `question`,
+    word-boundary matched exactly like `_name_mentioned` above (the goal-name
+    matching precedent this brief calls for) — never invented, never a bare
+    substring guess. "Other" is excluded from `category_names` upstream (see
+    `_user_spend_category_names` below) for the same reason `_SCOPE_CATEGORY_
+    WORDS` already excludes it: it is too generic a substring and is not a
+    real category in this app's own ontology (ENGINE.md — "Other" is never
+    promoted, it is the engine's own unresolved state).
+
+    Merchant/display-name matching was considered and deliberately skipped:
+    unlike a category name (a short, known, per-user list already fetched
+    once for this request), matching a free-text word in the question against
+    every merchant a user has ever paid needs its own query and a fuzzy-
+    matching pass to be reliable (a bare word like "golf" is a clean category
+    match but a noisy merchant-name substring match) — not cheap, not
+    reliable, so this only ever matches the user's own CATEGORY names.
+    """
+    for name in category_names:
+        if _name_mentioned(name, question):
+            return name
+    return None
+
+
+def _is_category_spend_history_question(
+    question: str, amount_asked: float | None, category_names: list[str]
+) -> bool:
+    """True when ALL of a spend word, a past window, and one of the user's
+    own category names are present ANYWHERE in `question` — no sentence
+    SHAPE requirement between them at all (see the module comment above
+    `_SPEND_WORD_RE` for why this replaced the original rigid "how much
+    (was|did) my/I ... spend/spent" template, and the second owner failure
+    that forced the rewrite). Order below is cheapest-first: `amount_asked
+    is None`, then two cheap regex checks, then the one signal that needs
+    the user's own data fetched.
+
+    `amount_asked is None` guard mirrors every other deterministic gate in
+    this file (see `_is_out_of_scope`'s own docstring) — a genuinely priced
+    question ("how much would £50 a month on golf cost me") stays off this
+    deterministic path and on the ordinary affordability one instead. It
+    also does double duty as half of the past-vs-future disambiguation for
+    the new month-named window shapes: "can I spend £50 in October?" fails
+    here on the extracted £50 alone, before the guard below is even reached.
+
+    The guard below is the OTHER half, needed for an amount-less month
+    question that still isn't a history lookup ("can I spend on Eating Out
+    in October?", no price named at all): a month-named window
+    (`_extract_month_window`, reached only once every rolling shape in
+    `_extract_history_window` has already failed to match — see
+    `_extract_history_bounds`) is tense-neutral on its own and only counts
+    as PAST here when the question also carries an explicit past-tense spend
+    context (`_PAST_TENSE_SPEND_RE` — "spent", "did I spend", a "did"/"was"/
+    "were" auxiliary near the spend word) or one of the original,
+    structurally-past rolling phrases is what actually matched
+    (`_has_explicit_past_window_phrase` — last/past N units, bare last unit,
+    "this year", "since <month>"). Either is enough; neither is required
+    when the other already holds (the owner's own "what did I spend on
+    eating out in april" carries both).
+    """
+    if amount_asked is not None:
+        return False
+    if not _SPEND_WORD_RE.search(question):
+        return False
+    if _extract_history_bounds(question, date.today()) is None:
+        return False
+    if not (_PAST_TENSE_SPEND_RE.search(question) or _has_explicit_past_window_phrase(question)):
+        return False
+    return _resolve_history_category(question, category_names) is not None
+
+
+async def _user_spend_category_names(uid: str) -> list[str]:
+    """This user's own category names (built-ins merged with their custom
+    ones), "Other" excluded — see `_resolve_history_category`'s own comment
+    for why. Same ONE-database-read convention `get_category_kinds` itself
+    documents; called once per request in `can_i`, same as `_active_goals_
+    summary` for the planning domain's own goal-name matching. Defensive
+    empty-list fallback on failure (never raise here — a category-history
+    question that can't be resolved just falls through to the existing
+    pipeline exactly as an ordinary out-of-scope question would)."""
+    try:
+        kinds = await get_category_kinds(uid)
+        return [name for name in kinds.keys() if name and name != "Other"]
+    except Exception:
+        logger.exception("_user_spend_category_names failed for %s", uid)
+        return []
+
+
+def _category_spend_reply(category: str, total: float, count: int, tail: str, detail: str) -> dict:
+    """Shared headline/reply template for EVERY deterministic per-category
+    spend answer in this file — the PAST-window lookup
+    (`_handle_category_spend_history`) and the CURRENT-period one
+    (`_handle_current_period_category_spend` / the SPEND-domain subject
+    guard in `_handle_spend_domain`) all resolve through this one function,
+    so the wording can never drift between "what did I spend on golf last
+    month" and "what did I spend on golf this month".
+
+    `tail` is the full trailing phrase to append straight after the category
+    name, already carrying its own preposition where one is needed (e.g.
+    "in the last 3 months", "in April", "this period" — the last of those
+    reads naturally with no leading "in"). `detail` is the reply's own
+    second sentence for the non-zero case; ignored (never even reached) when
+    `count` is 0, because the honest-absence reply below is fixed and never
+    invites a supporting detail that doesn't exist.
+    """
+    if count == 0:
+        return _domain_response(
+            f"Nothing recorded on {category} {tail}",
+            f"No {category} transactions turned up {tail}.",
+            [],
+        )
+    return _domain_response(
+        f"{_fmt_gbp(total)} on {category} {tail}",
+        detail,
+        [],
+    )
+
+
+async def _handle_category_spend_history(uid: str, question: str, category_names: list[str]) -> dict:
+    """Deterministic historical category-spend sum — no LLM call, no
+    `increment_ai_chat_usage`: a database SUM costs the user nothing, same
+    doctrine as `_greeting_response`/`_isa_capability_response` above.
+
+    Per this project's own doctrine (ENGINE.md / the transaction schema
+    itself): amounts are stored ABSOLUTE and `transaction_type` carries
+    direction, so this sums ONLY `"debit"` rows — never `"credit"` — across
+    BOTH `transactions_col` and `yapily_transactions_col` (the two-collection
+    read every other cross-provider aggregation in this codebase already
+    uses, e.g. `spend_verdict._load_period_txns`, `pace.py`, `analytics.py`).
+    A row's category is `custom_category` if the user renamed it, else the
+    engine's own `category`, else "Other" — the exact same resolution
+    `spend_verdict._load_period_txns` already applies, reused here rather
+    than re-derived so the two can never drift on what a transaction's
+    category "really" is.
+    """
+    category = _resolve_history_category(question, category_names)
+    bounds = _extract_history_bounds(question, date.today())
+    # Both are guaranteed non-None by the gate that routed here
+    # (`_is_category_spend_history_question` re-derives from this exact same
+    # question text and category list) — this is a defensive fallback only,
+    # never expected to fire in practice.
+    if category is None or bounds is None:
+        return _domain_response(
+            "Couldn't work that out",
+            "Couldn't tell which category or time window you meant, try naming one directly.",
+            [],
+        )
+    start, end, window_label = bounds
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    # Real elapsed calendar days for the monthly-average maths below, not the
+    # rolling day count `_extract_history_window` used to hand back directly
+    # — `_extract_history_bounds` now returns actual dates for both the
+    # rolling and calendar-exact (named month) window families, so this is
+    # derived the same way regardless of which family matched. +1 for an
+    # inclusive start/end range (e.g. 1 April..30 April is 30 days, not 29).
+    days = max((end - start).days + 1, 1)
+
+    try:
+        total = 0.0
+        count = 0
+        for col in (transactions_col, yapily_transactions_col):
+            async for doc in col.find(
+                {
+                    "user_id": uid,
+                    "transaction_type": "debit",
+                    "date": {"$gte": start_dt, "$lte": end_dt},
+                },
+                {"amount": 1, "category": 1, "custom_category": 1},
+            ):
+                doc_category = doc.get("custom_category") or doc.get("category") or "Other"
+                if doc_category != category:
+                    continue
+                total += abs(float(doc.get("amount") or 0))
+                count += 1
+    except Exception:
+        logger.exception("category spend history query failed for %s / %s", uid, category)
+        return _domain_response(
+            "Couldn't work that out",
+            "Couldn't look at your spending history just now, try again in a moment.",
+            [],
+        )
+
+    # Absence asserted only from a SUCCESSFUL query (this file's absence
+    # doctrine, see `_domain_response`'s own callers elsewhere) — a failed
+    # query above already returned its own graceful reply, never this one.
+    # count == 0 is handled inside `_category_spend_reply` itself (the same
+    # "Nothing recorded on {category} {tail}" shape every caller of that
+    # helper shares), so it is never re-derived here.
+    months = max(days / 30.0, 1 / 30.0)
+    monthly_avg = total / months
+    payment_word = "payment" if count == 1 else "payments"
+    detail = f"That's about {_fmt_gbp(monthly_avg)} a month on average, across {count} {payment_word}."
+    return _category_spend_reply(category, total, count, f"in {window_label}", detail)
+
+
+# ── CURRENT-period category spend (owner step-back demand, 2026-08-26) ──────
+# "What did I spend on golf this month" fell past the history matcher above
+# ("this month" is not one of `_extract_history_bounds`' past-window shapes —
+# on purpose, see that function's own docstring: it only ever resolves a
+# PAST window) and landed on the generic SPEND domain, which is SUBJECT-
+# BLIND — it recites the engine's own aggregate verdict (whichever category
+# is running hottest overall) no matter what the user actually asked about.
+# Asked about golf, the owner got a confident answer about Entertainment.
+#
+# Fix, in two parts:
+#   1. "this month"/"this period"/"so far this month" now join the
+#      recognised windows, meaning THIS APP'S CURRENT PAY PERIOD (this
+#      product's whole model is pay periods, never a calendar month — see
+#      ENGINE.md), so the reply is always labelled "this period", never
+#      "this month". `_is_current_period_category_question` below is the
+#      gate; `_handle_current_period_category_spend` is the handler, checked
+#      in `_resolve_deterministic_route` right after the past-window history
+#      gate (same presence-based doctrine, same "checked before the generic
+#      SPEND domain vocab" placement, for the same reason: a specific
+#      current-period category question is the MORE SPECIFIC question
+#      whenever it matches at all).
+#   2. A second, narrower guard lives INSIDE `_handle_spend_domain` itself
+#      (see that function) for every other shape that still reaches the
+#      generic domain — a bare "what did I spend on golf" (no window word at
+#      all) or a near-miss subject that isn't a real category ("what did I
+#      spend on padel this month", padel is an activity, not one of this
+#      user's own categories). Either the real category gets answered from
+#      the exact same engine data (never a second, disagreeing computation —
+#      see `_category_period_totals` below), or the user is told plainly
+#      that this specific thing can't be split out, never handed the
+#      unrelated aggregate verdict as if it answered their question.
+_CURRENT_PERIOD_RE = re.compile(r"\bthis\s+(?:month|period)\b", re.IGNORECASE)
+
+
+def _is_current_period_category_question(
+    question: str, amount_asked: float | None, category_names: list[str]
+) -> bool:
+    """True when a spend word, a "this month"/"this period" phrase (also
+    matches "so far this month" — that phrase already contains "this
+    month"), and one of the user's own category names are ALL present
+    ANYWHERE in `question`, no shape requirement — same presence doctrine as
+    `_is_category_spend_history_question` (see that function's own
+    docstring for the rationale and the owner failure that established it).
+    `amount_asked is None` guard mirrors every other deterministic gate in
+    this file: a priced question is a forward affordability ask, never a
+    look-back one.
+    """
+    if amount_asked is not None:
+        return False
+    if not _SPEND_WORD_RE.search(question):
+        return False
+    if not _CURRENT_PERIOD_RE.search(question):
+        return False
+    return _resolve_history_category(question, category_names) is not None
+
+
+def _category_period_totals(verdict: dict, category: str) -> tuple[float, int]:
+    """(total spent, payments_count) for `category` in THIS period, read
+    straight from `verdict`'s own already-computed per-category split
+    (`notables` ∪ `majority` — `build_notables_and_majority`'s own two
+    lists, spend_verdict.py) — never a second `compute_spend_verdict` I/O
+    call and never re-summed from raw transactions, so this can never
+    disagree with the Spend page's own category rows, which read from the
+    exact same two lists. A category absent from BOTH is a real, honest
+    zero: `bucket_transactions` only ever creates a `cat_agg` entry for a
+    category once at least one transaction has landed in it this period, so
+    absence here means no transactions, never a lookup failure.
+    """
+    for row in (verdict.get("notables") or []) + (verdict.get("majority") or []):
+        if row.get("category") == category:
+            return row.get("spent", 0.0), row.get("payments_count", 0)
+    return 0.0, 0
+
+
+def _current_period_category_response(category: str, verdict: dict) -> dict:
+    """Deterministic current-period reply for `category`, shared by both
+    `_handle_current_period_category_spend` (the "this month"/"this period"
+    gate) and the in-domain subject guard in `_handle_spend_domain` (a bare
+    "what did I spend on golf", no window word at all) — one template, one
+    place the "this period" wording lives, per the shared-code requirement
+    that already governs `_category_spend_reply` above.
+    """
+    total, count = _category_period_totals(verdict, category)
+    payment_word = "payment" if count == 1 else "payments"
+    detail = f"Across {count} {payment_word} this period." if count else ""
+    return _category_spend_reply(category, total, count, "this period", detail)
+
+
+async def _handle_current_period_category_spend(uid: str, question: str, category_names: list[str]) -> dict:
+    """Deterministic current-period category-spend answer — no LLM call, no
+    `increment_ai_chat_usage` (same doctrine as `_handle_category_spend_
+    history`): `compute_spend_verdict` is pure Python arithmetic over
+    already-categorised transactions, not a model call.
+    """
+    from app.services.spend_verdict import compute_spend_verdict
+
+    category = _resolve_history_category(question, category_names)
+    # Guaranteed non-None by the gate that routed here
+    # (`_is_current_period_category_question` re-derives from this exact
+    # same question text and category list) — defensive fallback only.
+    if category is None:
+        return _domain_response(
+            "Couldn't work that out",
+            "Couldn't tell which category you meant, try naming one directly.",
+            [],
+        )
+    try:
+        verdict = await compute_spend_verdict(uid, offset=0)
+    except Exception:
+        logger.exception("current-period category spend query failed for %s / %s", uid, category)
+        return _domain_response(
+            "Couldn't work that out",
+            "Couldn't look at your spending just now, try again in a moment.",
+            [],
+        )
+    return _current_period_category_response(category, verdict)
+
+
+# ── SPEND-domain subject guard (honest miss, owner step-back demand,
+# 2026-08-26) — "there's no point of having this chat bot if every time I
+# search for something I get this weird answer, if we can't answer a
+# particular question, say that you can't as opposed to that generic
+# answer." Consulted inside `_handle_spend_domain` for every question that
+# reaches the generic SPEND domain without having already been claimed by
+# the current/past-period category gates above: a bare "what did I spend on
+# golf" (no window word) or a subject the engine has no way to answer at all
+# ("what did I spend on padel", padel is an activity, not one of this user's
+# own categories). NEVER the other way round — a question with no named
+# subject at all ("Am I spending more than usual?", "Where did my money go
+# this month?") must reach the existing generic pace/breakdown verdict
+# completely unchanged, so this only ever fires on a genuine "on <word>"/
+# "my <word> spend" subject shape or a real category name, never on bare
+# co-occurrence.
+_SPEND_SUBJECT_STOPWORDS = {
+    "this", "that", "these", "those", "track", "top", "budget",
+    "average", "usual", "target", "plan", "pace",
+}
+_SPEND_SUBJECT_ON_RE = re.compile(r"\bon\s+([a-zA-Z][a-zA-Z']*)", re.IGNORECASE)
+_SPEND_SUBJECT_MY_SPEND_RE = re.compile(
+    r"\bmy\s+([a-zA-Z][a-zA-Z']*)\s+spend(?:ing)?\b", re.IGNORECASE
+)
+
+
+def _extract_spend_subject_phrase(question: str) -> str | None:
+    """The single word right after an "on <word>" or "my <word> spend"
+    shape, or None if neither shape is present — the NEAR-MISS half of the
+    SPEND-domain subject guard (see that section's own comment above): this
+    only fires for a question shaped like it is asking about ONE particular
+    thing, never a bare word co-occurring anywhere in the sentence (that
+    laxer, presence-only doctrine is what `_resolve_history_category`
+    itself uses, deliberately, because it only ever matches the user's OWN
+    known category names — a free-text guess like this one needs the
+    tighter shape instead, or almost any sentence would "name a subject").
+    A handful of common connector words that can legitimately follow "on"
+    without naming a spend subject ("on track", "on budget", "on average",
+    "on top" of the running total) are excluded via `_SPEND_SUBJECT_
+    STOPWORDS` so a question like "am I on track this month" is never
+    mistaken for a subject question about something called "track".
+    """
+    m = _SPEND_SUBJECT_ON_RE.search(question) or _SPEND_SUBJECT_MY_SPEND_RE.search(question)
+    if not m:
+        return None
+    word = m.group(1)
+    if word.lower() in _SPEND_SUBJECT_STOPWORDS:
+        return None
+    return word
+
+
+def _spend_subject_examples_clause(category_names: list[str]) -> str:
+    """"by category, like X or Y, or show the period overall" — the
+    honest-miss reply's own "what Penny CAN do instead" clause. Names up to
+    TWO of the user's OWN real category names (never a hardcoded example —
+    this app's own doctrine, ENGINE.md, is that categories are always the
+    user's own, per-user set), oldest-first exactly as `category_names` was
+    handed in. Degrades to a category-less clause when the user has no
+    categories at all yet, rather than naming an example that doesn't
+    exist for them."""
+    names = [n for n in category_names if n][:2]
+    if not names:
+        return "by category, or show the period overall"
+    if len(names) == 1:
+        return f"by category, like {names[0]}, or show the period overall"
+    return f"by category, like {names[0]} or {names[1]}, or show the period overall"
+
+
+def _spend_subject_honest_miss(subject: str, category_names: list[str]) -> dict:
+    """The deterministic "can't split that out" reply — no LLM, never the
+    generic aggregate verdict standing in for an answer it never gave."""
+    return _domain_response(
+        "Can't break that down",
+        f"I can't split out {subject} specifically. I can answer "
+        f"{_spend_subject_examples_clause(category_names)}.",
+        [],
+    )
 
 
 # ── Saving-vs-investing explainer detection (deterministic, no LLM) ─────────
@@ -363,6 +1075,80 @@ def _saving_vs_investing_response() -> dict:
     }
 
 
+# ── Categorisation explainer (deterministic, no LLM, no quota) ──────────────
+# Owner report, 2026-08-26: "How should I categorise the transactions" on
+# Spend was refused outright. Root cause was `_SPEND_SCREEN_VOCAB_PATTERNS`
+# missing "categorise"-shaped words and "transactions" entirely (fixed
+# separately, see that pattern list's own comment) — but even fixed, that
+# vocabulary only ever ROUTES to the Spend domain handler, which explains
+# THIS PERIOD'S spending, not how the engine's classification actually
+# works. This is a genuinely different question — "how does categorisation
+# work" — answered here with ENGINE.md's own doctrine (The Engine Owns It
+# Rule / The Two Inputs Rule / the Destination Rule), fixed and deterministic
+# like every other explainer in this file, and screen-independent (any
+# screen: this is engine-general, not tied to one page's own numbers).
+#
+# Same conservative word-boundary discipline as every other gate here.
+# "categor\w*" is the same stem the spend vocabulary fix uses (see that
+# pattern list's comment for why one stem covers "categorise"/"categorize"/
+# "categorised"/"categorising"/"categories"/etc without needing separate
+# alternatives) — reused here rather than re-derived so the two lists can
+# never drift apart on what counts as a categorisation word.
+_CATEGORISATION_EXPLAINER_PATTERNS = [
+    r"how\s+should\s+i\s+categor\w*",
+    r"how\s+do\s+categor\w*\s+work",
+    r"how\s+(?:are|is)\s+(?:payments?|transactions?)\s+(?:classified|categor\w*)",
+    r"why\s+is\s+this\s+categor\w*\s+as",
+]
+_CATEGORISATION_EXPLAINER_RE = re.compile(
+    r"\b(?:" + "|".join(_CATEGORISATION_EXPLAINER_PATTERNS) + r")\b", re.IGNORECASE
+)
+
+
+def _is_categorisation_explainer_question(question: str, amount_asked: float | None) -> bool:
+    """True for a general "how does categorisation work" question. Same
+    amount_asked is None guard every fixed explainer in this file applies
+    (see _is_saving_vs_investing_question's own docstring) — none of this
+    matcher's phrasings plausibly carry a £ figure, but the guard keeps this
+    gate structurally consistent with the rest of the file."""
+    if amount_asked is not None:
+        return False
+    return bool(_CATEGORISATION_EXPLAINER_RE.search(question))
+
+
+# Fixed string, drawn from ENGINE.md's own doctrine (The Engine Owns It Rule,
+# The Two Inputs Rule, the miscategorised guardrail / review-transfers flow)
+# rather than improvised — owner instruction. No em-dash (house style), no
+# personal figures, never LLM-authored, never varies run-to-run, same
+# doctrine as every other fixed reply in this file.
+_CATEGORISATION_EXPLAINER_REPLY = (
+    "Categorising your transactions isn't something you manage, the engine "
+    "does it for you automatically. Deterministic rules place most "
+    "transactions straight away, and trickier merchant names get more "
+    "careful judgement so they land in the right place. Transfers between "
+    "your own accounts are detected and kept out of your spending, so "
+    "moving money to savings or cards never counts as a purchase. If "
+    "something looks wrong, rename or recategorise it and the engine "
+    "remembers your correction for next time, and suspected own-transfers "
+    "sitting in a spending category also show up in the review-transfers "
+    "flow so you can fix those there too."
+)
+
+
+def _categorisation_explainer_response() -> dict:
+    """Same explainer shape every fixed, no-LLM reply in this file uses.
+    Topic "categories" so it renders under its own eyebrow, distinct from
+    the per-screen "spend"/"debt"/etc topics the page explainers use."""
+    return {
+        "reply": _house_style(_CATEGORISATION_EXPLAINER_REPLY),
+        "headline": None,
+        "facts": [],
+        "explainer": True,
+        "topic": "categories",
+        "out_of_scope": False,
+    }
+
+
 async def _active_goals_summary(uid: str) -> list[dict]:
     """Name + amount + target_date for the user's own active commitments/
     goals. Two jobs: (1) a scope signal ("can I add to japan?", "more for
@@ -441,9 +1227,25 @@ _SPEND_TIER1_RE = re.compile(r"\b(?:" + "|".join(_SPEND_TIER1_PATTERNS) + r")\b"
 # would collide with an ordinary purchase like "a birthday card" — never
 # matched alone): neither _SCOPE_KEYWORDS/_SCOPE_CATEGORY_WORDS nor the tax
 # tiers above contain "debt", so there is nothing here for it to steal from.
+#
+# Payoff phrasings added below (owner testing, 2026-08-25 — Penny page-
+# awareness) are debt-shaped regardless of screen ONLY where the phrase
+# names its own subject or is otherwise unambiguous in this app: bare "pay
+# off"/"paid off" (no object needed — this app has nothing else you "pay
+# off"), "debt-free", and a "how long ... clear" shape. Deliberately NOT
+# added here: "pay this off"/"pay it off"/"pay them off" — a bare pronoun
+# with no named subject is genuinely ambiguous out of context ("pay this
+# off" could be anything), so that shape is resolved by SCREEN instead, via
+# `_DEBT_DEICTIC_RE` below, only when `screen == "debt"`. Keeping the two
+# separate is what lets "How long ... to pay this off" behave differently
+# with and without screen context (see `_route_domain`'s own comment).
 _DEBT_TIER1_PATTERNS = [
     r"debt",
     r"pay(?:ing)?\s+off\s+my\s+card",
+    r"pay\s+off",
+    r"paid\s+off",
+    r"debt[\s-]free",
+    r"how\s+long.{0,40}?clear",
     r"clear\s+my\s+card",
     r"credit\s+card\s+debt",
     r"card\s+debt",
@@ -451,6 +1253,40 @@ _DEBT_TIER1_PATTERNS = [
     r"interest\s+on\s+my\s+card",
 ]
 _DEBT_TIER1_RE = re.compile(r"\b(?:" + "|".join(_DEBT_TIER1_PATTERNS) + r")\b", re.IGNORECASE)
+
+# DEBT deictic boost (owner testing, 2026-08-25) — "pay this off"/"pay it
+# off"/"pay them off"/"when will this be gone" name no subject at all; the
+# SCREEN is what resolves what "this" refers to, not the words themselves.
+# Only ever consulted in `_route_domain` when `screen == "debt"` — see that
+# function's own comment for why this stays a separate pattern from
+# `_DEBT_TIER1_RE` above rather than folded into it.
+_DEBT_DEICTIC_PATTERNS = [
+    r"pay\s+(?:this|it|them)\s+off",
+    r"when\s+will\s+(?:this|it)\s+be\s+gone",
+]
+_DEBT_DEICTIC_RE = re.compile(r"\b(?:" + "|".join(_DEBT_DEICTIC_PATTERNS) + r")\b", re.IGNORECASE)
+
+# SPEND-page "placing" vocabulary (owner testing, 2026-08-25) — "needs
+# placing"/"still placing"/"unplaced"/"uncategorised"/"not categorised"/
+# "still working out" is the Spend page's OWN vocabulary for its unresolved-
+# money whisper (`build_unresolved`, spend_verdict.py — the "Other" bucket
+# the ontology in ENGINE.md calls "the engine's unresolved state"). Screen-
+# gated the same way as the debt deictic boost above: these words carry no
+# spend-domain meaning on their own anywhere else in this app (no collision
+# with _SPEND_TIER1_RE's retrospective-pace phrasing), so only consulted
+# when `screen == "spend"` confirms the user is actually looking at that
+# whisper right now.
+_SPEND_PLACING_PATTERNS = [
+    r"need(?:s|ing)?\s+placing",
+    r"still\s+placing",
+    r"unplaced",
+    r"uncategorised",
+    r"uncategorized",
+    r"not\s+categorised",
+    r"not\s+categorized",
+    r"still\s+working\s+out",
+]
+_SPEND_PLACING_RE = re.compile(r"\b(?:" + "|".join(_SPEND_PLACING_PATTERNS) + r")\b", re.IGNORECASE)
 
 # PLANNING Tier 1 — structural "how's it going / on track" progress
 # phrasing, no goal name required ("How's my Japan plan going?").
@@ -485,6 +1321,7 @@ def _route_domain(
     question: str,
     amount_asked: float | None,
     active_goal_names: list[str] | None = None,
+    screen: str | None = None,
 ) -> str | None:
     """Deterministic domain router: None (leave to affordability/out-of-scope)
     or one of "spend" | "planning" | "debt". Same doctrine as
@@ -495,10 +1332,18 @@ def _route_domain(
     terms tax Tier 2 already resolves) is gone by the time this runs and can
     never be reclassified here — this function has no tax vocabulary of its
     own at all, on purpose.
+
+    `screen` (owner testing, 2026-08-25 — Penny page-awareness) is the
+    already-validated enum from `_valid_screen` (see that function's own
+    comment for why an enum, unlike `context`, may deterministically inform
+    routing). It only ever WIDENS routing for two screen-specific shapes
+    that are ambiguous without it — the debt deictic boost and the spend
+    "placing" vocabulary boost, both below — it never narrows or overrides
+    any of the screen-independent tiers above/below it.
     """
     q = question.lower()
 
-    # amount_asked is None guard on ALL THREE tiers below (not just spend):
+    # amount_asked is None guard on ALL TIERS below (not just spend):
     # an extracted amount is the strongest forward-affordability signal this
     # codebase has (see _is_out_of_scope/_is_tax_question) — "Can I put £100
     # toward my debt this month?" and "Am I on track to spend £50 this
@@ -514,7 +1359,24 @@ def _route_domain(
     if amount_asked is None and _DEBT_TIER1_RE.search(q):
         return "debt"
 
+    # DEBT deictic boost — "pay this off"/"when will this be gone" name no
+    # subject at all ("this" could be anything); SCREEN is what resolves the
+    # deixis here, not the words themselves, so this only fires when the
+    # user is actually looking at the debt page right now. Without a known
+    # debt screen the same words fall through unclaimed (see _DEBT_TIER1_RE's
+    # own comment above for why they are NOT folded into that screen-
+    # independent tier instead).
+    if amount_asked is None and screen == "debt" and _DEBT_DEICTIC_RE.search(q):
+        return "debt"
+
     if amount_asked is None and _SPEND_TIER1_RE.search(q):
+        return "spend"
+
+    # SPEND "placing"/uncategorised-vocabulary boost — screen-gated the same
+    # way as the debt deictic boost above: this vocabulary only means
+    # anything in the context of the Spend page's own unresolved-money
+    # whisper (see `_SPEND_PLACING_RE`'s own comment).
+    if amount_asked is None and screen == "spend" and _SPEND_PLACING_RE.search(q):
         return "spend"
 
     if amount_asked is None and _PLANNING_TIER1_RE.search(q):
@@ -739,6 +1601,135 @@ def _nothing_spare_line(payday_label: str | None, short_reason: str | None) -> s
     return f"Nothing spare {until}, bills come first"
 
 
+# ── Big one-off, no timeframe: ask "when" (owner-reported UX bug,
+# 2026-08-26) ─────────────────────────────────────────────────────────────
+# Turn 1 of the Japan flow ("Would I be able to afford a trip for 2000£")
+# measured a large one-off spend against the CURRENT pay period ("£2,000
+# would take you −£2,212") and never asked when the trip actually is,
+# forcing the owner to restate the whole question with a date attached
+# before turn 2 could be answered properly at all.
+#
+# Deterministic GATE, not new routing: the resolved delta headline
+# (`_whatif_delta_line`) still fires exactly as before for this shape — a
+# same-period ask with no timeframe named is still, honestly, a same-period
+# question. This only ADDS one prompt instruction (see
+# `_ASK_WHEN_INSTRUCTION` below) telling the model to give that now-answer
+# briefly AND ask when the thing is for, in the same reply, when ALL of:
+# (1) a real amount was extracted, (2) no timeframe/horizon was parsed at
+# all (`what_ifs` carries no `months_until_target` — a real "by
+# December"/"in October 2027" question already gets the proper multi-month
+# treatment elsewhere in this file and must never ALSO trip this), (3) the
+# amount is a large fraction of the CURRENT safe-to-spend envelope (a
+# trivial "can I afford a £5 coffee" must never be interrupted with "when
+# is this for?"), and (4) the subject reads as one-off-purchase shaped (a
+# trip/holiday/big-ticket item can genuinely be "next week" or "years away"
+# with a wildly different answer either way, unlike an ordinary
+# category-shaped spend, which is never usefully asked "when is this for?").
+#
+# Conservative, deliberately short word list per the brief — never widened
+# to a generic "big purchase" vocabulary that would start firing on
+# ordinary shopping questions.
+_ONE_OFF_SUBJECT_WORDS = {
+    "trip", "holiday", "holidays", "vacation", "flight", "flights",
+    "ticket", "tickets", "wedding", "car",
+}
+_ONE_OFF_SUBJECT_RE = re.compile(
+    r"\b(?:" + "|".join(_ONE_OFF_SUBJECT_WORDS) + r")\b", re.IGNORECASE
+)
+
+# "Large relative to the current free envelope": at least half of
+# safe_to_spend when there is a positive envelope to compare against at
+# all. When safe_to_spend is already at or below zero there is no positive
+# envelope left to take a fraction of, so any further one-off ask is
+# unambiguously large relative to it and always counts.
+_BIG_ONE_OFF_FRACTION = 0.5
+
+
+def _is_big_one_off_with_no_horizon(
+    question: str, what_ifs: dict, safe_to_spend: float
+) -> bool:
+    """True when the question is a large, one-off-shaped, forward-dateless
+    spend ask — see the module comment above for the full rationale and the
+    UX bug this closes."""
+    amount = what_ifs.get("amount_asked")
+    if amount is None or what_ifs.get("months_until_target"):
+        return False
+    if not _ONE_OFF_SUBJECT_RE.search(question):
+        return False
+    if safe_to_spend > 0:
+        return amount >= _BIG_ONE_OFF_FRACTION * safe_to_spend
+    return True
+
+
+# One prompt-only instruction line, appended (never replacing anything
+# above it) exactly when `_is_big_one_off_with_no_horizon` is True. The
+# deterministic delta headline is untouched, this only shapes the REPLY:
+# still hedged voice, still no em-dashes, still the existing 2-sentence cap.
+_ASK_WHEN_INSTRUCTION = (
+    "\n\nThis is a large one-off purchase with no timeframe given. Give the "
+    "brief now-answer exactly as instructed above, then in the SAME reply "
+    "ask when it's for, noting that how many months away it is would change "
+    "the answer. Still AT MOST 2 short sentences total, still no em-dashes."
+)
+
+
+def _build_ask_when_block(should_ask: bool) -> str:
+    """Render the ask-when addendum, or "" when the gate above is False —
+    appending "" is a no-op, so this changes nothing about any existing
+    prompt when the gate does not fire, same convention as
+    `_build_context_block`/`_build_screen_line` elsewhere in this file."""
+    return _ASK_WHEN_INSTRUCTION if should_ask else ""
+
+
+# Owner-reported bug, 2026-08-26 (round 2, live verification): the prompt
+# instruction above is not a guarantee, only a nudge — live-tested,
+# "Would I be able to afford a trip for 2000£" got the correct deterministic
+# delta headline back, but Haiku's REPLY answered the now-question only and
+# never asked when the trip was, despite the instruction being present in
+# the system prompt. This week's repeated lesson: a fact the product
+# actually depends on cannot be left to model compliance alone. Same
+# "append/override after parsing, don't just ask nicely" doctrine as
+# `resolved_headline` overriding the model's own HEADLINE guess elsewhere in
+# this file (see the comment at that call site) — the prompt instruction
+# stays (a model that DOES comply produces better-integrated prose than a
+# bolted-on sentence), but this deterministic suffix is the actual
+# guarantee the user-facing reply always carries the ask.
+#
+# Dedupe is defensive, not load-bearing: a model that already asked its own
+# when/date question must never get a second one glued on. A bare "when"
+# somewhere in the reply is not enough on its own (could be an unrelated
+# use of the word), so this requires "when" followed, within a short
+# distance, by a question mark — a real when-shaped question, not just the
+# word appearing.
+_WHEN_QUESTION_RE = re.compile(r"\bwhen\b[^.?!]{0,80}\?", re.IGNORECASE)
+
+_ASK_WHEN_SUFFIX = (
+    "When is this for? If it's months away rather than this pay period, "
+    "saving toward it changes the answer."
+)
+
+
+def _append_ask_when_suffix(reply: str, should_ask: bool) -> str:
+    """Deterministically guarantee the ask-when sentence lands in the
+    user-facing REPLY when `_is_big_one_off_with_no_horizon` fired, no
+    matter what the model actually wrote — see the module comment above for
+    why the prompt instruction alone is not sufficient. No-op (returns
+    `reply` unchanged) when the gate is False, or when the reply already
+    reads as asking a when-shaped question itself (see `_WHEN_QUESTION_RE`).
+    No em-dashes (house style, same as every other fixed string in this
+    file)."""
+    if not should_ask:
+        return reply
+    if _WHEN_QUESTION_RE.search(reply or ""):
+        return reply
+    reply = (reply or "").rstrip()
+    if not reply:
+        return _ASK_WHEN_SUFFIX
+    if reply[-1] not in ".!?":
+        reply += "."
+    return f"{reply} {_ASK_WHEN_SUFFIX}"
+
+
 # `_compose_facts` used to live here: it built the muted grey "facts" list
 # shown underneath Penny's reply bubble. Owner order, 2026-08-25 (the
 # "duplication war" — his own screenshot showed a debt reply quoting
@@ -754,6 +1745,69 @@ def _nothing_spare_line(payday_label: str | None, short_reason: str | None) -> s
 # below), `_whatif_delta_line`, `_per_day_line` and `_nothing_spare_line`
 # (all four still used elsewhere in this file) — nothing else depended on
 # it, so it was deleted outright rather than left dead.
+# Owner bug, 2026-08-26: "Does a trip to Japan in 2027 seem feasible" was
+# parsed as "£2,027" and answered "£2,027 would take you −£2,239" — a bare
+# YEAR read as a huge amount, routing a future-horizon feasibility question
+# into the immediate this-pay-period delta path. Confidently wrong, and
+# trust-destroying in exactly the way this file's docstrings keep warning
+# about (see the typo-rejection paragraph below): a wrong extraction is
+# worse than no extraction at all.
+#
+# Same plausible-year range _months_until_target's year-shaped horizon
+# sibling below uses (`_extract_horizon_year`) — kept as one shared range so
+# the two can never drift apart on what counts as "year-shaped".
+_YEAR_RANGE_LOW, _YEAR_RANGE_HIGH = 2020, 2039
+
+# A time-context word (in/by/until/before/during) sitting immediately before
+# the number, with nothing else between them, is the unambiguous "this is a
+# date, not money" signal — "Does a trip to Japan in 2027" ends in exactly
+# "...Japan in" right before the digits. Anchored at the END of the
+# preceding text (`$`) rather than searched anywhere in the question, so a
+# time-context word earlier in a longer sentence ("by December, can I spend
+# 2027 on the trip") does not falsely veto a number it isn't actually
+# attached to.
+_TIME_CONTEXT_WORD_RE = re.compile(r"\b(?:in|by|until|before|during)\s*$", re.IGNORECASE)
+
+# Explicit money-intent vocabulary: when present ANYWHERE in the question,
+# a bare (non-£) year-shaped number that is NOT directly preceded by one of
+# the time-context words above is still treated as the legitimate
+# bare-number money case this extractor has always supported ("can I spend
+# 2027 this month?"). Deliberately a small, high-precision set (spend/
+# afford/save/budget/put/pay/buy and their inflections) — the same
+# conservative-by-design doctrine as _SCOPE_KEYWORDS elsewhere in this file,
+# not the full scope vocabulary itself (no "holiday"/"trip"/"weekend" here:
+# those describe the THING, not an intent to spend a specific figure on it).
+_MONEY_INTENT_RE = re.compile(
+    r"\b(?:spend|spending|spent|afford|affordable|save|saving|savings|"
+    r"budget|put|pay|paying|buy|buying)\b",
+    re.IGNORECASE,
+)
+
+# Owner's live failure, 2026-08-26: "How much was my golf spend in the last
+# 3 months" got answered "£3 would take you −£215" — the bare "3" sitting
+# inside "last 3 months" was read as a £3 spend ask, and the delta math did
+# the rest. This rule is a DIFFERENT shape from the year-range rule above
+# (and below, `_YEAR_RANGE_LOW.._YEAR_RANGE_HIGH`): the year rule keys off
+# the NUMBER ITSELF falling in a plausible calendar-year range (2020-2039)
+# with no adjacent-word signal required at all ("2027" alone, or "in 2027");
+# this rule keys off the WORDS immediately touching the number — glued to a
+# time-duration unit right after it ("3 months", "2 weeks") or a
+# time-scoping word right before it ("last 3", "next 2", "past 5") — and
+# applies to ANY bare number, whatever its magnitude, not just year-shaped
+# ones. A number can trip either rule, both, or neither; they run as two
+# independent, sequential checks below rather than being merged into one,
+# so each stays a single, auditable regex. Same "explicit £ always wins,
+# whatever surrounds it" carve-out the year rule already uses — "£3 last
+# month" is unambiguously £3, so both checks below are skipped outright for
+# an explicit-£ candidate.
+_TIME_UNIT_WORD_RE = re.compile(
+    r"^\s*(?:days?|weeks?|months?|years?|mo)\b", re.IGNORECASE
+)
+_TIME_SCOPE_PRECEDING_RE = re.compile(
+    r"\b(?:last|past|next|coming|previous)\s*$", re.IGNORECASE
+)
+
+
 def _extract_amount(question: str) -> float | None:
     """Largest plausible £ figure mentioned in the question, or None.
 
@@ -762,18 +1816,60 @@ def _extract_amount(question: str) -> float | None:
     monetary figure — extracting the leading digits anyway (e.g. "£2OO" ->
     2) produces a confidently wrong verdict, which is worse than asking for
     the amount again. Rejected rather than best-effort parsed.
+
+    A bare (no £) number glued to a time unit/scope word is a WINDOW SIZE,
+    never money, regardless of its own numeric range — see
+    `_TIME_UNIT_WORD_RE`/`_TIME_SCOPE_PRECEDING_RE`'s own comment above for
+    the owner bug this fixes and how it relates to the year-range rule below.
+
+    Years are not money, disambiguated as follows (see the module comment
+    above for the bug this fixes):
+    - An explicit £ sign is a deliberate, unambiguous money signal typed by
+      the user themselves and ALWAYS wins outright, whatever the number and
+      whatever follows it — "£2,027" IS £2,027, even though 2027 is also a
+      plausible year.
+    - A bare (no £) number in the plausible-year range (2020-2039) that is
+      directly preceded by a time-context word (in/by/until/before/during,
+      e.g. "in 2027", "by 2030", "until 2026") is a YEAR, never an amount,
+      regardless of anything else in the question.
+    - A bare number in that same range with NO time-context word directly
+      in front of it is still money if the question carries explicit
+      money-intent vocabulary elsewhere (e.g. "can I spend 2027 this
+      month?") — the pre-existing bare-number money case this extractor has
+      always supported, preserved unchanged.
+    - Otherwise (bare, year-shaped, no time-context word, no money-intent
+      vocabulary either) it is genuinely ambiguous. Conservative by design,
+      same as every other gate in this file: prefer NOT extracting — the
+      amount-less envelope-and-ask path handles that gracefully, whereas a
+      wrong extraction produces confident nonsense.
     """
     candidates = []
-    for m in re.finditer(r"£?\s?(\d[\d,]*(?:\.\d{1,2})?)", question):
+    for m in re.finditer(r"(£)?\s?(\d[\d,]*(?:\.\d{1,2})?)", question):
         end = m.end()
         if end < len(question) and question[end].isalpha():
             continue
+        has_currency_sign = m.group(1) is not None
         try:
-            val = float(m.group(1).replace(",", ""))
+            val = float(m.group(2).replace(",", ""))
         except ValueError:
             continue
-        if 1 <= val <= 100_000:
-            candidates.append(val)
+        if not (1 <= val <= 100_000):
+            continue
+        if not has_currency_sign:
+            following = question[end:]
+            preceding = question[:m.start()]
+            if _TIME_UNIT_WORD_RE.match(following) or _TIME_SCOPE_PRECEDING_RE.search(preceding):
+                continue  # "3 months"/"last 3"/"next 2 weeks" -> a window size, not money
+        if (
+            not has_currency_sign
+            and _YEAR_RANGE_LOW <= val <= _YEAR_RANGE_HIGH
+        ):
+            preceding = question[:m.start()]
+            if _TIME_CONTEXT_WORD_RE.search(preceding):
+                continue  # "in/by/until/before/during 2027" -> a year, not money
+            if not _MONEY_INTENT_RE.search(question):
+                continue  # no time word, but no money intent either -> ambiguous, skip
+        candidates.append(val)
     return max(candidates) if candidates else None
 
 
@@ -784,6 +1880,116 @@ def _months_until_target(month_name: str, today: date) -> int:
     if delta <= 0:
         delta += 12
     return delta
+
+
+# Owner fix, 2026-08-26 (Fix 2 of the Japan-2027 bug): year-shaped horizon
+# targets ("in 2027", "by 2027", "next year") get the SAME multi-month
+# savings-pace treatment the month-name branch below already gives "save
+# £2000 for Japan by December" — otherwise, once _extract_amount correctly
+# stops mis-parsing the bare year as an amount (see that function's own
+# comment), "Does a trip to Japan in 2027 seem feasible" becomes amount-less
+# AND horizon-less: a real future-dated question with no fact pack support
+# for a future date at all, worse than before this fix even though the
+# comically wrong headline is gone.
+#
+# Only consulted when NO month name was found (see the caller below) — a
+# question naming an actual month ("by December") keeps using the more
+# specific, pre-existing month-name path unchanged; this is purely the
+# fallback for a bare year with no month attached.
+_YEAR_TIME_CONTEXT_RE = re.compile(
+    r"\b(?:in|by|until|before|during)\s+(20\d{2})\b", re.IGNORECASE
+)
+_NEXT_YEAR_RE = re.compile(r"\bnext\s+year\b", re.IGNORECASE)
+
+
+def _extract_horizon_year(question: str, today: date) -> int | None:
+    """Explicit target YEAR named in a time-context phrase ("in 2027", "by
+    2027", "until 2027", "before 2027", "during 2027") or the literal phrase
+    "next year" — None if neither is present. Restricted to
+    `_YEAR_RANGE_LOW.._YEAR_RANGE_HIGH`, the SAME plausible-year range
+    `_extract_amount` uses to recognise a bare 4-digit number as a year
+    rather than an amount (see that function's own comment) — one shared
+    range so the two can never drift apart on what counts as "year-shaped".
+    """
+    m = _YEAR_TIME_CONTEXT_RE.search(question)
+    if m:
+        year = int(m.group(1))
+        if _YEAR_RANGE_LOW <= year <= _YEAR_RANGE_HIGH:
+            return year
+    if _NEXT_YEAR_RE.search(question):
+        return today.year + 1
+    return None
+
+
+def _months_until_horizon_year(target_year: int, today: date) -> int:
+    """Months from today to January of `target_year` — a bare year names no
+    specific month, so anchoring on the EARLIEST possible month in that year
+    gives the smallest, most conservative months-until figure rather than
+    assuming a date later in the year that was never actually in the
+    question. Can be 0 or negative (the target year's January has already
+    passed, e.g. "by 2026" asked in August 2026) — the caller only acts on
+    this when it comes back positive; see that call site's own comment."""
+    return (target_year - today.year) * 12 + (1 - today.month)
+
+
+# Owner bug, 2026-08-26 (the Japan-2027 offer-maths bug): "A 2000£ trip to
+# Japan in October 2027" got offered as "Set this up: £1,000/period". Root
+# cause traced to the month-detection block below (see the `month_hits`
+# comment at its call site) — it scans MONTH_NAMES for a bare substring hit
+# ("october" inside "...Japan in October 2027") and feeds that alone to
+# `_months_until_target`, which always resolves to the NEXT occurrence of
+# that month within the coming 12 months. It has no way to see the "2027"
+# sitting right after it, so "October 2027" silently became "the next
+# October" (~2 months away, i.e. October 2026), not the ~14 months actually
+# named. £2,000 / 2 periods, rounded to a £5 offer step, is exactly the
+# wrong "£1,000/period" the owner saw — a faithful computation of the WRONG
+# horizon, not a maths bug in the division itself.
+#
+# This is also why the pre-existing `_extract_horizon_year` bare-year
+# fallback (used by "in 2027 seem feasible" with no month at all) never
+# fired here: it is only ever consulted in the `else` branch below, when NO
+# month name was found in the question at all — "October 2027" DOES contain
+# a month name, so control never reached that fallback either. Neither of
+# the two existing horizon paths (bare month, bare year) was built to
+# recognise a month AND a year named together; this third, more specific
+# case needs its own extractor, checked BEFORE both.
+#
+# A month name immediately followed by a plausible-year 4-digit number
+# (optionally via "of", e.g. "October of 2027") is unambiguous — unlike a
+# bare year, there is no "next year" ambiguity to resolve here, since the
+# year is stated outright. Same `_YEAR_RANGE_LOW`.._YEAR_RANGE_HIGH` guard
+# every other year-shaped check in this file uses, so this can never drift
+# from what the rest of the file considers "year-shaped".
+_MONTH_YEAR_RE = re.compile(
+    r"\b(" + "|".join(MONTH_NAMES) + r")\b\s*(?:of\s+)?(\d{4})\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_month_year(question: str) -> tuple[str, int] | None:
+    """First "MonthName YEAR" pairing named in the question (e.g. "October
+    2027", "October of 2027"), restricted to the same plausible-year range
+    every other horizon check in this file uses, or None if no such pairing
+    is present. Earliest-in-the-question match (finditer's own natural
+    order), matching this file's existing "earliest named wins" convention
+    for the bare-month scan below."""
+    for m in _MONTH_YEAR_RE.finditer(question):
+        year = int(m.group(2))
+        if _YEAR_RANGE_LOW <= year <= _YEAR_RANGE_HIGH:
+            return m.group(1).lower(), year
+    return None
+
+
+def _months_until_month_year(month_name: str, year: int, today: date) -> int:
+    """Exact months from today to the 1st of the given month/year pair.
+    Unlike `_months_until_target` (bare month name, always resolves to the
+    NEXT occurrence within 12 months because it has no year to anchor on),
+    this can be positive, zero, or negative — the year is explicit, so
+    there is no "next occurrence" ambiguity left to resolve. The caller
+    only acts on a positive result, same convention as
+    `_months_until_horizon_year`."""
+    target_idx = MONTH_NAMES.index(month_name) + 1  # 1..12
+    return (year - today.year) * 12 + (target_idx - today.month)
 
 
 # Words carrying no meaning for a commitment name — question scaffolding only.
@@ -868,6 +2074,186 @@ def _build_context_block(context: str | None) -> str:
         "of £ figures, dates or facts, those come from FACTS only):\n"
         f"{context}"
     )
+
+
+# ── `screen` — a STRUCTURED ENUM, not free text — page-awareness ────────────
+# CRITICAL DISTINCTION from `context` above: `context` is client-composed
+# free text and must never reach a gate/extractor (see the HARD RULE comment
+# above `_CONTEXT_MAX_CHARS`) — untrusted prose can say anything, so it is
+# only ever grounding. `screen` is different in kind, not just in size: the
+# frontend sets it itself from its own route table (one of a fixed, closed
+# set of tab names), the user never types it, and it can never contain a £
+# figure, a date, or an instruction. Because it is a validated enum rather
+# than prose, it MAY deterministically inform routing (the debt/spend
+# deictic boosts below, the page-explainer matcher) — the same way `state`,
+# `amount_asked` or any other server-derived signal in this file is allowed
+# to. It still must NEVER be interpolated into `question`, and must NEVER be
+# passed to `_extract_amount` — those two rules are the ones that actually
+# matter (an enum can't smuggle a £ figure or new instructions the way
+# concatenated prose could), so this file does not repeat the fuller
+# `context` HARD RULE verbatim, but the same "never merge into `question`"
+# discipline applies.
+_KNOWN_SCREENS = frozenset({
+    "planning", "tax", "home", "spend", "insights", "grow", "debt", "accounts", "other",
+})
+
+
+def _valid_screen(raw) -> str | None:
+    """Validate the optional `screen` field against the known, closed set the
+    frontend's tab router actually uses. Anything else — missing, wrong
+    type, a typo, a future/removed screen name — becomes None, which is
+    exactly the "no/unknown screen: fall through to existing behaviour"
+    case every screen-aware feature below already handles."""
+    return raw if isinstance(raw, str) and raw in _KNOWN_SCREENS else None
+
+
+def _build_screen_line(screen: str | None) -> str:
+    """One cheap, fixed grounding line appended to the affordability and
+    domain LLM prompts when `screen` is known — "Asked from the X screen."
+    Deixis help only ("this"/"these" in the user's own question), never a
+    source of figures. Unlike `_build_context_block`, this is NOT wrapped in
+    an "untrusted" disclaimer: `screen` is a validated member of
+    `_KNOWN_SCREENS`, not client-composed prose, so it is safe to state as a
+    plain fact rather than caveat like `context`."""
+    if not screen:
+        return ""
+    return f"\n\nAsked from the {screen} screen."
+
+
+# ── Page explainer — "what does THIS page show" — deterministic, no LLM,
+# no quota ───────────────────────────────────────────────────────────────
+# A genuinely different question shape from every other matcher in this
+# file: not about the user's money at all, about the SURFACE the user is
+# looking at ("What are these insights", "What is this page"). Same
+# conservative discipline as _is_greeting/_is_saving_vs_investing above:
+# anchored at the START of the question (re.match, not re.search) and
+# word-boundary, requiring BOTH a deictic ("this"/"these" — the question
+# must be pointing at something on screen, not asking in the abstract) AND
+# a page-ish noun (page/screen/insights/numbers). "What insights do you
+# have about my spending?" has the noun but no deictic pointing at the
+# current screen, so it correctly falls through to ordinary routing instead
+# (in practice: no domain/tax/scope keyword of its own either, so it reaches
+# the general affordability LLM path with no grounding for "insights" —
+# reported as a known gap, not silently mis-answered).
+#
+# Only fires when `screen` is a known value (checked at the call site in
+# `can_i`, not in this matcher) — with no/unknown screen there is nothing to
+# explain, so the question falls through to existing behaviour unchanged.
+_PAGE_EXPLAINER_PATTERNS = [
+    r"what\s+(?:is|'s)\s+this\s+(?:page|screen)",
+    r"what\s+are\s+these\s+(?:insights|numbers)",
+    r"what\s+does\s+this\s+(?:page|screen)\s+(?:show|mean)",
+    r"how\s+does\s+this\s+(?:page|screen)\s+work",
+    r"what\s+(?:is|are)\s+(?:this|these)\s+numbers\s+here",
+]
+_PAGE_EXPLAINER_RE = re.compile(
+    r"^(?:" + "|".join(_PAGE_EXPLAINER_PATTERNS) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_page_explainer_question(question: str) -> bool:
+    """True when the question is ABOUT the current page/screen itself, not
+    about the user's money. Screen-independent (a known `screen` value is
+    required at the call site, not here) — see the module comment above."""
+    return bool(_PAGE_EXPLAINER_RE.match(question.strip()))
+
+
+# Fixed per-screen copy, owner-approved shape: 2-4 calm sentences, no em-dash
+# (house style), every future-looking claim hedged, and — unlike every other
+# explainer in this file — deliberately NO personal figures anywhere: this
+# describes what the PAGE shows, the page itself is where the user's actual
+# numbers already live, so repeating one here would be exactly the kind of
+# duplicated, potentially-drifting figure the "duplication war" comment
+# elsewhere in this file (see `_compose_facts`'s old removal note) was fought
+# over. Never LLM-authored, never varies run-to-run — same doctrine as
+# _GREETING_REPLY/_SAVE_INVEST_REPLY above.
+_PAGE_EXPLAINER_COPY: dict[str, str] = {
+    "home": (
+        "This is your Home brief. It leads with your Safe to Spend verdict, "
+        "worked out from your live account balances and what's still due "
+        "before payday. The figure updates as new transactions come in, so "
+        "it reflects where things stand right now, not a forecast."
+    ),
+    "spend": (
+        "This is Spend. It shows what you've spent this pay period, broken "
+        "down by category and compared with your own usual pace. Money "
+        "moved to savings, cards or investments doesn't count as spending, "
+        "so it's kept out of these figures."
+    ),
+    "planning": (
+        "This is Planning. It lays out what's coming before your next "
+        "payday, upcoming bills and expected income, and the runway that "
+        "leaves you. Anything that hasn't happened yet is an expectation "
+        "based on your own patterns, never a certainty."
+    ),
+    "insights": (
+        "These are Insights. They're spotlights generated from your own "
+        "transactions, things like a bill that's crept up in price or a "
+        "pattern worth knowing about. This page also holds your Tax and "
+        "Receipts tabs alongside the spending spotlights."
+    ),
+    "tax": (
+        "This is Tax. It works from figures you've told it about your "
+        "income and allowances, not your bank feed, so it's only as "
+        "accurate as what you've entered. You can also ask general UK tax "
+        "questions here."
+    ),
+    "grow": (
+        "This is Grow. It sets out a priority ladder for spare money, "
+        "essentials first, then a buffer, then pension, then investing, "
+        "with any debt repayments accounted for ahead of all of it. It's a "
+        "general order to consider, not a fixed instruction."
+    ),
+    "debt": (
+        "This is your Debt page. It separates what you carry on cards from "
+        "month to month from spending you clear in full, and tracks the "
+        "pace you're clearing the carried balance at. It also flags 0% "
+        "deals so you can see when a promotional rate might be worth "
+        "watching."
+    ),
+    "accounts": (
+        "This is Accounts. It lists every account you've connected through "
+        "open banking with its live balance, alongside any manual or "
+        "investment accounts you've added yourself. You can pin the ones "
+        "you use most to Home, and accounts you rarely touch collapse out "
+        "of the way to keep the list manageable. Investments and ISAs "
+        "update from statements you upload, not a live bank feed."
+    ),
+}
+
+
+def _page_explainer_response(screen: str) -> dict:
+    """Same explainer shape the tax/saving-vs-investing paths above already
+    use (headline=None, facts=[], explainer=True) — ExplainerBubble
+    (PennyConversation.tsx) renders `topic` as a quiet uppercase eyebrow,
+    never a bold verdict. `topic` is the screen name itself, the same value
+    the frontend already sent, so it can never drift from what the user was
+    actually looking at. No LLM call, no `increment_ai_chat_usage`: a fixed,
+    page-describing answer costs the user nothing, same as every other
+    deterministic explainer in this file. Falls back to a generic line for
+    the (currently unreachable, since `screen` is validated at the call
+    site) case of a known-but-uncopied screen, rather than a KeyError taking
+    down an otherwise-answerable reply."""
+    text = _PAGE_EXPLAINER_COPY.get(
+        screen, "This page shows figures worked out from your own accounts."
+    )
+    return {
+        "reply": _house_style(text),
+        "headline": None,
+        "facts": [],
+        "explainer": True,
+        "topic": screen,
+        "out_of_scope": False,
+    }
+
+
+# ONE fixed sentence, appended to the out-of-scope refusal ONLY when
+# `screen` is known (see the `can_i` handler below) — never a per-screen
+# variant, per the brief: the screen enum decides whether to append this,
+# never what it says. Points at the one deterministic ability a refused
+# question can still reach: asking what the current page shows.
+_OUT_OF_SCOPE_SCREEN_HINT = " You can also ask what this page shows."
 
 
 def _month_label_to_human(label: str) -> str:
@@ -1135,6 +2521,25 @@ def _translate_move_jargon(reading: str) -> str:
     return text
 
 
+# ── Shared "cannot answer" hard rule (owner step-back demand, 2026-08-26)
+# — "there's no point of having this chat bot if every time I search for
+# something I get this weird answer, if we can't answer a particular
+# question, say that you can't as opposed to that generic answer." Every
+# LLM-phrasing prompt in this file (spend, planning, debt, insights below,
+# and the general affordability prompt further down) carries this EXACT
+# sentence, once, as a backstop behind the deterministic subject guards
+# above (`_handle_spend_domain`'s own subject check, the category-history/
+# current-period gates): those guards catch the SHAPES they were built for,
+# this rule catches everything else — any question whose subject the FACTS
+# passed to the model simply do not cover.
+_CANNOT_ANSWER_SUBJECT_RULE = (
+    "If the user's question asks about something the facts below do not "
+    "contain, say plainly that you cannot answer that specific thing from "
+    "the available numbers, and do not answer a different, adjacent "
+    "question instead. "
+)
+
+
 _SPEND_SYSTEM_TEMPLATE = (
     "You are Penny, the AI inside a personal money app. The user is asking "
     "about their SPENDING SO FAR this period, a look-back question, NOT a "
@@ -1146,7 +2551,7 @@ _SPEND_SYSTEM_TEMPLATE = (
     "short sentences: answer-first (what the numbers show), then the "
     "single most important detail. Every £ figure and every category name "
     "you write MUST be copied from the FACTS JSON below, NEVER computed, "
-    "derived or invented. "
+    "derived or invented. " + _CANNOT_ANSWER_SUBJECT_RULE +
     "The facts you were given are also shown directly to the user, "
     "UNDERNEATH your REPLY, in the same chat bubble — do not repeat, list "
     "or paraphrase any of those facts in your REPLY, write only new "
@@ -1157,6 +2562,12 @@ _SPEND_SYSTEM_TEMPLATE = (
     "line, do not choose different wording, do not soften it, do not "
     "contradict it. Your REPLY must not restate or echo it either, write "
     "only the single most important supporting detail. "
+    "If FACTS.unresolved_largest_only is present, it names ONLY the single "
+    "largest not-yet-categorised ('still placing') payment this period, "
+    "alongside FACTS.unresolved_payments_count for how many such payments "
+    "exist in total; never claim to know the name of any OTHER unplaced "
+    "payment, never invent one, and never imply the full list is shown, "
+    "only that one payment plus the count/total of the rest. "
     "Direct, never curt, never moralising, never 'you should'. British "
     "English. Write in plain, human punctuation: no em-dashes (—) or "
     "en-dashes (–); use a comma, a full stop, or a plain conjunction "
@@ -1169,13 +2580,24 @@ _SPEND_SYSTEM_TEMPLATE = (
 )
 
 
-async def _handle_spend_domain(uid: str, question: str, history: list[dict], context: str = "") -> dict:
+async def _handle_spend_domain(
+    uid: str, question: str, history: list[dict], context: str = "",
+    screen: str | None = None, category_names: list[str] | None = None,
+) -> dict:
     """SPEND domain. `compute_spend_verdict` (spend_verdict.py) is the ONLY
     engine call, current period only (offset=0) — a "where did my money go"
     question has no reason to reach into a prior period. Zero LLM inside
     that module (ENGINE.md doctrine): `reading` and `notables` below are
     already deterministic Python; the LLM downstream only turns them into a
     headline/reply pair, never a new figure.
+
+    `category_names` (owner step-back demand, 2026-08-26 — see the "SPEND-
+    domain subject guard" module comment above `_SPEND_SUBJECT_STOPWORDS`):
+    the user's own category names, already fetched once by the caller
+    (same convention `active_goal_names` already uses for the planning
+    domain) — reused here, never re-queried, to decide whether THIS
+    question named a specific subject the generic verdict below is not
+    guaranteed to be about.
     """
     from app.services.spend_verdict import compute_spend_verdict
 
@@ -1188,6 +2610,36 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
             "Couldn't look at your spending just now, try again in a moment.",
             [],
         )
+
+    # ── Subject guard — checked BEFORE any pace/breakdown grounding is
+    # built, and BEFORE any LLM call, exactly like every other deterministic
+    # gate in this file. Two cases, in order:
+    #   1. The question names one of the user's OWN real categories
+    #      (`_resolve_history_category`, reused unchanged) — answer it from
+    #      THIS SAME already-fetched `verdict`'s own per-category data
+    #      (`_current_period_category_response`), never the unrelated
+    #      aggregate pace/breakdown verdict below. This is what actually
+    #      answers a bare "what did I spend on golf" (no "this month"/
+    #      window word at all, so neither gate in `_resolve_deterministic_
+    #      route` claimed it before reaching here).
+    #   2. No real category resolves, but the question is shaped like it is
+    #      asking about ONE particular thing anyway (`_extract_spend_
+    #      subject_phrase` — an "on <word>"/"my <word> spend" shape, e.g. a
+    #      merchant or activity name like "padel" that isn't tracked as a
+    #      category) — an honest, deterministic miss
+    #      (`_spend_subject_honest_miss`), never the generic verdict
+    #      standing in for an answer about something it was never about.
+    # A question with no named subject at all ("Am I spending more than
+    # usual?", "Where did my money go this month?") matches neither case and
+    # falls straight through to the existing pace/breakdown flow below,
+    # completely unchanged.
+    category_names = category_names or []
+    subject_category = _resolve_history_category(question, category_names)
+    if subject_category is not None:
+        return _current_period_category_response(subject_category, verdict)
+    near_miss_subject = _extract_spend_subject_phrase(question)
+    if near_miss_subject is not None:
+        return _spend_subject_honest_miss(near_miss_subject, category_names)
 
     reading = verdict.get("reading")
     # Translate the one jargon "move" sentence compose_reading can produce
@@ -1235,9 +2687,33 @@ async def _handle_spend_domain(uid: str, question: str, history: list[dict], con
     if resolved_headline:
         grounding["resolved_verdict"] = resolved_headline
 
+    # "What other payments need placing" grounding (owner testing,
+    # 2026-08-25 — Penny page-awareness, spend "placing" vocabulary boost).
+    # `verdict["unresolved"]` (build_unresolved, spend_verdict.py) is the
+    # engine's own Other-bucket summary: a total, a payments_count, and the
+    # SINGLE LARGEST unresolved transaction (id/display_name/amount/date) —
+    # never a full itemised list of every unplaced payment, that detail does
+    # not exist anywhere in this engine today. So this can only ever name
+    # the one biggest still-placing payment plus the count/total of the
+    # rest, never enumerate them; the explicit "ONLY" instruction below (and
+    # in _SPEND_SYSTEM_TEMPLATE) exists so the model states that honestly
+    # instead of inventing extra named payments to sound complete.
+    unresolved = verdict.get("unresolved") or {}
+    if unresolved.get("total"):
+        grounding["unresolved_total"] = unresolved["total"]
+        grounding["unresolved_payments_count"] = unresolved.get("payments_count")
+        largest = unresolved.get("largest") or {}
+        if largest:
+            grounding["unresolved_largest_only"] = {
+                "name": largest.get("display_name") or largest.get("raw_description"),
+                "amount": largest.get("amount"),
+                "date": largest.get("date"),
+            }
+
     import json
     system_prompt = _SPEND_SYSTEM_TEMPLATE.format(facts_json=json.dumps(grounding, default=str))
     system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
     try:
         raw = await _call_penny_phrasing(system_prompt, question, history)
     except _PHRASING_FAILURE_EXCEPTIONS:
@@ -1278,7 +2754,7 @@ _PLANNING_SYSTEM_TEMPLATE = (
     "be copied from the FACTS JSON below, NEVER computed, derived or "
     "invented. periods_left/per_period figures are projections on CURRENT "
     "pace, not promises: hedge with 'about'/'roughly', never state a future "
-    "contribution as certain. "
+    "contribution as certain. " + _CANNOT_ANSWER_SUBJECT_RULE +
     "The facts you were given are also shown directly to the user, "
     "UNDERNEATH your REPLY, in the same chat bubble — do not repeat, list "
     "or paraphrase any of those facts in your REPLY, write only new "
@@ -1289,7 +2765,13 @@ _PLANNING_SYSTEM_TEMPLATE = (
     "line, do not choose different wording, do not soften it, do not "
     "contradict it. Your REPLY must not restate or echo it either, write "
     "only the single most important supporting detail. "
-    "Direct, never curt, never moralising. British "
+    # Brought in line with the spend/debt templates' own equivalent phrase
+    # (owner feedback, 2026-08-25 — checked while adding the debt-screen
+    # de-advising guardrail above): the planning-screen vocabulary fallback
+    # can now surface a "what should I do about my plan" question here too,
+    # so the same "never 'you should'" de-advising discipline applies, not
+    # just "never moralising" alone.
+    "Direct, never curt, never moralising, never 'you should'. British "
     "English. Write in plain, human punctuation: no em-dashes (—) or "
     "en-dashes (–); use a comma, a full stop, or a plain conjunction "
     "instead.\n\n"
@@ -1303,7 +2785,7 @@ _PLANNING_SYSTEM_TEMPLATE = (
 
 async def _handle_planning_domain(
     uid: str, question: str, history: list[dict], active_goals: list[dict],
-    context: str = "",
+    context: str = "", screen: str | None = None, match_question: str | None = None,
 ) -> dict:
     """PLANNING domain. Two shapes, both lazy:
     (a) the question names one of the user's own active goals -> that ONE
@@ -1315,17 +2797,15 @@ async def _handle_planning_domain(
     `active_goals` is already fetched once by the caller for the scope gate
     above; reused here rather than re-queried.
 
-    `resolved_verdict` (headline override, mirrors the affordability path's
-    own headline-override mechanism — see `can_i` below — and
-    `totals["verdict"]`/`_DEBT_VERDICT_HEADLINES` for debt below): shape (a)
-    computes `on_track` with the SAME formula
-    `_serialise` (commitments.py) uses for the Planning tab's own on_track
-    flag — progress vs. elapsed_fraction of the plan's own period-count —
-    so this can never disagree with what Planning shows for the same
-    commitment. Shape (b) has no per-goal judgement to make (just a count
-    and a total), so its "verdict" is a plain fact restatement, not an
-    on-track/behind judgement; still fixed server-side so the model has no
-    wording latitude over it either.
+    `match_question` (follow-up route inheritance only — see
+    `_try_followup_inheritance` in this module): a pure anaphoric follow-up
+    ("what do you mean") never re-names the goal the PREVIOUS question named
+    ("How's Japan going?"), so goal-name matching must run against that
+    previous question's text, not the current one, even though `question`
+    itself (the actual follow-up wording) is still what gets sent to the LLM
+    as the human turn below. Defaults to None, meaning "match against
+    `question` itself" — today's exact behaviour, unchanged for every
+    existing caller that never passes this.
     """
     from app.routers.commitments import (
         _pay_cfg as _commitments_pay_cfg,
@@ -1335,8 +2815,9 @@ async def _handle_planning_domain(
         total_reserved_slices,
     )
 
+    name_match_source = match_question if match_question is not None else question
     matched_goal = next(
-        (g for g in active_goals if _name_mentioned(g.get("name"), question)),
+        (g for g in active_goals if _name_mentioned(g.get("name"), name_match_source)),
         None,
     )
 
@@ -1408,6 +2889,7 @@ async def _handle_planning_domain(
     import json
     system_prompt = _PLANNING_SYSTEM_TEMPLATE.format(facts_json=json.dumps(grounding, default=str))
     system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
     try:
         raw = await _call_penny_phrasing(system_prompt, question, history)
     except _PHRASING_FAILURE_EXCEPTIONS:
@@ -1462,7 +2944,7 @@ _DEBT_SYSTEM_TEMPLATE = (
     "and date you write MUST be copied from the FACTS JSON below, NEVER "
     "computed, derived or invented. A debt-free month is a PROJECTION on "
     "current pace, never a promise: always hedge with 'around'/'roughly' "
-    "and never state it as certain. "
+    "and never state it as certain. " + _CANNOT_ANSWER_SUBJECT_RULE +
     "The facts you were given are also shown directly to the user, "
     "UNDERNEATH your REPLY, in the same chat bubble — do not repeat, list "
     "or paraphrase any of those facts in your REPLY, write only new "
@@ -1484,6 +2966,34 @@ _DEBT_SYSTEM_TEMPLATE = (
     "number that reads as a mistake. If FACTS.monthly_cleared is present, "
     "describe it as spending the user clears in full each month, never as "
     "debt, and never combine it with carried_debt into a new figure. "
+    "FACTS.monthly_interest_now is the ONLY figure for interest currently "
+    "being charged, and is always present, including as 0. When it is 0, "
+    "say plainly that interest is NOT currently being charged (the balances "
+    "are on 0% deals), and NEVER say interest is adding to, growing or being "
+    "charged on the balance. If "
+    "FACTS.potential_monthly_interest_if_0pct_ended is present, you may "
+    "mention it only as a hedged, conditional, forward-looking point (e.g. "
+    "'if those 0% deals ended, this would cost about £X a month'), never as "
+    "a current cost and never as a promise or prediction of what will "
+    "happen. "
+    # Owner feedback, 2026-08-25 — the debt-screen vocabulary fallback
+    # (`_screen_vocabulary_route`, further down this file) now lets a
+    # question like "What can I do to reduce what I owe" reach this prompt.
+    # Debt counselling is a regulated activity, and this product already
+    # de-advises its debt copy on purpose (see _DEBT_VERDICT_HEADLINES'
+    # own comment) — a "what should I do" question must get the SAME
+    # treatment, not a loophole into advice just because it arrived via a
+    # wider net. Mechanics, not prescription: one or two hedged sentences
+    # describing what the numbers already show, never a named action.
+    "If asked what they can DO, or how they can reduce, pay down or clear "
+    "the debt, never prescribe a specific action, product, balance "
+    "transfer or repayment plan. Describe only the mechanics the numbers "
+    "already show: the balance falls only when more is cleared each month "
+    "than is added to it, and FACTS.verdict/FACTS.resolved_verdict already "
+    "say whether that is currently happening, so state plainly what the "
+    "current pace is and is not achieving. Keep this to one or two hedged "
+    "sentences, using only figures already in FACTS, and never invent a "
+    "clearing-rate figure that is not there. "
     "Direct, never curt, never moralising, "
     "never 'you should'. British English. Write in plain, human "
     "punctuation: no em-dashes (—) or en-dashes (–); use a comma, "
@@ -1496,7 +3006,10 @@ _DEBT_SYSTEM_TEMPLATE = (
 )
 
 
-async def _handle_debt_domain(uid: str, question: str, history: list[dict], context: str = "") -> dict:
+async def _handle_debt_domain(
+    uid: str, question: str, history: list[dict], context: str = "",
+    screen: str | None = None,
+) -> dict:
     """DEBT domain. `get_debt_plan_view` (debt_narration.py) is the single
     engine call — it already wraps `get_debt_plan_cached`'s 90s TTL cache
     (NEVER `compute_debt_plan` directly, per that router's own doctrine
@@ -1511,22 +3024,66 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
     from app.services.debt_plan import MATERIAL_BALANCE
     from app.services.debt_narration import get_debt_plan_view
 
+    _couldnt_look = _domain_response(
+        "Couldn't work that out",
+        "Couldn't look at your cards just now, try again in a moment.",
+        [],
+    )
+
     try:
         plan = await get_debt_plan_view(uid)
     except Exception:
         logger.exception("can_i: debt domain lookup failed for %s", uid)
-        return _domain_response(
-            "Couldn't work that out",
-            "Couldn't look at your cards just now, try again in a moment.",
-            [],
-        )
+        return _couldnt_look
+
+    # Owner-reported trust bug, 2026-08-24 (his own screenshot): right after a
+    # wealth-api restart, this handler told a user carrying £23,588 in real
+    # card debt "No card debt on file", then answered the SAME question
+    # correctly minutes later once the underlying data had settled. The plan
+    # carries a top-level `status` this handler used to ignore outright.
+    # compute_debt_plan today only ever stamps "ok" (there is no
+    # "building"/"insufficient" value yet — confirmed by reading
+    # debt_plan.py), so this check is a forward guard rather than the whole
+    # fix: anything other than "ok" (including a future not-ready value, or a
+    # missing key) must never be composed into either a has-debt or a
+    # no-debt reply.
+    if plan.get("status") != "ok":
+        return _couldnt_look
 
     totals = plan.get("totals") or {}
     debt = float(totals.get("debt") or 0)
     if debt < MATERIAL_BALANCE:
-        # No material card debt on file — deterministic short-circuit, same
-        # pattern as the "insufficient_data" early-return in the main
-        # affordability path below: no LLM call needed to say "no debt".
+        # `status == "ok"` by itself doesn't prove the zero is real: it's
+        # stamped unconditionally by compute_debt_plan, so it can't tell "this
+        # user genuinely carries no card debt" apart from "the accounts
+        # collection was mid-sync/cold when this was computed", and the 90s
+        # get_debt_plan_cached cache would then happily keep serving that
+        # wrong zero for up to 90 more seconds. Telling a user with five
+        # figures of card debt they have none is the exact confidently-wrong
+        # failure this product's trust doctrine exists to prevent, so before
+        # saying it, re-check the real accounts collection fresh (uncached)
+        # right now. Deliberately cheap: only fires on this one rare,
+        # highest-stakes branch.
+        try:
+            raw_accounts = await accounts_col.find({"user_id": uid}).to_list(None)
+        except Exception:
+            logger.exception("can_i: debt domain zero-debt recheck failed for %s", uid)
+            return _couldnt_look
+        for acc in raw_accounts:
+            if not is_credit_card_account(acc):
+                continue
+            bal = float(acc.get("balance") or 0.0)
+            if bal < 0 and -bal >= MATERIAL_BALANCE:
+                logger.warning(
+                    "can_i: debt domain zero-debt short-circuit contradicted by a "
+                    "fresh accounts_col read for %s, serving graceful reply instead",
+                    uid,
+                )
+                return _couldnt_look
+        # No material card debt on file, confirmed against a fresh read —
+        # deterministic short-circuit, same pattern as the "insufficient_data"
+        # early-return in the main affordability path below: no LLM call
+        # needed to say "no debt".
         return _domain_response(
             "No card debt on file",
             "You're not carrying any material credit card debt right now.",
@@ -1555,10 +3112,30 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
         else debt
     )
 
+    # Owner-reported trust bug, 2026-08-24: a reply said "interest is adding
+    # to what you owe" for a user whose cards are ALL on 0% deals
+    # (monthly_interest_now == 0). Cause: this fact/grounding pack used to
+    # OMIT the interest figure entirely when it was falsy (0), so the model
+    # had no interest fact at all and filled the silence with an invented
+    # one. monthly_interest_now must always reach the model, 0 explicit, and
+    # when it's 0 the model must be told plainly that no interest is
+    # currently being charged rather than left to guess. potential_monthly_
+    # interest (the APR-derived, conditional "what these balances WOULD
+    # cost") is surfaced too, clearly labelled as a forward-looking, hedged
+    # figure, never a current one.
     facts: list[str] = [f"{_fmt_gbp(lead_debt)} total card debt"]
-    monthly_interest = totals.get("monthly_interest_now")
-    if monthly_interest:
+    monthly_interest = float(totals.get("monthly_interest_now") or 0)
+    potential_monthly_interest = float(totals.get("potential_monthly_interest") or 0)
+    if monthly_interest > 0:
         facts.append(f"About {_fmt_gbp(monthly_interest)} in interest this month, from observed charges")
+    else:
+        zero_interest_fact = "No interest is currently being charged, the balances are on 0% deals"
+        if potential_monthly_interest > 0:
+            zero_interest_fact += (
+                f", though if those deals ended it would cost about "
+                f"{_fmt_gbp(potential_monthly_interest)} a month"
+            )
+        facts.append(zero_interest_fact)
     debt_free_month = totals.get("debt_free_month")
     if debt_free_month:
         facts.append(f"On current pace, clear by around {_month_label_to_human(str(debt_free_month))}")
@@ -1588,17 +3165,23 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
     grounding: dict = {
         "carried_debt": lead_debt,
         "monthly_cleared": float_total if float_total >= 1 else None,
+        # Always present, explicit 0 when it is 0 — never omitted (see the
+        # 2026-08-24 comment above `facts` for why an omitted-when-falsy
+        # figure let the model invent interest on 0% cards).
         "monthly_interest_now": monthly_interest,
         "debt_free_month": debt_free_month,
         "verdict": totals.get("verdict"),
         "grounding": facts,
     }
+    if potential_monthly_interest > 0:
+        grounding["potential_monthly_interest_if_0pct_ended"] = potential_monthly_interest
     if resolved_headline:
         grounding["resolved_verdict"] = resolved_headline
 
     import json
     system_prompt = _DEBT_SYSTEM_TEMPLATE.format(facts_json=json.dumps(grounding, default=str))
     system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
     try:
         raw = await _call_penny_phrasing(system_prompt, question, history)
     except _PHRASING_FAILURE_EXCEPTIONS:
@@ -1624,6 +3207,174 @@ async def _handle_debt_domain(uid: str, question: str, history: list[dict], cont
     # verbatim, this line guarantees it even if a temperature-0 model still
     # slips (the documented root cause this whole mechanism exists to close
     # off — see the golf-session note on `_derive_verdict`).
+    if resolved_headline:
+        headline = resolved_headline
+    return _domain_response(headline, reply_text, [])
+
+
+# ── Insights domain — grounds "best insight"-style questions in the SAME
+# ranked list of the user's own precomputed savings-insights docs the
+# /insights page itself renders (GET /savings-insights, savings_insights.py)
+# — never the general affordability LLM, which has no idea what the user's
+# insights even are and, left to its own devices, invents its own
+# can't-answer refusal (the exact owner-reported gap this domain closes:
+# "What is the best insight" on the Insights screen routed past the
+# deterministic gate via the screen-vocabulary soften path, then landed on a
+# model with zero insights grounding).
+#
+# Read is intentionally the cheapest possible: one find() on
+# savings_insights_col, no triggered_by backfill and no serve-time house-
+# style/route resolution the full endpoint does (those exist for the page's
+# own rendering, not for a curated grounding pack) — but the RANKING is
+# reproduced byte-for-byte from GET /savings-insights's own `_rank_key`
+# (savings_insights.py) so "the best insight" here can never disagree with
+# what the page itself shows first: pinned, then verified, then the largest
+# parsed £ estimate, then the largest triggering monthly spend. That
+# endpoint applies NO active/dismissed filtering at all (dismissal only
+# retires an insight from the HOME spotlight — see that endpoint's own
+# handling of `spotlight_retired`, a separate, spotlight-only concept) —
+# every stored insight for the user is a live insight on that page, so this
+# reads the same unfiltered set.
+_INSIGHTS_SYSTEM_TEMPLATE = (
+    "You are Penny, the AI inside a personal money app. The user is asking "
+    "about their SAVINGS INSIGHTS, general-information tips generated from "
+    "their own transactions (a bill that has crept up in price, a cheaper "
+    "alternative, a pattern worth knowing about), the same tips shown on "
+    "their Insights page, never personal financial advice and never a "
+    "recommendation to act. Reply in AT MOST 2 short sentences: answer-"
+    "first, then the single most important detail. Every title, summary and "
+    "£ figure you write MUST be copied from the FACTS JSON below, NEVER "
+    "computed, derived or invented. " + _CANNOT_ANSWER_SUBJECT_RULE +
+    "FACTS.insights is already ordered by this app's own ranking on the "
+    "Insights page; rank 1 IS the 'best'/top insight. When asked for the "
+    "best, top or most useful insight, answer using rank 1 ONLY, you must "
+    "never re-rank, re-order or pick a different one because it sounds more "
+    "interesting or relevant to the question. "
+    "Each insight's estimated_saving, where present, is already a hedged "
+    "estimate from that insight's own stated basis, never a guarantee; "
+    "restate it hedged too (e.g. '~£X/mo, estimated'). When estimated_saving "
+    "is null, do not invent a figure for that insight, describe it without "
+    "one. "
+    "The facts you were given are also shown directly to the user, "
+    "UNDERNEATH your REPLY, in the same chat bubble — do not repeat, list "
+    "or paraphrase any of those facts in your REPLY, write only new "
+    "interpretation or connection between them. "
+    "If FACTS.resolved_verdict is present, that headline has ALREADY been "
+    "decided by the backend and will be shown to the user verbatim, exactly "
+    "as written, no matter what you write; copy it EXACTLY as your HEADLINE "
+    "line, do not choose different wording, do not soften it, do not "
+    "contradict it. Your REPLY must not restate or echo it either, write "
+    "only the single most important supporting detail. "
+    "Never prescribe a specific action, product or provider, and never say "
+    "'you should'; frame it the same general-information way the Insights "
+    "page itself does. "
+    "Direct, never curt, never moralising. British English. Write in plain, "
+    "human punctuation: no em-dashes (—) or en-dashes (–); use a comma, a "
+    "full stop, or a plain conjunction instead.\n\n"
+    "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
+    "HEADLINE: <FACTS.resolved_verdict verbatim if present, else under 8 "
+    "words naming the insight>\n"
+    "REPLY: <your answer, at most 2 short sentences>\n\n"
+    "FACTS: {facts_json}"
+)
+
+
+def _insights_rank_key(d: dict) -> tuple:
+    """Byte-for-byte the same tie-break `_rank_key` GET /savings-insights
+    uses (savings_insights.py) — pinned, then verified, then the largest
+    parsed £ estimate, then the largest triggering monthly spend — so "the
+    best insight" here can never disagree with what that page shows first.
+    Duplicated rather than imported: the page's own `_rank_key` is a nested
+    closure, not a module-level name, so there is nothing importable to
+    reuse.
+    """
+    from app.routers.analytics import _parse_saving_amount
+
+    estimate = _parse_saving_amount(d.get("savings_estimate")) or 0.0
+    spend = sum(float(t.get("monthly_amount") or 0) for t in d.get("triggered_by") or [])
+    return (bool(d.get("pinned")), bool(d.get("verified_savings")), estimate, spend)
+
+
+async def _handle_insights_domain(
+    uid: str, question: str, history: list[dict], context: str = "",
+    screen: str | None = None,
+) -> dict:
+    """INSIGHTS domain. One cheap read of the user's own savings_insights_col
+    docs, ranked the same way the Insights page ranks them (see
+    `_insights_rank_key`), then a curated per-insight grounding pack (title,
+    one-line summary, estimated saving, rank) and a single LLM phrasing call.
+
+    Absence-assertion doctrine (same as the debt domain's zero-debt
+    short-circuit above): "no insights" is only ever asserted after a
+    SUCCESSFUL read that genuinely came back empty. A read that raises gets
+    the graceful "couldn't look" reply, never the confidently-wrong "no
+    insights" one — telling a user with real insights sitting in Mongo that
+    they have none is exactly the class of trust bug that debt short-circuit
+    was written to prevent.
+    """
+    try:
+        docs = await savings_insights_col.find({"user_id": uid}).to_list(None)
+    except Exception:
+        logger.exception("can_i: insights domain read failed for %s", uid)
+        return _domain_response(
+            "Couldn't work that out",
+            "Couldn't look at your insights just now, try again in a moment.",
+            [],
+        )
+
+    if not docs:
+        # Read succeeded and is genuinely empty — see the docstring above for
+        # why this branch is only reachable past a successful read.
+        return _domain_response(
+            "No insights right now",
+            "There's nothing on your Insights page yet, check back once more "
+            "transactions come in.",
+            [],
+        )
+
+    docs.sort(key=_insights_rank_key, reverse=True)
+    ranked = [
+        {
+            "rank": i + 1,
+            "title": d.get("title") or "",
+            "summary": d.get("body") or "",
+            "estimated_saving": d.get("savings_estimate"),
+        }
+        for i, d in enumerate(docs[:5])
+    ]
+    top = ranked[0]
+    resolved_headline = top["title"] or "Your top insight"
+
+    grounding = {
+        "insights": ranked,
+        "top_rank": 1,
+        "resolved_verdict": resolved_headline,
+    }
+
+    import json
+    system_prompt = _INSIGHTS_SYSTEM_TEMPLATE.format(facts_json=json.dumps(grounding, default=str))
+    system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
+    try:
+        raw = await _call_penny_phrasing(system_prompt, question, history)
+    except _PHRASING_FAILURE_EXCEPTIONS:
+        # Same fallback discipline as the other three domain handlers: the
+        # top insight and its summary are already fully engine-decided by
+        # this point, an LLM timeout must not cost the user the answer. No
+        # usage increment: a failed call must not cost a quota unit.
+        logger.warning("can_i: insights domain phrasing call failed for %s, serving engine-only reply", uid)
+        fallback_lines = [top["title"], top["summary"]]
+        if top["estimated_saving"]:
+            fallback_lines.append(str(top["estimated_saving"]))
+        return _domain_response(
+            resolved_headline,
+            _fallback_reply_from_facts([l for l in fallback_lines if l]),
+            [],
+        )
+    await increment_ai_chat_usage(uid)
+    headline, reply_text = _parse_headline_reply(raw)
+    # Server-side override, unconditional — same belt-and-braces mechanism
+    # every other domain handler above uses for its own resolved headline.
     if resolved_headline:
         headline = resolved_headline
     return _domain_response(headline, reply_text, [])
@@ -1820,6 +3571,738 @@ async def _handle_payday_status_question(uid: str, sts: dict | None = None) -> d
     return _domain_response(headline, _fallback_reply_from_facts(lines), [])
 
 
+# ── Per-screen vocabulary fallback (owner feedback, 2026-08-25) ─────────────
+# Owner: "it's still restrictive, I thought the restriction was just the
+# page that we were on." On a page, ANY question in that page's financial
+# territory should route to that page's domain engine; the refusal is
+# reserved for genuinely non-financial questions. `_route_domain` above only
+# unlocks a handful of pre-listed structural PHRASINGS ("how's my debt plan
+# going", "pay this off" when screen == debt, ...) — it has no idea that
+# "What can I do to reduce what I owe" is a debt question just because the
+# user happens to be looking at the debt page right now.
+#
+# This closes that gap with a second, much cheaper, much wider signal: a
+# plain per-screen VOCABULARY (word-boundary regex, same `\b(?:...)\b`
+# convention as every other matcher in this file), consulted only as a LAST
+# RESORT — after every more specific deterministic gate above has already
+# had its turn and found nothing. Routing stays entirely deterministic: this
+# is still a keyword membership test, not free-form LLM judgement; the LLM
+# downstream still never decides WHICH domain answers a question, only
+# phrases the reply once one has already been chosen for it, exactly as
+# everywhere else in this file.
+#
+# `debt`/`spend`/`planning`/`insights` — a vocabulary hit routes to that
+# domain's own handler (`_handle_debt_domain`/`_handle_spend_domain`/
+# `_handle_planning_domain`/`_handle_insights_domain`): these four already
+# have real deterministic engines behind them (debt_narration, spend_verdict,
+# the commitments pot ledger, the ranked savings_insights_col read), so a
+# vocabulary-only signal is enough to hand the question straight to the
+# engine that actually knows the numbers.
+#
+# `home`/`grow` — NOT a domain hit, `"soften"` instead. Home already falls
+# back to the general affordability path for everything not claimed above;
+# grow has no dedicated engine at all yet (see ENGINE.md's Build Order —
+# ladder/tiers for CATEGORISATION, nothing equivalent for this product
+# surface), so a vocabulary hit there only means "this is clearly a money
+# question, do not refuse it", never "route it to a new domain that doesn't
+# exist". Be honest about that distinction at the call site below: these two
+# are VOCABULARY-SOFTENED, not engine-routed, until a real grow domain
+# exists. Insights used to sit in this same "no engine yet" bucket, but now
+# has one (see `_handle_insights_domain`'s own module comment above), so it
+# moved into the domain-routed group above instead.
+#
+# `other`/unknown screen — unchanged: `_screen_vocabulary_route` returns
+# `None` immediately, so behaviour without a known screen is byte-identical
+# to before this feature.
+_DEBT_SCREEN_VOCAB_PATTERNS = [
+    r"owe", r"owing", r"owed", r"reduce", r"clear", r"clearing",
+    r"balances?", r"cards?", r"interest", r"repay", r"repayments?",
+    r"pay\s+down", r"minimum", r"promo",
+]
+_DEBT_SCREEN_VOCAB_RE = re.compile(r"\b(?:" + "|".join(_DEBT_SCREEN_VOCAB_PATTERNS) + r")\b", re.IGNORECASE)
+# "0%" handled separately, as a plain substring check rather than folded
+# into the `\b(?:...)\b` group above: `%` is a non-word character, so a
+# `\b` immediately after it only matches when followed by a word character
+# — "0%" sitting at the very end of a question (a real, plausible shape:
+# "what about 0%") would silently fail to match inside the shared group.
+# Same "structurally impossible to regress" preference this file applies
+# elsewhere (see `_extract_amount`'s own comment) over a clever-but-fragile
+# regex.
+
+# "categor\w*" (owner bug report, 2026-08-26) replaces the old
+# `categor(?:y|ies)` — that literal pair matches "category"/"categories" but
+# not "categorise"/"categorize"/"categorised"/"categorising" etc, so "How
+# should I categorise the transactions" fell through this whole vocabulary
+# and was refused outright. `\w*` after the shared "categor" stem covers
+# every inflection of both the British and American spelling in one
+# alternative (the trailing `\b` in the wrapping group still applies cleanly:
+# `\w*` is greedy, so by the time it stops consuming word characters the
+# engine is already sitting on a word boundary) — there is no need for
+# separate "categoris"/"categoriz" alternatives, "categor\w*" already
+# subsumes both. "transactions?" is added for the same report ("...the
+# transactions" was the noun the old list had no entry for at all).
+_SPEND_SCREEN_VOCAB_PATTERNS = [
+    r"spent", r"spending", r"spend", r"categor\w*", r"overspend",
+    r"budget", r"gone", r"cost", r"bought", r"purchases?", r"pace",
+    r"transactions?",
+]
+_SPEND_SCREEN_VOCAB_RE = re.compile(r"\b(?:" + "|".join(_SPEND_SCREEN_VOCAB_PATTERNS) + r")\b", re.IGNORECASE)
+
+# "coming up" is added alongside "upcoming" — not in the owner's original
+# list, but it is the EXACT phrase the Planning page-explainer copy itself
+# already uses ("what's coming before your next payday",
+# `_PAGE_EXPLAINER_COPY["planning"]` above), so a user echoing that page's
+# own language back at it ("what's coming up?") must land on the same
+# domain "upcoming" alone would, not fall through to a refusal because the
+# words happen to be in the other order.
+_PLANNING_SCREEN_VOCAB_PATTERNS = [
+    r"plans?", r"goals?", r"bills?", r"upcoming", r"coming\s+up", r"due",
+    r"runway", r"pots?", r"saving\s+toward", r"target",
+]
+_PLANNING_SCREEN_VOCAB_RE = re.compile(r"\b(?:" + "|".join(_PLANNING_SCREEN_VOCAB_PATTERNS) + r")\b", re.IGNORECASE)
+
+# home: only the words genuinely MISSING from `_SCOPE_KEYWORDS` — "afford",
+# "spend", "save"/"saving"/"savings" etc. already pass that gate
+# screen-independently (any screen, not just home), so repeating them here
+# would be pure duplication. "money", "bill(s)" and "balance(s)" are the
+# actual gap.
+_HOME_SCREEN_SOFTEN_PATTERNS = [r"money", r"bills?", r"balances?"]
+_HOME_SCREEN_SOFTEN_RE = re.compile(r"\b(?:" + "|".join(_HOME_SCREEN_SOFTEN_PATTERNS) + r")\b", re.IGNORECASE)
+
+# grow: no dedicated engine yet — softened into the general affordability
+# path, which already has savings-buffer facts (`facts["savings_buffer"]`
+# below), rather than refused outright.
+_GROW_SCREEN_SOFTEN_PATTERNS = [
+    r"sav(?:e|es|ed|ing|ings)", r"invest(?:s|ing|ment|ments)?", r"pension",
+    r"buffer", r"surplus",
+]
+_GROW_SCREEN_SOFTEN_RE = re.compile(r"\b(?:" + "|".join(_GROW_SCREEN_SOFTEN_PATTERNS) + r")\b", re.IGNORECASE)
+
+# insights: widened from the old "soften"-only vocabulary (owner brief,
+# 2026-08) now that a real insights domain exists (`_handle_insights_domain`
+# above) to route to. "insight(s)"/"estimate" carry over unchanged; added:
+# "tip(s)" and "saving idea(s)" (this app's own vocabulary for the same
+# content — the Insights page's cards ARE tips/saving ideas), "best" (the
+# owner's own reported phrasing, "What is the best insight"), and
+# "recommend(ation)(s)" — conservative additions only: every one of these,
+# gated behind `screen == "insights"` and consulted only as the LAST RESORT
+# after every more specific gate above already had its turn (see this
+# function's own docstring), can only ever redirect a question that would
+# otherwise have fallen through to the general affordability LLM path (or,
+# before this change, the "soften" no-op) into this domain's own grounded
+# read, never steal a question a more specific tier already claims.
+_INSIGHTS_SCREEN_VOCAB_PATTERNS = [
+    r"insights?", r"estimate", r"tips?", r"saving\s+ideas?",
+    r"savings\s+ideas?", r"best", r"recommend(?:ation)?s?",
+]
+_INSIGHTS_SCREEN_VOCAB_RE = re.compile(r"\b(?:" + "|".join(_INSIGHTS_SCREEN_VOCAB_PATTERNS) + r")\b", re.IGNORECASE)
+
+# accounts: no accounts engine exists (unlike debt/spend/planning/insights
+# above), so — same doctrine as home/grow — a vocabulary hit here only
+# softens (skips the out-of-scope refusal), it never routes to a domain
+# handler that doesn't exist. The general affordability path plus the two
+# new deterministic answers this feature adds (the ISA capability reply,
+# the "accounts" page explainer) already cover the questions this screen's
+# own vocabulary tends to carry.
+_ACCOUNTS_SCREEN_SOFTEN_PATTERNS = [r"accounts?", r"balances?", r"connect", r"bank", r"isa"]
+_ACCOUNTS_SCREEN_SOFTEN_RE = re.compile(r"\b(?:" + "|".join(_ACCOUNTS_SCREEN_SOFTEN_PATTERNS) + r")\b", re.IGNORECASE)
+
+
+def _screen_vocabulary_route(question: str, screen: str | None) -> str | None:
+    """Last-resort, screen-only routing signal. Returns "debt"/"spend"/
+    "planning"/"insights" (route to that domain handler), "soften" (home/grow/
+    accounts — skip the out-of-scope refusal only, there is no domain to hand
+    the question to), or None (screen unknown/"other"/"tax", or no vocabulary
+    word present — fall through to existing behaviour unchanged).
+
+    Callers must only invoke this when `amount_asked is None` (see the
+    module comment above `_DEBT_SCREEN_VOCAB_PATTERNS` for why — a priced
+    question always belongs to the existing what-if machinery). That guard
+    is checked ONCE at the call site in `can_i`, not repeated inside this
+    function, the same convention `_route_domain`'s own tiers use.
+    """
+    if not screen:
+        return None
+    q = question.lower()
+    if screen == "debt":
+        return "debt" if (_DEBT_SCREEN_VOCAB_RE.search(q) or "0%" in q) else None
+    if screen == "spend":
+        return "spend" if _SPEND_SCREEN_VOCAB_RE.search(q) else None
+    if screen == "planning":
+        return "planning" if _PLANNING_SCREEN_VOCAB_RE.search(q) else None
+    if screen == "home":
+        return "soften" if _HOME_SCREEN_SOFTEN_RE.search(q) else None
+    if screen == "grow":
+        return "soften" if _GROW_SCREEN_SOFTEN_RE.search(q) else None
+    if screen == "insights":
+        return "insights" if _INSIGHTS_SCREEN_VOCAB_RE.search(q) else None
+    if screen == "accounts":
+        return "soften" if _ACCOUNTS_SCREEN_SOFTEN_RE.search(q) else None
+    return None
+
+
+# ── Deterministic route resolution — ONE shared decision function ───────────
+# Owner-reported systemic bug: "if I'm responding to a message surely I
+# should get a response." Root cause is that every deterministic gate above
+# (`_is_out_of_scope`, tax, domain routing, the screen-vocabulary fallback,
+# ...) reads ONLY the current question text; conversation history is only
+# ever handed to the LLM AFTER routing has already happened. A pure
+# anaphoric follow-up ("why doesn't it fit", "why not", "what do you mean")
+# carries no routable vocabulary BY NATURE (that's what makes it a
+# follow-up, not a new question), so it always fails every gate and hits the
+# out-of-scope refusal, however good the fix to any individual gate's word
+# list gets.
+#
+# `_resolve_deterministic_route` is the ordered sequence of gates `can_i`
+# always ran, extracted into one pure, side-effect-free callable: no DB
+# reads, no LLM call, nothing but the same boolean/string predicates `can_i`
+# already calls directly. Doing this makes route resolution a single
+# reusable STEP rather than a chain of inline `if` statements repeated
+# nowhere else — `can_i` below calls it once for the CURRENT question, and
+# the follow-up-inheritance branch a few functions down calls it again for
+# the PREVIOUS turn's own question, so the two can never resolve the same
+# text two different ways.
+#
+# Returns one of: "isa_capability" | "tax" | "category_spend_history" |
+# "current_period_category_spend" | "saving_vs_investing" |
+# "categorisation_explainer" | "page_explainer" |
+# "spend" | "planning" | "debt" | "payday_status" | "insights" | "soften"
+# (home/grow vocabulary — no domain engine exists yet, this only skips the
+# refusal) | "affordability" (nothing above claimed it, and it is NOT out of
+# scope — falls through to the general fact-pack/LLM path) | None (would be
+# refused as out of scope).
+def _resolve_deterministic_route(
+    question_text: str,
+    amount_asked: float | None,
+    active_goal_names: list[str] | None,
+    screen: str | None,
+    category_names: list[str] | None = None,
+) -> str | None:
+    if _is_isa_capability_question(question_text, amount_asked):
+        return "isa_capability"
+    if _is_tax_question(question_text, amount_asked):
+        return "tax"
+    # Checked right after tax, before every other deterministic gate below
+    # (including the SPEND domain vocab further down) — a history lookup is
+    # the MORE SPECIFIC question whenever it matches at all. See the module
+    # comment above `_is_category_spend_history_question` for the full
+    # rationale and the owner bug this closes.
+    if _is_category_spend_history_question(question_text, amount_asked, category_names or []):
+        return "category_spend_history"
+    # Same "more specific, checked first" placement as the history gate just
+    # above — "this month"/"this period" naming one of the user's own
+    # categories is the CURRENT-period sibling of that same history lookup
+    # (see the module comment above `_is_current_period_category_question`),
+    # and must win the same collisions against the generic SPEND domain
+    # vocab further down.
+    if _is_current_period_category_question(question_text, amount_asked, category_names or []):
+        return "current_period_category_spend"
+    if _is_saving_vs_investing_question(question_text, amount_asked):
+        return "saving_vs_investing"
+    if _is_categorisation_explainer_question(question_text, amount_asked):
+        return "categorisation_explainer"
+    if screen and _is_page_explainer_question(question_text):
+        return "page_explainer"
+    domain = _route_domain(question_text, amount_asked, active_goal_names, screen)
+    if domain:
+        return domain
+    if _is_payday_status_question(question_text, amount_asked):
+        return "payday_status"
+    screen_vocab_route = (
+        _screen_vocabulary_route(question_text, screen) if amount_asked is None else None
+    )
+    if screen_vocab_route in ("debt", "spend", "planning", "insights"):
+        return screen_vocab_route
+    if screen_vocab_route == "soften":
+        return "soften"
+    if _is_out_of_scope(question_text, amount_asked, active_goal_names):
+        return None
+    return "affordability"
+
+
+async def _handle_tax_question(uid: str, user: dict, question: str, history: list[dict]) -> dict:
+    """Tax-question answering, factored out of `can_i`'s own tax
+    short-circuit (mechanical extraction, identical behaviour) so the
+    follow-up inheritance branch below can call it a second time for a tax
+    follow-up ("what does that mean for my allowance?") without duplicating
+    the `answer_tax_question` wiring. `history` already carries the prior
+    Q&A either way — this needs no extra grounding of its own for the
+    inherited case, `answer_tax_question` grounds a follow-up in `history`
+    exactly as it already grounds any other multi-turn tax question."""
+    from app.routers.chat import answer_tax_question
+    name = user.get("name", "").split()[0] or "there"
+    tax_messages = [*history, {"role": "user", "content": question}]
+    try:
+        tax_reply = await answer_tax_question(uid, name, tax_messages)
+    except Exception:
+        logger.exception("tax question answer failed for %s", uid)
+        return {
+            "reply": "Couldn't look that up just now, try again in a moment.",
+            "headline": None,
+            "facts": [],
+            "explainer": True,
+            "topic": "tax",
+            "out_of_scope": False,
+        }
+    await increment_ai_chat_usage(uid)
+    return {
+        "reply": _house_style(tax_reply),
+        "headline": None,
+        "facts": [],
+        "explainer": True,
+        "topic": "tax",
+        "out_of_scope": False,
+    }
+
+
+# ── Follow-up route inheritance ─────────────────────────────────────────────
+# `_is_followup_question` is the ONLY new detector this feature adds, and it
+# is deliberately conservative in a specific, asymmetric direction: a FALSE
+# NEGATIVE here just refuses exactly as today (no regression — every
+# question this fix targets was already being refused), whereas a FALSE
+# POSITIVE re-answers using the PREVIOUS question's grounding, phrased for
+# the current wording — mild, since the two questions are, by construction,
+# ones the user themselves put right next to each other in the same
+# conversation. That asymmetry is why this leans slightly permissive, but
+# ONLY inside the "would otherwise be refused" branch (see the call site in
+# `can_i` below) — it is never consulted anywhere a question would already
+# get a real answer.
+#
+# Shape: short AND (starts with a follow-up word OR contains a dangling
+# anaphor). A naive first cut of "short" at the brief's own suggested
+# ~8-10 words lets a genuinely new, self-contained, wh-shaped question slip
+# through, e.g. "What is the meaning of life?" is 6 words and starts with
+# "what" — tested deliberately (see test_is_followup_question_meaning_of_life
+# in tests/test_can_i.py) and found to falsely pass at that threshold. Every
+# real follow-up the owner has actually hit ("why doesn't it fit", "why
+# not", "what do you mean", "how so", "and if I wait?") is 2-4 words; a cap
+# of 5 gives one word of slack over the longest of those while still
+# excluding the 6-word "meaning of life" case. Tightened here rather than
+# left at the brief's own suggested range, per the brief's own instruction
+# to verify and tighten.
+_FOLLOWUP_START_RE = re.compile(r"^(?:why|how|what|but|and|so|ok|okay)\b", re.IGNORECASE)
+_FOLLOWUP_ANAPHOR_RE = re.compile(r"\b(?:it|that|this)\b", re.IGNORECASE)
+_FOLLOWUP_MAX_WORDS = 5
+
+
+def _is_followup_question(question: str, history: list[dict]) -> bool:
+    """True when `question` is shaped like a pure anaphoric follow-up to
+    something already asked in this conversation. Requires a real prior
+    USER turn in `history` (a follow-up needs something to follow) — an
+    all-assistant or empty history can never satisfy this, which is also
+    what keeps this detector from firing on the very first message of a
+    conversation."""
+    if not any(isinstance(h, dict) and h.get("role") == "user" for h in (history or [])):
+        return False
+    stripped = (question or "").strip()
+    words = stripped.split()
+    if not words or len(words) > _FOLLOWUP_MAX_WORDS:
+        return False
+    return bool(_FOLLOWUP_START_RE.match(stripped)) or bool(_FOLLOWUP_ANAPHOR_RE.search(stripped))
+
+
+def _last_user_question(history: list[dict]) -> str | None:
+    """Most recent USER turn's content in `history`, or None. Single-step
+    lookback only (see `_try_followup_inheritance`'s own docstring for why
+    this file never walks further back than one turn)."""
+    for entry in reversed(history or []):
+        if isinstance(entry, dict) and entry.get("role") == "user":
+            content = entry.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+    return None
+
+
+_FOLLOWUP_EXPLAINER_SYSTEM_TEMPLATE = (
+    "You are Penny, the AI inside a personal money app. The user was just "
+    "given this exact explanation, verbatim:\n\"{original_reply}\"\n\n"
+    "They are now asking a short follow-up about it (use the conversation "
+    "history to see exactly what they mean). Answer using ONLY information "
+    "already in that explanation above, never invent a new capability, "
+    "figure, or rule that isn't stated there; if their follow-up genuinely "
+    "can't be answered from it, say so plainly rather than guessing. Reply "
+    "in AT MOST 2 short sentences. Direct, never curt, never moralising. "
+    "British English. Write in plain, human punctuation: no em-dashes (—) "
+    "or en-dashes (–); use a comma, a full stop, or a plain conjunction "
+    "instead.\n\n"
+    "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
+    "HEADLINE: <under 8 words>\n"
+    "REPLY: <your answer, at most 2 short sentences>"
+)
+
+
+async def _handle_inherited_explainer_followup(
+    uid: str, original_reply: str, question: str, history: list[dict]
+) -> dict:
+    """Shared inheritance handler for the four FIXED, no-personal-figures
+    explainer paths (ISA capability, saving-vs-investing, categorisation,
+    page explainer). Per-path judgement call (brief item 3): none of these
+    four carry any engine facts to re-derive from at all, the explanation
+    TEXT ITSELF is the entire fact pack, so that same fixed string is reused
+    as grounding rather than bespoke grounding per path — a "why"/"what does
+    that mean" follow-up on one of them must go to the general LLM grounded
+    in what was already said, never just reprint the identical fixed string
+    a second time (which answers nothing new)."""
+    system_prompt = _FOLLOWUP_EXPLAINER_SYSTEM_TEMPLATE.format(original_reply=original_reply)
+    try:
+        raw = await _call_penny_phrasing(system_prompt, question, history)
+    except _PHRASING_FAILURE_EXCEPTIONS:
+        logger.warning("can_i: inherited explainer follow-up phrasing failed for %s", uid)
+        return _domain_response("Here's what I can tell you", original_reply, [])
+    await increment_ai_chat_usage(uid)
+    headline, reply_text = _parse_headline_reply(raw)
+    return _domain_response(headline, reply_text, [])
+
+
+_PAYDAY_FOLLOWUP_SYSTEM_TEMPLATE = (
+    "You are Penny, the AI inside a personal money app. The user just "
+    "received a payday-status reassurance built from these FACTS, and is "
+    "now asking a follow-up question about it (a \"why\"/\"what do you "
+    "mean\" style question; use the conversation history to see exactly "
+    "what they mean). Every £ figure you write MUST be copied from FACTS, "
+    "NEVER computed, derived or invented. FACTS.state "
+    "('comfortable'/'tight'/'short') has ALREADY been decided by the "
+    "backend from the live numbers; never contradict it or imply a "
+    "different state. If FACTS.short_reason is 'cards', any shortfall is "
+    "spending already put on a card this period, bills are covered, never "
+    "call it a bills shortfall. Reply in AT MOST 2 short sentences, "
+    "answer-first. Direct, never curt, never moralising, never 'you "
+    "should'. British English. Write in plain, human punctuation: no "
+    "em-dashes (—) or en-dashes (–); use a comma, a full stop, or a plain "
+    "conjunction instead.\n\n"
+    "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
+    "HEADLINE: <under 8 words>\n"
+    "REPLY: <your answer, at most 2 short sentences>\n\n"
+    "FACTS: {facts_json}"
+)
+
+
+async def _handle_inherited_payday_followup(uid: str, question: str, history: list[dict]) -> dict:
+    """Per-path judgement call (brief item 3): `_handle_payday_status_question`
+    is a fixed, no-LLM template — a "why"/"what do you mean" follow-up about
+    it must not just reprint that same fixed line again (that answers
+    nothing new), so this rebuilds the SAME facts that template reads from
+    `compute_safe_to_spend` and hands them to the general LLM instead,
+    grounded, never invented."""
+    sts = await compute_safe_to_spend(uid)
+    if sts.get("status") == "insufficient_data":
+        return await _handle_payday_status_question(uid, sts)
+    facts = {
+        "safe_to_spend": sts.get("safe_to_spend"),
+        "days_until_payday": sts.get("days_until_payday"),
+        "next_payday": sts.get("next_payday"),
+        "state": sts.get("state"),
+        "short_reason": sts.get("short_reason"),
+        "bills_total": sts.get("bills_total"),
+    }
+    import json
+    system_prompt = _PAYDAY_FOLLOWUP_SYSTEM_TEMPLATE.format(facts_json=json.dumps(facts, default=str))
+    try:
+        raw = await _call_penny_phrasing(system_prompt, question, history)
+    except _PHRASING_FAILURE_EXCEPTIONS:
+        logger.warning("can_i: inherited payday-status follow-up phrasing failed for %s", uid)
+        fallback = _PAYDAY_STATUS_HEADLINES.get(sts.get("state"), "Here's where things stand")
+        return _domain_response(fallback, fallback, [])
+    await increment_ai_chat_usage(uid)
+    headline, reply_text = _parse_headline_reply(raw)
+    return _domain_response(headline, reply_text, [])
+
+
+_FOLLOWUP_AFFORDABILITY_SYSTEM_TEMPLATE = (
+    "You are Penny, the AI inside a personal money app. FACTS.previous_question "
+    "is the question the user asked immediately before this one. If present, "
+    "FACTS.resolved_verdict is the factual headline they were already shown "
+    "for it, decided by the backend from their live numbers, never a verdict "
+    "word of your own. The user is now asking a short follow-up about that "
+    "answer (a \"why\"/\"what about\" style question; use the conversation "
+    "history to see exactly what they mean) — answer THIS follow-up, do not "
+    "answer the previous question over again and do not restate "
+    "resolved_verdict. Every £ figure you write MUST be copied from FACTS, "
+    "NEVER computed, derived or invented; what_ifs is precomputed for you. "
+    "If FACTS.resolved_verdict is present, treat it as already decided and "
+    "settled, never contradict it, never write a different verdict word "
+    "(Yes/No/Tight) yourself; explain the number behind it instead: what "
+    "makes a shortfall a shortfall (what_ifs.free_after_spend), or, for a "
+    "future-dated question, what a savings pace of "
+    "what_ifs.savable_by_target over what_ifs.months_until_target months "
+    "means, and what_ifs.per_period_needed as the amount that would "
+    "actually get there if present. When FACTS.monthly_surplus is at or "
+    "below zero, you may say plainly, hedged, that recent pace isn't "
+    "currently adding anything toward it, never a prediction that it never "
+    "will. Reply in AT MOST 2 short sentences, answer-first. Direct, never "
+    "curt, never moralising, never 'you should'. British English. Write in "
+    "plain, human punctuation: no em-dashes (—) or en-dashes (–); use a "
+    "comma, a full stop, or a plain conjunction instead.\n\n"
+    "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
+    "HEADLINE: <if FACTS.resolved_verdict is present, copy it EXACTLY, word "
+    "for word. Otherwise under 8 words.>\n"
+    "REPLY: <your answer, at most 2 short sentences>\n\n"
+    "FACTS: {facts_json}"
+)
+
+
+async def _handle_inherited_affordability_followup(
+    uid: str,
+    question: str,
+    prev_question: str,
+    history: list[dict],
+    active_goals: list[dict],
+    context: str,
+    screen: str | None,
+) -> dict:
+    """Per-path judgement call (brief item 3): the general affordability/
+    multi-month path is the one this feature's flagship bug lives on
+    ("A 2000£ trip to Japan in October 2027" -> "That doesn't fit" -> "Why
+    doesn't it fit"). It already reasons over engine facts via the LLM (it
+    is not a fixed-string path like the explainers or payday-status above),
+    so the fix here is purely about WHICH question the deterministic
+    arithmetic is extracted from versus which question is actually asked:
+    amount/horizon extraction, and therefore `what_ifs` and
+    `resolved_verdict`, are recomputed from `prev_question` (the amount or
+    date named originally), while the LLM is asked to answer `question` (the
+    real follow-up wording) with `history` supplying the connecting tissue.
+
+    Deliberately a SEPARATE, self-contained recomputation rather than a
+    shared refactor of `can_i`'s own fact-pack section below: it reuses the
+    exact same primitives that section calls (`_extract_amount`,
+    `_extract_month_year`, `_months_until_target`, `_extract_horizon_year`,
+    `_derive_verdict`, `_whatif_delta_line`, `_multimonth_fit_headline`,
+    ...), so the two can never compute a DIFFERENT answer for the same
+    inputs, but touches none of that section's own code — the brief's "byte-
+    identical for non-follow-ups" requirement is then trivially satisfied by
+    construction, rather than needing to be proven safe after a shared-code
+    refactor. Deliberately narrower than the full fact pack below: only the
+    core arithmetic the brief's own worked example needs (amount,
+    months_until_target, savable_by_target, per_period_needed,
+    monthly_surplus) is rebuilt — the richer optional grounding (upcoming
+    bills, change_intents, savings_buffer) is CURRENT-question-only content
+    a one-off follow-up has no clean second question to key it off, so it is
+    left out here rather than guessed at.
+    """
+    sts = await compute_safe_to_spend(uid)
+    if sts.get("status") == "insufficient_data":
+        msg = "I don't have enough account data yet, connect an account and try again."
+        return {
+            "reply": msg, "headline": msg, "facts": [],
+            "explainer": False, "topic": None, "out_of_scope": False,
+        }
+
+    safe_to_spend = sts.get("safe_to_spend") or 0.0
+    days_until_payday = sts.get("days_until_payday") or 1
+    prev_amount = _extract_amount(prev_question)
+
+    facts: dict = {
+        "previous_question": prev_question,
+        "safe_to_spend": safe_to_spend,
+        "days_until_payday": days_until_payday,
+        "next_payday": sts.get("next_payday"),
+        "state": sts.get("state"),
+        "short_reason": sts.get("short_reason"),
+        "bills_total": sts.get("bills_total"),
+    }
+    if safe_to_spend > 0:
+        facts["per_day"] = round(safe_to_spend / max(1, days_until_payday), 2)
+    if active_goals:
+        facts["active_goals"] = active_goals
+
+    monthly_surplus = 0.0
+    try:
+        region = await get_user_region(uid)
+        cutoff = datetime.now() - timedelta(days=90)
+        monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
+        facts["monthly_income"] = round(monthly_income, 2)
+        facts["monthly_spending"] = round(monthly_spending, 2)
+        facts["monthly_surplus"] = round(monthly_surplus, 2)
+    except Exception:
+        pass
+
+    what_ifs: dict = {}
+    if prev_amount is not None:
+        free_after_spend = round(safe_to_spend - prev_amount)
+        what_ifs["amount_asked"] = prev_amount
+        what_ifs["free_after_spend"] = free_after_spend
+        what_ifs["per_day_after"] = round(free_after_spend / max(1, days_until_payday), 2)
+        what_ifs["goes_negative"] = free_after_spend < 0
+        what_ifs["months_of_saving_needed"] = (
+            round(prev_amount / monthly_surplus, 1) if monthly_surplus > 0 else None
+        )
+
+    today = date.today()
+    # Same month+year -> bare-month -> bare-year fallback order the main
+    # fact pack below uses (see that section's own comments for why month+
+    # year must be checked first) — applied to `prev_question`, not `question`.
+    month_year_hit = _extract_month_year(prev_question)
+    pl = prev_question.lower()
+    if month_year_hit is not None:
+        _my_month, _my_year = month_year_hit
+        months_until = _months_until_month_year(_my_month, _my_year, today)
+        if months_until > 0:
+            what_ifs["months_until_target"] = months_until
+            what_ifs["savable_by_target"] = (
+                round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+            )
+    elif (month_hits := [(pl.index(m), m) for m in MONTH_NAMES if m in pl]):
+        _, month_name = min(month_hits)
+        months_until = _months_until_target(month_name, today)
+        what_ifs["months_until_target"] = months_until
+        what_ifs["savable_by_target"] = (
+            round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+        )
+    else:
+        target_year = _extract_horizon_year(prev_question, today)
+        if target_year is not None:
+            months_until = _months_until_horizon_year(target_year, today)
+            if months_until > 0:
+                what_ifs["months_until_target"] = months_until
+                what_ifs["savable_by_target"] = (
+                    round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+                )
+
+    try:
+        if what_ifs.get("amount_asked") and what_ifs.get("months_until_target"):
+            _months = int(what_ifs["months_until_target"])
+            _amt = float(what_ifs["amount_asked"])
+            what_ifs["per_period_needed"] = int(math.ceil(_amt / max(1, _months) / 5) * 5)
+    except Exception:
+        pass
+
+    derived_verdict = _derive_verdict(what_ifs, safe_to_spend)
+    resolved_headline: str | None = None
+    if derived_verdict is not None:
+        resolved_headline = _whatif_delta_line(what_ifs["amount_asked"], what_ifs["free_after_spend"])
+    elif what_ifs.get("months_until_target") and what_ifs.get("amount_asked") is not None:
+        resolved_headline = _multimonth_fit_headline(
+            what_ifs.get("savable_by_target") or 0, what_ifs["amount_asked"]
+        )
+    if resolved_headline is not None:
+        facts["resolved_verdict"] = resolved_headline
+    if derived_verdict == "no":
+        nearest = _nearest_yes_amount(safe_to_spend)
+        if nearest is not None:
+            what_ifs["nearest_yes_amount"] = nearest
+
+    facts["what_ifs"] = what_ifs
+
+    import json
+    system_prompt = _FOLLOWUP_AFFORDABILITY_SYSTEM_TEMPLATE.format(facts_json=json.dumps(facts, default=str))
+    system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
+
+    try:
+        raw = await _call_penny_phrasing(system_prompt, question, history)
+    except _PHRASING_FAILURE_EXCEPTIONS:
+        logger.warning("can_i: inherited affordability follow-up phrasing failed for %s", uid)
+        fallback = resolved_headline or "Here's what I can tell you from your numbers."
+        return _domain_response(fallback, fallback, [])
+    await increment_ai_chat_usage(uid)
+    headline, reply_text = _parse_headline_reply(raw)
+    if resolved_headline is not None:
+        headline = resolved_headline
+        reply_text = _strip_leading_verdict_clause(reply_text)
+    return {
+        "reply": _house_style(reply_text),
+        "headline": _house_style(headline),
+        "facts": [],
+        "explainer": False,
+        "topic": None,
+        "out_of_scope": False,
+    }
+
+
+async def _try_followup_inheritance(
+    uid: str,
+    user: dict,
+    question: str,
+    history: list[dict],
+    active_goals: list[dict],
+    active_goal_names: list[str],
+    screen: str | None,
+    context: str,
+    category_names: list[str] | None = None,
+) -> dict | None:
+    """Called ONLY from the point in `can_i` where the CURRENT question is
+    about to hit the deterministic out-of-scope refusal
+    (`_resolve_deterministic_route` already returned None for it) — every
+    other gate in the pipeline has already run, unchanged, before this is
+    ever consulted. Returns a full /can-i response dict when inheritance
+    resolves the question, or None to fall through to the ordinary refusal.
+
+    Single-step lookback only, by design: this reads the ONE most recent
+    user turn (`_last_user_question`) and re-resolves ONLY that. If that
+    previous question ALSO resolves to nothing (`prev_route is None` below —
+    two refusals back to back), this returns None and the caller refuses
+    exactly as it would today; it never walks further back through history
+    looking for something to inherit. A genuinely unanswerable previous turn
+    followed by an anaphoric one is exactly the "nothing left to ground this
+    in" case the refusal exists for, and an unbounded walk back through
+    history risks inheriting a route from a question the user has long since
+    moved on from.
+    """
+    if not _is_followup_question(question, history):
+        return None
+    prev_question = _last_user_question(history)
+    if prev_question is None:
+        return None
+    prev_amount = _extract_amount(prev_question)
+    prev_route = _resolve_deterministic_route(
+        prev_question, prev_amount, active_goal_names, screen, category_names
+    )
+    if prev_route is None:
+        return None
+
+    if prev_route == "isa_capability":
+        return await _handle_inherited_explainer_followup(uid, _ISA_CAPABILITY_REPLY, question, history)
+    if prev_route == "tax":
+        return await _handle_tax_question(uid, user, question, history)
+    if prev_route == "category_spend_history":
+        # No LLM inside this handler (see its own docstring), so there is no
+        # "rephrase for the current wording" step to hand the follow-up
+        # question to — `prev_question` is what actually named the category
+        # and window, so re-deriving from IT (not the follow-up's own,
+        # category/window-less text) is what reproduces the same
+        # deterministic figure the user is asking a follow-up about.
+        return await _handle_category_spend_history(uid, prev_question, category_names or [])
+    if prev_route == "current_period_category_spend":
+        # Same rationale as the history branch just above: no LLM inside
+        # this handler either, so re-derive from `prev_question` (the turn
+        # that actually named the category and the "this month"/"this
+        # period" phrase), not the follow-up's own category-less wording.
+        return await _handle_current_period_category_spend(uid, prev_question, category_names or [])
+    if prev_route == "saving_vs_investing":
+        return await _handle_inherited_explainer_followup(uid, _SAVE_INVEST_REPLY, question, history)
+    if prev_route == "categorisation_explainer":
+        return await _handle_inherited_explainer_followup(
+            uid, _CATEGORISATION_EXPLAINER_REPLY, question, history
+        )
+    if prev_route == "page_explainer":
+        text = _PAGE_EXPLAINER_COPY.get(
+            screen, "This page shows figures worked out from your own accounts."
+        )
+        return await _handle_inherited_explainer_followup(uid, text, question, history)
+    if prev_route == "spend":
+        # Sub-intent (pace vs breakdown, see _spend_subintent) is derived
+        # from `question` inside the handler; a generic "why"/"what do you
+        # mean" follow-up carries neither pattern, so it defaults to
+        # "breakdown" — a reasonable, never-wrong fallback (the category
+        # facts are the same either way), not a mismatch worth extra
+        # plumbing for.
+        return await _handle_spend_domain(uid, question, history, context, screen, category_names)
+    if prev_route == "planning":
+        return await _handle_planning_domain(
+            uid, question, history, active_goals, context, screen, match_question=prev_question
+        )
+    if prev_route == "debt":
+        return await _handle_debt_domain(uid, question, history, context, screen)
+    if prev_route == "insights":
+        return await _handle_insights_domain(uid, question, history, context, screen)
+    if prev_route == "payday_status":
+        return await _handle_inherited_payday_followup(uid, question, history)
+    # "soften" / "affordability" — the general fact-pack/LLM path.
+    return await _handle_inherited_affordability_followup(
+        uid, question, prev_question, history, active_goals, context, screen
+    )
+
+
 @router.post("/can-i")
 async def can_i(body: dict, user: dict = Depends(current_user)):
     question = (body.get("question") or "").strip()
@@ -1850,6 +4333,17 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # used.
     raw_context = body.get("context")
     context = raw_context if isinstance(raw_context, str) else ""
+
+    # ── Screen — OPTIONAL, a validated ENUM, not free text. See the
+    # CRITICAL DISTINCTION comment above `_KNOWN_SCREENS`: unlike `context`
+    # just above (client-composed prose, LLM grounding only, never a routing
+    # input), `screen` is a closed set of route names the frontend sets from
+    # its own tab shell — safe to use deterministically below (the
+    # page-explainer short-circuit, the debt/spend screen-informed routing
+    # boosts in `_route_domain`). Still never interpolated into `question`
+    # and never passed to `_extract_amount` — see `_valid_screen`'s own
+    # comment.
+    screen = _valid_screen(body.get("screen"))
 
     # ── History — capped, validated, truncated (chat-with-a-cap) ────────
     raw_history = body.get("history") or []
@@ -1918,84 +4412,79 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     amount_asked = _extract_amount(question)
     active_goals = await _active_goals_summary(uid)
     active_goal_names = [g["name"] for g in active_goals]
+    category_names = await _user_spend_category_names(uid)
 
-    # ── Tax question short-circuit — deterministic routing, ahead of the
-    # out-of-scope gate below, so a genuine tax question can never be caught
-    # by it. Folds the old separate Tax tab chat into Penny (reuses
-    # app.routers.chat.answer_tax_question, the exact same fact-pack + system
-    # prompt that endpoint used) rather than refusing and pointing at a chat
-    # surface that's being deleted. check_ai_chat_limit was already called
-    # once above for this request; increment_ai_chat_usage is called here at
-    # most once too, ONLY on a successful reply, mirroring how the main
-    # verdict path below only increments after a successful completion parse
-    # — a failed OpenRouter call must not cost the user a quota unit.
-    if _is_tax_question(question, amount_asked):
-        from app.routers.chat import answer_tax_question
-        name = user.get("name", "").split()[0] or "there"
-        tax_messages = [*history, {"role": "user", "content": question}]
-        try:
-            tax_reply = await answer_tax_question(uid, name, tax_messages)
-        except Exception:
-            logger.exception("tax question answer failed for %s", uid)
-            return {
-                "reply": "Couldn't look that up just now, try again in a moment.",
-                "headline": None,
-                "facts": [],
-                "explainer": True,
-                "topic": "tax",
-                "out_of_scope": False,
-            }
-        await increment_ai_chat_usage(uid)
-        return {
-            "reply": _house_style(tax_reply),
-            "headline": None,
-            "facts": [],
-            "explainer": True,
-            "topic": "tax",
-            "out_of_scope": False,
-        }
+    # ── Deterministic route resolution — see `_resolve_deterministic_route`'s
+    # own module comment (just above it, before this endpoint) for the full
+    # doctrine. This single call replaces what used to be a chain of inline
+    # `if` checks repeated nowhere else in the codebase (ISA capability, tax,
+    # saving-vs-investing, categorisation explainer, page explainer, domain
+    # routing, payday-status, the per-screen vocabulary fallback, then
+    # out-of-scope) — every one of those checks still runs, in the exact same
+    # order, inside that one function; only the STRUCTURE changed, so this is
+    # byte-identical to the ladder it replaces for every question that isn't
+    # a follow-up (see that function's own docstring for why: it calls the
+    # exact same predicates `can_i` always called directly, nothing
+    # re-implemented). The one new thing this buys is that the SAME
+    # resolution can be re-run on a DIFFERENT question string — the previous
+    # turn's own question — for the follow-up-inheritance branch below.
+    route = _resolve_deterministic_route(question, amount_asked, active_goal_names, screen, category_names)
 
-    # ── Saving-vs-investing explainer short-circuit — deterministic, no LLM,
-    # no quota. Mirrors the greeting/payday-status deterministic pattern
-    # elsewhere in this file (see _is_saving_vs_investing_question's own
-    # comment): checked after tax (a genuine tax question, including the
-    # ISA/pension ambiguous terms, is already answered and can never be
-    # reclassified here) and before domain routing/out-of-scope below, since
-    # "saving"/"investing" are ordinary _SCOPE_KEYWORDS and would otherwise
-    # sail through to the full affordability LLM path rather than this fixed
-    # general-information answer.
-    if _is_saving_vs_investing_question(question, amount_asked):
+    if route == "isa_capability":
+        return _isa_capability_response()
+    if route == "tax":
+        return await _handle_tax_question(uid, user, question, history)
+    if route == "category_spend_history":
+        return await _handle_category_spend_history(uid, question, category_names)
+    if route == "current_period_category_spend":
+        return await _handle_current_period_category_spend(uid, question, category_names)
+    if route == "saving_vs_investing":
         return _saving_vs_investing_response()
-
-    # ── Domain routing (spend/planning/debt) — deterministic, ahead of the
-    # out-of-scope gate below so these three domains can no longer be
-    # refused. Phase 1 of broadening Penny beyond affordability/what-if/tax
-    # (grow and cash-moves are explicitly out of scope this phase). Runs
-    # AFTER the tax check above so a genuine tax question — including the
-    # ISA/pension/allowance terms tax Tier 2 resolves — is already answered
-    # and can never be reclassified into one of these three domains instead.
-    domain = _route_domain(question, amount_asked, active_goal_names)
-    if domain == "spend":
-        return await _handle_spend_domain(uid, question, history, context)
-    if domain == "planning":
-        return await _handle_planning_domain(uid, question, history, active_goals, context)
-    if domain == "debt":
-        return await _handle_debt_domain(uid, question, history, context)
-
-    # ── Payday-status reassurance short-circuit — deterministic, no LLM.
-    # Placed after the tax and domain checks above (so a genuine tax/spend/
-    # planning/debt question is never reclassified here) and before the
-    # out-of-scope gate immediately below. A payday-status question always
-    # passes that gate anyway (via the "payday" scope keyword in
-    # _SCOPE_KEYWORDS) — this just answers it without paying for the Haiku
-    # call the affordability path would otherwise make for it. See
-    # _is_payday_status_question's own comment for the false-negative/
-    # false-positive asymmetry this matcher is deliberately conservative
-    # about.
-    if _is_payday_status_question(question, amount_asked):
+    if route == "categorisation_explainer":
+        return _categorisation_explainer_response()
+    if route == "page_explainer":
+        return _page_explainer_response(screen)
+    if route == "spend":
+        return await _handle_spend_domain(uid, question, history, context, screen, category_names)
+    if route == "planning":
+        return await _handle_planning_domain(uid, question, history, active_goals, context, screen)
+    if route == "debt":
+        return await _handle_debt_domain(uid, question, history, context, screen)
+    if route == "payday_status":
         return await _handle_payday_status_question(uid)
+    if route == "insights":
+        return await _handle_insights_domain(uid, question, history, context, screen)
 
-    if _is_out_of_scope(question, amount_asked, active_goal_names):
+    # `route in ("soften", "affordability")` falls through, unchanged, to the
+    # general fact-pack/LLM path below — "soften" (home/grow vocabulary) has
+    # no domain to hand off to, "affordability" is an ordinarily in-scope
+    # question with nothing more specific above it, both land in the same
+    # place exactly as today.
+    if route is None:
+        # ── Follow-up route inheritance (owner-reported systemic bug) ──────
+        # The question is about to be refused as out of scope — before doing
+        # that, check whether it is a pure anaphoric follow-up
+        # (`_is_followup_question`) to something already asked in this
+        # conversation. If it is, and the PREVIOUS user question resolves to
+        # a real route (re-run through this exact same `_resolve_deterministic_
+        # route` call), answer using that route's own grounding, phrased for
+        # THIS question with the full history so the model itself answers
+        # the "why"/"what about" — see `_try_followup_inheritance`'s own
+        # docstring for the single-step-lookback/no-infinite-inheritance
+        # rule. Only ever consulted here, inside the "would otherwise be
+        # refused" branch, never anywhere a question would already get a
+        # real answer (see `_is_followup_question`'s own comment on why its
+        # false-positive/false-negative asymmetry is safe specifically
+        # because of that placement). The LLM's own no-grounding dead-end
+        # (inside the general affordability prompt further down) is left
+        # alone by this fix — only this deterministic refusal is addressed.
+        inherited = await _try_followup_inheritance(
+            uid, user, question, history, active_goals, active_goal_names, screen, context,
+            category_names,
+        )
+        if inherited is not None:
+            return inherited
+
         example_amount = 50
         timeframe = _weekend_or_week()
         try:
@@ -2012,11 +4501,21 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         # The old grey facts list (scope statement + "Try:" example) is gone,
         # owner order 2026-08-25 — folded into `reply` itself as one short
         # sentence instead of a separate echoed list.
+        reply_text = (
+            "I answer spending, affordability and UK tax questions from "
+            f'your live numbers, try "{worked_example}".'
+        )
+        # Screen-flavoured nudge (owner testing, 2026-08-25 — Penny
+        # page-awareness): ONE fixed sentence, never a per-screen variant,
+        # appended only when `screen` is known — points a refused question
+        # at the one deterministic ability this file now has that the
+        # refusal itself can't offer (the page explainer above). Still a
+        # completely fixed string; the screen enum decides only WHETHER to
+        # append it, never what it says.
+        if screen:
+            reply_text += _OUT_OF_SCOPE_SCREEN_HINT
         return {
-            "reply": (
-                "I answer spending, affordability and UK tax questions from "
-                f'your live numbers, try "{worked_example}".'
-            ),
+            "reply": reply_text,
             "headline": "That one's outside what I can work out from your numbers.",
             "facts": [],
             "explainer": False,
@@ -2235,18 +4734,62 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
 
     today = date.today()
     q_lower = question.lower()
-    # Earliest-in-the-QUESTION match, not Jan->Dec iteration order — "save
-    # for the December trip before November" must resolve November (the
-    # month actually named first), not December just because it sorts
-    # earlier in MONTH_NAMES.
-    month_hits = [(q_lower.index(m), m) for m in MONTH_NAMES if m in q_lower]
-    if month_hits:
+    # Month+year FIRST (owner bug, 2026-08-26 — see `_extract_month_year`'s
+    # own comment for the root cause): "October 2027" must resolve to that
+    # EXACT month/year pair, not the bare-month branch below (which would
+    # silently discard the "2027" and resolve to the next October instead,
+    # ~2 months away) nor the bare-year fallback further below (which never
+    # even runs here, since it is only consulted when no month name is
+    # present at all). Month+year beats both.
+    month_year_hit = _extract_month_year(question)
+    if month_year_hit is not None:
+        _my_month_name, _my_year = month_year_hit
+        months_until = _months_until_month_year(_my_month_name, _my_year, today)
+        if months_until > 0:
+            what_ifs["months_until_target"] = months_until
+            what_ifs["savable_by_target"] = (
+                round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+            )
+        # months_until <= 0 (the named month/year pair is already in the
+        # past) has no honest positive figure to offer — same "stay
+        # amount-less and horizon-less rather than invent one" rule the bare
+        # bare-year fallback below already applies, so nothing is set here
+        # either and this deliberately does NOT fall through to the
+        # bare-month branch (a month name IS present, just with a year that
+        # makes the pairing unusable — treating it as a bare month again
+        # would silently resurrect the "next October" bug this fix removes).
+    elif (
+        # Earliest-in-the-QUESTION match, not Jan->Dec iteration order —
+        # "save for the December trip before November" must resolve
+        # November (the month actually named first), not December just
+        # because it sorts earlier in MONTH_NAMES.
+        month_hits := [(q_lower.index(m), m) for m in MONTH_NAMES if m in q_lower]
+    ):
         _, month_name = min(month_hits)
         months_until = _months_until_target(month_name, today)
         what_ifs["months_until_target"] = months_until
         what_ifs["savable_by_target"] = (
             round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
         )
+    else:
+        # Year-shaped horizon fallback (Fix 2 of the Japan-2027 bug, see
+        # `_extract_horizon_year`'s own comment) — "in 2027"/"by 2027"/
+        # "next year" get the same demonstrated-pace savings fact a named
+        # month already gets above, just anchored on January of that year
+        # (the conservative, earliest-possible reading of a bare year — see
+        # `_months_until_horizon_year`). Only set when genuinely positive:
+        # a year whose January has already passed (e.g. "by 2026" asked in
+        # August 2026) has no honest months-until figure to offer, so the
+        # fact pack stays exactly as amount-less and horizon-less as it was
+        # before this fix rather than inventing one.
+        target_year = _extract_horizon_year(question, today)
+        if target_year is not None:
+            months_until = _months_until_horizon_year(target_year, today)
+            if months_until > 0:
+                what_ifs["months_until_target"] = months_until
+                what_ifs["savable_by_target"] = (
+                    round(monthly_surplus * months_until) if monthly_surplus > 0 else 0
+                )
 
     facts["what_ifs"] = what_ifs
 
@@ -2347,6 +4890,22 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     except Exception:
         offer = None
 
+    # Owner-reported bug, 2026-08-26 (round 2, live verification): a known-
+    # amount + known-horizon question ("A £2,000 trip to Japan in October
+    # 2027") was closing with the model asking "What's your target to save
+    # for it?" even though £2,000 IS the stated amount — the envelope-and-
+    # ask instruction meant for the NO-amount horizon case (below) was
+    # bleeding into this one. `what_ifs` is the same dict object already
+    # referenced by `facts["what_ifs"]` above, so mutating it here still
+    # reaches the LLM grounding once the system prompt is serialised further
+    # down — same "add a field, mutate in place" pattern the nearest-yes
+    # amount uses just above. Mirrors `offer`'s own precondition exactly (an
+    # offer only ever exists when both amount and horizon are known), so
+    # this is set if and only if the prompt's new known-amount branch (see
+    # the system prompt below) is actually reachable.
+    if offer is not None:
+        what_ifs["per_period_needed"] = offer["per_period"]
+
     # ── Card-funded/bills shortfall — deterministic reply, no LLM ────────
     # Owner-reported trust bug, 2026-08-25 (round 2). derived_verdict can
     # only be "no" here while state == "short": safe_to_spend is already
@@ -2380,8 +4939,23 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 _payday_label = date.fromisoformat(str(_next_payday)[:10]).strftime("%a %-d %b")
             except ValueError:
                 _payday_label = None
+        # Owner-reported bug, 2026-08-26 (round 3, live verification after
+        # restart): this short path returns its own fixed reply and never
+        # reaches the LLM call or the append below it, so an undated big
+        # one-off ("Would I be able to afford a trip for 2000£") asked while
+        # already short skipped the ask-when suffix entirely -- every
+        # undated one-off hits this exact branch whenever free is at/below
+        # zero. Same deterministic append used on the LLM path below,
+        # applied here too; question/what_ifs/safe_to_spend are all already
+        # in scope (the delta headline above was computed from the same
+        # values), so the gate's inputs are available without any new
+        # fetch. Does not otherwise touch this short path's own behaviour.
+        _shortfall_reply = _append_ask_when_suffix(
+            _nothing_spare_line(_payday_label, sts.get("short_reason")),
+            _is_big_one_off_with_no_horizon(question, what_ifs, safe_to_spend),
+        )
         resp_body = {
-            "reply": _house_style(_nothing_spare_line(_payday_label, sts.get("short_reason"))),
+            "reply": _house_style(_shortfall_reply),
             "headline": _house_style(resolved_headline),
             "facts": [],
             "explainer": False,
@@ -2405,7 +4979,8 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "a phrase someone would actually say out loud, never a status or a fault "
         "report. British English. Every £ figure you write MUST be copied from "
         "the facts JSON below, rounded to whole pounds, NEVER compute, derive or "
-        "invent a figure; the what_ifs are precomputed for you. safe_to_spend is "
+        "invent a figure; the what_ifs are precomputed for you. " + _CANNOT_ANSWER_SUBJECT_RULE +
+        "safe_to_spend is "
         "ALREADY net of bills_total. The bills have been subtracted once, in the "
         "backend, before you ever see this figure; never subtract bills_total "
         "again from safe_to_spend or from free_after_spend. what_ifs.goes_negative "
@@ -2457,7 +5032,35 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "real affordability question about the user's own money, even with no "
         "spend/save verb and no price: treat it exactly like 'name a thing, no price' "
         "above (give the envelope, ask how much), NEVER as out of scope. "
-        "For future-month questions use months_until_target and savable_by_target. "
+        "A question that names a FUTURE horizon instead of a price (a month, a "
+        "year like 'in 2027', or 'next year', e.g. 'Does a trip to Japan in 2027 "
+        "seem feasible') is a different shape from 'name a thing, no price': when "
+        "what_ifs.months_until_target and what_ifs.savable_by_target are BOTH "
+        "present AND what_ifs.amount_asked is ABSENT (no price was named at all), "
+        "do not use the free-until-payday/per-day-rate envelope for it "
+        "at all; instead, hedged, say that at their recent pace they could have "
+        "roughly what_ifs.savable_by_target aside by then (e.g. 'at your recent "
+        "pace you could have about ~£X aside by then'), then ask what the trip "
+        "or thing would actually cost, in the same sentence. Never answer a "
+        "future-horizon question with a this-pay-period delta, and never refuse "
+        "it as out of scope. If the question names a future horizon but "
+        "what_ifs.months_until_target/savable_by_target are ABSENT (the pace "
+        "figure could not be honestly computed, e.g. the named year has already "
+        "started), fall back to plainly asking what it would cost and by when, "
+        "exactly like the 'name a thing, no price' case above, never inventing a "
+        "projection to fill the gap. When what_ifs.amount_asked IS present "
+        "alongside months_until_target (the price is already known, e.g. 'A £2,000 "
+        "trip to Japan in October 2027'), the cost question is already answered: "
+        "NEVER ask for the cost, the price, or a savings target again, in any "
+        "form, this is the single most common mistake to avoid here. "
+        "FACTS.resolved_verdict already carries the 'That fits'/'That doesn't "
+        "fit' HEADLINE for this case (see the resolved_verdict rules above), so "
+        "your REPLY must not restate or re-derive that judgement either; instead "
+        "close with the forward-looking detail in what_ifs.per_period_needed "
+        "when present, e.g. 'putting aside about £X a period would get there'. "
+        "For a future-month question that DOES carry a price, months_until_target "
+        "and savable_by_target feed that resolved_verdict FIT headline described "
+        "above, never the envelope-and-ask sentence used for the no-price case. "
         "Entries in change_intents with mentioned_in_question=true MUST be "
         "acknowledged in the answer, using ONLY the provided figures; when such "
         "an entry has would_take_to, that is the precomputed category total after "
@@ -2468,7 +5071,11 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         "General cost knowledge may be used ONLY as a clearly rough range "
         "(say 'roughly'), never as their figure. Follow-up questions may reference "
         "earlier turns, use the conversation for context but ALWAYS ground figures "
-        "in the current facts JSON. Write in plain, human punctuation: no em-dashes "
+        "in the current facts JSON. When the current question refines a question "
+        "from earlier in this conversation (the same amount or the same subject, "
+        "now with new detail added, such as a date), briefly acknowledge the "
+        "refinement instead of answering as if it were unrelated, for example "
+        "'For October 2027 rather than right now, ...'. Write in plain, human punctuation: no em-dashes "
         "(—) or en-dashes (–); use a comma, a full stop, or a plain conjunction "
         "instead. A plain hyphen is fine only inside a compound word or a range.\n\n"
         "OUTPUT FORMAT: respond with EXACTLY two lines, nothing before or after:\n"
@@ -2487,6 +5094,10 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         f"FACTS: {json.dumps(facts, default=str)}"
     )
     system_prompt += _build_context_block(context)
+    system_prompt += _build_screen_line(screen)
+    system_prompt += _build_ask_when_block(
+        _is_big_one_off_with_no_horizon(question, what_ifs, safe_to_spend)
+    )
 
     messages = [{"role": "system", "content": system_prompt}, *history, {"role": "user", "content": question}]
 
@@ -2525,6 +5136,13 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     if resolved_headline is not None:
         headline = resolved_headline
         reply_text = _strip_leading_verdict_clause(reply_text)
+    # Deterministic guarantee for the ask-when gate — see
+    # `_append_ask_when_suffix`'s own comment for why the prompt instruction
+    # alone (still sent above, via `_build_ask_when_block`) is not enough.
+    reply_text = _append_ask_when_suffix(
+        reply_text,
+        _is_big_one_off_with_no_horizon(question, what_ifs, safe_to_spend),
+    )
     resp_body: dict = {
         "reply": _house_style(reply_text),
         "headline": _house_style(headline),
