@@ -1,0 +1,15 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Flat adaptive-icon BACKGROUND layer — 2026-08-27 no-glow decision.
+
+    The pre-V3 background (git HEAD icon-background.png) was NOT perfectly
+    flat: corners sampled #0F172A but the centre carried a faint glow bleed
+    (measured (31,28,73) at (512,512) vs (15,23,42) at the corners) — the
+    "old faint wash" Kevin referenced when rejecting V3. The V3 background
+    made this far more pronounced (vertical wash + ember glow stack, 5655+
+    unique colours). Decision: neither. This layer is a single flat colour,
+    #0F172A (Midnight Canvas, DESIGN.md canvas-dark), sampled directly off
+    the original background's corner pixels. No gradient, no glow, no wash.
+  -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#0f172a" />
+</svg>

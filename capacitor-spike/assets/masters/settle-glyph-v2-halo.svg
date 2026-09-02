@@ -1,0 +1,59 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    V2 "Halo" — soft indigo-violet halo centred behind the WHOLE glyph
+    stack (not just the bar), larger radius than the original icon's faint
+    wash and a brighter core, tuned to still read at 72px launcher size.
+    Calm and symmetrical — more launcher presence than V1, but still a
+    halo (diffuse) rather than a directional light source.
+
+    Built from three stacked circular radial gradients (largest+faintest
+    first, smallest+brightest last) for a smooth custom falloff curve — no
+    SVG filters (cairosvg's feGaussianBlur does not blur, verified
+    separately).
+  -->
+  <defs>
+    <linearGradient id="v2-brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <!-- halo-outer: the big soft reach, keeps the corners honestly dark -->
+    <radialGradient id="v2-halo-outer">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.30" />
+      <stop offset="55%" stop-color="#6366f1" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- halo-mid: builds density so the halo doesn't look like one flat wash -->
+    <radialGradient id="v2-halo-mid">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- halo-core: the brighter centre that keeps the halo legible when
+         the whole icon is downscaled to launcher size -->
+    <radialGradient id="v2-halo-core">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.55" />
+      <stop offset="70%" stop-color="#8b5cf6" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background — Midnight Canvas -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#0f172a" />
+
+  <!-- Halo stack — centred on the glyph's own centroid (bars span
+       y=233..766, so centroid sits a little above true canvas centre) -->
+  <circle cx="511" cy="495" r="460" fill="url(#v2-halo-outer)" />
+  <circle cx="511" cy="495" r="330" fill="url(#v2-halo-mid)" />
+  <circle cx="511" cy="495" r="210" fill="url(#v2-halo-core)" />
+
+  <!-- Glyph group — identical geometry to settle-glyph-master.svg -->
+  <g>
+    <rect x="292" y="257" width="475" height="119" rx="28.6" fill="#475569"
+      transform="rotate(6.86 529.5 316.5)" />
+    <rect x="241" y="447" width="505" height="119" rx="28.5" fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)" />
+    <rect x="232" y="637" width="559" height="129" rx="31.5" fill="url(#v2-brandGradient)" />
+  </g>
+</svg>

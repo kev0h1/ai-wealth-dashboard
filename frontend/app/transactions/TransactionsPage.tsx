@@ -78,6 +78,31 @@ export default function TransactionsPage() {
 
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
 
+  // Re-seed every URL-driven filter whenever `searchParams` itself changes
+  // (a fresh deep link from Spend's "money you moved" rows, or any other
+  // ?category=/?categories=/?from=/?to= link) — not just on first mount.
+  // The `useState(() => searchParams.get(...))` initialisers above only run
+  // once; the App Router keeps this page component instance alive across
+  // client-side navigations to the same /transactions route (only the
+  // search params change), so without this effect a second deep link
+  // landing here while the first one's state is still mounted showed the
+  // FIRST link's filter (bug: tapping "To your investments" after visiting
+  // "Between your accounts" landed on the stale "Between your accounts"
+  // results, not a real routing/id mismatch).
+  useEffect(() => {
+    setCategoryFilter(searchParams.get("category"));
+    const cats = searchParams.getAll("categories");
+    setCategoriesFilter(cats.length > 0 ? cats : null);
+    setCategoryLabel(searchParams.get("label"));
+    const t = searchParams.get("txn_type");
+    setTxnType(t === "debit" || t === "credit" ? t : null);
+    const raw = searchParams.get("merchants");
+    const names = raw ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    setMerchantsFilter(names.length > 0 ? names : null);
+    setPeriodFrom(searchParams.get("from"));
+    setPeriodTo(searchParams.get("to"));
+  }, [searchParams]);
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
     return () => clearTimeout(t);
@@ -210,8 +235,14 @@ export default function TransactionsPage() {
 
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-      <div className="px-4 pt-6 pb-2">
-        <div className="flex items-center gap-3 mb-4">
+      {/* Sticky back header — same convention as ReceiptsPage.tsx (the app's
+          other single-column drill-in): pinned via `sticky top-0 z-10` with
+          a translucent page-background fill + backdrop-blur so scrolled
+          content passes beneath it, not through it. Previously part of the
+          same scrolling block as the transaction list, so Back scrolled
+          away with the content (owner's phone report, 2026-08-30). */}
+      <div className="sticky top-0 z-10 bg-[#f0f2f7]/90 dark:bg-[#0f172a]/90 backdrop-blur-sm border-b border-slate-200/60 dark:border-slate-700/60">
+        <div className="px-4 pt-6 pb-3 flex items-center gap-3">
           <button
             type="button"
             onClick={() => router.back()}
@@ -227,7 +258,9 @@ export default function TransactionsPage() {
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Search</h1>
           </div>
         </div>
+      </div>
 
+      <div className="px-4 pt-4 pb-2">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
           <input

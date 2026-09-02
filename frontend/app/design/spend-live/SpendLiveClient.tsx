@@ -167,10 +167,12 @@ export default function SpendLiveClient() {
     return list;
   }, [verdict.period.start, verdict.period.end]);
 
-  // "This period" vs "Over time" — the body swaps in place (matching
-  // production's own SpendPage.tsx pattern). This fixture-only route has no
-  // live transaction list to chart, so the swapped-in content is an honest
-  // placeholder pointing at the real page rather than a fake chart.
+  // "Breakdown" vs "Charts" (renamed from "This period"/"Over time",
+  // 2026-09 — see SpendHeader.tsx's SpendPatternsToggle) — the body swaps in
+  // place (matching production's own SpendPage.tsx pattern). This
+  // fixture-only route has no live transaction list to chart, so the
+  // swapped-in content is an honest placeholder pointing at the real page
+  // rather than a fake chart.
   const [showPatterns, setShowPatterns] = useState(false);
 
   // "Out" tap's Show Your Working destination — force the majority list
@@ -200,7 +202,7 @@ export default function SpendLiveClient() {
   const patternsPlaceholder = (
     <div className="glass-card-flat rounded-2xl p-4 text-center">
       <p className="text-sm text-slate-600 dark:text-slate-400">
-        Over time compares this period against your history — it needs live transactions this preview doesn&apos;t have.
+        Charts draws from your live transactions, this preview doesn&apos;t have any to plot.
       </p>
       <Link href="/spend?view=trends" className="mt-2 inline-block text-[13px] font-semibold text-indigo-600 dark:text-indigo-400">
         See it on the real Spend page →
@@ -281,21 +283,21 @@ export default function SpendLiveClient() {
               onClick={() => { setSheetTx(MOVE_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
               className="text-[11px] font-medium text-indigo-500/80 dark:text-indigo-400/80 active:opacity-70 transition-opacity"
             >
-              teaching sheet — movement fork ↗
+              teaching sheet, movement fork ↗
             </button>
             <button
               type="button"
               onClick={() => { setSheetTx(MOVE_CREDIT_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
               className="text-[11px] font-medium text-indigo-500/80 dark:text-indigo-400/80 active:opacity-70 transition-opacity"
             >
-              teaching sheet — movement fork (credit) ↗
+              teaching sheet, movement fork (credit) ↗
             </button>
             <button
               type="button"
               onClick={() => { setSheetTx(SPEND_FIXTURE_TX); setSheetForceMovementRoot(false); setSheetOpen(true); }}
               className="text-[11px] font-medium text-indigo-500/80 dark:text-indigo-400/80 active:opacity-70 transition-opacity"
             >
-              teaching sheet — spend fork ↗
+              teaching sheet, spend fork ↗
             </button>
           </div>
         </div>

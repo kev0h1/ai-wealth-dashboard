@@ -18,7 +18,7 @@ from datetime import date as _date
 
 from app.core.push import send_push_to_user, notify_new_transactions
 from app.db.collections import (
-    preferences_col, budgets_col, savings_goals_col,
+    preferences_col, savings_goals_col,
     transactions_col, yapily_transactions_col, notification_state_col,
 )
 from app.services.categories import get_category_kinds, is_non_spend
@@ -35,7 +35,6 @@ log = logging.getLogger(__name__)
 # report on the same underlying risk, so they share one Settings toggle.
 NOTIF_DEFAULTS = {
     "transactions":             False,
-    "budget_alerts":            True,
     "goal_milestones":          True,
     "insights":                 True,
     "period_digest":            True,
@@ -48,9 +47,16 @@ NOTIF_DEFAULTS = {
     "connection_health":        True,
 }
 
-# Outflows that aren't real consumption are never counted against a budget.
-# That set is no longer duplicated here — it is the declared category kind
-# (movement / income), read once per check via app.services.categories.
+# Outflows that aren't real consumption are never counted against spend
+# comparisons. That set is not duplicated here — it is the declared category
+# kind (movement / income), read once per check via app.services.categories.
+#
+# 2026-08-30 (owner decision, option C): the budget-ceiling feature (/budget
+# page, budgets_col, "budget_alerts" notifier) was retired. The page was
+# already gone; this removed its last live consumer, the over-budget push.
+# Pace-vs-typical (`_maybe_category_pace` below) carries the ambient
+# overspend signal going forward. Explicit ceilings may return later as a
+# considered Penny feature — not built now.
 
 
 async def notif_pref(user_id: str, key: str) -> bool:
@@ -85,7 +91,6 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
     for label, coro in (
         ("planned_settlement", _maybe_settle_planned(user_id)),
         ("transactions", _maybe_transactions(user_id, new_txns)),
-        ("budget_alerts", _maybe_budget_exceeded(user_id, region)),
         ("goal_milestones", _maybe_goal_funded(user_id, region)),
         ("insights", _maybe_new_insights(user_id)),
         ("category_pace", _maybe_category_pace(user_id, region)),
@@ -100,58 +105,6 @@ async def notify_after_sync(user_id: str, region: str, new_txns: list) -> None:
 async def _maybe_transactions(user_id: str, new_txns: list) -> None:
     if new_txns and await notif_pref(user_id, "transactions"):
         await notify_new_transactions(user_id, new_txns)
-
-
-async def _maybe_budget_exceeded(user_id: str, region: str) -> None:
-    if not await notif_pref(user_id, "budget_alerts"):
-        return
-    budget_doc = await budgets_col.find_one({"user_id": user_id, "region": region})
-    budgets = (budget_doc or {}).get("budgets") or []
-    limits = {b["category"]: b["monthly_limit"] for b in budgets if b.get("monthly_limit")}
-    if not limits:
-        return
-
-    prefs = await preferences_col.find_one({"user_id": user_id}, {"pay_period_config": 1})
-    pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
-    start, _end = get_pay_period_for_date(_date.today(), pay_config)
-    period_key = start.isoformat()
-    start_dt = datetime(start.year, start.month, start.day)
-
-    spend: dict[str, float] = {}
-    if region != "Kenya":
-        # ONE kind-map read for the whole period scan below.
-        kinds = await get_category_kinds(user_id)
-        q = {"user_id": user_id, "transaction_type": "debit", "date": {"$gte": start_dt}}
-        proj = {"amount": 1, "category": 1, "custom_category": 1}
-        for col in (transactions_col, yapily_transactions_col):
-            for t in await col.find(q, proj).to_list(None):
-                cat = t.get("custom_category") or t.get("category") or "Other"
-                if is_non_spend(kinds, cat):
-                    continue
-                spend[cat] = spend.get(cat, 0.0) + abs(float(t.get("amount", 0) or 0))
-
-    state = await _state(user_id)
-    already = (state.get("budget_exceeded") or {}).get(period_key, [])
-    newly: list[str] = []
-    for cat, limit in limits.items():
-        if spend.get(cat, 0.0) >= limit and cat not in already:
-            newly.append(cat)
-
-    if not newly:
-        return
-    sym = "KES " if region == "Kenya" else "£"
-    for cat in newly:
-        await send_push_to_user(
-            user_id,
-            f"Over budget: {cat}",
-            f"You've spent {sym}{spend[cat]:,.0f} of your {sym}{limits[cat]:,.0f} {cat} budget this period.",
-            "/budget",
-        )
-    await notification_state_col.update_one(
-        {"_id": user_id},
-        {"$set": {f"budget_exceeded.{period_key}": already + newly}},
-        upsert=True,
-    )
 
 
 async def _maybe_goal_funded(user_id: str, region: str) -> None:
@@ -645,10 +598,16 @@ async def _maybe_classification_attention(user_id: str) -> None:
 async def send_period_digest(user_id: str) -> None:
     """Fresh-start digest on the first day of a new pay period.
 
-    One push: how last period went against the budget, plus the standing
-    headline goals. This is the primary re-encounter moment for goals —
-    the scoreboard comes to the user instead of living on a page they
-    have to remember to visit.
+    One push: the standing headline goals. This is the primary re-encounter
+    moment for goals — the scoreboard comes to the user instead of living on
+    a page they have to remember to visit.
+
+    2026-08-30 (owner decision, option C): this used to open with "how last
+    period went against the budget" from budgets_col, which is now retired
+    (see NOTIF_DEFAULTS comment above). That clause is trimmed rather than
+    repointed to a pace-vs-typical line — the separate "category_pace"
+    notifier already carries that ambient signal in real time, so the digest
+    doesn't need to duplicate it.
     """
     if not await notif_pref(user_id, "period_digest"):
         return
@@ -663,28 +622,13 @@ async def send_period_digest(user_id: str) -> None:
         return  # already sent for this period
 
     region = prefs.get("region", "UK")
-    sym = "KES " if region == "Kenya" else "£"
-    from app.routers.goals import goals_summary, budget_period_spend
-    from app.services.pay_period import prev_pay_period
+    from app.routers.goals import goals_summary
 
     parts: list[str] = []
 
-    # How last period went against the budget (the fresh-start hook)
-    budget_doc = await budgets_col.find_one({"user_id": user_id, "region": region})
-    limits = {b["category"]: b["monthly_limit"]
-              for b in (budget_doc or {}).get("budgets") or [] if b.get("monthly_limit")}
-    if limits and region != "Kenya":
-        prev_start, prev_end = prev_pay_period(start, pay_config)
-        spend = await budget_period_spend(user_id, prev_start, prev_end)
-        spent = sum(max(0.0, spend.get(c, 0.0)) for c in limits)
-        total = sum(limits.values())
-        verdict = "under" if spent <= total else "over"
-        parts.append(f"Last period: {sym}{spent:,.0f} of {sym}{total:,.0f} budgeted ({verdict})")
-
-    # Standing goals (skip budget — covered above with last period's numbers)
+    # Standing goals
     for g in await goals_summary(user_id, region):
-        if g["pillar"] != "budget":
-            parts.append(f"{g['label']}: {g['detail']}")
+        parts.append(f"{g['label']}: {g['detail']}")
 
     if not parts:
         return

@@ -1,9 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, CircleDashed } from "lucide-react";
-import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
-import { RadioDot } from "@/components/PlanOneOffSheet";
+import { X } from "lucide-react";
+import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, PlannedExpense } from "@/lib/api";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { getCategoryColour } from "@/lib/categories";
@@ -208,59 +207,14 @@ export default function PlannedEditSheet({ item, accounts, onClose, onDelete, on
               </div>
 
               {/* Account selector */}
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                  Which account will it leave from?
-                </label>
-                <div
-                  role="radiogroup"
-                  aria-label="Which account will it leave from?"
-                  className="rounded-xl border border-slate-200/70 dark:border-white/[0.08] divide-y divide-slate-100 dark:divide-white/[0.06] overflow-hidden"
-                >
-                  {/* "Not sure yet" — first row */}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={accountId === ""}
-                    onClick={() => setAccountId("")}
-                    className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
-                  >
-                    <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
-                      <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
-                    </span>
-                    <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">Not sure yet</span>
-                    <RadioDot selected={accountId === ""} />
-                  </button>
-
-                  {spendableAccounts.map(acc => {
-                    const brand = accountBrand(acc);
-                    return (
-                      <button
-                        key={acc.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={accountId === acc.id}
-                        onClick={() => setAccountId(acc.id)}
-                        className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
-                      >
-                        <BankBadge
-                          logoSrc={brand.logoSrc}
-                          initials={brand.initials}
-                          altText={brand.label}
-                          brandBg={brand.background}
-                        />
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
-                          {acc.provider && (
-                            <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
-                          )}
-                        </span>
-                        <RadioDot selected={accountId === acc.id} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <AccountRadioPicker
+                accounts={spendableAccounts}
+                value={accountId}
+                onChange={setAccountId}
+                label="Which account will it leave from?"
+                allowUnset
+                unsetLabel="Not sure yet"
+              />
 
               {/* Error */}
               {error && (

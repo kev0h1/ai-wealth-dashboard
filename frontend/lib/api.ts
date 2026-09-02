@@ -6,6 +6,9 @@ import type {
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo, GrowView,
+  MoneyShape, MoneyShapeJob, MoneyShapePeriod, MoneyShapeTrend, MoneyShapeEvidenceRow,
+  MoneyShapeTrait, MoneyShapeProposal, MoneyShapeWhatWorks,
+  MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 export type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
@@ -14,6 +17,9 @@ export type {
   DebtInsights, DebtBurndown, UserPreferences, CategoryRule, BillLabel,
   ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign,
   SubscriptionInfo, GrowView,
+  MoneyShape, MoneyShapeJob, MoneyShapePeriod, MoneyShapeTrend, MoneyShapeEvidenceRow,
+  MoneyShapeTrait, MoneyShapeProposal, MoneyShapeWhatWorks,
+  MoneyShapePeriodEntry, MoneyShapeAverageEntry,
 } from "@wealth/shared";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
@@ -49,7 +55,6 @@ export interface AccountCategorySummary {
 
 export type NotificationPrefs = {
   transactions: boolean;
-  budget_alerts: boolean;
   goal_milestones: boolean;
   insights: boolean;
   period_digest: boolean;
@@ -59,7 +64,7 @@ export type NotificationPrefs = {
 };
 
 export type GoalSummary = {
-  pillar: "debt" | "savings" | "budget";
+  pillar: "debt" | "savings";
   label: string;
   detail: string;
   pct: number;
@@ -109,6 +114,42 @@ export type UpcomingBill = {
    * need the safe/inclusive read; see lib/comingUp.tsx's `isSpend`.
    */
   kind?: "commitment" | "discretionary" | "movement";
+  /**
+   * Present only when a movement's destination was traced (learned pair).
+   * `dest_account_spendable: true` means the destination is inside the same
+   * spendable pool as the source, so this movement is a pooled no-op: the
+   * money never leaves the "everywhere" total, it only reallocates within
+   * it. A missing/null flag is NOT a no-op, it still debits as before, see
+   * the isPooledNoOp helper in PlanningPage.tsx that is the single place
+   * allowed to interpret this pair.
+   */
+  dest_account_id?: string | null;
+  dest_account_spendable?: boolean | null;
+  /**
+   * Present only for a credit-card repayment bill whose amount was derived
+   * from the card's live balance/spend rather than plain recurring history.
+   * "balance_estimate" is currently the only value. Absent = the amount is
+   * an ordinary prediction, render exactly as today. When present, callers
+   * should mark the figure as an estimate (a leading "~"), never treat it
+   * as a confirmed amount.
+   */
+  amount_basis?: "balance_estimate" | null;
+  /** Set when Penny (agent mode v1) created this planned payment via a
+   * confirmed proposal, rather than the user adding it by hand in Planning.
+   * Origin badge only — see Allocation's own `created_via` comment for the
+   * full doctrine. Only ever meaningful alongside `planned: true`. */
+  created_via?: "penny" | null;
+  /**
+   * True only on an entry inside `CashflowData.observed_pending_bills`
+   * (never on a plain `upcoming_bills` row — the backend excludes a
+   * matched occurrence from that list entirely once this is true). Means
+   * a bank-side PENDING debit (not yet in the settled feed) already
+   * matches this bill: the account balance has already moved, so this is
+   * never at-risk and never double-debited by any walk. Render as calm,
+   * non-red "left earlier today, still settling" copy — see
+   * backend/app/services/pending_transactions.py.
+   */
+  observed_pending?: boolean;
 };
 
 export type PlannedExpense = { id: string; name: string; amount: number; date: string; account_id?: string | null; created_at?: string };
@@ -138,6 +179,43 @@ export type IncomeStream = {
   status: "confirmed" | "rejected" | "suggested";
 };
 
+/**
+ * The DESTINATION side of an internal standing order that also appears in
+ * `upcoming_bills` as a "movement" kind bill on the SOURCE account. The
+ * projection used to debit the source and never credit the destination, so
+ * an account fed entirely by an incoming transfer looked short even though
+ * the money was demonstrably on its way (e.g. a payday Barclays→HSBC STO).
+ * Each entry mirrors exactly one outbound movement bill: same amount, same
+ * `expected_date`, same `days_away`, credited to the destination instead.
+ * Optional, defaults to `[]`. Absent on caches computed before this field
+ * existed.
+ */
+export type InternalInflow = {
+  name: string;
+  amount: number;
+  expected_date: string;
+  days_away: number;
+  account_id: string;
+  account_name?: string | null;
+  account_bank?: string | null;
+  source_account_id?: string | null;
+  source_account_name?: string | null;
+  /**
+   * True when the destination account is inside the SPENDABLE pool by the
+   * exact rules backend/app/routers/analytics.py's `_split_balances`
+   * applies (GBP current accounts, not savings-subtype, not credit).
+   * False for a destination that's a savings pot, an internal transfer
+   * into savings genuinely leaves the spendable pool even though the
+   * account is still the user's own. Optional: absent on caches computed
+   * before this field existed, or on any older cached response, callers
+   * doing POOLED arithmetic (the "everywhere" runway/at-risk totals) must
+   * treat a missing value as NOT spendable (fail safe: undercount the
+   * credit rather than overstate available cash). Per-account arithmetic
+   * is unaffected by this flag entirely, see PlanningPage.tsx.
+   */
+  destination_spendable?: boolean;
+};
+
 export type CashflowData = {
   weekly_projection: CashflowWeek[];
   upcoming_bills: UpcomingBill[];
@@ -151,6 +229,20 @@ export type CashflowData = {
   next_payday: string | null;
   payday_source: "confirmed" | "period" | null;
   income_suggestion: IncomeSuggestion | null;
+  /** See `InternalInflow`. Optional, defaults to `[]` for older cached responses. */
+  internal_inflows?: InternalInflow[];
+  /**
+   * Bills matched to a bank-side PENDING debit — see `UpcomingBill.observed_pending`.
+   * Deliberately NOT part of `upcoming_bills` (every at-risk/shortfall/
+   * runway walk reads that list only, so these are structurally excluded
+   * from all of them); display-only. Optional, defaults to `[]` for older
+   * cached responses.
+   */
+  observed_pending_bills?: UpcomingBill[];
+  /** Same enriched shape as GET /allocations. Optional — absent on caches
+   * computed before allocations existed; callers must treat a missing value
+   * as "no allocations to subtract", never as an error. */
+  allocations?: Allocation[];
 };
 
 export type TransportMode = {
@@ -571,6 +663,10 @@ export type Commitment = {
    * enough ahead of usual that it could plausibly squeeze this plan's own
    * per-period slice. null otherwise (list_commitments only). */
   pace_note?: { text: string; link: "spend" } | null;
+  /** Set when Penny (agent mode v1) created this goal via a confirmed
+   * proposal, rather than the user creating it by hand. Origin badge only —
+   * see Allocation's own `created_via` comment for the full doctrine. */
+  created_via?: "penny" | null;
 };
 
 /** "surplus" fits the monthly spare rate; "savings" likely dips into savings;
@@ -609,6 +705,87 @@ export type CommitmentPreview = {
   /** One entry per submitted funding pot — live pot-ledger conflicts. */
   pots_detail: CommitmentPreviewPot[];
   consent: CommitmentConsent | null;
+};
+
+/** Per-pay-period envelope (GET/POST/PATCH/DELETE /allocations). Simpler than
+ * a Commitment: one fixed amount per period, one fill RULE, no target
+ * date/pot ledger. `remaining` is the UNFILLED portion of amount_per_period
+ * this period — filled money has already left the balances, so
+ * runway/safe-to-spend arithmetic must only ever subtract `remaining`,
+ * never `amount_per_period` (that would double-subtract the part already
+ * gone). `period_start`/`period_end` are server-authoritative — the card
+ * never computes its own period, it just displays what the backend says is
+ * "this period" so it resets in step with the data.
+ *
+ * Owner decision, 2026-08-29 (verbatim): "the same rule we have for the
+ * offline account is what we should reuse here, can be exact match or
+ * contains, and the effective date can be selected or choose the start of
+ * the payment period." The fill rule (`match_type`/`match_value`) is the
+ * SAME description-rule mechanism the offline-account mirror rules use —
+ * not a whole transaction series. Category-type rules are not offered
+ * here: an envelope fills from a specific payment, not a spend category.
+ *
+ * `recurrence` (owner correction, 2026-08-29, second round: "an allocation
+ * isn't necessarily every month, it can be just once"): "every_period"
+ * behaves as above forever; "once" applies ONLY to the pay period it was
+ * created in — `period_start`/`period_end` then reflect that FIXED period,
+ * not today's. Once that period is over the allocation is `completed`:
+ * `remaining` is always 0 (it reserves nothing further) but the record
+ * stays in listings — never deleted — so history stays honest. */
+export type Allocation = {
+  id: string;
+  name: string;
+  amount_per_period: number;
+  fill_account_id: string;
+  /** "description_equals" (exact, case-insensitive, trimmed) or
+   * "description_contains" (substring of description + merchant_name). */
+  match_type: "description_equals" | "description_contains";
+  /** The text the rule matches against. */
+  match_value: string;
+  /** Cleaned label for the rule, e.g. "Saving Challenge (2026)" — defaults
+   * server-side to the cleaned match_value when not separately given, so
+   * the UI can say "fed by X" without re-deriving anything client-side. */
+  fill_display_name: string;
+  /** Date (YYYY-MM-DD) fill-matching starts counting from. Defaults to the
+   * current pay period's start at creation — i.e. unchanged behaviour
+   * unless explicitly set later/earlier. */
+  effective_from: string;
+  recurrence: "every_period" | "once";
+  /** True once a "once" allocation's fixed period is in the past. Always
+   * false for "every_period". A completed allocation reserves nothing
+   * (`remaining` is always 0) but is kept, not deleted. */
+  completed: boolean;
+  /** True while today is still before the pay period containing
+   * `effective_from` — the reserve hasn't started yet, so `remaining` is 0
+   * (same double-count-guard shape as `completed`, opposite reason: this
+   * one hasn't started rather than having finished). Always false once
+   * `effective_from`'s period has arrived, and always false when
+   * `completed`. */
+  pending: boolean;
+  active: boolean;
+  filled_this_period: number;
+  /** Unfilled remainder this period — the figure that reduces available cash. */
+  remaining: number;
+  period_start: string;
+  period_end: string;
+  /** Set when Penny (agent mode v1) created this envelope via a confirmed
+   * proposal, rather than the user creating it by hand in the sheet. Origin
+   * badge only — "set up with Penny", whisper-tier, no gradient, no icon
+   * theatre (owner decisions locked). Absent/null on every hand-created
+   * allocation and on any payload cached before agent mode existed. */
+  created_via?: "penny" | null;
+};
+
+/** One entry from GET /allocations/fill-candidates?account_id=... — a
+ * recent (90d) incoming transaction series on that account, grouped by
+ * series_key. Powers the "which payment fills it?" picker step in
+ * AllocationSheet. */
+export type FillCandidate = {
+  series_key: string;
+  display_name: string;
+  last_amount: number;
+  last_date: string;
+  occurrences_90d: number;
 };
 
 /** Hand-off from "Can I…?" — a ready-to-save commitment prefill. */
@@ -673,6 +850,36 @@ export type CanIResponse = {
    * as a stated fact. */
   prefilled?: boolean;
   clarify?: string | null;
+  /** Agent mode v1 — two more branches parallel to the scenario branch
+   * above (`scenario`/`items`/`rejected`/`prefilled`/`clarify`), mutually
+   * exclusive with it and with each other on any one response. `proposal`
+   * is present when Penny drafted a concrete action that needs an explicit
+   * yes; `consent_required` is present instead, with no proposal, when the
+   * ask was action-shaped but the user has never said yes to Penny acting
+   * on their behalf at all — see PennyConversation.tsx's ProposalMsg /
+   * ConsentMsg for how each renders. */
+  proposal?: PennyProposal | null;
+  consent_required?: boolean;
+};
+
+/** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no
+ * inline edits, one-time consent, origin badges, 15-min server-enforced
+ * TTL) — Penny drafted a concrete action (an envelope, a goal, a one-off)
+ * and needs an explicit yes before anything happens. `params` is opaque to
+ * this frontend (whatever POST /penny/proposals/{id}/execute needs
+ * server-side to actually create the thing) and is never read or edited
+ * here — only `summary`/`consequence` render, because inline editing isn't
+ * offered at all: if the user wants it different, they say so in chat and
+ * get a fresh proposal. `proposal_id` is short-lived; an expired/cancelled
+ * execute attempt rejects with a human `detail` string (see
+ * api.executePennyProposal). See PennyConversation.tsx's ProposalMsg /
+ * ProposalConfirmCard. */
+export type PennyProposal = {
+  proposal_id: string;
+  kind: string;
+  summary: string;
+  consequence: string;
+  params: Record<string, unknown>;
 };
 
 /** A single confirmed "what if" scenario item, as sent to POST /scenario/run.
@@ -798,16 +1005,6 @@ export type ScenarioRunResponse = {
   headline: string;
 };
 
-export type MoneyBasic = {
-  id: string;
-  topic: string;
-  icon: string;
-  title: string;
-  body: string;
-  takeaway?: string;
-  tax_year: string;
-};
-
 export type CompanionAction = {
   label: string;
   route: string;
@@ -822,7 +1019,17 @@ export type MoveMapAccount = {
 };
 
 export type MoveMap = {
-  from: MoveMapAccount & { safe_note: string };
+  from: MoveMapAccount & {
+    safe_note: string;
+    /**
+     * £ already held back this period for own-account allocations (e.g. a
+     * "Saving Challenge" envelope) THIS source funds — 0 when none. Disclosure
+     * only: the move amount above already accounts for it server-side (see
+     * backend/app/services/companion.py's `_reserved_for_allocations`, owner
+     * fix 2026-08-31).
+     */
+    reserved_for_allocations?: number;
+  };
   to: MoveMapAccount & { incoming: string };
 };
 
@@ -893,16 +1100,94 @@ export type PaydayPlanDest = {
   target: number;
   move: number;
   usual: number | null;
+  /**
+   * Active commitment(s) (goals v2) whose per-period slice is flooring this
+   * dest's move — e.g. ["Summer holiday"] on a Saving Challenge leg. Absent
+   * when no commitment routes here. See backend/app/services/companion.py's
+   * `_active_commitment_slices` and the `_dest_entry["commitment_names"]`
+   * assignment in the payday-plan dest-building loop.
+   */
+  commitment_names?: string[];
+  /**
+   * Sum of MOVEMENT bills on this account excluded from `bills_total`
+   * because their learned destination is one of the user's own accounts
+   * (backend/app/services/companion.py's `_is_own_transfer_bill`, owner
+   * directive 2026-08-29: the plan sizes off payments and card cadence,
+   * "not taking into account any transfers"). Disclosure only — not yet
+   * rendered by PaydayPlanCard.
+   */
+  own_transfers_skipped?: number;
+};
+
+/**
+ * Items scheduled ON payday itself (2026-08-28 decision: payday-day items
+ * belong to the NEXT pay period's arithmetic, not the one ending today, but
+ * stay visible as a distinct "payday split"). Present on a `payday_plan`
+ * CompanionItem only when payday-day bills/movements exist — see
+ * backend/app/services/companion.py section 5c and app/services/
+ * pay_period.py's is_payday_day.
+ */
+export type PaydaySplit = {
+  total: number;
+  count: number;
+  expected_in: number;
+  accounts: { account_id: string; name: string; out: number }[];
+};
+
+/**
+ * Present only when an account funding the payday_split is at risk of
+ * missing it if the salary lands late. Omitted entirely (not null) when no
+ * account is at risk — see companion.py section 5c. `copy` arrives
+ * pre-written and hedged; render it verbatim, never re-derive its wording.
+ */
+export type PaydaySplitRisk = {
+  account_id: string;
+  name: string;
+  shortfall: number;
+  copy: string;
+};
+
+/**
+ * One entry inside an "unfunded_move" CompanionItem's `moves` list — a
+ * pending OWN transfer (movement) the conservative walk says the source
+ * account can't fund. Shape confirmed against the actual emission in
+ * backend/app/services/companion.py's `_um_moves` build (2026-08-27, the
+ * owner's due-but-unfunded-movement extension), NOT the earlier placeholder
+ * spec this was first drafted against — `key` (not `name`) is the series
+ * identifier api.skipUpcomingOccurrence needs as its `key` param,
+ * `expected_date` is already the ORIGINAL due date (backend resolves
+ * original_date ?? expected_date before emitting), and `amount` arrives
+ * pre-rounded to whole pounds (`int(round(...))` server-side), not pence.
+ */
+export type UnfundedMoveEntry = {
+  key: string;
+  label: string;
+  amount: number;
+  expected_date: string | null;
+  days_past_due: number;
+  source_account_id: string;
+  source_name: string;
+  source_bank: string;
 };
 
 export type CompanionItem = {
   id: string;
-  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace";
+  type: "move" | "rhythm" | "celebration" | "info" | "needle" | "ask" | "cliff" | "trajectory" | "payday_plan" | "intent_pace" | "unfunded_move";
   headline: string;
   body: string;
   action: CompanionAction | null;
   estimated: boolean;
   move_map?: MoveMap;
+  // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
+  // "unfunded_move" the backend reuses this SAME field name for an
+  // unrelated shape (see UnfundedMoveEntry above, confirmed against
+  // backend/app/services/companion.py's `_um_moves`/item_doc build,
+  // 2026-08-27) — kept declared as `PlanMove[]` here rather than a widened
+  // union so MoveCard's existing `m.move_map` reads stay soundly typed;
+  // UnfundedMoveCard casts its own read of `item.moves` to
+  // `UnfundedMoveEntry[]` instead, since `item.type` is the true
+  // discriminant at runtime even though these two optional fields can't
+  // share a TS-narrowable shape under one flat interface.
   moves?: PlanMove[];
   summary?: string;
   residual?: string;
@@ -912,15 +1197,41 @@ export type CompanionItem = {
   plan_dest?: PlanDest;
   covered?: boolean;
   sources_safe?: boolean;
+  /**
+   * True when at least one source leg's contribution to this move was
+   * reduced by an envelope (allocation) reservation — see
+   * `MoveMap.from.reserved_for_allocations` and backend/app/services/
+   * companion.py's `_reserved_for_allocations` (owner fix, 2026-08-31).
+   * Drives the assurance line's "...and envelopes" extra clause.
+   */
+  envelope_reserved?: boolean;
   amount?: number;
   secondary_action?: CompanionAction | null;
   proposal?: PaydayProposal;
   // payday_plan fields — present when type === "payday_plan"
   total?: number;
   preview?: boolean;
+  /**
+   * ISO date of the REAL next payday this preview's simulated salary credit
+   * is dated at (2026-08-29 FIX B — "the payday plan should forecast how we
+   * should move money for the next period not today"). Present only on a
+   * genuine `preview: true` item; drives the dated, hedged heading in
+   * PaydayPlanCard. Absent on a live or `executed` item — there's nothing
+   * to hedge, the plan already ran (or already happened).
+   */
+  next_pay?: string;
+  /**
+   * True when this item is a quiet summary of a plan that has ALREADY
+   * auto-verified ("done") for the current window — no computation ran,
+   * this is the persisted record. See companion.py's FIX A gate
+   * (`_executed_payday_plan_item`). Mutually exclusive with `preview`.
+   */
+  executed?: boolean;
   dests?: PaydayPlanDest[];
   salary?: PaydayPlanSalary;
   trimmed?: boolean;
+  payday_split?: PaydaySplit;
+  payday_split_risk?: PaydaySplitRisk;
   // payload — present when type === "rhythm"; carries category, multiple, spent, period_end, dominant
   payload?: {
     category?: string;
@@ -1257,6 +1568,9 @@ export interface CycleStoryChapters {
     payments: number;
     delta: number;
     share_of_spend: number;
+    /** Per-card spend breakdown, sorted new_spend descending, dormant cards
+     *  excluded. Optional: older cached stories predate this field. */
+    breakdown?: Array<{ account_id: string; name: string; provider: string; new_spend: number; delta: number }>;
   };
   moves: Record<"card_feeding" | "ritual_saving" | "deliberate_saving" | "buffer_draws" | "other_shuffles", { count: number; total: number }>;
   keeping: { set_aside: number; drawn_back: number; external: number; kept: number };
@@ -1294,7 +1608,11 @@ export interface CycleStory {
   is_demo?: boolean;
 }
 
-// ── Debt Plan View (GET /debt-plan) ────────────────────────────────────────
+// ── Debt plan rate-segment shape ───────────────────────────────────────────
+// DebtPlanView/DebtPlanViewCard and friends (the full GET /debt-plan payload
+// the retired /debt-plan page, DebtPlanPage.tsx, used to render) were
+// removed in the debt-plan page cleanup (2026-08-30) — DebtPlanRateSegment
+// survives because DebtPlanSummary below still uses it.
 export type DebtPlanRateSegment = {
   from: string;               // "YYYY-MM"
   until: string | null;       // "YYYY-MM" or null
@@ -1303,135 +1621,48 @@ export type DebtPlanRateSegment = {
   kind: string | null;
 };
 
-export type DebtPlanMovement = {
-  monthly: number | null;     // positive = balance coming down
-  per_period: { start: string; end: string; net: number }[];
-  periods_used: number;
-  basis: string;
+// "What-if" overrides for the Spend page's debt_burndown widget — local
+// experimentation on top of the real stored balances/APRs, persisted like
+// any other widget preference (never written back to card_terms/accounts).
+// `monthly: null` and an empty `aprs` map means "use the real figures".
+export type DebtBurndownOverrides = {
+  monthly: number | null;
+  aprs: Record<string, number>;
 };
 
-export type DebtPlanViewCard = {
-  account_id: string;
-  name: string;
-  provider: string;
-  balance: number;            // raw, negative = owed
-  currency: string;
-  debt: number;               // positive £ owed
-  available: number | null;
-  movement: DebtPlanMovement;
-  rate_schedule: DebtPlanRateSegment[];
-  payoff_month: string | null;         // "YYYY-MM"
-  months_to_payoff: number | null;
-  total_interest: number | null;       // null = never clears at current pace (no capped integral)
-  monthly_interest_now: number;        // observed interest-charge debits, median monthly — never derived
-  interest_observed_monthly: number;
-  paying_interest: boolean;
-  terms_contradiction: boolean;
-  potential_monthly_interest: number;
-  zero_interest_lines: number;
-  first_interest_month: string | null; // "YYYY-MM"
-  monthly_interest_at_first: number | null;
-  flags: {
-    terms_missing: boolean;
-    standard_rate_missing: boolean;
-    thin_history: boolean;
-    promo_whole_balance_assumed: boolean;
-    assumptions: string[];
-  };
-  near_term_source: "upcoming bills" | null;
-  mapping_ambiguous: boolean;
-  classification: "cleared_monthly" | "carried_zero" | "carried_interest" | "unclear" | null;
-  classification_evidence: string[];
-  usage: "clear_monthly" | "carry" | null;
-  usage_conflict: boolean;
-  balance_at_first_interest: number | null;
-  near_term_bills: { name: string; amount: number; next_date: string; confidence: number; matched: number; occurrences: number }[];
-};
-
-export type DebtPlanScenarioB =
-  | { months_sooner: null; interest_saved: null; note: string }
-  | {
-      debt_free_month: string | null;
-      total_interest: number;                    // scenario's own interest to clear the pooled cards
-      window_months: number | null;              // comparison window = scenario's payoff horizon
-      as_is_interest_over_window: number | null; // as-is interest over that window, same pooled cards
-      interest_saved: number | null;             // = as_is_interest_over_window − total_interest
-      months_sooner: number | null;              // only when BOTH trajectories clear within cap
-      as_is_clears: boolean;
-      as_is_debt_free_month: string | null;
-      pooled_count: number;
-      pooled_nonclearing_count: number;
-      covers_all_debt: boolean;
-      assumption: string;
-    };
-
-export type DebtPlanRefinanceOption = {
-  source_account_id: string;
-  source_name: string;
-  destination_account_id: string;
-  destination_name: string;
-  transferable: number;
-  fee: number;
-  interest_saved: number;
-  net_saving: number;
-  window_months: number;
-  break_even_weeks: number | null;
-  assumptions: string[];
-};
-
-export type DebtPlanTotals = {
-  debt: number;
-  debt_free_month: string | null;
-  monthly_interest_now: number;   // Σ observed interest-charge debits across cards, never derived
-  potential_monthly_interest: number;  // conditional: what balances WOULD cost at the rates on file
-  interest_to_clear: number;      // interest summed ONLY over cards that clear at current pace
-  nonclearing: { count: number; total_balance: number; monthly_interest_share: number };
-  verdict: "good" | "drifting" | "bad";
-  buckets?: {
-    cleared_monthly: number;
-    carried_zero: number;
-    carried_interest: number;
-    unclear: number;
-    carried_total: number;
-    float_total: number;
-    carried_card_count: number;
-    cleared_card_count: number;
-  };
-};
-
-export type DebtPlanProjectionPoint = { month: string; total: number };
-export type DebtPlanWin = { account_id: string; name: string; payoff_month: string; monthly: number };
-export type DebtPlanExtraToClear = { amount: number; debt_free_month: string; horizon_months: number };
-export type DebtPlanHistoryPoint = { month: string; total: number };
-export type DebtPlanHistory = {
-  points: DebtPlanHistoryPoint[];
-  trend_3m: number;     // trend over CARRIED cards only
-  trend_3m_all: number; // trend over all cards
-  rising: boolean;
-  assumptions: string[];
-};
-export type DebtPlanNarration = { text: string; source: "llm" | "fallback"; ask?: { account_id: string; name: string; provider: string; kind: string } | null };
-
-export type DebtPlanView = {
-  status: string;
-  computed_at: string;
-  horizon_months: number;
-  cards: DebtPlanViewCard[];
-  totals: DebtPlanTotals;
-  scenario_b: DebtPlanScenarioB;
-  refinance_options: DebtPlanRefinanceOption[];
-  projection?: DebtPlanProjectionPoint[];
-  whats_working?: DebtPlanWin[];
-  extra_to_clear?: DebtPlanExtraToClear | null;
-  history?: DebtPlanHistory;
-  narration?: DebtPlanNarration | null;
-  commitments_reserved?: { total_slice: number; count: number; period_label: string | null } | null;
-};
-
-// Lightweight summary variant of DebtPlanView (GET /debt-plan/summary) — totals buckets + per-card rate schedule only.
+// Lightweight summary variant of DebtPlanView (GET /debt-plan/summary) — totals
+// buckets + per-card balance/rate schedule/demonstrated monthly payment, all
+// pulled from the same 90s-cached deterministic plan the Planning "Card plan"
+// entry card already reads (no extra cashflow fetch or LLM narration call).
+// index 0 of a card's rate_schedule is always "the segment covering now",
+// same contract the original minimal shape carried.
 export type DebtPlanSummary = {
-  totals: { buckets: { carried_total: number; float_total: number } };
-  cards: { name: string; rate_schedule: { source: string; until: string | null }[] }[];
+  totals: {
+    buckets: { carried_total: number; float_total: number };
+    // Σ demonstrated monthly paydown across cards carrying a balance. null
+    // when no carried card has enough history for a movement figure —
+    // distinct from a genuine £0.
+    monthly_payment: number | null;
+  };
+  cards: {
+    account_id: string;
+    name: string;
+    debt: number;
+    currency: string;
+    classification: "cleared_monthly" | "carried_zero" | "carried_interest" | "unclear" | null;
+    monthly: number | null;
+    rate_schedule: DebtPlanRateSegment[];
+  }[];
+  // Total card balance projected forward month by month at the demonstrated
+  // paydown pace (same _amortise walk that produces Penny's payoff months
+  // — a chart built off this can never drift from Penny's own answers).
+  // Optional/additive: absent when the frontend is deployed ahead of the
+  // backend field, in which case SpendTrends' debt_burndown widget treats
+  // it exactly like an older payload (quiet empty state, never a crash).
+  // month is "YYYY-MM"; the array is anchored with the current month at
+  // today's total and can run up to HORIZON_MONTHS long when any card never
+  // clears at the current pace, see debt_plan.py.
+  projection?: { month: string; total: number }[];
 };
 
 // Whether a given native (Capacitor) device token is actually registered
@@ -1489,6 +1720,51 @@ export type TransferPairSuggestion = {
   date_diff_days: number;
   credit: TransferPairLeg;
   debit: TransferPairLeg;
+};
+
+// GET /dismissed-series — mirrors backend/app/routers/analytics.py field
+// for field. Two genuinely distinct provenances:
+//
+//   "user"   rows come from `dismissed_recurring` in preferences — a bare
+//            list of series-key strings, no dismissal timestamp stored.
+//            `dismissed_at` reflects that: it's nullable rather than
+//            invented.
+//
+//   "engine" rows come from `engine_vetoed_recurring` — the recurring
+//            judge's own vetoes, which DO store a reason, a confidence
+//            score and a real `vetoed_at`, so those are allowed to be
+//            non-null in practice, but the type still admits null because
+//            an old/partial record shouldn't crash the page.
+//
+// Both provenances share the same enrichment fields, and all of them are
+// nullable: a series the backend can't enrich still comes back with its
+// raw `key` so the row has something honest to show (fall back to `key`
+// as the display name, omit any detail line whose field is null).
+export type DismissedUserRow = {
+  key: string;
+  display_name: string | null;
+  bank: string | null;
+  typical_amount: number | null;
+  cadence_label: string | null;
+  last_seen: string | null;
+  dismissed_at: string | null;
+};
+
+export type DismissedEngineRow = {
+  key: string;
+  display_name: string | null;
+  bank: string | null;
+  typical_amount: number | null;
+  cadence_label: string | null;
+  last_seen: string | null;
+  reason: string | null;
+  confidence: number | null;
+  vetoed_at: string | null;
+};
+
+export type DismissedSeriesResponse = {
+  user: DismissedUserRow[];
+  engine: DismissedEngineRow[];
 };
 
 export const api = {
@@ -1570,6 +1846,23 @@ export const api = {
   dismissRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/dismiss-recurring", { key }),
   skipUpcomingOccurrence: (key: string, date: string) => post<{ ok: boolean }>("/cashflow/skip-occurrence", { key, date }),
   restoreRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/restore-recurring", { key }),
+  // "Set aside" (/planning/dismissed): the two provenances behind a
+  // dismissed/vetoed recurring series never fully overlap in what they
+  // store (see DismissedUserRow/DismissedEngineRow below), so the backend
+  // hands back two separate arrays rather than one normalised shape.
+  // Enrichment fields (display_name, bank, typical_amount, cadence_label,
+  // last_seen) are nullable: a series the backend can't enrich still comes
+  // back with its raw key so the row has something honest to show.
+  dismissedSeries: () => get<DismissedSeriesResponse>("/dismissed-series"),
+  // Quiet "Delete" affordance, both provenances: hides the row from this
+  // list without touching the underlying exclusion (it was already out of
+  // projections). hidden:false is the undo.
+  hideDismissedSeries: (key: string, provenance: "user" | "engine", hidden: boolean) =>
+    post<{ ok: boolean }>("/dismissed-series/hide", { key, provenance, hidden }),
+  // Engine-row "Bring back": a user override of the recurring judge's own
+  // veto, the series returns to projections. No corresponding "un-override"
+  // endpoint exists, so this action's toast does not offer undo.
+  overrideDismissedSeries: (key: string) => post<{ ok: boolean }>("/dismissed-series/override", { key }),
   editUpcoming: (params: { key: string; date: string; new_date?: string | null; new_amount?: number | null; scope: "one" | "future" }) =>
     post<{ ok: boolean }>("/cashflow/edit-upcoming", params),
   clearUpcomingOverride: (params: { key: string; date: string }) =>
@@ -1684,6 +1977,30 @@ export const api = {
   // May 404 until the backend ships it — every caller wraps this in .catch()
   // and treats a failure as "no suggestions yet" (empty chips, no context line).
   canISuggestions: () => get<CanISuggestions>("/can-i/suggestions"),
+  // Agent mode v1 — Confirm/Cancel on a ProposalConfirmCard. Both routed
+  // through `toJson` (not the plain `post` helper) so an expired/cancelled/
+  // already-actioned proposal rejects with the backend's own human `detail`
+  // string rather than a bare "409 Conflict" — PennyConversation.tsx renders
+  // that string verbatim rather than inventing its own error copy.
+  // Idempotent server-side per the contract; PennyConversation.tsx also
+  // guards double-taps client-side (a proposal card disables itself the
+  // instant Confirm is pressed, before this call even starts).
+  executePennyProposal: (proposalId: string) =>
+    fetch(`${API_BASE}/penny/proposals/${encodeURIComponent(proposalId)}/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    }).then((r) => toJson<{ ok: boolean; result?: unknown }>(r)),
+  cancelPennyProposal: (proposalId: string) =>
+    fetch(`${API_BASE}/penny/proposals/${encodeURIComponent(proposalId)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+    }).then((r) => toJson<{ ok: boolean }>(r)),
+  // Agent mode v1's one-time consent moment (ConsentCard). Records consent;
+  // preferences then carry a `penny_agent_consent` timestamp (see
+  // getPreferences below). No corresponding revoke/toggle-off endpoint is
+  // in the contract yet — SettingsPage.tsx renders that state read-only
+  // until one exists (flagged there and in this feature's own report).
+  grantPennyAgentConsent: () => post<{ ok: boolean }>("/penny/agent-consent", {}),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
   createCommitment: (body: {
     name: string;
@@ -1733,7 +2050,53 @@ export const api = {
     }).then((r) => {
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     }),
-  getDebtPlanView: () => get<DebtPlanView>("/debt-plan"),
+
+  // Allocations — per-pay-period envelopes. See the `Allocation` type for
+  // the remaining-vs-amount distinction; every read here is the enriched
+  // server shape, no client-side fill/remaining maths.
+  // Wrapped in `items`, same shape as GET /commitments (verified live
+  // 2026-08-29 against the real endpoint, NOT a bare array).
+  listAllocations: () => get<{ items: Allocation[] }>("/allocations").then((d) => d.items),
+  // GET /allocations/fill-candidates — powers the "which payment fills it?"
+  // picker step, own accounts only, most-recent series first.
+  allocationFillCandidates: (accountId: string) =>
+    get<{ items: FillCandidate[] }>(`/allocations/fill-candidates?account_id=${encodeURIComponent(accountId)}`)
+      .then((d) => d.items),
+  createAllocation: (body: {
+    name: string;
+    amount_per_period: number;
+    fill_account_id: string;
+    match_type: "description_equals" | "description_contains";
+    match_value: string;
+    recurrence: "every_period" | "once";
+    /** Optional — date (YYYY-MM-DD). Omit to default to the current pay
+     * period's start. */
+    effective_from?: string;
+    /** Optional — defaults server-side to the cleaned match_value. */
+    fill_display_name?: string;
+  }) => post<Allocation>("/allocations", body),
+  updateAllocation: (id: string, body: {
+    name?: string;
+    amount_per_period?: number;
+    fill_account_id?: string;
+    match_type?: "description_equals" | "description_contains";
+    match_value?: string;
+    fill_display_name?: string;
+    effective_from?: string;
+    recurrence?: "every_period" | "once";
+    active?: boolean;
+  }) =>
+    fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => toJson<Allocation>(r)),
+  deleteAllocation: (id: string) =>
+    fetch(`${API_BASE}/allocations/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ ok: boolean }>(r)),
+
   getDebtPlanSummary: () => get<DebtPlanSummary>("/debt-plan/summary"),
   // offset: 0 = current pay period (default), negative = prior closed
   // periods — scopes the Spend page banner's count to the requested period
@@ -1870,9 +2233,14 @@ export const api = {
     recurring_categories?: string[];
     dismissed_recurring?: string[];
     spend_widgets?: string[] | null;
-    budget_widgets?: string[] | null;
     home_pinned_widget?: string | null;
+    debt_burndown_overrides?: DebtBurndownOverrides | null;
     cover_plan_excluded_accounts?: string[];
+    /** ISO timestamp of when the user accepted Penny's one-time agent-mode
+     * consent (POST /penny/agent-consent), or null/absent if they never
+     * have. SettingsPage.tsx reads this to reflect consent state; see that
+     * row's own comment for why it's currently read-only. */
+    penny_agent_consent?: string | null;
   }>("/preferences"),
   getTaxAnnualisedIncome: () => get<{ annualised_income: number | null }>("/tax/annualised-income"),
   updatePreferences: (body: Partial<{
@@ -1888,8 +2256,8 @@ export const api = {
     home_pinned_cards: string[];
     recurring_categories: string[];
     spend_widgets: string[];
-    budget_widgets: string[];
     home_pinned_widget: string | null;
+    debt_burndown_overrides: DebtBurndownOverrides | null;
     cover_plan_excluded_accounts: string[];
   }>) =>
     fetch(`${API_BASE}/preferences`, {
@@ -1907,18 +2275,9 @@ export const api = {
     }).then((r) => toJson<{ deleted: string }>(r)),
   getChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/debt/chat/session"),
   newChatSession: () => post<{ session_id: string; messages: [] }>("/debt/chat/new", {}),
-  getBudgets: () => get<{ budgets: { category: string; monthly_limit: number }[] }>("/budgets"),
-  setBudgets: (budgets: { category: string; monthly_limit: number }[]) =>
-    fetch(`${API_BASE}/budgets`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ budgets }),
-    }).then((r) => toJson<{ budgets: { category: string; monthly_limit: number }[] }>(r)),
-  budgetChat: (messages: { role: string; content: string }[], session_id?: string) =>
-    post<{ reply: string; session_id?: string; suggested_budgets?: { category: string; monthly_limit: number }[] }>("/budget/chat", { messages, session_id }),
-  getBudgetChatSession: () => get<{ session_id: string; messages: { role: string; content: string }[] }>("/budget/chat/session"),
-  newBudgetChatSession: () => post<{ session_id: string; messages: [] }>("/budget/chat/new", {}),
-  budgetPaceProfile: () => get<{ curves: Record<string, number[]>; sample_points: number; periods_analysed: number }>("/budget/pace-profile"),
+  // Budget-page API functions (getBudgets/setBudgets/budgetChat/*BudgetChatSession/
+  // budgetPaceProfile) removed 2026-08-30 (owner decision, option C) — the
+  // /budget page and its backend router were retired as zombie code.
   syncHistory: () => post<{ message: string; total_accounts: number }>("/accounts/sync-history"),
   deleteAccount: (accountId: string) =>
     fetch(`${API_BASE}/accounts/${encodeURIComponent(accountId)}`, {
@@ -2217,17 +2576,33 @@ export const api = {
     }).then((r) => toJson<{ updated: string; planned: boolean }>(r)),
   deleteRule: (id: string) =>
     fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ deleted: string }>(r)),
-  getDailyMoneyBasic: () => get<MoneyBasic>("/money-basics/daily"),
-  getMoneyBasics: (topic?: string) =>
-    get<{ items: MoneyBasic[]; tax_year: string }>(`/money-basics${topic ? `?topic=${encodeURIComponent(topic)}` : ""}`),
   getGrow: () => get<GrowView>("/grow"),
   getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
+  /** "Your money shape" — the Insights tab hero + "What works for you"
+   *  evidence card (see shared/src/types.ts's MoneyShape for the full
+   *  contract). Callers should tolerate a failed/rejected call by falling
+   *  back to a synthetic `status: "thin"` shape rather than blocking the
+   *  rest of the tab — see MoneyShapeHero's thin-state render and
+   *  SavingsInsightsSection's fetch. */
+  getMoneyShape: () => get<MoneyShape>("/money-shape"),
   newInsightCount: () => get<{ count: number }>("/savings-insights/new-count"),
   markInsightsViewed: () => post<{ ok: boolean }>("/savings-insights/mark-viewed", {}),
   atRiskCount: () => get<{ count: number }>("/cashflow/at-risk-count"),
   getSpotlightInsight: () => get<SavingsInsight | null>("/savings-insights/spotlight"),
   dismissSpotlightInsight: (id: string) =>
     post<{ status: string }>(`/savings-insights/${encodeURIComponent(id)}/dismiss`, {}),
+  /** Engagement signal for the copy-tier logic (Insights honesty review,
+   *  Package A #1) — call once per card, the first time its evidence
+   *  footer/workflow expands or its CTA is tapped. Idempotent server-side
+   *  (first-write-wins), so a duplicate call from the same card is harmless. */
+  markInsightOpened: (id: string) =>
+    post<{ ok: boolean }>(`/savings-insights/${encodeURIComponent(id)}/opened`, {}),
+  // researchInsight (the live "Find me alternatives" pull,
+  // POST /savings-insights/{id}/research) is retired — owner decision
+  // 2026-09-01: every category is researched weekly by the app now, with a
+  // displayed TTL per entry (see SavingsInsight.content_valid_until /
+  // expiry_line in shared/src/types.ts). There is no client-initiated
+  // research action any more.
   pinSavingsInsight: (id: string) =>
     fetch(`${API_BASE}/savings-insights/${encodeURIComponent(id)}/pin`, {
       method: "PATCH",

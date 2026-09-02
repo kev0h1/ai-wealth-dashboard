@@ -435,7 +435,7 @@ export default function CommitmentSheet({
                     disabled={saving}
                     onClick={() => {
                       onClose();
-                      router.push("/debt-plan");
+                      router.push("/cards");
                     }}
                     className="w-full min-h-[44px] text-sm font-semibold text-indigo-600 dark:text-indigo-400 rounded-xl hover:opacity-80 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >

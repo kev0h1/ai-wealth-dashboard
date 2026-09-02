@@ -715,3 +715,46 @@ def test_classification_attention_preference_off_does_no_query_work(monkeypatch)
 
     assert sent == []
     assert called["n"] == 0
+
+
+# ── Budget-ceiling retirement (2026-08-30, owner decision, option C) ────────
+# The budgets_col-backed "budget_alerts" notifier (_maybe_budget_exceeded) was
+# removed, along with the budgets_col read that used to open the pay-period
+# digest ("Last period: £X of £Y budgeted"). These two tests guard the
+# retirement: the catalogue no longer advertises the dead toggle, and the
+# digest still sends a clean goals-only summary with no budgets_col access.
+
+def test_notification_catalogue_no_longer_offers_budget_alerts():
+    assert "budget_alerts" not in notifications.NOTIF_DEFAULTS
+    assert not hasattr(notifications, "_maybe_budget_exceeded")
+    assert not hasattr(notifications, "budgets_col")
+
+
+def test_period_digest_has_no_budget_clause_and_reuses_goals(monkeypatch):
+    import app.routers.goals as goals_module
+    from datetime import date as _date
+
+    state, sent = _patch_common(monkeypatch, state_docs={})
+    today = _date.today()
+
+    def fake_pay_period(d, cfg):
+        return today, today  # force "start == today" -> period boundary
+
+    monkeypatch.setattr(notifications, "get_pay_period_for_date", fake_pay_period)
+
+    async def fake_goals_summary(uid, region):
+        return [{"pillar": "debt", "label": "Debt-free", "detail": "£500 to go", "pct": 80}]
+
+    monkeypatch.setattr(goals_module, "goals_summary", fake_goals_summary)
+
+    class FakeNeedleHistoryCol:
+        async def find_one(self, query, *a, **k):
+            return {"pushed": True}  # already pushed -> skip compute_needle entirely
+
+    monkeypatch.setattr(collections, "needle_history_col", FakeNeedleHistoryCol())
+
+    asyncio.run(notifications.send_period_digest("kevin"))
+
+    assert len(sent) == 1
+    assert "budgeted" not in sent[0]["body"]
+    assert "Debt-free" in sent[0]["body"]

@@ -82,3 +82,13 @@ export function restoreOnHome(key: string): void {
   const entries = freshEntries(readRaw()).filter((e) => e.key !== key);
   writeRaw(entries);
 }
+
+/**
+ * Wipes every dismissal outright — called from AuthProvider's logout() so a
+ * different user signing in on the same device never inherits the previous
+ * user's "hidden on Home" choices (the keys are companion-item ids, which
+ * are meaningless, and potentially misleading, across accounts).
+ */
+export function clearHomeDismissedAdvice(): void {
+  writeRaw([]);
+}

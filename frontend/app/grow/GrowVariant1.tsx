@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ChevronLeft,
   CircleCheck,
   Gauge,
@@ -36,6 +37,23 @@ import BottomNav from "@/components/BottomNav";
 
 function money(n: number): string {
   return formatCurrency(n);
+}
+
+/** Quiet reassurance sub-line for the SHORT hero state (period_gate.short).
+ *  Owner decision, 2026-08-30: a short CURRENT pay period must not lead
+ *  with "spare to stash" even when the 90-day typical-month median is
+ *  positive — this reframes that median per the emotional-jobs doctrine
+ *  (reassurance + permission) instead of repeating the framing the owner
+ *  rejected. The typical-month figure itself is untouched; only its
+ *  billing here changes. */
+function periodShortSubline(surplusMonthly: number): string {
+  if (surplusMonthly > 0) {
+    return `In a typical month you run ~${money(surplusMonthly)} ahead. This is timing, not trend.`;
+  }
+  if (surplusMonthly < 0) {
+    return `Your typical month also runs about ${money(Math.abs(surplusMonthly))} behind, this isn't only timing.`;
+  }
+  return "Your typical month has been about even, this is timing, not trend.";
 }
 
 /** ISO date ("2026-09-30") → readable UK date ("30 Sep 2026"). Uses UTC to
@@ -87,6 +105,21 @@ function SkeletonGauge() {
 // ── LED rung indicator ──────────────────────────────────────────────────
 
 function RungNode({ step }: { step: GrowLadderStep }) {
+  if (step.state === "attention") {
+    // Same solid-icon-chip construction as "done" (box-shadow alpha values
+    // unchanged), recoloured to Risk Red — the one red signifier this rung
+    // carries, matching the hero's short-state AlertTriangle/red-500
+    // treatment. Nothing else on this rung (card wash, pill, border) repeats
+    // red at this saturation, per Figures Are Ink / one-signifier-per-rung.
+    return (
+      <div
+        className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500 text-white"
+        style={{ boxShadow: "0 0 0 3px rgba(239,68,68,0.16), 0 2px 6px rgba(239,68,68,0.35)" }}
+      >
+        <AlertTriangle size={16} strokeWidth={2.25} />
+      </div>
+    );
+  }
   if (step.state === "done") {
     return (
       <div
@@ -138,12 +171,15 @@ function SegmentStrip({ state }: { state: GrowLadderStep["state"] }) {
 }
 
 function StatePill({ state }: { state: GrowLadderStep["state"] }) {
-  const label = state === "done" ? "Cleared" : state === "active" ? "In progress" : "Locked";
+  const label =
+    state === "done" ? "Cleared" : state === "active" ? "In progress" : state === "attention" ? "Needs you" : "Locked";
   const cls =
     state === "done"
       ? "text-emerald-700 dark:text-emerald-300 bg-emerald-500/10"
       : state === "active"
       ? "text-indigo-700 dark:text-indigo-300 bg-indigo-500/10"
+      : state === "attention"
+      ? "text-red-700 dark:text-red-300 bg-red-500/10"
       : "text-slate-500 dark:text-slate-400 bg-slate-500/10";
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-widest rounded-full px-2 py-0.5 ${cls}`}>
@@ -177,6 +213,8 @@ function LadderRung({ step, isLast }: { step: GrowLadderStep; isLast: boolean })
           className={`rounded-2xl p-3 ${
             step.state === "active"
               ? "bg-indigo-50/70 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20"
+              : step.state === "attention"
+              ? "bg-red-50/70 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20"
               : "border border-transparent"
           }`}
         >
@@ -340,6 +378,27 @@ export default function GrowVariant1() {
 
   const hasLadder = !!view && view.ladder.length > 0;
 
+  // Rung zero — client-only, prepended above Essentials whenever the current
+  // pay period is short (period_gate.short). Mirrors the bug the owner hit,
+  // 2026-08-30: the hero already gates on this exact fact (red, "This period
+  // needs you first"), but the ladder's Essentials rung kept rendering its
+  // typical-month CLEARED tick right underneath with no lens change
+  // announced. This rung makes the period-truth the loudest thing in the
+  // ladder too, same hierarchy the hero already commits to, instead of
+  // leaving two true but differently-timed verdicts to collide unlabelled.
+  const periodRung: GrowLadderStep | null =
+    hasLadder && view!.period_gate.short
+      ? {
+          key: "period_gate",
+          title: "This period",
+          state: "attention",
+          detail: `${money(view!.period_gate.to_cover)} sits in the wrong place before payday. Cover it first, then the ladder below carries on.`,
+          options: [],
+          link: { label: "See what's due ›", route: "/planning" },
+        }
+      : null;
+  const ladderSteps: GrowLadderStep[] = periodRung ? [periodRung, ...view!.ladder] : view?.ladder ?? [];
+
   return (
     <>
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -381,33 +440,74 @@ export default function GrowVariant1() {
                 aria-hidden
               />
               <div className="relative">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Gauge size={13} className="text-indigo-500" />
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                    Grow
-                  </p>
-                </div>
-                <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
-                  <MoneyText text={view.verdict.headline} />
-                </h1>
-                <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300"><MoneyText text={view.verdict.sub} /></p>
-                {view.debt.all_promo && view.debt.promo_cliff && (
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)}, the after-debt figure reflects those repayments.
-                  </p>
-                )}
+                {view.period_gate?.short ? (
+                  // ── SHORT: the current pay period needs covering first —
+                  // owner decision, 2026-08-30. Leads with the period truth
+                  // (same red-alarm severity Home's Safe-to-Spend hero gives
+                  // this exact fact — SafeToSpendCard.tsx's AlertTriangle/
+                  // red-500 short-state treatment, borrowed unchanged), the
+                  // typical-month median demotes to a quiet reassurance line
+                  // and the SPARE stat chip does not render as the lead.
+                  <>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <AlertTriangle size={13} className="text-red-500 dark:text-red-400" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Grow
+                      </p>
+                    </div>
+                    <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                      This period needs you first
+                    </h1>
+                    <p className="mt-1.5 text-base font-semibold text-red-500 dark:text-red-400">
+                      <MoneyText text={`${money(view.period_gate.to_cover)} to cover before payday`} />
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                      <MoneyText text={periodShortSubline(view.surplus_monthly)} />
+                    </p>
+                    <button
+                      onClick={() => router.push("/planning")}
+                      className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+                    >
+                      See what&apos;s due ›
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Gauge size={13} className="text-indigo-500" />
+                      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Grow
+                      </p>
+                    </div>
+                    <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
+                      <MoneyText text={view.verdict.headline} />
+                    </h1>
+                    <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300"><MoneyText text={view.verdict.sub} /></p>
+                    {view.debt.all_promo && view.debt.promo_cliff && (
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)}, the after-debt figure reflects those repayments.
+                      </p>
+                    )}
 
-                <div className="mt-4 glass-tile rounded-xl px-3.5 py-2.5 inline-flex items-baseline gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                    {view.surplus_monthly < 0 ? "Short each month" : "Spare each month"}
-                  </span>
-                  <span className="text-base font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
-                    {money(Math.abs(view.surplus_monthly))}
-                  </span>
-                </div>
-                <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
-                  Excludes money moved to savings or investments.
-                </p>
+                    <div className="mt-4 glass-tile rounded-xl px-3.5 py-2.5 inline-flex items-baseline gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        {view.surplus_monthly < 0 ? "Short each month" : "Spare each month"}
+                      </span>
+                      <span className="text-base font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
+                        {money(Math.abs(view.surplus_monthly))}
+                      </span>
+                    </div>
+                    {/* Honest-lens label — this is a smoothed median, not a
+                        live period figure; makes that explicit rather than
+                        letting it read as "your current situation". */}
+                    <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
+                      Based on your typical month, smoothed over 90 days.
+                    </p>
+                    <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
+                      Excludes money moved to savings or investments.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -418,8 +518,8 @@ export default function GrowVariant1() {
                   Priority ladder
                 </p>
                 <div>
-                  {view.ladder.map((step, i) => (
-                    <LadderRung key={step.key} step={step} isLast={i === view.ladder.length - 1} />
+                  {ladderSteps.map((step, i) => (
+                    <LadderRung key={step.key} step={step} isLast={i === ladderSteps.length - 1} />
                   ))}
                 </div>
               </div>

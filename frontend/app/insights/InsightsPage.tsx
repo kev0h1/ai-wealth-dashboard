@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type ReactNode, useId } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Bookmark, BookmarkCheck, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, ExternalLink, TrendingUp, Search, Tag, Lightbulb } from "lucide-react";
+import { Bookmark, BookmarkCheck, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, SlidersHorizontal, X, Check, CheckCircle2, Circle, PartyPopper, ExternalLink, TrendingUp, Search, Tag, Lightbulb, RotateCcw } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep, FuelNearby } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
@@ -13,14 +13,20 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import AdviceDisclaimer from "@/components/AdviceDisclaimer";
-import MoneyBasicCard from "@/components/MoneyBasicCard";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import TaxPage from "@/app/insights/tax/TaxPage";
 import TaxPennyEntry from "@/components/TaxPennyEntry";
+import { useTutorialReady } from "@/components/TutorialContext";
 import { usePreferences } from "@/components/PreferencesContext";
+import { usePennySheet } from "@/components/PennySheetProvider";
 import MoneyText from "@/components/MoneyText";
+import MoneyShapeHero, { JobDot } from "@/app/insights/MoneyShapeHero";
+import WhatWorksCard from "@/app/insights/WhatWorksCard";
+import ReferenceShapesRow from "@/app/insights/ReferenceShapesRow";
+import ShapeAnchorStrip from "@/app/insights/ShapeAnchorStrip";
+import type { MoneyShape } from "@/lib/api";
 
 const CATEGORY_LINKS: Record<string, { label: string; url: string }[]> = {
   // All URLs verified live 5 Jul 2026 — re-check when touching this map
@@ -65,15 +71,56 @@ function CategoryChip({ category, label }: { category: string; label: string }) 
   );
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86400000);
-  if (days <= 0) return "Today"; // clock skew between server and device can push diff slightly negative
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+// Compact-row eligibility (Insights honesty review, Package D — "but now I
+// have these empty cards", owner phone feedback 2026-08-31), generalised by
+// the OWNER DECISION (2026-09-01, reversing the live "Find me alternatives"
+// pull model on cost grounds): every category is weekly-push with a
+// displayed TTL now (see CATEGORY_LIFECYCLE / content_valid_until in
+// savings_insights.py), so a card between weekly refreshes — expired, or
+// never yet researched — has nothing left to say: chip, deterministic
+// figure, a workflow button, an evidence footer, and no actual content in
+// between. This is the NORMAL between-refreshes state for every category
+// now, not a first-run/pull-only edge case. Shared between InsightCard
+// (which decides its own render) and SavingsInsightsSection (which sorts
+// full/substantive cards ahead of compact rows in the list), so the two
+// never disagree about which state a given insight is in.
+//
+// STRUCTURAL FIX (owner phone report 2026-09-01, incoherence B: car_finance
+// rendering as a hollow full card while groceries/gym/subscriptions — the
+// same untapped state — correctly rendered compact): this used to
+// re-derive "nothing furnished yet" from FIVE separate boolean fields
+// (research_pull, research_fresh, verified_savings, substituted, is_new).
+// Any one of them being absent/undefined instead of an explicit `false` on
+// a given doc silently changed the outcome for that card only — a tri-state
+// slip no single field-level fix can fully rule out. `insight.state` is
+// derived server-side, once, explicitly (`_derive_insight_state` in
+// savings_insights.py) and is never absent/undefined for a backend that
+// sends it, so "quiet" here can't disagree with what the card's own Zone 2
+// renders.
+//
+// `is_new` is DELIBERATELY not checked here any more (owner phone report
+// 2026-09-01, the follow-up bug this same day: "whenever you do your fix
+// the ones that didn't have content now have content and the one that did
+// didn't ... should we render a card if there is no content" — answer: no,
+// never, no override). It used to short-circuit straight to "not compact"
+// before `state` was even consulted, so a doc whose `is_new` flag hadn't
+// yet been reset by the next refresh pass (or a serve-time content-
+// stripping pass that emptied title/body AFTER the flag was set) rendered a
+// full card with nothing in it. `state` alone is the single source of
+// truth for compact vs. full now — the backend's own invariant guarantees
+// `state === "fresh"` never occurs without real content (see
+// `_derive_insight_state` / `_serialize_insight` in savings_insights.py), so
+// there is nothing left for `is_new` to safely override. A brand-new,
+// still-contentless insight stays compact; it gets a subtle "New"
+// affordance on its own row instead (see CompactInsightRow) rather than a
+// full card it can't back up. `insight.state` is required on the wire now
+// (the pre-state-machine boolean fields it used to fall back to,
+// research_pull/research_fresh, are retired alongside the live research
+// pull) — an older backend that somehow omits `state` renders every card
+// full rather than guessing at a compact row from fields that no longer
+// exist.
+export function isCompactPullInsight(insight: SavingsInsight): boolean {
+  return insight.state === "quiet";
 }
 
 // ── Unknown Bills Panel ───────────────────────────────────────────────────────
@@ -101,6 +148,7 @@ function UnknownBillsPanel({
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialBills === undefined) return;
@@ -110,6 +158,7 @@ function UnknownBillsPanel({
 
   async function pick(merchantKey: string, category: string) {
     setSaving(merchantKey);
+    setError(null);
     try {
       await api.labelBill(merchantKey, category);
       setBills(prev => prev.filter(b => b.merchant_key !== merchantKey));
@@ -119,6 +168,7 @@ function UnknownBillsPanel({
         setTimeout(onNewInsight, 20000);
       }
     } catch {
+      setError("That didn't save, try again in a moment.");
     } finally {
       setSaving(null);
     }
@@ -127,15 +177,15 @@ function UnknownBillsPanel({
   if (loading || bills.length === 0) return null;
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-amber-200 dark:border-amber-800/50 overflow-hidden">
+    <div className="glass-card rounded-2xl overflow-hidden">
       <button
-        className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left bg-amber-50 dark:bg-amber-900/20"
+        className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
       >
         <div className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-500/15 flex items-center justify-center flex-shrink-0">
-            <Search size={15} className="text-amber-600 dark:text-amber-400" />
+          <span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+            <Search size={15} className="text-slate-500 dark:text-slate-300" />
           </span>
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -146,17 +196,17 @@ function UnknownBillsPanel({
             </p>
           </div>
         </div>
-        <ChevronDown size={16} className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={16} className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
       </button>
 
-      {open && <div className="border-t border-amber-100 dark:border-amber-800/40 divide-y divide-slate-100 dark:divide-slate-700/60">
+      {open && <div className="border-t border-slate-100 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700/60">
         {bills.map(bill => {
           const isOpen = expanded === bill.merchant_key;
           const isSaving = saving === bill.merchant_key;
           return (
             <div key={bill.merchant_key}>
               <button
-                className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left"
+                className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 onClick={() => setExpanded(isOpen ? null : bill.merchant_key)}
               >
                 <div className="min-w-0">
@@ -169,7 +219,7 @@ function UnknownBillsPanel({
                 </div>
                 <ChevronDown
                   size={16}
-                  className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                  className={`flex-shrink-0 text-slate-500 dark:text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`}
                 />
               </button>
 
@@ -184,7 +234,7 @@ function UnknownBillsPanel({
                         key={key}
                         disabled={isSaving}
                         onClick={() => pick(bill.merchant_key, key)}
-                        className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 active:scale-95 transition-all disabled:opacity-40"
+                        className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 active:scale-95 transition-all motion-reduce:transition-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                       >
                         <OptIcon size={18} className="text-slate-500 dark:text-slate-300" />
                         <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 leading-tight text-center">
@@ -196,7 +246,7 @@ function UnknownBillsPanel({
                     <button
                       disabled={isSaving}
                       onClick={() => pick(bill.merchant_key, "skip")}
-                      className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-95 transition-all disabled:opacity-40"
+                      className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-95 transition-all motion-reduce:transition-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       <X size={18} className="text-slate-400 dark:text-slate-400" />
                       <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 leading-tight text-center">
@@ -207,6 +257,12 @@ function UnknownBillsPanel({
                   {isSaving && (
                     <p className="text-[11px] text-indigo-500 flex items-center gap-1.5">
                       <RefreshCw size={12} className="animate-spin" /> Generating insight…
+                    </p>
+                  )}
+                  {error && !isSaving && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+                      <span>{error}</span>
                     </p>
                   )}
                 </div>
@@ -241,6 +297,8 @@ function LabelledBillsPanel({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ merchantKey: string; displayName: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -253,6 +311,7 @@ function LabelledBillsPanel({
 
   async function handleRelabel(merchantKey: string, category: string) {
     setSaving(merchantKey);
+    setError(null);
     try {
       await api.labelBill(merchantKey, category);
       setLabels(prev => prev.map(l =>
@@ -263,6 +322,7 @@ function LabelledBillsPanel({
       setEditing(null);
       if (category !== "skip") setTimeout(onRelabelled, 20000);
     } catch {
+      setError("That didn't save, try again in a moment.");
     } finally {
       setSaving(null);
     }
@@ -270,11 +330,13 @@ function LabelledBillsPanel({
 
   async function handleDelete(merchantKey: string) {
     setSaving(merchantKey);
+    setError(null);
     try {
       await api.deleteBillLabel(merchantKey);
       setLabels(prev => prev.filter(l => l.merchant_key !== merchantKey));
       setEditing(null);
     } catch {
+      setError("Couldn't remove that label, try again in a moment.");
     } finally {
       setSaving(null);
     }
@@ -283,9 +345,10 @@ function LabelledBillsPanel({
   if (labels.length === 0) return null;
 
   return (
+    <>
     <div className="glass-card rounded-2xl overflow-hidden">
       <button
-        className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left"
+        className="w-full px-4 py-3 flex items-center justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
       >
@@ -298,7 +361,7 @@ function LabelledBillsPanel({
             <p className="text-xs text-slate-500 dark:text-slate-400">{labels.length} bill{labels.length !== 1 ? "s" : ""} categorised</p>
           </div>
         </div>
-        <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={16} className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
@@ -325,7 +388,7 @@ function LabelledBillsPanel({
                   </div>
                   <button
                     onClick={() => setEditing(isEditing ? null : lbl.merchant_key)}
-                    className="flex-shrink-0 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                    className="relative before:absolute before:-inset-y-2.5 before:-inset-x-1 before:content-[''] flex-shrink-0 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     Edit
                   </button>
@@ -342,7 +405,7 @@ function LabelledBillsPanel({
                           key={key}
                           disabled={isSaving}
                           onClick={() => handleRelabel(lbl.merchant_key, key)}
-                          className={`flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all disabled:opacity-40 active:scale-95
+                          className={`flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all motion-reduce:transition-none disabled:opacity-40 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
                             ${lbl.category === key
                               ? "bg-indigo-100 dark:bg-indigo-900/50 ring-1 ring-indigo-400"
                               : "bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
@@ -358,7 +421,7 @@ function LabelledBillsPanel({
                       <button
                         disabled={isSaving}
                         onClick={() => handleRelabel(lbl.merchant_key, "skip")}
-                        className={`flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all disabled:opacity-40 active:scale-95
+                        className={`flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all motion-reduce:transition-none disabled:opacity-40 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500
                           ${lbl.is_skip
                             ? "bg-slate-100 dark:bg-slate-600 ring-1 ring-slate-400"
                             : "bg-slate-50 dark:bg-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-600"
@@ -372,11 +435,17 @@ function LabelledBillsPanel({
                     </div>
                     <button
                       disabled={isSaving}
-                      onClick={() => handleDelete(lbl.merchant_key)}
-                      className="text-[11px] text-red-500 dark:text-red-400 hover:underline disabled:opacity-40 mt-1"
+                      onClick={() => setConfirmDelete({ merchantKey: lbl.merchant_key, displayName: lbl.display_name })}
+                      className="relative before:absolute before:-inset-y-2.5 before:-inset-x-1 before:content-[''] text-[11px] text-red-500 dark:text-red-400 hover:underline disabled:opacity-40 mt-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       Remove label (put back in unknown)
                     </button>
+                    {error && !isSaving && (
+                      <p className="flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+                        <span>{error}</span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -385,6 +454,19 @@ function LabelledBillsPanel({
         </div>
       )}
     </div>
+    <ConfirmDialog
+      open={!!confirmDelete}
+      title="Remove this label?"
+      message={confirmDelete ? `"${confirmDelete.displayName}" goes back to unlabelled. You can relabel it later.` : ""}
+      confirmLabel="Remove"
+      destructive
+      onConfirm={() => {
+        if (confirmDelete) handleDelete(confirmDelete.merchantKey);
+        setConfirmDelete(null);
+      }}
+      onCancel={() => setConfirmDelete(null)}
+    />
+    </>
   );
 }
 
@@ -419,6 +501,7 @@ function WorkflowDrawer({
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const totalSteps = workflow.steps.length;
   const currentStep = workflow.steps[step];
@@ -429,12 +512,14 @@ function WorkflowDrawer({
 
   async function save() {
     setSaving(true);
+    setError(null);
     try {
       await api.saveInsightContext(insight.id, values);
       setDone(true);
       setTimeout(() => { onClose(); onSaved(); }, 1500);
     } catch {
       setSaving(false);
+      setError("Couldn't save your answers, try again in a moment.");
     }
   }
 
@@ -446,7 +531,7 @@ function WorkflowDrawer({
             <button
               key={opt}
               onClick={() => set(s.id, opt)}
-              className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-[transform,background-color,color,border-color] duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+              className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-[transform,background-color,color,border-color] duration-150 active:scale-[0.98] motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                 values[s.id] === opt
                   ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 font-medium"
                   : "border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300"
@@ -510,7 +595,7 @@ function WorkflowDrawer({
                 {done ? "Personalising your insight…" : workflow.cta}
               </h2>
             </div>
-            <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
               <X size={20} />
             </button>
           </div>
@@ -567,7 +652,7 @@ function WorkflowDrawer({
               {step > 0 && (
                 <button
                   onClick={() => setStep(s => s - 1)}
-                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-[14px] font-medium text-slate-600 dark:text-slate-400"
+                  className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-[14px] font-medium text-slate-600 dark:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   Back
                 </button>
@@ -575,7 +660,7 @@ function WorkflowDrawer({
               {step < totalSteps - 1 ? (
                 <button
                   onClick={() => setStep(s => s + 1)}
-                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold flex items-center justify-center gap-2"
+                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   Next <ChevronRight size={16} />
                 </button>
@@ -583,18 +668,24 @@ function WorkflowDrawer({
                 <button
                   onClick={save}
                   disabled={saving}
-                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-[14px] font-semibold disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   {saving ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                   {saving ? "Saving…" : "Save & Personalise"}
                 </button>
               )}
             </div>
+            {error && (
+              <p className="flex items-start gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 mt-3">
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+                <span>{error}</span>
+              </p>
+            )}
             {totalSteps > 1 && step < totalSteps - 1 && (
               <button
                 onClick={save}
                 disabled={saving}
-                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 mt-3"
+                className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors disabled:opacity-40 mt-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 Save with answers so far
               </button>
@@ -641,7 +732,7 @@ function InsightBody({ body }: { body: string }) {
           {" "}
           <button
             onClick={() => setExpanded(true)}
-            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline"
+            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             more
           </button>
@@ -654,7 +745,7 @@ function InsightBody({ body }: { body: string }) {
           {" "}
           <button
             onClick={() => setExpanded(false)}
-            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline"
+            className="text-[11px] font-medium text-indigo-500 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             less
           </button>
@@ -664,25 +755,156 @@ function InsightBody({ body }: { body: string }) {
   );
 }
 
+// ResearchTap (the live "Find me alternatives" pull) is retired — owner
+// decision 2026-09-01: every category is researched weekly by the app now,
+// with a displayed TTL per entry (see `expiry_line` in the Zone 2 render
+// below). A quiet/expired card between refreshes has no tap affordance any
+// more — see CompactInsightRow, the compact row IS the between-refreshes
+// state now.
+
+// ── Compact Insight Row (quiet/expired, nothing furnished right now) ───────
+// Ledger grammar, not card-in-card: icon chip, category name, the
+// deterministic figure straight from the user's own transactions, a
+// chevron. 44px tap target, plain disclosure (no reveal-animation
+// theatre) — tapping hands rendering to the full InsightCard anatomy in
+// place, same pattern the accordions elsewhere on this page already use
+// (chevron rotates, content simply appears, no transition on the reveal).
+export function CompactInsightRow({
+  insight,
+  onExpand,
+}: {
+  insight: SavingsInsight;
+  onExpand: () => void;
+}) {
+  const Icon = insightCategoryIcon(insight.category);
+  const total = insight.triggered_by.reduce((sum, t) => sum + (t.monthly_amount || 0), 0);
+  const placeCount = insight.triggered_by.length;
+
+  return (
+    <button
+      id={`insight-card-${insight.id}`}
+      onClick={onExpand}
+      aria-expanded={false}
+      className="w-full min-h-[44px] px-3 py-2 flex items-center gap-2.5 rounded-2xl glass-card scroll-mt-24 text-left active:scale-[0.99] transition-transform motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    >
+      <span className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
+        <Icon size={15} className="text-indigo-500 dark:text-indigo-400" />
+      </span>
+      <span className="text-[13px] font-semibold text-slate-700 dark:text-slate-300 flex-1 min-w-0 truncate">
+        {insight.label}
+      </span>
+      {/* Subtle "new" affordance (owner phone report 2026-09-01: a
+          contentless new insight is still quiet, but it's fair to draw the
+          eye to it without earning the full card's real estate — see
+          isCompactPullInsight above). A bare dot, not the full card's
+          "New" chip: this row has nothing furnished yet to justify more. */}
+      {insight.is_new && (
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-indigo-400 flex-shrink-0"
+          aria-label="New"
+        />
+      )}
+      {placeCount > 0 && (
+        <span className="text-[12px] font-mono tabular-nums text-slate-500 dark:text-slate-400 flex-shrink-0">
+          ~£{Math.round(total).toLocaleString("en-GB")}/mo · {placeCount} place{placeCount !== 1 ? "s" : ""}
+        </span>
+      )}
+      <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
+    </button>
+  );
+}
+
 // ── Insight Card ──────────────────────────────────────────────────────────────
 
-function InsightCard({
+export function InsightCard({
   insight,
   workflow,
   onPin,
   onContextSaved,
+  anyOpenHasEstimate,
 }: {
   insight: SavingsInsight;
   workflow: WorkflowDef | null;
   onPin: (id: string) => void;
   onContextSaved: () => void;
+  /** Whether ANY currently-open insight (across the whole rendered list, not
+   *  just this card) carries a `savings_estimate_monthly` — mirrors the
+   *  approved hero preview's `showNoEstimateLabel` gate (see
+   *  /design/insights-hero InsightRow): "No number yet" only earns its
+   *  place when it distinguishes costed cards from uncosted ones. When
+   *  nothing anywhere has a number, the hero's own headline already says
+   *  so once ("none with a number attached yet") — repeating a quiet grey
+   *  label on every single card underneath would just add noise, not
+   *  information, so the label is suppressed entirely in that state. */
+  anyOpenHasEstimate: boolean;
 }) {
   const router = useRouter();
   const [showTriggers, setShowTriggers] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  // Compact-row state (see isCompactPullInsight): starts collapsed for an
+  // untapped pull category with nothing furnished to say yet; tapping the
+  // row hands rendering straight to the full anatomy below, in place, with
+  // no re-collapse control (session-persisted state is unnecessary — this
+  // is a per-mount reveal, not a preference).
+  const [compactOpen, setCompactOpen] = useState(false);
+  // Engagement signal (Insights honesty review, Package A #1) — fired once
+  // per card, the first time its evidence footer/workflow expands or its
+  // CTA is tapped, so the copy-tier logic (server-side `verified_tier`) can
+  // later tell an earned celebration from a plain fact. The ref guards
+  // against re-firing the network call on every toggle within one page
+  // visit; the backend itself is also idempotent (first-write-wins), so a
+  // duplicate call from a remount is harmless either way.
+  const openedFiredRef = useRef(false);
+  const markOpened = useCallback(() => {
+    if (openedFiredRef.current) return;
+    openedFiredRef.current = true;
+    api.markInsightOpened(insight.id).catch(() => {});
+  }, [insight.id]);
   // The user's own figure — leads the card (verdict first, then the web copy)
   const topTrigger = insight.triggered_by[0] ?? null;
   const extraTriggers = insight.triggered_by.length - 1;
+  // The generated title below sums every trigger (see facts_block in
+  // savings_insights.py), so with more than one trigger the lead must sum
+  // too — a single merchant's figure next to a total-across-merchants title
+  // is the exact "internal number contradiction" this card was flagged for.
+  // triggered_by is capped at 4 server-side (_find_triggered_transactions),
+  // the same set the title's prompt sees, so this total always reconciles
+  // with every row the "Based on N transactions" disclosure below lists.
+  const triggerTotal = insight.triggered_by.reduce((sum, t) => sum + (t.monthly_amount || 0), 0);
+  // Real transaction count (sum of each row's own ×-count) vs place count
+  // (triggered_by.length, one row per merchant) — see the "Based on N
+  // transactions" disclosure below, which used to conflate the two.
+  const txnCount   = insight.triggered_by.reduce((sum, t) => sum + (t.occurrences || 0), 0);
+  const placeCount = insight.triggered_by.length;
+  // Zone 2 state (STRUCTURAL FIX — switches on `insight.state`, the single
+  // server-derived source of truth; see `isCompactPullInsight` above for why
+  // the old combination-of-booleans approach was the root cause of
+  // incoherence B). `contentLive` gates the researched title/body/
+  // savings_estimate/expiry_line — anything else (verified, substituted, or
+  // "quiet") renders nothing here (OWNER RULING 2026-09-02: no content, no
+  // furniture, not even a resolved-state placeholder or a "between
+  // refreshes" caption). "quiet" is only reachable here at all when a
+  // compact row has been manually expanded (isCompactPullInsight, above).
+  const contentLive = insight.state === "fresh";
+  // Resolved = verified or substituted — Zone 1's banner already states the
+  // fact permanently (see `_derive_insight_state`'s first-write-wins
+  // precedence: once resolved, a doc never returns to "fresh" on its own).
+  // Used below to hide the workflow CTA on a resolved card (OWNER RULING
+  // 2026-09-02 item 4 — traced: the CTA's submission feeds `user_context`
+  // into the NEXT research generation pass, but a resolved doc's `state`
+  // can't go back to "fresh" from user_context alone, so that research is
+  // never shown on THIS card. A furniture item that provably can't affect
+  // what the user ever sees again doesn't earn a place under a resolved
+  // banner).
+  const isResolved = insight.state === "verified" || insight.state === "substituted";
+
+  // Nothing furnished yet (Insights honesty review, Package D): a pull
+  // category with no fresh research and no verified/substituted banner is
+  // a ledger row, not a card, until the user asks for more. See
+  // isCompactPullInsight for the full eligibility rule.
+  if (isCompactPullInsight(insight) && !compactOpen) {
+    return <CompactInsightRow insight={insight} onExpand={() => setCompactOpen(true)} />;
+  }
 
   return (
     <>
@@ -690,6 +912,9 @@ function InsightCard({
         id={`insight-card-${insight.id}`}
         className="glass-card rounded-2xl overflow-hidden scroll-mt-24 transition-shadow"
       >
+        {/* ── Zone 1: deterministic — the user's own bank data. Never
+            expires, never carries a research stamp; this is fact, not
+            research. ── */}
         <div className="p-4 flex flex-col gap-3">
           {/* Category + badges + pin */}
           <div className="flex items-start justify-between gap-2">
@@ -704,87 +929,202 @@ function InsightCard({
             </div>
             <button
               onClick={() => onPin(insight.id)}
-              className="flex-shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-indigo-500 transition-colors"
+              className="relative before:absolute before:-inset-2.5 before:content-[''] flex-shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-indigo-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               {insight.pinned ? <BookmarkCheck size={18} className="text-indigo-500" /> : <Bookmark size={18} />}
             </button>
           </div>
 
-          {/* Closure: the loop actually closed — celebrate */}
-          {insight.verified_savings ? (
+          {/* Closure: the loop actually closed — celebrate. Copy is server-
+              composed and already tier-aware (verified_savings_line is the
+              honest "fact" sentence unless verified_tier is "earned" — see
+              _verified_copy_tier in savings_insights.py), so this renders
+              verbatim with no client-side "You did it" fallback that could
+              disagree with the tier the backend actually earned. Deterministic
+              (a bank-confirmed cessation), so it belongs in Zone 1, not the
+              researched Zone 2 below. */}
+          {(insight.state ? insight.state === "verified" : !!insight.verified_savings) ? (
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/25 border border-emerald-200 dark:border-emerald-800">
               <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-emerald-800 dark:text-emerald-300 leading-snug">
-                <span className="font-bold">You did it</span>, payments to {insight.verified_merchant} have stopped.
-                That&apos;s <span className="font-mono tabular-nums">~£{insight.verified_savings.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span> staying in your pocket.
+                {insight.verified_savings_line}
+              </p>
+            </div>
+          ) : (insight.state ? insight.state === "substituted" : !!insight.substituted) ? (
+            /* Neutral, not celebratory — the merchant went silent but the
+               whole category didn't net down (see `substituted` on
+               SavingsInsight), so this is honestly NOT a saving. Slate, no
+               green, no checkmark. */
+            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+              <RotateCcw size={16} className="text-slate-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-slate-600 dark:text-slate-300 leading-snug">
+                {insight.substituted_line}
               </p>
             </div>
           ) : null}
 
-          {/* The user's own figure opens the card — verdict first */}
+          {/* The user's own figure — the card's verdict, straight from their
+              transactions. With more than one trigger this is the summed
+              total (see triggerTotal comment above). */}
           {topTrigger && (
             <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
-              <span className="font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
-              <span className="font-medium">at {topTrigger.display_name}</span>
-              {extraTriggers > 0 && <span className="font-medium"> · +{extraTriggers} more</span>}{" "}
+              {extraTriggers > 0 ? (
+                <>
+                  <span className="font-mono tabular-nums">~£{triggerTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
+                  <span className="font-medium">across {insight.triggered_by.length} places</span>{" "}
+                </>
+              ) : (
+                <>
+                  <span className="font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
+                  <span className="font-medium">at {topTrigger.display_name}</span>{" "}
+                </>
+              )}
               <span className="text-xs font-normal text-slate-500 dark:text-slate-400">· from your transactions</span>
             </p>
-          )}
-
-          {/* Generic title — demoted beneath the personal figure (leads only when no trigger) */}
-          <p
-            className={
-              topTrigger
-                ? "text-sm text-slate-600 dark:text-slate-300 leading-snug [text-wrap:balance] -mt-1.5"
-                : "text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]"
-            }
-          >
-            <MoneyText text={insight.title} />
-          </p>
-
-          {/* Body — truncated to ~2 sentences with a "more" toggle */}
-          <InsightBody body={insight.body} />
-
-          {/* Timestamp — only show if recent (≤14 days) */}
-          {insight.refreshed_at && (Date.now() - new Date(insight.refreshed_at).getTime()) < 14 * 86400000 && (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 self-end">{timeAgo(insight.refreshed_at)}</span>
           )}
 
           {/* Primary action — the user's own data, in-app */}
           {insight.app_route && (
             <button
-              onClick={() => router.push(insight.app_route!)}
-              className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all"
+              onClick={() => { markOpened(); router.push(insight.app_route!); }}
+              className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               {APP_ROUTE_LABELS[insight.category] ?? "See it in your spending"}
               <ChevronRight size={15} />
             </button>
           )}
+        </div>
 
-          {/* Comparison sites — secondary, quiet */}
-          {CATEGORY_LINKS[insight.category] && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 dark:text-slate-500">Compare:</span>
-              {CATEGORY_LINKS[insight.category].map(link => (
-                <a
-                  key={link.url}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="relative before:absolute before:-inset-y-2.5 before:-inset-x-0.5 before:content-[''] inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-700/60 px-2 py-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all"
+        {/* ── Zone 2: researched — web search + LLM. Only as current as its
+            own stamp; hairline-separated, quieter surface so it never reads
+            as bank-fact. Switches on `insight.state`: "fresh"
+            (title/body/estimate + the expiry indicator, every category
+            alike now — see `expiry_line`), "verified"/"substituted"
+            (resolved in Zone 1 above, nothing to add here), or "quiet"
+            (between weekly refreshes — a honest "refreshes weekly" line,
+            reachable here only when an expanded compact row shows the full
+            anatomy with nothing furnished right now). ── */}
+        <div className="px-4 py-3.5 flex flex-col gap-2.5 border-t border-slate-100 dark:border-slate-700/70 bg-slate-50/70 dark:bg-slate-800/40">
+          {contentLive ? (
+            <>
+              {/* Generic title — demoted beneath the personal figure (leads
+                  only when Zone 1 had no trigger figure of its own) */}
+              {insight.title && (
+                <p
+                  className={
+                    topTrigger
+                      ? "text-sm text-slate-600 dark:text-slate-300 leading-snug [text-wrap:balance]"
+                      : "text-base font-bold text-slate-900 dark:text-slate-100 leading-snug [text-wrap:balance]"
+                  }
                 >
-                  <ExternalLink size={10} />
-                  {link.label}
-                </a>
-              ))}
-            </div>
+                  <MoneyText text={insight.title} />
+                </p>
+              )}
+
+              {/* Body — truncated to ~2 sentences with a "more" toggle */}
+              {insight.body && <InsightBody body={insight.body} />}
+
+              {/* Estimate line — gated on `savings_estimate_monthly != null`, the
+                  exact same condition the hero above uses for its coverage
+                  counters (heroOpenWithEstimate). Gating this pill on the raw
+                  `savings_estimate` STRING instead used to disagree with the
+                  hero: the backend allows a hedge string that carries no
+                  parseable `£` figure (_savings_estimate_is_derivable / the
+                  locked-in "reduce your outgoings soon" -> null case in
+                  test_serialize_insight_estimate.py), which is truthy as a
+                  string but null as a number — the card would show the costed
+                  treatment for an insight the hero was counting as "no number".
+                  A hedge string with no parsed figure still renders, but as
+                  plain prose (no mono/tabular money styling, no "estimated
+                  saving" label) so it's visibly NOT a costed figure, and it
+                  does not count as `anyOpenHasEstimate` either. Verified cards
+                  skip this entirely, the Zone 1 emerald banner above already
+                  carries the real (not estimated) figure. */}
+              {!insight.verified_savings && !insight.substituted && insight.savings_estimate_monthly != null ? (
+                <p className="text-[12px] font-mono tabular-nums text-slate-500 dark:text-slate-400 italic">
+                  <MoneyText text={insight.savings_estimate ?? ""} />{" "}
+                  <span className="not-italic font-sans font-medium">estimated saving</span>
+                </p>
+              ) : !insight.verified_savings && !insight.substituted && insight.savings_estimate ? (
+                <p className="text-[12px] text-slate-500 dark:text-slate-400 italic">
+                  <MoneyText text={insight.savings_estimate} />
+                </p>
+              ) : !insight.verified_savings && !insight.substituted && anyOpenHasEstimate ? (
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">No number yet</p>
+              ) : null}
+
+              {/* Age/deadline stamp — always shown while content is live
+                  (Insights honesty review, Package A #4; OWNER RULING
+                  2026-09-02: internal refresh scheduling is never narrated
+                  to the user, so this carries no "weekly"/"refreshes"
+                  wording any more): server-composed, house-style-consistent
+                  sentence (same pattern as verified_savings_line/
+                  substituted_line) — "Valid until Mon 8 Sep" for a real,
+                  dated offer (a fact about the offer), else "Researched 2d
+                  ago" for generic content on the default TTL (honesty about
+                  how current the content shown actually is). Render
+                  verbatim, never re-derive the wording client-side. */}
+              {insight.expiry_line && (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 self-end">
+                  {insight.expiry_line}
+                </span>
+              )}
+
+              {/* Comparison sites — secondary, quiet */}
+              {CATEGORY_LINKS[insight.category] && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Compare:</span>
+                  {CATEGORY_LINKS[insight.category].map(link => (
+                    <a
+                      key={link.url}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="relative before:absolute before:-inset-y-2.5 before:-inset-x-0.5 before:content-[''] inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-700/60 px-2 py-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-95 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      <ExternalLink size={10} />
+                      {link.label}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            /* "quiet" (or any other non-furnished state) renders NOTHING
+               here — OWNER RULING (2026-09-02, verbatim: "what's the point
+               of these cards if there is nothing, and we shouldn't show the
+               cadence of the refresh"). This closes the third compact
+               regression: a prior version of this branch rendered a
+               "Refreshes weekly..." caption unconditionally, and that
+               caption text itself was enough to make an otherwise-hollow
+               card LOOK furnished — the exact failure mode the invariant
+               below exists to rule out. Nothing survives on an unfurnished
+               card, not even a neutral placeholder sentence; the compact
+               row (isCompactPullInsight, above) is the only normal way to
+               reach this state at all, so this branch is reachable only via
+               a manually-expanded compact row (Zone 1's figure + the
+               workflow CTA below are still shown) or a future/unknown state
+               value this component doesn't yet special-case — either way,
+               Zone 2 correctly has nothing to say. Covers verified/
+               substituted too (Zone 1's banner already stated the resolved
+               fact; Zone 2 has no second job for those states either). */
+            null
           )}
 
-          {/* CTA — workflow (demoted to secondary) */}
-          {workflow && (
+          {/* CTA — workflow. Shown on "fresh"/"quiet" (real personalisation
+              input, feeding the exact same `user_context` the weekly cron's
+              generation pass reads — see CATEGORY_WORKFLOWS in
+              savings_insights.py — not a decorative dead end), hidden once
+              `isResolved` (OWNER RULING 2026-09-02 item 4): a resolved
+              doc's `state` never returns to "fresh" (see the comment on
+              `isResolved` above), so a workflow submission here can never
+              surface on this card again — the CTA would be a dead end
+              exactly like the caption text this same ruling deleted above,
+              just one furniture item later. */}
+          {workflow && !isResolved && (
             <button
-              onClick={() => setShowWorkflow(true)}
-              className="w-full mt-1 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-700/50 active:scale-[0.98] text-slate-600 dark:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 transition-all"
+              onClick={() => { setShowWorkflow(true); markOpened(); }}
+              className="w-full py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/50 active:scale-[0.98] text-slate-600 dark:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             >
               <SlidersHorizontal size={14} />
               {insight.user_context ? "Improve this tip" : workflow.cta}
@@ -792,25 +1132,39 @@ function InsightCard({
           )}
         </div>
 
-        {/* Triggered by — collapsible */}
+        {/* Triggered by — collapsible, the deterministic evidence footer */}
         {insight.triggered_by.length > 0 && (
           <div className="border-t border-slate-100 dark:border-slate-700">
             <button
-              onClick={() => setShowTriggers(v => !v)}
-              className="w-full px-4 py-2.5 flex items-center justify-between text-left"
+              onClick={() => { setShowTriggers(v => !v); markOpened(); }}
+              className="w-full px-4 py-2.5 flex items-center justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               aria-expanded={showTriggers}
             >
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                Based on {insight.triggered_by.length} transaction{insight.triggered_by.length > 1 ? "s" : ""}
+                {/* triggered_by is grouped by merchant (see
+                    _find_triggered_transactions), so its own length is a
+                    place count, not a transaction count — "Eating Out"
+                    with 4 merchant rows whose ×-counts sum to 11 real
+                    transactions used to render as "4 transactions", which
+                    disagreed with the ×-counts one tap away. `txnCount`
+                    sums the real per-row occurrence counts; `placeCount`
+                    is the merchant/place count triggered_by.length always
+                    was. */}
+                Based on {txnCount} transaction{txnCount !== 1 ? "s" : ""}
+                {placeCount > 1 ? ` across ${placeCount} places` : ""}
               </span>
-              <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 ${showTriggers ? "rotate-180" : ""}`} />
+              <ChevronDown size={14} className={`text-slate-500 dark:text-slate-400 transition-transform duration-200 motion-reduce:transition-none ${showTriggers ? "rotate-180" : ""}`} />
             </button>
             {showTriggers && (
               <div className="px-4 pb-3 space-y-1.5">
                 {insight.triggered_by.map(t => (
                   <div key={t.merchant_key} className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{t.display_name}</span>
-                    <span className="text-slate-500 dark:text-slate-400"><span className="font-mono tabular-nums">£{t.monthly_amount.toFixed(2)}/mo</span> · {t.occurrences}×</span>
+                    {/* is_recurring: exact engine figure, matches the card's
+                        own title/body — no hedge. Missing/false: a plain
+                        window average over ad-hoc spend — hedge it like
+                        every other estimate in this product. */}
+                    <span className="text-slate-500 dark:text-slate-400"><span className="font-mono tabular-nums">{t.is_recurring ? "" : "~"}£{t.monthly_amount.toFixed(2)}/mo</span> · {t.occurrences}×</span>
                   </div>
                 ))}
               </div>
@@ -850,14 +1204,14 @@ function ImproveHousekeepingPanel({
       <button
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
-        className="w-full flex items-center justify-between gap-2 py-2 px-1 text-left"
+        className="relative before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] w-full flex items-center justify-between gap-2 py-2 px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
       >
         <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Improve your suggestions
         </span>
         <ChevronDown
           size={14}
-          className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          className={`text-slate-500 dark:text-slate-400 flex-shrink-0 transition-transform duration-200 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open && (
@@ -870,9 +1224,251 @@ function ImproveHousekeepingPanel({
   );
 }
 
+// ── Insights Hero ─────────────────────────────────────────────────────────────
+// Ported from the approved /design/insights-hero preview (Variant B,
+// "Opportunity leads" — see that file for the full four-state rationale).
+// This is a straight port to real data, not a redesign: same copy, same
+// four coverage states, same glass-hero/glass-tile surfaces. The one
+// deliberate departure from the preview is that it does NOT repeat the
+// open insights as a mini row-list inside the card — on the real page the
+// full InsightCard list sits immediately below and IS that reference set,
+// so a second condensed copy of the same titles would just duplicate it.
+// Instead each real card carries its own "estimated saving" / "No number
+// yet" line (see InsightCard), which is the preview's per-row treatment
+// ported onto the actual rows rather than a stand-in list.
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      {children}
+    </p>
+  );
+}
+
+function RateFigure({ figure }: { figure: string }) {
+  return (
+    <p className="mt-1 flex items-baseline gap-1.5">
+      <span className="text-[30px] leading-tight font-bold tracking-tight font-mono tabular-nums text-slate-900 dark:text-slate-100">
+        {figure}
+      </span>
+      <span className="text-[14px] font-medium text-slate-400 dark:text-slate-500">/mo</span>
+    </p>
+  );
+}
+
+// The earned verified-savings chip — present in every hero state. `hero`
+// widens it for the "nothing open" state, where it's the only real number
+// left on the card and needs to read as the payoff, not a footnote.
+function VerifiedChip({
+  verified,
+  hero,
+  trailingLabel,
+}: {
+  verified: number;
+  hero?: boolean;
+  trailingLabel?: string;
+}) {
+  if (verified > 0) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 ${
+          hero ? "min-h-[40px] pl-3 pr-4 py-2" : "min-h-[32px] pl-2.5 pr-3 py-1.5"
+        }`}
+      >
+        <CheckCircle2
+          size={hero ? 18 : 14}
+          className="text-emerald-600 dark:text-emerald-400 flex-shrink-0"
+          aria-hidden
+        />
+        <span
+          className={`font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-300 ${
+            hero ? "text-[16px]" : "text-[12px]"
+          }`}
+        >
+          £{verified.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+        <span className={`font-medium text-emerald-700 dark:text-emerald-300 ${hero ? "text-[13px]" : "text-[12px]"}`}>
+          {trailingLabel ?? "already banked"}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 min-h-[32px] rounded-full pl-2.5 pr-3 py-1.5 bg-slate-100 dark:bg-slate-700/60">
+      <Circle size={14} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden />
+      <span className="text-[12px] font-medium text-slate-500 dark:text-slate-400">Nothing banked yet, that&apos;s next</span>
+    </span>
+  );
+}
+
+// Skeleton in the hero's own shape — shown while SavingsInsightsSection's
+// fetch is in flight, so nothing flashes a zero/empty state before real
+// data lands (content-visible-by-default rule: this IS the visible content
+// for that moment, not a spinner gate in front of it).
+function InsightsHeroSkeleton() {
+  return (
+    <div className="glass-hero rounded-3xl p-4 animate-pulse" aria-hidden="true">
+      <div className="h-2.5 w-40 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="h-7 w-28 rounded bg-slate-200 dark:bg-slate-700 mt-2.5" />
+      <div className="h-2.5 w-56 rounded bg-slate-200 dark:bg-slate-700 mt-2.5" />
+      <div className="h-8 w-44 rounded-full bg-slate-200 dark:bg-slate-700 mt-3" />
+    </div>
+  );
+}
+
+function moneyEstimate(n: number): string {
+  return `~£${Math.round(Math.abs(n)).toLocaleString("en-GB")}`;
+}
+
+export function InsightsHero({
+  open,
+  openWithEstimate,
+  openMonthlySaving,
+  verifiedMonthlySaving,
+  insightsActedOn,
+  changesNoticed,
+  resolvedCount,
+}: {
+  open: number;
+  openWithEstimate: number;
+  openMonthlySaving: number;
+  verifiedMonthlySaving: number;
+  /** Verified wins with confirmed engagement BEFORE they verified
+   *  (`verified_tier === "earned"`, see savings_insights.py's
+   *  _verified_copy_tier) — the only count this product can honestly credit
+   *  to the user having acted. */
+  insightsActedOn: number;
+  /** Verified wins with no such engagement evidence — real, provable
+   *  changes (the spend genuinely stopped AND the category confirmed the
+   *  drop), just not ones we can honestly say the user "acted on". Insights
+   *  honesty review, Package A #3: this is the honest alternative headline
+   *  when `insightsActedOn` is 0 but real change still happened. */
+  changesNoticed: number;
+  /** Incoherence E (owner phone report 2026-09-01: hero said "1 of 7 open
+   *  ideas" while 8 cards were visible below) — the count of rendered cards
+   *  that are resolved (verified + substituted) and therefore excluded from
+   *  `open`, but still on the page as their own banner card. Named in the
+   *  copy below so "N open" and "the cards you can count" never look like
+   *  they disagree; 0 when every rendered card is still open (the common
+   *  case), which adds nothing to the sentence. */
+  resolvedCount: number;
+}) {
+  const fullCoverage = open > 0 && openWithEstimate === open;
+  const partialCoverage = open > 0 && openWithEstimate > 0 && openWithEstimate < open;
+  const noCoverage = open > 0 && openWithEstimate === 0;
+  const nothingOpen = open === 0;
+  const resolvedClause = resolvedCount > 0
+    ? ` ${resolvedCount} more sorted below.`
+    : "";
+
+  return (
+    <section className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
+      {nothingOpen ? (
+        <>
+          <SectionLabel>Ways to save, all clear</SectionLabel>
+          <p className="mt-1 text-[19px] leading-snug font-bold text-slate-900 dark:text-slate-100 text-pretty">
+            Every idea on your list has been sorted.
+          </p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 text-pretty">
+            {insightsActedOn > 0
+              ? `${insightsActedOn} idea${insightsActedOn === 1 ? "" : "s"} acted on over time, nothing left open right now.`
+              : changesNoticed > 0
+              ? `${changesNoticed} change${changesNoticed === 1 ? "" : "s"} noticed over time, nothing left open right now.`
+              : "Nothing acted on yet, nothing left open right now."}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <PartyPopper size={16} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" aria-hidden />
+            <VerifiedChip verified={verifiedMonthlySaving} hero trailingLabel="kept every month" />
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionLabel>
+            {noCoverage ? "Open ideas, no numbers yet" : "Identified, every month · estimated"}
+          </SectionLabel>
+
+          {(fullCoverage || partialCoverage) && (
+            <>
+              <RateFigure figure={moneyEstimate(openMonthlySaving)} />
+              <p className="mt-1 text-[12px] italic text-slate-500 dark:text-slate-400 text-pretty">
+                {(fullCoverage
+                  ? `Across ${open} open idea${open === 1 ? "" : "s"} below, estimated from your own spending, not yet acted on.`
+                  : `Across ${openWithEstimate} of ${open} open ideas, the ones with a number so far.`) + resolvedClause}
+              </p>
+            </>
+          )}
+
+          {noCoverage && (
+            <>
+              <p className="mt-1 text-[19px] leading-snug font-bold text-slate-900 dark:text-slate-100 text-pretty">
+                {open} idea{open === 1 ? "" : "s"} worth a look, none with a number attached yet.
+              </p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 text-pretty">
+                {`Open the top one below, it's usually the easiest place to start.${resolvedClause}`}
+              </p>
+            </>
+          )}
+
+          <div className="mt-3">
+            <VerifiedChip verified={verifiedMonthlySaving} />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── Savings Insights Section (reusable body) ──────────────────────────────────
 
-export function SavingsInsightsSection({ embedded = false }: { embedded?: boolean } = {}) {
+// GET /money-shape can fail or 402 like any other fetch — the hero must
+// never block the tip list beneath it on that (owner brief 2026-09-02:
+// "tolerate failure ... never block the tips"). This is the one synthetic
+// MoneyShape value the client ever constructs itself: a `status: "thin"`
+// shape renders the same honest "first full pay period will draw this"
+// hero a genuinely new user sees, which is the closest true statement
+// available when the real figure couldn't be fetched.
+const MONEY_SHAPE_FETCH_FALLBACK: MoneyShape = {
+  status: "thin",
+  computed_at: new Date(0).toISOString(),
+  period: null,
+  take_home: 0,
+  overspent: 0,
+  jobs: null,
+  verdict: null,
+  trend: { periods: [], fixed: [], moved: [], free: [], left: [] },
+  trend_line: null,
+  what_works: {
+    state: "thin",
+    periods_available: 0,
+    periods_needed: 4,
+    pattern_id: null,
+    headline: "Not enough history yet.",
+    flag_labels: null,
+    evidence: [],
+    trait: null,
+    proposal: null,
+  },
+};
+
+// Tip-list grouping — "Fixed" / "Free spending" (mirrors SavingsInsight.job)
+// then "Other" for anything that doesn't map to either (job null/undefined,
+// e.g. an older backend that hasn't back-filled the field yet). Render
+// order below is also the fold's "render order across groups" (see
+// VISIBLE_UNPINNED's use further down).
+type TipGroupKey = "fixed" | "free" | "other";
+const TIP_GROUPS: { key: TipGroupKey; label: string; job: "fixed" | "free" | null }[] = [
+  { key: "fixed", label: "Fixed", job: "fixed" },
+  { key: "free", label: "Free spending", job: "free" },
+  { key: "other", label: "Other", job: null },
+];
+function tipGroupKeyOf(insight: SavingsInsight): TipGroupKey {
+  return insight.job === "fixed" ? "fixed" : insight.job === "free" ? "free" : "other";
+}
+
+export function SavingsInsightsSection({
+  embedded = false,
+  splitColumns = false,
+}: { embedded?: boolean; splitColumns?: boolean } = {}) {
   const [insights, setInsights] = useState<SavingsInsight[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -883,8 +1479,20 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
   const [unknownBills, setUnknownBills] = useState<UnknownBill[] | undefined>(undefined);
   const [workflows, setWorkflows] = useState<Record<string, import("@/lib/api").WorkflowDef>>({});
   const [showAll, setShowAll] = useState(false);
-  const [spotlightId, setSpotlightId] = useState<string | null>(null);
+  // Independent of `loading` (the tip list's own fetch) on purpose — the
+  // hero must render (real or fallback) without waiting on, or blocking,
+  // the tip list, and vice versa. null = still in flight, shows the same
+  // InsightsHeroSkeleton the old hero used.
+  const [moneyShape, setMoneyShape] = useState<MoneyShape | null>(null);
   const scrolledRef = useRef(false);
+  const { open: openPennySheet } = usePennySheet();
+  const askPenny = (ask: string) => openPennySheet({ screen: "insights", ask });
+
+  // Tour readiness — tutorial-insights-hero and tutorial-insights-list's
+  // real content both live behind this section's own `loading` (the
+  // InsightsHeroSkeleton swap above is exactly what must never be a tour
+  // target).
+  useTutorialReady("insights", !loading);
 
   const VISIBLE_UNPINNED = 3;
 
@@ -912,9 +1520,14 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
 
   useEffect(() => {
     loadInsights();
-    api.getSpotlightInsight().then(s => setSpotlightId(s?.id ?? null)).catch(() => {});
+    // No spotlight fetch here: this page no longer hides the spotlighted
+    // insight (see the owner-decision comment on `unpinned` below), so it
+    // has nothing left to feed. The spotlight endpoint's side effects
+    // (retiring a superseded insight, recording spotlight_last_shown) still
+    // run every time HomeInsightSpotlight mounts on Home.
     api.getUnknownBills().then(d => { setLabelOptions(d.label_options); setUnknownBills(d.unknown_bills); }).catch(() => {});
     api.getWorkflows().then(setWorkflows).catch(() => {});
+    api.getMoneyShape().then(setMoneyShape).catch(() => setMoneyShape(MONEY_SHAPE_FETCH_FALLBACK));
   }, [loadInsights]);
 
   async function handleRefresh() {
@@ -940,26 +1553,87 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
     } catch {}
   }
 
-  const deepLinkId = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search).get("insight")
-    : null;
-
   const pinned = insights.filter(i => i.pinned);
-  // The insight already featured on the Home spotlight is hidden here to avoid
-  // showing the same card twice, unless the user deep-linked straight to it,
-  // it's the only thing we'd have to show, or it's a RESURFACED card
-  // (return_reason set — backend now computes this for retired insights
-  // too, see savings_insights.py get_savings_insights). A resurfaced card
-  // is one the user already dismissed once; hiding it here as well would
-  // make it findable only via the transient Home spotlight and nowhere on
-  // this page, which is exactly the Home/insights disagreement this guards
-  // against.
-  const unpinnedAll = insights.filter(i => !i.pinned);
-  const unpinned = unpinnedAll.filter(i =>
-    i.id !== spotlightId || i.id === deepLinkId || unpinnedAll.length <= 1 || !!i.return_reason
+  // Owner decision, 2026-08-27: this tab is the full index of open
+  // opportunities. Every non-pinned insight renders here, including
+  // whichever one is currently promoted to the Home spotlight — Home's
+  // spotlight is a promotion of one item from this list, not a removal
+  // from it, so nothing is filtered out. The hero below totals exactly
+  // this set for the same reason.
+  // Stable partition, not a re-rank: the backend's own biggest-impact-first
+  // order (pinned, verified, estimate, spend — see _rank_key in
+  // savings_insights.py) is preserved within each group. This only moves
+  // compact-eligible rows (isCompactPullInsight — nothing furnished yet)
+  // behind every verified/fresh/full card, so "Show N more ways to save"
+  // leads with substance and the ledger rows trail it, instead of
+  // interleaving by raw spend the way the backend order alone would.
+  const unpinned = insights
+    .filter(i => !i.pinned)
+    .sort((a, b) => Number(isCompactPullInsight(a)) - Number(isCompactPullInsight(b)));
+  // Group render order (Fixed, Free spending, Other — see TIP_GROUPS), with
+  // the existing compact-to-end sort preserved WITHIN each group (the sort
+  // above already ran over the whole array, so a group's own slice keeps
+  // its relative order). VISIBLE_UNPINNED's fold below counts position in
+  // THIS flattened order, i.e. "the first 3 unpinned cards in the order
+  // they render on the page", not the pre-grouping order — grouping by job
+  // can genuinely move a card ahead of or behind another that used to sit
+  // next to it in the ungrouped list.
+  const unpinnedByGroupOrder = TIP_GROUPS.flatMap(g => unpinned.filter(i => tipGroupKeyOf(i) === g.key));
+  const visibleUnpinnedByGroupOrder = showAll ? unpinnedByGroupOrder : unpinnedByGroupOrder.slice(0, VISIBLE_UNPINNED);
+  const hiddenCount = unpinnedByGroupOrder.length - visibleUnpinnedByGroupOrder.length;
+  const visibleUnpinnedIds = new Set(visibleUnpinnedByGroupOrder.map(i => i.id));
+  // Pinned cards render first inside their own group and are never folded
+  // (matches the pre-grouping behaviour: pinned was always fully visible,
+  // only `unpinned` was ever subject to VISIBLE_UNPINNED).
+  function groupCards(key: TipGroupKey): SavingsInsight[] {
+    const pinnedInGroup = pinned.filter(i => tipGroupKeyOf(i) === key);
+    const unpinnedInGroup = unpinned
+      .filter(i => tipGroupKeyOf(i) === key)
+      .filter(i => showAll || visibleUnpinnedIds.has(i.id));
+    return [...pinnedInGroup, ...unpinnedInGroup];
+  }
+
+  // ── Hero reconciliation ──────────────────────────────────────────────────
+  // "Rendered" = every card this section actually puts on the page: pinned
+  // + the full unpinned set (nothing is hidden — see the owner-decision
+  // comment on `unpinned` above). Cards collapsed behind "Show N more" are
+  // still on the page and reachable, so they count too. This must be the
+  // exact same set InsightCard below renders, or the hero's numbers stop
+  // reconciling with what the user can count.
+  const heroRendered = [...pinned, ...unpinned];
+  // Verified AND substituted insights are both resolved (the triggering
+  // merchant went silent) — neither is still an "open idea" the user could
+  // act on, so both are excluded from the open/coverage counters below.
+  //
+  // STRUCTURAL FIX — "open" = states fresh/quiet (see `insight.state`'s
+  // docstring); switches on that directly when the backend sends it,
+  // falling back to the pre-state-machine boolean check otherwise. This is
+  // also the definition incoherence E asked for: "open" deliberately
+  // excludes resolved (verified/substituted) cards even though they still
+  // render as cards below. (The old hero's own resolved/acted-on/changes-
+  // noticed counters that used to live here moved with it — see the still-
+  // exported `InsightsHero`, kept only for the design twin now.)
+  const heroOpen = heroRendered.filter(i =>
+    i.state ? (i.state === "fresh" || i.state === "quiet")
+            : (!i.verified_savings && !i.substituted)
   );
-  const visibleUnpinned = showAll ? unpinned : unpinned.slice(0, VISIBLE_UNPINNED);
-  const hiddenCount = unpinned.length - visibleUnpinned.length;
+  // `savings_estimate_monthly` is null both when the backend genuinely
+  // found no derivable figure (expected/common, see hard_rules #5 in
+  // savings_insights.py) and when an older backend didn't serialise the
+  // field at all (`!= null` catches both `null` and `undefined`) — both
+  // cases fall back to the same honest no-coverage presentation rather
+  // than a wrong or zero total, so no separate "old payload" branch exists.
+  const heroOpenWithEstimate = heroOpen.filter(i => i.savings_estimate_monthly != null);
+  const heroOpenMonthlySaving = Math.round(
+    heroOpenWithEstimate.reduce((sum, i) => sum + (i.savings_estimate_monthly ?? 0), 0) * 100
+  ) / 100;
+  const heroVerifiedMonthlySaving = Math.round(
+    heroRendered.reduce((sum, i) => sum + (i.verified_savings ?? 0), 0) * 100
+  ) / 100;
+  // Gates the per-card "No number yet" label (see InsightCard) — it only
+  // earns its place once at least one open card actually has a number to
+  // contrast against.
+  const anyOpenHasEstimate = heroOpenWithEstimate.length > 0;
 
   // Deep link from the home spotlight: ?insight=<id> → reveal & scroll to that card.
   useEffect(() => {
@@ -967,7 +1641,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
     const target = new URLSearchParams(window.location.search).get("insight");
     if (!target) return;
 
-    const idx = unpinned.findIndex(i => i.id === target);
+    const idx = unpinnedByGroupOrder.findIndex(i => i.id === target);
     if (idx >= VISIBLE_UNPINNED && !showAll) {
       setShowAll(true); // card is hidden behind "show more" — expand first
       return;           // re-runs once expanded
@@ -981,53 +1655,71 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
     setTimeout(() => {
       el.classList.remove("ring-2", "ring-indigo-400", "ring-offset-2", "dark:ring-offset-slate-900");
     }, 2400);
-  }, [loading, insights, showAll, unpinned]);
+  }, [loading, insights, showAll, unpinnedByGroupOrder]);
 
-  return (
-    <div className="space-y-4 pt-2" data-tutorial-id="tutorial-insights-list">
-      {/* Section header — separates "ways to save" from the cushion section above.
-          When embedded under a page-level "Ways to save" header, drop the duplicate
-          title/description and keep only the Refresh control. */}
-      {embedded ? (
-        <div className="px-1 flex items-center justify-end gap-3">
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing || refreshQueued}
-            className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
-          >
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-            {refreshQueued ? "Searching…" : "Refresh"}
-          </button>
-        </div>
-      ) : (
-        <div className="px-1 pt-3 border-t border-slate-200/70 dark:border-slate-700/60">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Ways to save</h2>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing || refreshQueued}
-              className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0"
-            >
-              <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-              {refreshQueued ? "Searching…" : "Refresh"}
-            </button>
-          </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
-            Personalised ways to spend less. Start with the top one, pin the ones you want to act on.
-          </p>
-        </div>
+  // ── Hero column: money shape + what-works + reference row ────────────────
+  // moneyShape is null only while the fetch is in flight — a genuine
+  // failure resolves to MONEY_SHAPE_FETCH_FALLBACK (status "thin") above,
+  // never leaves this null, so the tip list is never gated on it.
+  const heroColumn = (
+    <>
+      {moneyShape ? <MoneyShapeHero shape={moneyShape} /> : <InsightsHeroSkeleton />}
+      {moneyShape && (
+        <>
+          <WhatWorksCard ww={moneyShape.what_works} onAskPenny={askPenny} />
+          <ReferenceShapesRow onAskPenny={askPenny} />
+        </>
       )}
+    </>
+  );
+
+  // ── Tips column: the existing InsightCard list, now grouped by job ──────
+  const tipsColumn = (
+    // Tour anchor lives here, not on the grouped-list div below (that div
+    // is gated behind `pinned.length > 0 || unpinned.length > 0` and never
+    // renders for a genuinely empty list) — this wrapper always renders
+    // once `loading` is false, the same instant useTutorialReady("insights",
+    // !loading) reports ready, empty state included.
+    <div className="space-y-4" data-tutorial-id="tutorial-insights-list">
+      <div>
+        <SectionLabel>WHERE THE SHAPE CAN MOVE · YOUR OPEN IDEAS</SectionLabel>
+        {/* Honest numbers folded from the old hero (see the reconciliation
+            block above `heroColumn`) — reuses the exact same variables, so
+            this line can never disagree with what the cards below actually
+            total. */}
+        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">
+          {heroOpenWithEstimate.length > 0
+            ? `${moneyEstimate(heroOpenMonthlySaving)}/mo identified across ${heroOpen.length} idea${heroOpen.length === 1 ? "" : "s"}`
+            : `${heroOpen.length} idea${heroOpen.length === 1 ? "" : "s"}, none costed yet`}
+        </p>
+        {heroVerifiedMonthlySaving > 0 && (
+          <div className="mt-2">
+            <VerifiedChip verified={heroVerifiedMonthlySaving} />
+          </div>
+        )}
+      </div>
+
+      <div className="px-1 flex items-center justify-end gap-3">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing || refreshQueued}
+          className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 disabled:opacity-40 transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+          {refreshQueued ? "Searching…" : "Refresh"}
+        </button>
+      </div>
 
       {loading && (
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white dark:bg-slate-800 rounded-2xl h-36 animate-pulse" />
+            <div key={i} className="glass-card-flat rounded-2xl h-36 animate-pulse" />
           ))}
         </div>
       )}
 
       {!loading && locked && (
-        <div className="rounded-2xl overflow-hidden border border-indigo-100 dark:border-indigo-900">
+        <div className="glass-card-flat rounded-2xl overflow-hidden">
           <div className="bg-indigo-600 px-5 py-6 text-white">
             <p className="text-sm font-semibold uppercase tracking-wide text-indigo-200 mb-1">Pro feature</p>
             <p className="text-lg font-bold leading-snug">Personalised savings insights</p>
@@ -1035,7 +1727,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
               Upgrade to Pro to unlock AI-powered recommendations on your bills, subscriptions, energy, insurance, and more.
             </p>
           </div>
-          <div className="bg-white dark:bg-slate-800 px-5 py-4 space-y-2.5">
+          <div className="px-5 py-4 space-y-2.5">
             {["Bill optimisation (energy, broadband, insurance)", "Subscription spend analysis", "Grocery price intelligence", "Fuel savings near you"].map(f => (
               <div key={f} className="flex items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300">
                 <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center flex-shrink-0 text-indigo-600 dark:text-indigo-300">
@@ -1052,8 +1744,9 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
       )}
 
       {!loading && !locked && error && (
-        <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 text-[14px] text-red-600 dark:text-red-400">
-          {error}
+        <div className="glass-card-flat rounded-2xl p-4 flex items-start gap-1.5 text-[14px] text-slate-500 dark:text-slate-400">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1 bg-amber-500" aria-hidden="true" />
+          <span>{error}</span>
         </div>
       )}
 
@@ -1069,7 +1762,7 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           <button
             onClick={handleRefresh}
             disabled={refreshing || refreshQueued}
-            className="mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50"
+            className="mt-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             Find Savings
           </button>
@@ -1085,36 +1778,65 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
         </div>
       )}
 
-      {pinned.length > 0 && (
-        <div>
-          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">
-            Pinned
-          </p>
-          <div className="space-y-3">
-            {pinned.map(i => <InsightCard key={i.id} insight={i} workflow={workflows[i.category] ?? null} onPin={handlePin} onContextSaved={loadInsights} />)}
-          </div>
+      {(pinned.length > 0 || unpinned.length > 0) && (
+        <div className="space-y-5">
+          {TIP_GROUPS.map(group => {
+            const cards = groupCards(group.key);
+            if (cards.length === 0) return null;
+            const shapeJob = group.job && moneyShape?.jobs ? moneyShape.jobs.find(j => j.id === group.job) : undefined;
+            return (
+              <div key={group.key} className="space-y-2">
+                <div className="flex items-center gap-2 px-1">
+                  {group.job && <JobDot id={group.job} />}
+                  <span className="text-[13px] font-semibold normal-case text-slate-900 dark:text-slate-100">
+                    {group.label}
+                  </span>
+                  <span className="flex-1" />
+                  {shapeJob && (
+                    <span className="text-[12px] text-slate-500 dark:text-slate-400">
+                      <MoneyText text={`£${Math.round(shapeJob.amount).toLocaleString("en-GB")}`} /> · {Math.round(shapeJob.share)}%
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {cards.map(insight => (
+                    <div key={insight.id} className="space-y-1.5">
+                      <InsightCard
+                        insight={insight}
+                        workflow={workflows[insight.category] ?? null}
+                        onPin={handlePin}
+                        onContextSaved={loadInsights}
+                        anyOpenHasEstimate={anyOpenHasEstimate}
+                      />
+                      {insight.savings_estimate_monthly != null && group.job && moneyShape && moneyShape.status !== "thin" && (
+                        <ShapeAnchorStrip
+                          estimateMonthly={insight.savings_estimate_monthly}
+                          takeHome={moneyShape.take_home}
+                          job={group.job}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {unpinned.length > 0 && (
-        <div>
-          {pinned.length > 0 && (
-            <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2 px-1">
-              For You
-            </p>
-          )}
-          <div className="space-y-3">
-            {visibleUnpinned.map(i => <InsightCard key={i.id} insight={i} workflow={workflows[i.category] ?? null} onPin={handlePin} onContextSaved={loadInsights} />)}
-          </div>
-          {unpinned.length > VISIBLE_UNPINNED && (
-            <button
-              onClick={() => setShowAll(s => !s)}
-              className="w-full mt-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-all"
-            >
-              {showAll ? "Show fewer" : `Show ${hiddenCount} more way${hiddenCount === 1 ? "" : "s"} to save`}
-            </button>
-          )}
-        </div>
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setShowAll(s => !s)}
+          className="w-full py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-600 dark:text-slate-300 active:scale-[0.98] transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          {showAll ? "Show fewer" : `Show ${hiddenCount} more way${hiddenCount === 1 ? "" : "s"} to save`}
+        </button>
+      )}
+
+      {(pinned.length > 0 || unpinned.length > 0) && (
+        <p className="text-[12px] text-slate-500 dark:text-slate-400 text-pretty">
+          When an idea verifies, the next pay period&apos;s shape moves on its own. Nothing to log.
+        </p>
       )}
 
       {/* Improve your suggestions — collapsed housekeeping, default closed */}
@@ -1126,6 +1848,22 @@ export function SavingsInsightsSection({ embedded = false }: { embedded?: boolea
           setUnknownBills(prev => prev?.filter(b => b.merchant_key !== merchantKey))
         }
       />
+    </div>
+  );
+
+  if (splitColumns) {
+    return (
+      <div className="grid grid-cols-2 gap-4 items-start">
+        <div className="space-y-4">{heroColumn}</div>
+        {tipsColumn}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 pt-2">
+      {heroColumn}
+      {tipsColumn}
     </div>
   );
 }
@@ -1146,7 +1884,6 @@ export default function InsightsPage() {
   const [taxPensionAnnual, setTaxPensionAnnual] = useState(0);
   const [taxHasChildBenefit, setTaxHasChildBenefit] = useState(false);
   const [taxPrefsLoaded, setTaxPrefsLoaded] = useState(false);
-  const [savingsMoreOpen, setSavingsMoreOpen] = useState(false);
 
   const initialTabSet = useRef(false);
   const savingsSectionRef = useRef<HTMLDivElement>(null);
@@ -1212,14 +1949,15 @@ export default function InsightsPage() {
     setTaxPrefsLoaded(true);
   }, [rawPrefs]);
 
-  // Default to "Ways to save"; redirect ?tab=plan deep-links to /debt-plan.
+  // Default to "Ways to save"; redirect ?tab=plan deep-links to /cards (the
+  // debt-plan page's successor, /debt-plan itself retired 2026-08-30).
   useEffect(() => {
     if (!loading && !initialTabSet.current) {
       initialTabSet.current = true;
       const params = new URLSearchParams(window.location.search);
       const requested = params.get("tab");
       if (requested === "plan") {
-        router.replace("/debt-plan");
+        router.replace("/cards");
         return;
       }
       const chosen: "save" | "tax" = requested === "tax" ? "tax" : "save";
@@ -1254,10 +1992,7 @@ export default function InsightsPage() {
       ) : heroMode === "tax" ? (
         /* Neutral hero prototype: calm surface, colour in the icon chip and stat —
            Penny's gradient stays the only loud element */
-        <div
-          className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero"
-          data-tutorial-id="tutorial-debt-header"
-        >
+        <div className="mx-4 mt-4 rounded-3xl px-4 pt-5 pb-5 glass-hero">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-500 dark:text-violet-400 mb-0.5">Tax year {taxYear.label}</p>
@@ -1276,16 +2011,15 @@ export default function InsightsPage() {
             <span className="text-[11px] text-slate-500 dark:text-slate-400">5 Apr</span>
           </div>
         </div>
-      ) : (
-        /* Ways to save — plain header, matches Planning/Spend idiom */
-        <div className="px-4 pt-6 pb-2" data-tutorial-id="tutorial-debt-header">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">INSIGHTS</p>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Ways to save</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Personalised ways to spend less, start with the top one.</p>
-        </div>
-      )}
+      ) : null /* "Ways to save" plain title/subtitle retired — the Insights
+                   hero (rendered inside SavingsInsightsSection, just above
+                   its card list) now carries that header duty with real
+                   figures instead of static copy. Extra top padding on the
+                   content wrapper below (in place of this block's old
+                   pt-6 pb-2) keeps the same vertical rhythm before the
+                   hero as this used to give the plain title. */}
 
-      <div className="px-4 pt-4 space-y-3">
+      <div className={`px-4 space-y-3 ${heroMode === "tax" ? "pt-4" : "pt-6"}`}>
         {loading ? (
           <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
         ) : (
@@ -1294,22 +2028,18 @@ export default function InsightsPage() {
                 is no SegmentedControl. ?tab=tax still deep-links to TaxPage. */}
             {(() => {
               const waysBlock = (
-                <>
-                  <SavingsInsightsSection embedded />
-
-                  {/* ── Collapsed education section ── */}
-                  <div className="border-t border-slate-200/70 dark:border-slate-700/60 pt-2">
-                    <button
-                      onClick={() => setSavingsMoreOpen(v => !v)}
-                      className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 py-1 w-full text-left"
-                      aria-expanded={savingsMoreOpen}
-                    >
-                      <ChevronRight size={16} className={`text-slate-500 dark:text-slate-400 transition-transform flex-shrink-0 ${savingsMoreOpen ? "rotate-90" : ""}`} />
-                      More · learn the basics
-                    </button>
-                    {savingsMoreOpen && <MoneyBasicCard className="mt-2" />}
-                  </div>
-                </>
+                <SavingsInsightsSection embedded />
+              );
+              // Desktop, no Tax deep-link: the widest layout this page ever
+              // shows, so the hero/what-works/reference row get their own
+              // left column instead of sitting above a single centred
+              // "Ways to save" list (owner brief 2026-09-02: "left column =
+              // hero + what-works + reference row; right column = tips
+              // section"). Only used in that one branch below — the 2-col
+              // Ways|Tax layout and mobile both keep the stacked `waysBlock`,
+              // there's no room left for a THIRD column once Tax joins.
+              const waysBlockSplit = (
+                <SavingsInsightsSection embedded splitColumns />
               );
 
               const taxBlock = (
@@ -1326,27 +2056,34 @@ export default function InsightsPage() {
               // Desktop: no tabs — Ways to save leads. The retired Tax section
               // only joins the layout when deep-linked (?tab=tax).
               if (isDesktop) {
-                const columnTitle = (label: string, colour: string) => (
+                const columnTitle = (label: string, dotClassName: string) => (
                   <div className="flex items-center gap-2 px-1">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colour }} />
+                    <span className={`w-2 h-2 rounded-full ${dotClassName}`} />
                     <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</h2>
                   </div>
                 );
                 const waysSec = (
-                  <div key="save" className="space-y-3">{columnTitle("Ways to save", "#0d9488")}{waysBlock}</div>
+                  <div key="save" className="space-y-3">{columnTitle("Ways to save", "bg-teal-600")}{waysBlock}</div>
                 );
 
                 if (tab !== "tax") {
-                  // 1 column: Ways to save only
-                  return <div className="max-w-xl mx-auto">{waysSec}</div>;
+                  // Widest layout this page shows — hero/what-works/reference
+                  // row get their own left column, tips their own right
+                  // column (splitColumns, see waysBlockSplit above).
+                  return (
+                    <div className="max-w-4xl mx-auto space-y-3">
+                      {columnTitle("Ways to save", "bg-teal-600")}
+                      {waysBlockSplit}
+                    </div>
+                  );
                 }
 
                 const secondaryPlaceholder = (
-                  <div className="rounded-2xl bg-white dark:bg-slate-800 shadow-sm animate-pulse h-48" />
+                  <div className="glass-card-flat rounded-2xl animate-pulse h-48" />
                 );
                 const taxSec = (
                   <div key="tax" className="space-y-3">
-                    {columnTitle("Tax efficiency", "#7c3aed")}
+                    {columnTitle("Tax efficiency", "bg-slate-400 dark:bg-slate-500")}
                     {secondaryReady ? taxBlock : secondaryPlaceholder}
                   </div>
                 );
@@ -1365,7 +2102,7 @@ export default function InsightsPage() {
                 <div className="space-y-3">
                   <button
                     onClick={() => { setTab("save"); router.replace("/insights"); }}
-                    className="flex items-center gap-1 px-1 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                    className="flex items-center gap-1 px-1 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                   >
                     <ChevronLeft size={16} /> Ways to save
                   </button>

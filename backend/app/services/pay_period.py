@@ -95,3 +95,59 @@ def period_rhythm_label(config: dict) -> str | None:
     if t == "biweekly":
         return "every 2 weeks"
     return None  # "custom" — irregular, no clean rhythm to name
+
+
+# ── Current-period window boundary (2026-08-28 decision) ────────────────────
+#
+# Owner decision, verbatim (2026-08-28): "we still want to have some
+# visibility over the next pay period but I don't think it should count in
+# the existing one." A bill/income/inflow scheduled ON payday itself
+# (days_away == days_to_pay) belongs to the pay period that's about to
+# START, not the one ending today — it must stop counting in the current
+# period's at-risk/shortfall/to-last arithmetic, while staying VISIBLE as a
+# distinct "payday split" (see companion.py's `payday_split` payload).
+#
+# This makes the EXCLUSIVE boundary (`0 <= days_away < days_to_pay`) the one
+# true current-window boundary, used everywhere the window is computed:
+# companion.py's payday plan + shortfall/move-rec engine, spend_impact.py's
+# bills-risk walk, and analytics.py's at_risk_count. It was already, and
+# independently, the boundary `compute_safe_to_spend` (app/routers/
+# analytics.py) uses for its own event-timeline walk — that function is the
+# precedent this decision aligns the other three sites to, and it is NOT
+# changed by this decision.
+#
+# The one deliberate exception is the LAST-DAY LOOKAHEAD: once payday is
+# today or tomorrow (`days_to_pay <= 1`), the window still extends through
+# `days_to_pay + 5` INCLUSIVE of payday day itself. That widening exists to
+# assess the next period's first few days at the turn of the period, before
+# the next period's own cache has properly built out — behaviour that
+# predates and is unrelated to the payday-day-visibility decision above, and
+# stays exactly as it was. In that regime there is no separate "payday day"
+# slice: it is simply part of the (widened) current window, so
+# `is_payday_day` always reports False there — the two helpers below stay a
+# clean partition (current / payday-day / strictly-after) in every regime,
+# including the `days_to_pay == 0` edge case (today itself is a confirmed
+# payday) where the ordinary window is correctly empty and today's items
+# read as "payday day".
+def in_current_window(days_away: int, days_to_pay: int) -> bool:
+    """True when an item at `days_away` counts in the CURRENT pay period's
+    arithmetic (at-risk, shortfall, move-recommendation, to-last-payday
+    sims). Exclusive of payday day itself, except during the last-day
+    lookahead (`days_to_pay <= 1`), where the widened window still includes
+    it — see the module-level note above."""
+    if days_to_pay <= 1:
+        return 0 <= days_away <= days_to_pay + 5
+    return 0 <= days_away < days_to_pay
+
+
+def is_payday_day(days_away: int, days_to_pay: int) -> bool:
+    """True when an item falls exactly ON payday — visible (e.g. in
+    companion.py's `payday_split`) but deliberately excluded from
+    `in_current_window` so it stops counting in the period that's ending.
+    Always False during the last-day lookahead regime (`days_to_pay <= 1`),
+    since that widened window already swallows payday day as part of
+    `in_current_window` — see the module-level note above; the two helpers
+    must never both be True for the same item."""
+    if days_to_pay <= 1:
+        return False
+    return days_away == days_to_pay

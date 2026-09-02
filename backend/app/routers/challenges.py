@@ -6,10 +6,9 @@ from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
 from app.db.collections import (
-    challenges_col, budgets_col,
+    challenges_col,
     transactions_col, yapily_transactions_col,
 )
-from app.services.categories import get_category_kinds, is_non_spend
 from app.services.region import get_user_region, get_kenya_transactions
 
 router = APIRouter(tags=["challenges"])
@@ -181,36 +180,14 @@ async def _generate_all_challenges(uid: str) -> list[dict]:
     return new_docs
 
 
-async def _generate_budget_adherence_challenges(uid: str) -> None:
-    week_start, week_end = _week_bounds()
-    region   = await get_user_region(uid)
-    currency = "KES" if region == "Kenya" else "GBP"
-
-    budget_doc = await budgets_col.find_one({"user_id": uid, "region": region})
-    if not budget_doc:
-        return
-
-    # ONE kind-map read for the whole budget list.
-    kinds = await get_category_kinds(uid)
-
-    for b in budget_doc.get("budgets", []):
-        cat = b.get("category", "")
-        if not cat or b.get("planned", False) or is_non_spend(kinds, cat) or cat == "Bills":
-            continue
-        existing = await challenges_col.find_one(
-            {"uid": uid, "tier": "budget", "category": cat, "period_start": week_start}
-        )
-        if existing:
-            continue
-        weekly_target = round(b["monthly_limit"] / 4, 2)
-        await challenges_col.insert_one({
-            "_id": str(uuid_lib.uuid4()), "uid": uid, "tier": "budget", "cadence": "weekly",
-            "title": f"Stay within your {cat} budget this week", "category": cat,
-            "baseline": round(b["monthly_limit"], 2), "target": weekly_target,
-            "reduction_pct": 0.0, "currency": currency, "xp_reward": 20,
-            "period_start": week_start, "period_end": week_end,
-            "status": "active", "actual": None, "created_at": datetime.utcnow(),
-        })
+# 2026-08-30 (owner decision, option C): `_generate_budget_adherence_challenges`
+# (tier "budget") was removed here — it read budgets_col, now retired along
+# with the deleted /budget page. Evidence this was safe: the whole
+# Challenges feature (this router + frontend/components/ChallengesPanel.tsx)
+# has no live consumer already — ChallengesPanel is not imported by any
+# live page or component, only defined. Left the "easy"/"medium"/"stretch"
+# tiers alone since they are out of scope for this cleanup and don't touch
+# budgets_col.
 
 
 async def _compute_progress(ch: dict, all_txns: list) -> dict:
@@ -256,7 +233,6 @@ async def get_challenges(user: dict = Depends(current_user)):
     uid = user["email"]
     await _resolve_stale_challenges(uid)
     await _generate_all_challenges(uid)
-    await _generate_budget_adherence_challenges(uid)
 
     stats  = await _get_challenge_stats(uid)
     active = await challenges_col.find({"uid": uid, "status": "active", "period_start": {"$exists": True}}).to_list(None)
@@ -269,7 +245,6 @@ async def get_challenges(user: dict = Depends(current_user)):
 
     tier_order       = ["easy", "medium", "stretch"]
     tier_challenges  = []
-    budget_challenges = []
 
     for ch in sorted(
         [c for c in active if c.get("tier") in ("easy", "medium", "stretch")],
@@ -278,13 +253,6 @@ async def get_challenges(user: dict = Depends(current_user)):
         progress = await _compute_progress(ch, all_txns)
         tier_challenges.append(_fmt_challenge(ch, progress))
 
-    for ch in sorted(
-        [c for c in active if c.get("tier") == "budget"],
-        key=lambda c: c.get("category", "")
-    ):
-        progress = await _compute_progress(ch, all_txns)
-        budget_challenges.append(_fmt_challenge(ch, progress))
-
     history_docs = await challenges_col.find(
         {"uid": uid, "status": {"$in": ["completed", "failed"]}, "tier": {"$in": ["easy", "medium", "stretch"]}}
     ).sort("period_start", -1).limit(15).to_list(None)
@@ -292,6 +260,7 @@ async def get_challenges(user: dict = Depends(current_user)):
     return {
         "stats": stats,
         "challenges": tier_challenges,
-        "budget_challenges": budget_challenges,
+        # "budget_challenges" removed 2026-08-30 (owner decision, option C) —
+        # its source, tier "budget" challenges from budgets_col, is retired.
         "history": [_fmt_challenge(ch) for ch in history_docs],
     }

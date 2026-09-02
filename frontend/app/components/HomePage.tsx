@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, AlertTriangle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import { getToken, setToken } from "@/lib/auth";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -24,10 +24,13 @@ import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
+import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
+import ReconnectStrip from "@/components/ReconnectStrip";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
+import { useTutorialReady } from "@/components/TutorialContext";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -43,14 +46,122 @@ const PinnedWidgetCard = dynamic(
 // Token is guaranteed by AuthProvider before this component mounts
 async function ensureAuth() {}
 
+// Module-level warm-paint cache now lives in lib/homeCache.ts (getHomeCache/
+// setHomeCache/clearHomeCache) so AuthProvider's logout() can clear it
+// without importing this whole page component. See that file's doc comment
+// for the cache's own reasoning. `pageReady` below starts out true precisely
+// when a warm snapshot is present at mount — the hold is for cold loads
+// only. Only ever written once a mount has itself completed a full settle
+// (see the sync effect near the bottom of the component) so a rapid
+// double-navigation during the very first cold load can never seed this
+// with empty/default data.
+
+// Full-page loading skeleton — shown only while `pageReady` is false (a
+// cold load still settling; see HomePage below). Mirrors the real
+// layout's shape section-for-section so the reveal itself causes no
+// shift: greeting, hero, the three "Your money" strips, "Your estate"
+// rows and Recent Transactions rows, in the same positions and
+// approximate heights as the loaded page. The hero reuses
+// SafeToSpendCard's own `loading` skeleton (already used lower down in
+// this file); the estate and recent-transactions rows are the exact
+// skeleton markup already used further down in this file for those
+// sections, relocated rather than reinvented; the three strip
+// placeholders use the min-height values each of those files already
+// documents for their own loading skeleton (166 / 64 / 128px).
+function HomeSkeleton({ firstName }: { firstName?: string }) {
+  return (
+    <div
+      className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto"
+      aria-hidden="true"
+    >
+      {/* Left column */}
+      <div>
+        <div className="px-4 pt-6 lg:px-0 lg:pt-0">
+          <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+            {firstName ? `Hi, ${firstName}` : "Welcome back"}
+          </h1>
+        </div>
+
+        <div className="px-4 lg:px-0 mt-8">
+          <SafeToSpendCard data={null} loading cardDeltaSoFar={null} />
+        </div>
+
+        <div className="mt-8">
+          <div className="px-4 lg:px-0 mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Your money
+            </p>
+          </div>
+          <div className="space-y-3">
+            <div className="px-4 lg:px-0">
+              <div className="w-full min-h-[166px] glass-card rounded-2xl animate-pulse" />
+            </div>
+            <div className="px-4 lg:px-0">
+              <div className="h-16 rounded-2xl glass-card animate-pulse" />
+            </div>
+            <div className="px-4 lg:px-0">
+              <div className="h-32 rounded-2xl glass-card animate-pulse" />
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 lg:px-0 mt-8">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Your estate</p>
+          </div>
+          <div className="glass-card rounded-2xl overflow-hidden divide-y divide-slate-100 dark:divide-white/5">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-[60px] px-4 py-2.5 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-700 animate-pulse flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3.5 w-28 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                  <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                </div>
+                <div className="h-3.5 w-14 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right column */}
+      <div>
+        <div className="px-4 mb-4 lg:px-0 mt-8 lg:mt-0">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 lg:pt-0">Recent Transactions</p>
+          </div>
+          <div className="glass-card rounded-2xl overflow-hidden">
+            <div className="p-4 space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
+                  <div className="flex-1 space-y-1">
+                    <div className="h-3.5 w-36 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                    <div className="h-2.5 w-20 bg-slate-100 dark:bg-slate-700 rounded animate-pulse" />
+                  </div>
+                  <div className="h-3.5 w-14 bg-slate-200 dark:bg-slate-700 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
   const { hideNetWorth, payPeriodConfig, region, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>([]);
+  // Read once per render so every initializer/guard below sees the same
+  // snapshot — see lib/homeCache.ts for what this cache is and why it's
+  // there.
+  const homeCache = getHomeCache();
+  const [accounts, setAccounts] = useState<Account[]>(homeCache?.accounts ?? []);
+  const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>(homeCache?.investmentAccounts ?? []);
   // Fed only by the lazy 90-day bulk fetch below, gated on homePinnedWidget —
   // the sole remaining consumer is the pinned chart widget via homeTxns.
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -58,33 +169,108 @@ export default function HomePage() {
   // the /transactions hub uses (server-sorted across every source) — replaces
   // reading off the 90-day bulk fetch so the section paints without waiting
   // on it, and correction lands through TeachingSheet like everywhere else.
-  const [recentTxns, setRecentTxns] = useState<Transaction[]>([]);
+  const [recentTxns, setRecentTxns] = useState<Transaction[]>(homeCache?.recentTxns ?? []);
   // Bumped once per loadData call (mount and every handleSync) — re-couples
   // the lazy bulk-fetch effect below to loadData without pulling the fetch
   // itself back into loadData's own body. See that effect's comment.
   const [bulkNonce, setBulkNonce] = useState(0);
-  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(homeCache?.safeToSpend ?? null);
+  // Cold-load-only initial value: `true` unless a warm `homeCache` snapshot
+  // already exists (see that module-level cache's own doc comment), in
+  // which case there is nothing to hold for and every gate below starts
+  // pre-cleared.
+  const [loading, setLoading] = useState(!homeCache);
   // Per-fetch skeleton gates: the Safe-to-Spend tile and the transactions
   // list each clear as soon as their OWN request settles — nothing waits on
   // the heavy 90-day transactions call (which no longer feeds this list at all).
-  const [stsLoading, setStsLoading] = useState(true);
-  const [txLoading, setTxLoading] = useState(true);
+  const [stsLoading, setStsLoading] = useState(!homeCache);
+  const [txLoading, setTxLoading] = useState(!homeCache);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const { pinned: pinnedCards } = useHomePinnedCards();
-  const [companionItems, setCompanionItems] = useState<CompanionItem[]>([]);
+  const [companionItems, setCompanionItems] = useState<CompanionItem[]>(homeCache?.companionItems ?? []);
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
   // in HomeBrief.tsx) — HomeBriefClearedRow is mounted here, below
   // SafeToSpendCard, as HomeBrief's own sibling rather than its child, so
   // the "cleared" row's derived state has to travel up via this callback
   // instead of just being rendered in place.
   const [clearedAdvice, setClearedAdvice] = useState<{ count: number; type: CompanionItem["type"] } | null>(null);
-  const [needle, setNeedle] = useState<NeedleSummary | null>(null);
-  const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">("loading");
+  // Fed by HomeBrief's onInsightWinVisibleChange (see BriefBodyProps in
+  // HomeBrief.tsx) — owner decision A1, Home dedup review 2026-08-31: while
+  // a live insight_win celebration card is showing on Home, ValueDeliveredStat's
+  // "£X/mo saved" chip below hides (one voice at a time, story then ledger).
+  const [insightWinVisible, setInsightWinVisible] = useState(false);
+  const [needle, setNeedle] = useState<NeedleSummary | null>(homeCache?.needle ?? null);
+  const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">(homeCache?.needleStatus ?? "loading");
+
+  // ── Full-page loading hold ───────────────────────────────────────────
+  // The owner's call: hold the whole page until Home has settled, then
+  // reveal the finished layout in one go, rather than letting each section
+  // insert itself independently and shove the content the user is already
+  // reading down the page. `pageReady` gates a single top-level
+  // skeleton-vs-real-tree swap in the JSX below; nothing inside the real
+  // tree's own conditional rendering changes, since it's mounted (fetching
+  // normally, so the three self-fetching strips below can report in) but
+  // hidden the whole time it isn't shown, and revealed with a plain
+  // display toggle — no transition, no stagger, no fade (see req: no
+  // visibility-gating animation on the reveal).
+  const [pageReady, setPageReady] = useState(!!homeCache);
+  // Readiness inputs this page cannot see on its own: UpcomingBillsStrip,
+  // ThisMonthStrip and HomeInsightSpotlight each run their own fetch
+  // (ThisMonthStrip only when HomePage hasn't handed it `summary`/
+  // `summaryStatus` — see its own props). Each calls the onReady prop
+  // wired below exactly once, in a `finally`, on both success and
+  // failure, and never again on a later revalidation (retry, resync,
+  // dismiss-and-reload) — see each file's own onReady wiring.
+  const [billsReady, setBillsReady] = useState(!!homeCache);
+  const [monthReady, setMonthReady] = useState(!!homeCache);
+  const [spotlightReady, setSpotlightReady] = useState(!!homeCache);
+  const onBillsReady = useCallback(() => setBillsReady(true), []);
+  const onMonthReady = useCallback(() => setMonthReady(true), []);
+  const onSpotlightReady = useCallback(() => setSpotlightReady(true), []);
+  // Guards `reveal` below to a single call per mount — a warm mount starts
+  // this (and `pageReady`) already true, so the readiness effect and the
+  // timeout effect underneath both become instant no-ops for it.
+  const revealedRef = useRef(!!homeCache);
+  const reveal = useCallback(() => {
+    if (revealedRef.current) return;
+    revealedRef.current = true;
+    setPageReady(true);
+  }, []);
+  // Every readiness input, ANDed together: HomePage's own primary fetches
+  // (`loading` — accounts/investments/companion-items/needle/recent-txns,
+  // see loadData below — plus `stsLoading` and `txLoading`, which clear
+  // independently of `loading` for their own tiles) and the three
+  // self-fetching children's onReady signals. If any one of these never
+  // resolves (several of the underlying fetches already swallow errors
+  // with `.catch(() => {})`), this effect simply never fires — that's what
+  // the timeout effect below exists to cover.
+  useEffect(() => {
+    if (revealedRef.current) return;
+    const allSettled = !loading && !stsLoading && !txLoading && billsReady && monthReady && spotlightReady;
+    if (allSettled) reveal();
+  }, [loading, stsLoading, txLoading, billsReady, monthReady, spotlightReady, reveal]);
+  // Non-negotiable release valve: whatever hasn't arrived within 5000ms of
+  // this mount is shown as-is (its own section falls back to its existing
+  // inner skeleton/empty state) rather than leaving the user stuck on the
+  // full-page skeleton indefinitely. No-op on a warm mount (revealedRef
+  // already true).
+  useEffect(() => {
+    if (revealedRef.current) return;
+    const t = setTimeout(reveal, 5000);
+    return () => clearTimeout(t);
+  }, [reveal]);
+  // Keeps the module-level warm-paint cache current for the next mount —
+  // only once this mount has itself completed a settle (guarded on
+  // `revealedRef.current`), so a rapid double back-navigation during the
+  // very first cold load can never seed the cache with empty/default data.
+  useEffect(() => {
+    if (!revealedRef.current) return;
+    setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, recentTxns, needle, needleStatus });
+  });
 
   const loadData = useCallback(async () => {
     setLoadError(false);
@@ -164,6 +350,15 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Tour readiness: `loading` only clears once accsP (estate section) and
+  // safeP (hero) have both settled (see loadData above), so it already
+  // covers both anchors below — no need to also gate on stsLoading/txLoading.
+  // Also gated on `pageReady`: the anchored elements live in the real tree,
+  // which stays display:none until the page-level hold releases (see
+  // `pageReady` above), so they aren't actually painted before then even
+  // once `loading` itself has cleared.
+  useTutorialReady("home", pageReady && !loading);
 
   // The 90-day bulk fetch (transactions state) now feeds only the opt-in
   // pinned chart widget below, via homeTxns — Recent Transactions has its
@@ -325,14 +520,36 @@ export default function HomePage() {
   // ── Attention glow — at most one card glows per screen; priority resolved
   // centrally so no component can independently decide to glow (lib/attention.ts).
   // No fallback rung: Safe-to-Spend no longer glows on its own tight/short
-  // verdict (removed 2026-08-18, see lib/attention.ts doctrine comment) —
-  // when reconnect/sync/payday are all clear, nothing glows.
-  const hasLivePlan = companionItems.some(i => i.type === "payday_plan");
-  const attn = resolveAttention({
-    hasExpiredProvider: expiredProviders.length > 0,
-    syncError,
-    hasLivePlan,
-  });
+  // verdict (removed 2026-08-18, see lib/attention.ts doctrine comment).
+  // "reconnect" was removed from the resolver entirely (2026-08-28, see
+  // lib/attention.ts) — the expired-provider banner's own amber icon chip is
+  // its attention voice now. "payday" was removed the same way (2026-08-29,
+  // owner: no glow/ring on the payday plan card) — the card's own Penny
+  // branding and hero figure are its attention voice. Sync error is now the
+  // only rung; when it's clear, nothing on Home glows.
+  const attn = resolveAttention({ syncError });
+
+  // Reauth banner — rendered inside HomeBrief, directly under the greeting
+  // row (2026-08-28, phone review, second time): a dead connection means
+  // every figure below it (Safe-to-Spend, the month strip, the payday plan
+  // card) may be stale, so it must outrank all of them, including the
+  // payday plan card that lives INSIDE HomeBrief. Passing it as a sibling
+  // after the <HomeBrief> div (the previous fix) still left it below that
+  // card, since the greeting and the payday plan both render inside
+  // HomeBrief itself — only HomeBrief's own `banner` slot sits above both.
+  //
+  // Shape: Variant C, "quiet strip, progressive disclosure" (chosen by the
+  // owner 2026-08-28 from the three coded directions at /design/reconnect,
+  // see app/design/reconnect/ReconnectClient.tsx), replacing the interim
+  // glass-card-per-provider format above. A status dot is the amber
+  // signifier now, not an icon chip — the quietest cue the app has — and
+  // N>1 collapses behind a native disclosure instead of stacking one full
+  // card per provider. No glow (see lib/attention.ts): the status dot is
+  // this banner's own attention voice, so "reconnect" was removed from the
+  // attention resolver outright rather than gated here.
+  const reauthBanner = expiredProviders.length > 0 && (
+    <ReconnectStrip providers={expiredProviders} onReconnect={handleReconnect} />
+  );
 
   return (
     <div className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -345,8 +562,18 @@ export default function HomePage() {
           </p>
         </div>
       )}
+      {/* Full-page skeleton — cold loads only, see `pageReady` above. The
+          real tree below stays mounted the whole time (so the three
+          self-fetching strips can report their onReady in) but hidden via
+          a plain display toggle, never unmounted, so nothing here ever
+          double-fetches and the reveal is instant with no transition. */}
+      {!pageReady && <HomeSkeleton firstName={firstName} />}
+
       {/* Desktop 2-col grid wrapper */}
-      <div className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto">
+      <div
+        className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto"
+        style={pageReady ? undefined : { display: "none" }}
+      >
 
         {/* ── Left column: brief, KPIs, accounts, donut ── */}
         <div>
@@ -367,6 +594,8 @@ export default function HomePage() {
               dismissible
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
+              onInsightWinVisibleChange={setInsightWinVisible}
+              banner={reauthBanner}
             />
           </div>
 
@@ -376,7 +605,7 @@ export default function HomePage() {
               section below is suppressed entirely in this state so it never
               duplicates. */}
           {isFreshUser && (
-            <div className="px-4 lg:px-0 mt-6">
+            <div data-tutorial-id="tutorial-home-fresh" className="px-4 lg:px-0 mt-6">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5">
                 <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-1">
                   Connect your first bank
@@ -386,6 +615,7 @@ export default function HomePage() {
                 </p>
                 <button
                   onClick={() => handleReconnect()}
+                  data-tutorial-id="tutorial-home-fresh-cta"
                   className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
                 >
                   Connect a bank
@@ -415,7 +645,7 @@ export default function HomePage() {
               means no real Safe-to-Spend data, and it must never render a
               "£0" shell — the onboarding hero above is the whole story. */}
           {!loadError && !isFreshUser && (
-            <div className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
+            <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
               {(() => {
                 const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
@@ -447,29 +677,9 @@ export default function HomePage() {
                   Mirror row) relocated to its own rich entry card on the
                   Penny screen (its permanent home now), reached via the
                   nav's Penny button. */}
-              {!loading && <ValueDeliveredStat />}
+              {!loading && !insightWinVisible && <ValueDeliveredStat />}
             </div>
           )}
-
-          {/* Reauth banners */}
-          {expiredProviders.map(({ provider, provider_id }, idx) => (
-            <div
-              key={provider}
-              className={`mt-4 mx-4 flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl px-4 py-3 lg:mx-0${attn === "reconnect" && idx === 0 ? " needs-you" : ""}`}
-            >
-              <AlertTriangle size={15} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{provider} needs reconnecting</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Transactions have stopped syncing.</p>
-              </div>
-              <button
-                onClick={() => handleReconnect(provider_id)}
-                className="flex-shrink-0 text-xs font-semibold bg-amber-500 hover:bg-amber-600 active:scale-95 transition-[transform,background-color] text-white px-3 py-1.5 rounded-lg"
-              >
-                Reconnect
-              </button>
-            </div>
-          ))}
 
           {/* ── YOUR MONEY ── suppressed for a fresh user (bills/spend
               strips have nothing to show without connected accounts). */}
@@ -481,9 +691,9 @@ export default function HomePage() {
                 </p>
               </div>
               <div className="space-y-3">
-                <UpcomingBillsStrip />
-                <ThisMonthStrip summary={needle} summaryStatus={needleStatus} />
-                <HomeInsightSpotlight />
+                <UpcomingBillsStrip onReady={onBillsReady} />
+                <ThisMonthStrip summary={needle} summaryStatus={needleStatus} onReady={onMonthReady} />
+                <HomeInsightSpotlight onReady={onSpotlightReady} />
               </div>
             </div>
           )}

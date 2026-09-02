@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { api } from "@/lib/api";
+import { api, DebtBurndownOverrides } from "@/lib/api";
 import { PayPeriodConfig, DEFAULT_PAY_PERIOD_CONFIG } from "@/lib/payPeriod";
 
 export type Region = "UK" | "Kenya";
@@ -13,8 +13,10 @@ interface Prefs {
   debtTargetMonths: number;
   debtTrackingStart: string;
   spendWidgets: string[] | null;
-  budgetWidgets: string[] | null;
   homePinnedWidget: string | null;
+  // "What-if" overrides for the debt_burndown Spend widget — local
+  // experimentation only, never written back to the account/card records.
+  debtBurndownOverrides: DebtBurndownOverrides | null;
   rawPrefs: Record<string, any> | null;
 }
 interface PrefsCtx extends Prefs {
@@ -25,8 +27,8 @@ interface PrefsCtx extends Prefs {
   setDebtTargetMonths: (n: number) => void;
   setDebtTrackingStart: (s: string) => void;
   setSpendWidgets: (v: string[]) => void;
-  setBudgetWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
+  setDebtBurndownOverrides: (v: DebtBurndownOverrides | null) => void;
 }
 
 const todayYM = () => new Date().toISOString().slice(0, 7);
@@ -39,8 +41,8 @@ const Ctx = createContext<PrefsCtx>({
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
   spendWidgets: null,
-  budgetWidgets: null,
   homePinnedWidget: null,
+  debtBurndownOverrides: null,
   rawPrefs: null,
   setHideNetWorth: () => {},
   setDarkMode: () => {},
@@ -49,8 +51,8 @@ const Ctx = createContext<PrefsCtx>({
   setDebtTargetMonths: () => {},
   setDebtTrackingStart: () => {},
   setSpendWidgets: () => {},
-  setBudgetWidgets: () => {},
   setHomePinnedWidget: () => {},
+  setDebtBurndownOverrides: () => {},
 });
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
@@ -65,8 +67,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
   const [spendWidgets, setSpendWidgetsState] = useState<string[] | null>(null);
-  const [budgetWidgets, setBudgetWidgetsState] = useState<string[] | null>(null);
   const [homePinnedWidget, setHomePinnedWidgetState] = useState<string | null>(null);
+  const [debtBurndownOverrides, setDebtBurndownOverridesState] = useState<DebtBurndownOverrides | null>(null);
   const [rawPrefs, setRawPrefs] = useState<Record<string, any> | null>(null);
 
   useEffect(() => {
@@ -81,8 +83,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if ((p as any).debt_target_months) setDebtTargetMonthsState((p as any).debt_target_months as number);
       if ((p as any).debt_tracking_start) setDebtTrackingStartState((p as any).debt_tracking_start as string);
       if (Array.isArray(p.spend_widgets)) setSpendWidgetsState(p.spend_widgets as string[]);
-      setBudgetWidgetsState(Array.isArray((p as any).budget_widgets) ? ((p as any).budget_widgets as string[]) : []);
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
+      if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
       setRawPrefs(p as any);
     }).catch(() => {});
   }, []);
@@ -130,20 +132,20 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setSpendWidgetsState(v);
   }, []);
 
-  const setBudgetWidgets = useCallback((v: string[]) => {
-    setBudgetWidgetsState(v);
-  }, []);
-
   const setHomePinnedWidget = useCallback((v: string | null) => {
     setHomePinnedWidgetState(v);
+  }, []);
+
+  const setDebtBurndownOverrides = useCallback((v: DebtBurndownOverrides | null) => {
+    setDebtBurndownOverridesState(v);
   }, []);
 
   return (
     <Ctx.Provider value={{
       hideNetWorth, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
-      spendWidgets, budgetWidgets, homePinnedWidget, rawPrefs,
+      spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
-      setSpendWidgets, setBudgetWidgets, setHomePinnedWidget,
+      setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides,
     }}>
       {children}
     </Ctx.Provider>

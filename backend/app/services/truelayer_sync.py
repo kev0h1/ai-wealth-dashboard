@@ -15,6 +15,7 @@ from app.services.notifications import notify_after_sync
 from app.core.crypto import encrypt_token, decrypt_token
 from app.db.collections import connections_col, accounts_col, transactions_col, excluded_accounts_col
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
+from app.services.pending_transactions import replace_pending_for_account
 
 
 def _parse_iso_utc(s: Optional[str]) -> Optional[datetime]:
@@ -129,6 +130,24 @@ async def _upsert_transactions(txns: list, account_id: str, user_id: str, is_car
                 "currency":      txn["currency"],
             })
     return new_txns
+
+
+def _normalise_pending_row(txn: dict) -> Optional[dict]:
+    """Map a TrueLayer GET .../transactions/pending result into the common
+    shape `replace_pending_for_account` expects. Returns None for a row
+    missing the one field (`transaction_id`) everything else keys off."""
+    txn_id = txn.get("transaction_id")
+    if not txn_id:
+        return None
+    amount = txn.get("amount", 0)
+    return {
+        "transaction_id":   txn_id,
+        "date":             _parse_iso_utc(txn.get("timestamp")) or datetime.utcnow(),
+        "amount":           amount,
+        "description":      txn.get("description") or "",
+        "merchant_name":    txn.get("merchant_name") or "",
+        "transaction_type": "debit" if amount < 0 else "credit",
+    }
 
 
 async def cull_orphaned_connections(grace_hours: int = 24) -> int:
@@ -273,9 +292,10 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
             available  = None
             balance_ok = False
             try:
-                br, tr = await asyncio.gather(
+                br, tr, pr = await asyncio.gather(
                     client.get(f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/balance", headers=headers),
                     _fetch_txns(f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/transactions", sync_from),
+                    client.get(f"{TRUELAYER_API_URL}/data/v1/accounts/{account_id}/transactions/pending", headers=headers),
                 )
                 if br.status_code == 200:
                     res = br.json().get("results", [])
@@ -290,6 +310,19 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
                     all_new_txns.extend(new)
                 else:
                     logger.warning("Transaction fetch failed for account %s: HTTP %s", account_id, tr.status_code)
+                # Bank-side PENDING transactions (see app/services/
+                # pending_transactions.py) — only acted on when the fetch
+                # succeeds; a failed fetch must never wipe a genuinely
+                # pending set already stored (same "never overwrite a known
+                # good value with a failure" rule as the balance fetch above).
+                if pr.status_code == 200:
+                    pending_rows = [
+                        row for row in (_normalise_pending_row(t) for t in pr.json().get("results", []))
+                        if row is not None
+                    ]
+                    await replace_pending_for_account(pending_rows, account_id, user_id, provider="TrueLayer")
+                else:
+                    logger.warning("Pending transaction fetch failed for account %s: HTTP %s", account_id, pr.status_code)
             except Exception:
                 logger.exception("Sync error for account %s", account_id)
             # Never overwrite a known balance with 0 from a failed fetch

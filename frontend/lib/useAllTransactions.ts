@@ -17,7 +17,7 @@ async function fetchAll(force = false): Promise<Transaction[]> {
   return inflight;
 }
 
-export function invalidateTransactionsCache() { cache = null; }
+export function invalidateTransactionsCache() { cache = null; inflight = null; }
 
 export function useAllTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>(cache?.data ?? []);

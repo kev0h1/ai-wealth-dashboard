@@ -10,6 +10,7 @@ percentages) — never an instruction. 'options' use generic trade-off
 phrasing ("some people ...", "overpaying debt is a guaranteed return ...")
 and never say "you should".
 """
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -29,6 +30,7 @@ from app.services.debt_plan import get_debt_plan_cached, MATERIAL_BALANCE
 from app.routers.investments import _investment_display
 
 router = APIRouter(tags=["grow"])
+logger = logging.getLogger(__name__)
 
 DAYS_PER_MONTH = 30.44
 FULL_FUND_MONTHS = 3
@@ -47,6 +49,16 @@ TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/insights?tab=t
 
 def _money(x: float) -> str:
     return f"£{x:,.0f}"
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """Tolerant float coercion for stored preference fields. A poisoned
+    (non-numeric) income_value/pension_annual doc must degrade to the
+    surface's existing no-income state, not 500 the whole endpoint."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _taper_loss(adjusted_income: float) -> float:
@@ -71,10 +83,10 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
     maths fails — callers then keep the existing locked state.
     """
     try:
-        income = float(prefs.get("income_value") or 0)
+        income = _safe_float(prefs.get("income_value") or 0)
         if income <= 0:
             return None
-        pension_annual = float(prefs.get("pension_annual") or 0)
+        pension_annual = _safe_float(prefs.get("pension_annual") or 0)
         bracket = str(prefs.get("income_bracket") or "")
         # Adjusted income mirrors TaxPage.tsx: income minus annual pension
         # contributions (the figure the taper is assessed against).
@@ -153,6 +165,36 @@ def _pension_rung_facts(prefs: dict) -> Optional[dict]:
         return None
 
 
+def _period_gate(sts: dict) -> dict:
+    """Derive the period-truth gate from `compute_safe_to_spend`'s result.
+
+    Owner decision, 2026-08-30: "if I'm short and to say I have money to
+    stash away doesn't make sense." Grow's typical-month surplus is a
+    90-day smoothed median (see `_cashflow`) and can read positive even
+    while the CURRENT pay period is short — Home's Safe-to-Spend hero
+    already gives that same fact its "Short this pay period, £X to cover"
+    reading (state == "short", the only state that reserves a genuine
+    shortfall; "comfortable"/"tight" both keep spare-framing valid). This
+    function borrows that exact condition, unmodified, so Grow can never
+    disagree with Home or Planning about whether the user is short right
+    now. Pure and DB-free so it's unit-testable without mocking
+    `compute_safe_to_spend`'s whole DB fan-out (mirrors
+    `net_position.short_reason_for`'s own factoring).
+
+    Returns `{"short": False, "to_cover": 0.0, "period_end": None}` when
+    `compute_safe_to_spend` couldn't resolve (status != "ok") — degrading
+    to "not short" rather than fabricating a gate from absent data.
+    """
+    if sts.get("status") != "ok":
+        return {"short": False, "to_cover": 0.0, "period_end": None}
+    short = sts.get("state") == "short"
+    return {
+        "short": short,
+        "to_cover": round(abs(float(sts.get("safe_to_spend") or 0.0)), 2) if short else 0.0,
+        "period_end": sts.get("next_payday"),
+    }
+
+
 async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
     """Earliest active 0% promo end (ISO date) across the given card accounts."""
     if not account_ids:
@@ -188,6 +230,20 @@ async def grow_view(user: dict = Depends(current_user)):
     except Exception:
         _prefs = {}
     pension_facts = _pension_rung_facts(_prefs)
+
+    # ── Period gate (reuses analytics.py's compute_safe_to_spend — the same
+    # period-scoped, allocation-aware figure Home's Safe-to-Spend hero and
+    # Planning's runway already read) ─────────────────────────────────────
+    # Lazy import: avoids a circular import at module load, same pattern as
+    # app/services/pace.py, app/services/spend_impact.py and
+    # app/routers/planned.py's own calls into this function.
+    from app.routers.analytics import compute_safe_to_spend
+    try:
+        _sts = await compute_safe_to_spend(uid)
+    except Exception:
+        logger.exception("grow: compute_safe_to_spend failed for %s — treating as not short", uid)
+        _sts = {"status": "insufficient_data"}
+    period_gate = _period_gate(_sts)
 
     # ── Surplus & buffer (reuses savings.py helpers) ─────────────────────────
     monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
@@ -282,10 +338,17 @@ async def grow_view(user: dict = Depends(current_user)):
     else:
         essentials_gap = round(monthly_income - monthly_spending, 2)
         essentials_resolved = "done" if essentials_gap >= 0 else "not_done"
+        # "In a typical month, " owns the lens explicitly: this rung is always
+        # the 90-day smoothed median (see `_cashflow`), never the current pay
+        # period. Without this prefix a CLEARED green tick here can land right
+        # under the hero's red "this period needs you" verdict with no lens
+        # change announced — same fact, two different time windows, no signal
+        # that they're different. Applies in both the covered and short states
+        # (it's always the typical-month claim, not just during a period gate).
         essentials_detail = (
-            f"Your everyday spending fits within your income, with about {_money(essentials_gap)}/month to spare. This excludes savings, investments and debt repayments"
+            f"In a typical month, your everyday spending fits within your income, with about {_money(essentials_gap)}/month to spare. This excludes savings, investments and debt repayments"
             if essentials_gap >= 0
-            else f"Your everyday spending is about {_money(-essentials_gap)}/month more than your income. This excludes savings, investments and debt repayments"
+            else f"In a typical month, your everyday spending is about {_money(-essentials_gap)}/month more than your income. This excludes savings, investments and debt repayments"
         )
 
     # pension_match: personalised from stored income preferences when present,
@@ -445,4 +508,5 @@ async def grow_view(user: dict = Depends(current_user)):
         "invest": invest,
         "ladder": ladder,
         "notes": notes,
+        "period_gate": period_gate,
     }

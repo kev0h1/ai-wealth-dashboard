@@ -1,22 +1,18 @@
 """Cross-pillar headline goals — one per pillar, auto-tracked.
 
 The research-backed model: a single headline goal per pillar (debt-free,
-safety net funded, inside budget), tracked by the system, surfaced at
-moments (Home scoreboard, Penny context, period-start digest) rather than
-maintained as milestone checklists.
+safety net funded), tracked by the system, surfaced at moments (Home
+scoreboard, Penny context, period-start digest) rather than maintained as
+milestone checklists. A third pillar, "inside budget", was retired
+2026-08-30 — see the note in goals_summary() below.
 """
-from datetime import datetime, timedelta, date as _date
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
-from app.db.collections import (
-    accounts_col, debt_plans_col, savings_goals_col, budgets_col, preferences_col,
-    transactions_col, yapily_transactions_col,
-)
-from app.services.categories import get_category_kinds, is_non_spend
+from app.db.collections import accounts_col, debt_plans_col, savings_goals_col
 from app.services.region import get_user_region
-from app.services.pay_period import get_pay_period_for_date
 
 router = APIRouter(tags=["goals"])
 
@@ -27,37 +23,8 @@ async def _current_total_debt(uid: str) -> float:
     return round(sum(abs(a["balance"]) for a in cc), 2)
 
 
-async def budget_period_spend(uid: str, start: _date, end: _date) -> dict[str, float]:
-    """Net spend per category (refunds subtract) over a period, GBP only.
-
-    Non-spend categories (declared kind movement or income) are dropped: they
-    are money moved, not consumed, so they never count against a budget.
-    """
-    # ONE kind-map read for the whole period scan — the predicate below runs
-    # once per transaction and must not touch the database.
-    kinds = await get_category_kinds(uid)
-    start_dt = datetime(start.year, start.month, start.day)
-    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
-    spend: dict[str, float] = {}
-    q = {"user_id": uid, "date": {"$gte": start_dt, "$lte": end_dt}}
-    proj = {"amount": 1, "category": 1, "custom_category": 1, "transaction_type": 1, "currency": 1}
-    for col in (transactions_col, yapily_transactions_col):
-        for t in await col.find(q, proj).to_list(None):
-            if t.get("currency") not in (None, "", "GBP"):
-                continue
-            ttype = t.get("transaction_type")
-            if ttype not in ("debit", "credit"):
-                continue
-            cat = t.get("custom_category") or t.get("category") or "Other"
-            if is_non_spend(kinds, cat):
-                continue
-            amt = abs(float(t.get("amount", 0) or 0))
-            spend[cat] = spend.get(cat, 0.0) + (-amt if ttype == "credit" else amt)
-    return spend
-
-
 async def goals_summary(uid: str, region: str) -> list[dict]:
-    """Up to three headline goals; pillars without a plan/budget are omitted."""
+    """Up to two headline goals; pillars without a plan/goal are omitted."""
     goals: list[dict] = []
     sym = "KSh " if region == "Kenya" else "£"
 
@@ -95,28 +62,14 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
                 "done": current >= target, "url": "/grow",
             })
 
-    # Budget — inside the envelope this pay period (GBP regions only for now)
-    budget_doc = await budgets_col.find_one({"user_id": uid, "region": region})
-    limits = {b["category"]: b["monthly_limit"]
-              for b in (budget_doc or {}).get("budgets") or [] if b.get("monthly_limit")}
-    if limits and region != "Kenya":
-        prefs = await preferences_col.find_one({"user_id": uid}, {"pay_period_config": 1})
-        pay_config = (prefs or {}).get("pay_period_config", {"type": "calendar_month"})
-        start, end = get_pay_period_for_date(_date.today(), pay_config)
-        spend = await budget_period_spend(uid, start, end)
-        total_limit = sum(limits.values())
-        spent = sum(max(0.0, spend.get(c, 0.0)) for c in limits)
-        over = [c for c, lim in limits.items() if spend.get(c, 0.0) > lim]
-        # Label states the truth, not the aspiration — "Inside budget" while
-        # overspent reads as a bug to the user.
-        blown = bool(over) or (total_limit > 0 and spent > total_limit)
-        goals.append({
-            "pillar": "budget", "label": "Over budget" if blown else "Inside budget",
-            "detail": f"{sym}{spent:,.0f} of {sym}{total_limit:,.0f}"
-                      + (f" · {len(over)} over" if over else ""),
-            "pct": round(min(1.0, spent / total_limit) * 100) if total_limit > 0 else 0,
-            "done": False, "at_risk": blown, "url": "/budget",
-        })
+    # 2026-08-30 (owner decision, option C): the "Budget — inside the
+    # envelope" pillar that used to live here was removed. Its data source
+    # (budgets_col) was retired along with the deleted /budget page, and its
+    # only live surface (GoalsStrip) was already gone — GoalsStrip and this
+    # module's goals_summary() are only reachable from the archived
+    # frontend/app/design/v1|v2|v3 exploration pages, not the live Home.
+    # Pace-vs-typical (app.services.notifications._maybe_category_pace)
+    # carries the ambient overspend signal now.
 
     return goals
 

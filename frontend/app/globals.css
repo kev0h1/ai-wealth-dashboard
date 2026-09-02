@@ -629,10 +629,142 @@ input[type="date"]::-webkit-calendar-picker-indicator {
      above) — nothing left for this fallback to flatten. */
 }
 
-/* ── Story slide transition ──────────────────────────────────────────────── */
-@keyframes storySlideIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
-.story-slide-in { animation: storySlideIn 200ms ease-out both; }
-@media (prefers-reduced-motion: reduce) { .story-slide-in { animation: none; } }
+/* ── Story slide transition ────────────────────────────────────────────────
+   Content is visible from frame 0 (no opacity gating — house rule, and a
+   past staggered-reveal shipped blank sections in production). Motion only
+   translates/scales/settles: a short vertical settle with a touch of blur
+   that resolves to sharp, reads as "composed" rather than the old sideways
+   slide-in-from-the-right. */
+@keyframes storySlideIn {
+  from { transform: translateY(10px) scale(0.985); filter: blur(5px); }
+  to   { transform: translateY(0) scale(1); filter: blur(0); }
+}
+.story-slide-in { animation: storySlideIn 240ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .story-slide-in { animation: none; transform: none; filter: none; }
+}
+
+/* Hero money figure on a story slide — settles a beat after the slide body
+   (60ms stagger), landing right as its count-up starts ticking. Transform
+   only, same no-visibility-gating rule as above. */
+@keyframes storyHeroSettle { from { transform: translateY(6px) scale(0.97); } to { transform: translateY(0) scale(1); } }
+.story-hero-figure { animation: storyHeroSettle 300ms var(--ease-out) 60ms both; }
+@media (prefers-reduced-motion: reduce) {
+  .story-hero-figure { animation: none; transform: none; }
+}
+
+/* ── Story row entrance — rows enter one after another ─────────────────────
+   Used by the "Where it went" category rows and the credit-card breakdown
+   rows. Resting style is fully visible (no opacity: 0, no fill-mode
+   backwards/both) — a past staggered-reveal attempt shipped THREE BLANK
+   SECTIONS to production exactly that way (opacity: 0 base + a trigger that
+   never fired). Here the animation runs with the CSS default fill-mode
+   (none): before it starts the row sits at its normal visible resting
+   style, while it plays it dips and rises, and when it ends the element
+   simply reverts to that same resting style. If the animation never runs at
+   all (reduced motion, or any other reason), the row was never anything but
+   visible. Transform leads (a small rise); opacity only ever participates
+   inside the keyframe, never as a resting state. Stagger via per-row
+   `animationDelay` in the 90-110ms range, set inline by the caller. */
+@keyframes storyRowIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.story-row-in { animation: storyRowIn 400ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .story-row-in { animation: none; opacity: 1; transform: none; }
+}
+
+/* ── Story card logos — thrown-and-settled burst, above and below ─────────
+   Used by the credit-cards slide's dispersed brand-logo cluster (no more
+   name/amount rows there, just the badges). Owner feedback (2026-08-28):
+   a neat arc above the headline read as a tidy row, not a burst — so the
+   caller (CardsSlide, StoryPlayer.tsx) now positions each badge with plain
+   `left`/`top`/`bottom` px+% (a static resting position, set inline by the
+   caller per its hand-tuned CARD_LOGO_SLOTS table) instead of a shared
+   dx/dy pair off one centre point. This class only owns the TILT and the
+   POP: `--logo-rot` is the badge's resting tilt (part of its final static
+   appearance — a small per-badge rotation is what sells "thrown" rather
+   than "placed"), `--logo-overshoot-y` is a small extra px of travel
+   (signed by the caller: negative for an "above" badge so it drifts
+   further up before settling back down, positive for a "below" badge so
+   it drifts further down before settling back up) baked into the
+   keyframe's mid-point only.
+   Same safety contract as .story-row-in above: the resting, non-animated
+   style (the plain `transform` declared on .story-logo-pop below, plus the
+   caller's inline left/top/bottom) is already the badge's final visible
+   appearance — nothing here gates visibility. The keyframe is the only
+   place allowed to start small/rotated-further/transparent and to
+   overshoot past rest, and it runs with the CSS default fill-mode (none),
+   so before the delay elapses and after the animation ends the badge is
+   simply sitting at that same resting slot, at rest opacity (browser
+   default 1, never set to 0 as a base style). Stagger via per-badge
+   `animationDelay` in the ~90ms range, set inline by the caller. */
+@keyframes storyLogoPop {
+  0%   { transform: translateX(-50%) translateY(0) rotate(calc(var(--logo-rot, 0deg) * 1.6)) scale(0.32); opacity: 0.35; }
+  65%  { transform: translateX(-50%) translateY(var(--logo-overshoot-y, 0px)) rotate(var(--logo-rot, 0deg)) scale(1.12); opacity: 1; }
+  100% { transform: translateX(-50%) translateY(0) rotate(var(--logo-rot, 0deg)) scale(1); opacity: 1; }
+}
+.story-logo-pop {
+  transform: translateX(-50%) rotate(var(--logo-rot, 0deg)) scale(1);
+  animation: storyLogoPop 460ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .story-logo-pop { animation: none; }
+}
+
+/* ── Story spotlight — the glow finds the slide's subject ─────────────────
+   Two layers. `.story-spotlight-anchor` is pure positioning: a 620px glow
+   disc translated from a neutral centre toward the slide's measured focal
+   element (StoryPlayer measures the hero figure — or, on Where It Went,
+   the largest category row — via a ref callback and writes the offset as
+   --spot-dx/--spot-dy). `.story-spotlight-core` is the gradient itself; it
+   gets its own small "focusing" scale-in every time a slide mounts, kept
+   on a separate layer so the two transforms never fight over one
+   `transition`/`animation` on the same property. Full-screen, single-
+   purpose story surface with no competing card — the one-glow-per-screen
+   rule is satisfied by construction. Stays inside the app's indigo/violet
+   story palette; never red. */
+.story-spotlight-anchor {
+  position: absolute;
+  left: 50%;
+  top: 32%;
+  width: 620px;
+  height: 620px;
+  max-width: 160vw;
+  max-height: 160vw;
+  transform: translate(-50%, -50%) translate3d(var(--spot-dx, 0px), var(--spot-dy, 0px), 0);
+  transition: transform 520ms var(--ease-out);
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .story-spotlight-anchor { transition: none; }
+}
+@keyframes storySpotlightFocus { from { transform: scale(0.88); } to { transform: scale(1); } }
+.story-spotlight-core {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at center, rgba(129,140,248,0.55), rgba(99,102,241,0.26) 38%, rgba(99,102,241,0.10) 58%, transparent 74%),
+    radial-gradient(circle at center, rgba(167,139,250,0.22), transparent 62%);
+  animation: storySpotlightFocus 520ms var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .story-spotlight-core { animation: none; }
+}
+
+/* Tight spotlight variant (design-route A/B/C comparison, /design/month-story
+   ?variant=c) — same anchor/core mechanics above, just a markedly smaller
+   disc that hugs the focal element instead of washing the screen. Only the
+   size changes; the gradient's own stop percentages are relative to the
+   box, so shrinking it tightens the falloff proportionally for free. */
+.story-spotlight-anchor--tight {
+  width: 260px;
+  height: 260px;
+  max-width: 70vw;
+  max-height: 70vw;
+}
 
 /* ── Sheet-open blur — page layer blurs when any sheet/modal is open ─────
    (Android WebView can't rely on backdrop-filter on sheets; a ref-counter in
@@ -644,3 +776,19 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ── Glass sheet — SOLID surface; the world blurs, the sheet is paper ────── */
 .glass-sheet { background: #ffffff; border-top: 1px solid #f1f5f9; }
 .dark .glass-sheet { background: #0f172a; border-top: 1px solid #334155; }
+
+/* ── Public legal pages (/terms, /privacy) — no nav chrome ────────────────
+   Anonymous visitors and regulators only: never render the desktop sidebar
+   (components/Sidebar.tsx — the only <aside> in the app, per the comment
+   above on `aside nav::-webkit-scrollbar`) or reserve its margin. The
+   `legal-page` class is set on <html> pre-paint by an inline script in
+   app/layout.tsx (same technique as the cached dark-mode class), so this
+   never flashes the normal shell first. */
+html.legal-page aside {
+  display: none;
+}
+html.legal-page #app-shell {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}

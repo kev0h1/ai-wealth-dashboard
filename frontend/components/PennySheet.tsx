@@ -480,8 +480,9 @@ export default function PennySheet() {
           // actual fixed chrome, not a round number picked by eye:
           //   header (icon/title row, subordinate-links row at its own
           //     min-h-[44px], spacing + divider, pt-3 top pad)   ~104px
-          //   chip row (pt-1 + one row of min-h-[28px] chips + pb-1)
-          //                                                       ~36px
+          //   chip row (pt-1 + one row of min-h-[28px] chips + pb-1 +
+          //     the hairline `border-b` added 2026-08-28, see that
+          //     row's own comment, PennyConversation.tsx)          ~37px
           //   composer (pt-2 + composerCard's own padding, input
           //     row, disclaimer line + the new pb-6 bottom pad
           //     from the Fix 2 below)                            ~114px
@@ -535,9 +536,12 @@ export default function PennySheet() {
         >
           {/* Header — shrink-0, stays put while the thread (rendered by
               PennyConversation below) scrolls independently. No drag-handle
-              bar: that signalled "sheet", and this isn't one anymore. */}
-          <div className="flex-shrink-0 px-4 pt-3">
-            <div className="flex items-center justify-between gap-2">
+              bar: that signalled "sheet", and this isn't one anymore.
+              Horizontal inset moved off this wrapper (was `px-4`) and onto
+              the two rows below individually (`px-5` each) so the divider
+              two comments down can run full-bleed — see that comment. */}
+          <div className="flex-shrink-0 pt-3">
+            <div className="flex items-center justify-between gap-2 px-5">
               <div className="flex items-center gap-2 min-w-0">
                 <span
                   className="rounded-xl flex items-center justify-center flex-shrink-0"
@@ -570,7 +574,7 @@ export default function PennySheet() {
                 link (not `flex-wrap` on the row) is the "truncate rather
                 than wrap" rule: three links must stay one line even on a
                 narrow phone. */}
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-2 flex items-center gap-3 px-5">
               {headerLinks.slice(0, 3).map((l) => (
                 <Link
                   key={l.href}
@@ -588,7 +592,20 @@ export default function PennySheet() {
                 (PennyConversation.tsx's `inSheet` chip row, `pt-0.5` for the
                 same reason) read as two separated bands of tap targets
                 rather than one utility cluster sitting above the thread.
-                Tightened by one spacing step on each side of the seam. */}
+                Tightened by one spacing step on each side of the seam.
+                Full-bleed, no horizontal inset (owner, 2026-09-02: this line
+                and the chip row's own `border-b` below it read as different
+                lengths) — moving the two rows above onto their own `px-5`
+                rather than a shared wrapper `px-4` lets this divider span
+                edge to edge, matching PennyConversation.tsx's chip-row
+                hairline exactly instead of sitting inset by that wrapper's
+                padding. `px-5` (not the old `px-4`) also puts this header on
+                the same inset as the chip row, thread and composer below,
+                which already standardised on `px-5` on 2026-08-25 (see
+                PennyConversation.tsx's composer-wrapper comment) — the
+                header was the one row still on the old `px-4`, which is
+                what put its content 4px out of line with everything below
+                it as well as shortening its own divider. */}
             <div className="border-b border-slate-200/70 dark:border-slate-700 mt-1" />
           </div>
 

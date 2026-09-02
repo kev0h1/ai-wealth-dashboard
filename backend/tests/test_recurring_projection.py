@@ -21,7 +21,7 @@ Every date below was verified with `date.fromisoformat(...).strftime("%A")`
 Broken-behaviour tests are `xfail(strict=True)` so they flip to "unexpectedly
 passing" (and demand marker removal) the moment the projection logic is fixed.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -184,9 +184,22 @@ def test_genuine_permanent_date_change_is_projected_correctly():
 # ---------------------------------------------------------------------------
 
 def test_30th_bill_should_not_stay_stuck_below_30_once_months_lengthen():
+    # A real Feb occurrence is included (clamped to 2026's Feb 28, a
+    # non-leap year) rather than skipping straight from Jan to a `today` two
+    # and a half months later: the bill genuinely continued being paid
+    # through February (that's the whole scenario this test is about), and
+    # without it the staleness guard (analytics.py, added 2026-08-27; see
+    # `today_at()` in test_recurring.py for the same fix applied there)
+    # would read a Jan-30-to-Apr-15 gap as "stopped" and drop the series
+    # before the assertion below ever gets to check the anchor recovers to
+    # 30. Feb 28 is its own month's exact last day, so `_monthly_anchor`
+    # already treats it as uninformative for anchor derivation (see that
+    # function's docstring, step 2) — adding it doesn't change which day
+    # the series anchors on, only how recent its last real occurrence is.
     txns = [
         txn("30th Bill", date(2025, 12, 30), 80),
         txn("30th Bill", date(2026, 1, 30), 80),
+        txn("30th Bill", date(2026, 2, 28), 80),
     ]
     results = detect(txns, today=date(2026, 4, 15))
     assert next_date_for("30th Bill", results) == date(2026, 4, 30)
@@ -313,3 +326,202 @@ def test_fixed_day_of_month_bill_not_misread_as_weekday_anchored():
     ]
     results = detect(txns, today=date(2026, 4, 20))
     assert next_date_for("Fixed 15th Bill", results) == date(2026, 5, 15)
+
+
+# ---------------------------------------------------------------------------
+# 12. Regression, 2026-08-27: the day-before-payday 2-occurrence cliff.
+#
+# Production only ever feeds `_detect_recurring` a 90-day window. Test 9
+# above (`..._90_day_window`) already pins the 3-point slice this same
+# last-Friday series sees most of the month, correctly landing on the real
+# 2026-08-28 payday because 3 points average their interval (28 + 35) / 2
+# = 31.5, comfortably inside the monthly branch's old 26-33 band. But the
+# day BEFORE payday, the window can hold only the newest 2 occurrences
+# (2026-06-26, 2026-07-31 — the 2026-05-29 one has just aged past the
+# 90-day cutoff), leaving one raw interval of exactly 35 days: one day
+# outside that old band. Falling through to the naive `else` branch there
+# didn't just blur the date, it projected 2026-09-04 — a full week past the
+# real occurrence, and far enough outside the at-risk walk's payday-window
+# lookahead that HSBC/NatWest/Monzo read as falsely short even after
+# `K MONZO TEST STO` (Transfer) started being trusted at 2 occurrences
+# again (see test_transfer_category_now_trusted_at_two_occurrences in
+# test_recurring.py — the Transfer-trust fix alone is not sufficient; this
+# projection-boundary fix is what actually keeps the mirrored inflow inside
+# the walk's window). Raising the monthly branch's upper bound to 35 (this
+# function's own outer acceptance ceiling — see the `avg_interval > 35`
+# rejection near the top of `_detect_recurring`) routes this 2-point slice
+# through the smart anchor instead. With only ONE informative point
+# (2026-07-31 is its own month's exact last day, so it's excluded — see
+# `_monthly_anchor` step 2), the anchor reads as day-26 rather than
+# recovering the true "last Friday" pattern (that needs 3+ points, see
+# `_monthly_anchor` step 1) — an honest degrade, not a wrong answer: day-26
+# in August is 2026-08-26, which is in the PAST relative to `today`, so it
+# lands inside the PENDING_GIVE_UP_DAYS grace window rather than advancing
+# a further month out. That is a materially better outcome than the old
+# week-late projection: it is 2 days early rather than 7 days late, and
+# `_build_cashflow_response` clamps any pending (already-due) date up to
+# "today" for display, so this reads as "due today" rather than overdue.
+# ---------------------------------------------------------------------------
+
+def test_two_occurrence_35_day_interval_projects_near_payday_not_a_week_late():
+    txns = [
+        txn("K MONZO TEST STO", date(2026, 6, 26), 1106.0, category="Transfer"),
+        txn("K MONZO TEST STO", date(2026, 7, 31), 1106.0, category="Transfer"),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    next_date = next_date_for("K MONZO TEST STO", results)
+    # Must land within a few days of the real 2026-08-28 occurrence, not the
+    # pre-fix 2026-09-04 (a full week late, and outside the at-risk walk's
+    # lookahead window).
+    assert abs((next_date - date(2026, 8, 28)).days) <= 3
+    assert next_date == date(2026, 8, 26)
+
+
+# ---------------------------------------------------------------------------
+# 13. Regression, 2026-08-27: the 180-day window widening itself.
+#
+# Test 11 above (`test_last_friday_of_month_cadence_full_history`) already
+# proves `_detect_recurring` reads this exact 4-point shape correctly when
+# it's given all 4 points. What it doesn't prove is that the CALLER
+# (`_compute_cashflow_patterns`) actually hands it all 4 -- that's the
+# real regression: production only fed `_detect_recurring` a 90-day window,
+# so on 2026-08-27 (today, here) the 2026-04-24 occurrence had already aged
+# out, leaving only 2 points and mispredicting Wed 2026-08-26 (see test 12
+# above) instead of the true Fri 2026-08-28. Pinned at the exact incident
+# date so this stands as the regression anchor for the window-widening fix:
+# `_compute_cashflow_patterns` now loads 180 days, which keeps all 4 points
+# in view on 2026-08-27 (2026-04-24 is 125 days back, comfortably inside
+# 180, whereas it's 25 days past the old 90-day cutoff).
+# ---------------------------------------------------------------------------
+
+def test_widened_window_keeps_four_points_and_predicts_last_friday():
+    txns = [
+        txn("Last Friday STO", date(2026, 4, 24), 100),
+        txn("Last Friday STO", date(2026, 5, 29), 100),
+        txn("Last Friday STO", date(2026, 6, 26), 100),
+        txn("Last Friday STO", date(2026, 7, 31), 100),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    assert next_date_for("Last Friday STO", results) == date(2026, 8, 28)
+
+
+# ---------------------------------------------------------------------------
+# 14. Staleness guard: a series that genuinely stopped must not keep
+#     projecting just because the widened 180-day window still contains it.
+# ---------------------------------------------------------------------------
+
+def test_stale_monthly_series_stops_projecting():
+    # Monthly cadence (~30 days), last real occurrence 2026-05-24 -- 95 days
+    # before today (2026-08-27), well past max(2*30, 45) = 60 days. A
+    # cancelled gym membership is the real-world shape: it happened
+    # regularly for a while, then genuinely stopped.
+    txns = [
+        txn("Cancelled Gym", date(2026, 3, 24), 40),
+        txn("Cancelled Gym", date(2026, 4, 24), 40),
+        txn("Cancelled Gym", date(2026, 5, 24), 40),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    assert "Cancelled Gym" not in {r["key"] for r in results}
+
+
+def test_monthly_series_within_grace_still_projects():
+    # Same cadence, but the last occurrence is only 40 days back -- inside
+    # the 45-day floor, so a single late/skipped cycle must not be misread
+    # as "stopped".
+    txns = [
+        txn("Still Going Gym", date(2026, 5, 18), 40),
+        txn("Still Going Gym", date(2026, 6, 18), 40),
+        txn("Still Going Gym", date(2026, 7, 18), 40),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    assert "Still Going Gym" in {r["key"] for r in results}
+
+
+# ---------------------------------------------------------------------------
+# 15. Recent-amount averaging: a bill's projected amount tracks its most
+#     recent occurrences, not a mean across the whole 180-day window.
+# ---------------------------------------------------------------------------
+
+def test_avg_amount_tracks_recent_occurrences_not_full_window_mean():
+    # Six occurrences: price was £10 for the first three, rose to £12 for
+    # the most recent three. A price change 4-5 months back must not drag
+    # the projected amount down from what the bill actually costs now.
+    txns = [
+        txn("Streaming Sub", date(2026, 3, 5), 10, account_id="acc1"),
+        txn("Streaming Sub", date(2026, 4, 5), 10, account_id="acc1"),
+        txn("Streaming Sub", date(2026, 5, 5), 10, account_id="acc1"),
+        txn("Streaming Sub", date(2026, 6, 5), 12, account_id="acc1"),
+        txn("Streaming Sub", date(2026, 7, 5), 12, account_id="acc1"),
+        txn("Streaming Sub", date(2026, 8, 5), 12, account_id="acc1"),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    matches = [r for r in results if r["key"] == "Streaming Sub"]
+    assert len(matches) == 1
+    # Recent-3 mean is exactly 12.0; a full-window mean across all 6 would
+    # be 11.0, which this assertion rules out.
+    assert matches[0]["avg_amount"] == 12.0
+
+
+# ---------------------------------------------------------------------------
+# 16. Income stays on the full-window mean: recent-amount averaging is
+#     scoped to bills only (`is_income=False`), never applied to income.
+# ---------------------------------------------------------------------------
+
+def test_income_avg_amount_unaffected_by_recent_averaging():
+    # 8 weekly occurrences: 500 for the first four, 600 for the last four.
+    # Full-window mean = 550.0. If recent-amount averaging leaked into the
+    # income branch, this would read 600.0 (the last-3 mean) instead.
+    txns = []
+    d = date(2026, 6, 1)
+    for i, amount in enumerate([500, 500, 500, 500, 600, 600, 600, 600]):
+        txns.append(txn("ACME PAYROLL WEEKLY", d + timedelta(days=7 * i), amount, category="Income"))
+    results = _detect_recurring(txns, today=date(2026, 7, 25), is_income=True)
+    matches = [r for r in results if r["key"] == "ACME PAYROLL WEEKLY"]
+    assert len(matches) == 1
+    assert matches[0]["avg_amount"] == 550.0
+
+
+# ---------------------------------------------------------------------------
+# 17. Regression, 2026-08-27: an old, unrelated occurrence sharing a
+#     merchant key must not delist a series that is still actively
+#     recurring. Found live on production data the same day the 180-day
+#     window shipped -- see the WHY comment in `_detect_recurring` above
+#     the trim-and-retry loop.
+# ---------------------------------------------------------------------------
+
+def test_stale_outlier_does_not_delist_an_otherwise_clean_recent_cadence():
+    # Kevin's real "PLAYSTATION LONDON" shape: an unrelated March purchase
+    # (80 days before the next one) followed by three clean monthly
+    # occurrences. On the full 4-point set avg_interval is
+    # (80 + 30 + 31) / 3 = 47, over the 35-day ceiling -- without the
+    # trim-and-retry loop this series is rejected outright, even though
+    # it's still charging monthly as of 8 days ago. Trimming the March
+    # outlier recovers the trailing 3-point cadence (avg_interval 30.5),
+    # exactly what the OLD 90-day window would already have seen (March is
+    # 160 days before today, never inside a 90-day load in the first
+    # place).
+    txns = [
+        txn("Streaming Sub 2", date(2026, 3, 20), 13.49, category="Subscriptions"),
+        txn("Streaming Sub 2", date(2026, 6, 8), 13.49, category="Subscriptions"),
+        txn("Streaming Sub 2", date(2026, 7, 8), 13.49, category="Subscriptions"),
+        txn("Streaming Sub 2", date(2026, 8, 8), 13.49, category="Subscriptions"),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    matches = [r for r in results if r["key"] == "Streaming Sub 2"]
+    assert len(matches) == 1
+    assert matches[0]["occurrences"] == 3  # the March outlier is trimmed, not counted
+    assert matches[0]["next_date"] == date(2026, 9, 8)
+
+
+def test_genuine_noise_still_rejected_after_exhausting_trim_attempts():
+    # No trailing subset of this series ever has a regular cadence (gaps of
+    # 80, 3, 90 days) -- the trim-and-retry loop must give up once it hits
+    # min_occurrences, not paper over genuine noise by trimming forever.
+    txns = [
+        txn("Random Noise", date(2026, 3, 1), 20),
+        txn("Random Noise", date(2026, 5, 20), 20),
+        txn("Random Noise", date(2026, 5, 23), 20),
+        txn("Random Noise", date(2026, 8, 21), 20),
+    ]
+    results = detect(txns, today=date(2026, 8, 27))
+    assert "Random Noise" not in {r["key"] for r in results}

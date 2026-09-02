@@ -10,9 +10,10 @@ import { PennyPromptBar } from "@/components/PennyConversation";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
-import { BriefBody, BriefSkeleton, PaydayPlanSection, isPennyVisible } from "@/components/HomeBrief";
+import { BriefBody, BriefSkeleton, PaydayPlanSection } from "@/components/HomeBrief";
+import { isActionableCompanionItem } from "@/lib/companionItems";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
-import { readHomeDismissedAdvice, restoreOnHome } from "@/lib/homeDismissedAdvice";
+import { readHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import MoneyText from "@/components/MoneyText";
 
 export default function PennyPage() {
@@ -34,12 +35,15 @@ export default function PennyPage() {
   // already makes on every visit.
   const [mirrorHeadline, setMirrorHeadline] = useState<string | null>(null);
 
-  // "Cleared from Home" archive — items the user hid on Home (localStorage,
-  // lib/homeDismissedAdvice.ts) that aren't in Penny's primary list (below).
-  // Lazy-init straight from localStorage: this page only ever mounts fresh
-  // client-side (App Router remounts the page component on navigation), so
-  // there's no SSR markup to mismatch and no stale value to worry about.
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() =>
+  // Home-only dismissed ids (localStorage, lib/homeDismissedAdvice.ts) —
+  // read once, fresh, since this page only ever mounts client-side (App
+  // Router remounts the page component on navigation, so there's no SSR
+  // markup to mismatch and no stale value to worry about). Used to keep an
+  // informational item off this hub once it's been dismissed on Home — see
+  // `informationalPennyItems` below; there is no restore/undo control for
+  // this any more (that lived in the now-retired "Cleared from Home"
+  // archive), so this never needs to change after mount and has no setter.
+  const [dismissedKeys] = useState<Set<string>>(() =>
     typeof window !== "undefined" ? readHomeDismissedAdvice() : new Set()
   );
 
@@ -93,50 +97,31 @@ export default function PennyPage() {
       .catch(() => {});
   }, []);
 
-  // Penny hub IA rule (owner, 2026-08-18): /penny's PRIMARY section surfaces
-  // only cash-move recommendations, payday suggestions, and the Mirror entry
-  // — anything that already lives on another page (Spend, Accounts, Debt
-  // plan, Month, Mirror, Planning) is filtered out here so it isn't
-  // duplicated. `items` itself stays unfiltered (Home's dot-cache
-  // write-through above depends on the full feed), this derived array is
-  // only for what Penny's primary section renders. isPennyVisible lives in
-  // HomeBrief.tsx so this filter and Home's "cleared" pointer copy share one
-  // definition, not two that can drift apart.
-  const pennyItems = items.filter(isPennyVisible);
-
-  // "Cleared from Home" archive (below the primary section) — anything the
-  // user dismissed on Home (`dismissedKeys`) that ISN'T already shown above
-  // in `pennyItems`. A dismissed move/payday_plan/ask:payday item is already
-  // in the primary list regardless of dismissal (Penny always shows the
-  // full feed for those types), so excluding isPennyVisible items here is
-  // what keeps nothing appearing twice. Read against the live `items` feed
-  // (not iterating the dismissed-keys store directly) so a stale key for an
-  // item that's stopped being generated just naturally finds no match.
-  const clearedItems = items.filter(i => !isPennyVisible(i) && dismissedKeys.has(i.id));
-
-  // Mask £ figures in a string when hideNetWorth is on — same helper as
-  // HomeBrief's BriefBody (not exported from there, so duplicated here for
-  // this page-local "cleared" list; BriefBody itself already masks anything
-  // rendered in the primary section above).
-  function maskAmounts(text: string): string {
-    if (!hideNetWorth) return text;
-    return text.replace(/£[\d,]+/g, "£••••");
-  }
-
-  // "Show on Home again" — the archive's only interactive control. Removes
-  // the localStorage entry (lib/homeDismissedAdvice.ts) so the card
-  // reappears on Home next time it loads, and drops it from the local set so
-  // it disappears from the archive immediately. No dismiss control lives in
-  // this section — the whole point of the archive is that dismissing from
-  // Penny can't lose things — so this is strictly the inverse action.
-  function handleRestore(id: string) {
-    restoreOnHome(id);
-    setDismissedKeys(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
+  // Penny hub policy (owner rule, 2026-09-01): actionable items — a real
+  // decision/CTA beyond dismissal, see lib/companionItems.ts — show
+  // regardless of Home-dismissal, because deferred work follows you here.
+  // Informational items (celebrations, cliff/trajectory/rhythm narrations,
+  // pace notes) show ONLY while not dismissed anywhere: `dismissedKeys` is
+  // the Home-only localStorage dismissal (lib/homeDismissedAdvice.ts) read
+  // fresh on this page's mount above; a SERVER-side dismissal (the plain
+  // `api.dismissTodayItem` path each card falls back to when rendered here
+  // without `dismissible`, since this page never passes that prop) already
+  // removes the item from `items` entirely, upstream, before either filter
+  // below ever sees it. Either mechanism therefore makes an informational
+  // item disappear from this hub entirely — there is no archive for a
+  // dismissed informational item any more (that archive was exactly what
+  // let "X is covered" / "£X/mo staying in your pocket" cards linger here
+  // after a Home dismissal, the incoherence the owner flagged).
+  const actionablePennyItems = items.filter(isActionableCompanionItem);
+  const informationalPennyItems = items.filter(
+    i => !isActionableCompanionItem(i) && !dismissedKeys.has(i.id)
+  );
+  // Whether BriefBody will actually paint a card for `actionablePennyItems`
+  // — excludes payday_plan, which is actionable but rendered exclusively by
+  // PaydayPlanSection (section c below), never by BriefBody. Gates the
+  // "Waiting on you" header alone (section b) so it never appears floating
+  // over an empty BriefBody output on a payday-plan-only window.
+  const hasActionableBriefCard = actionablePennyItems.some(i => i.type !== "payday_plan");
 
   return (
     <div
@@ -205,15 +190,46 @@ export default function PennyPage() {
 
         {/* b. Penny's brief — the exact same verdict/greeting content Home
             shows (same BriefBody component, same /today + /safe-to-spend
-            data), filtered to `pennyItems` per the owner's Penny hub IA
-            rule: only cash moves, payday suggestions, and the payday
-            detection ask belong here — everything else already has a home
-            on another page. payday_plan items are excluded here regardless —
-            PaydayPlanSection below owns that content exclusively, so a live
-            plan never double-renders. */}
+            data), split into two groups per the owner's Penny hub policy
+            (2026-09-01): actionable items (a real decision/CTA beyond
+            dismissal — lib/companionItems.ts) always show here, carried
+            over under their own "Waiting on you" header so deferred work
+            reads as one clear block rather than blending into narration;
+            informational items (celebrations, cliff/trajectory/rhythm
+            notices, pace notes) render beneath, unlabelled — same bare
+            presentation Home gives them — and only while not dismissed
+            anywhere (see `informationalPennyItems` above).
+            `actionablePennyItems` still includes payday_plan (it IS
+            actionable), but BriefBody itself never renders that type —
+            PaydayPlanSection (section c, below) owns that card exclusively
+            so a live plan never double-renders. `hasActionableBriefCard`
+            only gates the header: on a window where the only actionable
+            item is payday_plan, BriefBody would otherwise paint nothing
+            under a "Waiting on you" label with the real card appearing
+            further down in section c — an empty-looking header for no
+            reason. */}
         <div className="space-y-3">
           {loading ? <BriefSkeleton /> : (
-            <BriefBody items={pennyItems} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={loadData} hideAttribution />
+            <>
+              {hasActionableBriefCard && (
+                <div>
+                  <div className="flex items-baseline gap-1.5 px-1 mb-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      Waiting on you
+                    </span>
+                  </div>
+                  <BriefBody items={actionablePennyItems} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={loadData} hideAttribution />
+                </div>
+              )}
+              {informationalPennyItems.length > 0 && (
+                <div className={hasActionableBriefCard ? "mt-6" : undefined}>
+                  <BriefBody items={informationalPennyItems} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={loadData} hideAttribution />
+                </div>
+              )}
+              {actionablePennyItems.length === 0 && informationalPennyItems.length === 0 && (
+                <BriefBody items={[]} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={loadData} hideAttribution />
+              )}
+            </>
           )}
         </div>
 
@@ -225,64 +241,7 @@ export default function PennyPage() {
             true by default) only to swap to the live card a moment later —
             worst right at payday, when that flash is most visible. */}
         {!loading && (
-          <PaydayPlanSection items={pennyItems} safeToSpend={safeToSpend} hideNetWorth={hideNetWorth} onRefresh={loadData} />
-        )}
-
-        {/* c2. "Cleared from Home" archive — quiet, secondary to the primary
-            cards above. Owner's option 3 (2026-08-19): Home is where you
-            clear things, Penny is where they still live, but that was only
-            true for move/payday_plan/ask:payday (the primary section);
-            everything else a user dismisses on Home used to vanish
-            everywhere until the 7-day localStorage expiry. This list is the
-            fix — it renders nothing at all when empty (the common case), so
-            it adds zero visual weight most of the time. Deliberately NOT
-            reusing BriefBody's full glass-card-per-item treatment here: a
-            stack of full advice cards would read as a second to-do list,
-            the opposite of "archive". Instead this is a single dense list
-            (Label header + divided rows), the same demotion pattern the
-            Accounts page already uses for its collapsed "Inactive" section
-            — muted uppercase Label typography plus row density, not a new
-            visual language. No dismiss control anywhere here (the owner's
-            rule: dismissing from Penny must never lose something for good)
-            — the only control is "Show on Home", the inverse action. */}
-        {clearedItems.length > 0 && (
-          <div className="mt-6">
-            <div className="flex items-baseline gap-1.5 px-1 mb-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                Cleared from Home
-              </span>
-              <span className="text-[11px] font-medium text-slate-400 dark:text-slate-600">· {clearedItems.length}</span>
-            </div>
-            <p className="px-1 mb-2 text-[12px] text-slate-500 dark:text-slate-400 leading-snug">
-              Dismissed on Home, kept here so nothing quietly disappears.
-            </p>
-            <div className="glass-card rounded-2xl overflow-hidden">
-              {clearedItems.map((item, i) => (
-                <div
-                  key={item.id}
-                  className={`flex items-start gap-2 px-3 py-2.5 ${i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 leading-snug">
-                      <MoneyText text={maskAmounts(item.headline)} />
-                    </p>
-                    {item.body && (
-                      <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-                        <MoneyText text={maskAmounts(item.body)} />
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRestore(item.id)}
-                    className="flex-shrink-0 self-center inline-flex items-center justify-center min-h-[44px] px-2 -my-2 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-500/10 active:scale-95 transition-[background-color,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 whitespace-nowrap"
-                  >
-                    Show on Home
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <PaydayPlanSection items={actionablePennyItems} safeToSpend={safeToSpend} hideNetWorth={hideNetWorth} onRefresh={loadData} />
         )}
 
         {/* d. Mirror rich entry */}

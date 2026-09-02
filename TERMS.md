@@ -1,6 +1,7 @@
-# Terms & Conditions — Sorted
+<!-- Published copy lives in frontend/content/, keep in sync when editing. -->
+# Sorted Terms & Conditions
 
-> **DRAFT for review — not yet published. Requires legal review before publication.**
+> **DRAFT for review, not yet published. Requires legal review before publication.**
 
 **Last updated:** 14 August 2026
 **Version:** 1.0
@@ -21,11 +22,11 @@ These Terms, together with our Privacy Policy, form the agreement between you an
 
 This section is important and we want to be clear about it.
 
-**AURIQ LTD is not authorised by the Financial Conduct Authority (FCA) in its own right.** The regulated activity carried out within Sorted — account information services ("**AIS**"), which allow us to retrieve and display information from your bank accounts — is provided through **Finexer LTD**, a company authorised and regulated by the FCA to carry out account information services.
+**AURIQ LTD is not authorised by the Financial Conduct Authority (FCA) in its own right.** The regulated activity carried out within Sorted, namely account information services ("**AIS**") which allow us to retrieve and display information from your bank accounts, is provided through **Finexer LTD**, a company authorised and regulated by the FCA to carry out account information services.
 
 **AURIQ LTD acts as a registered agent of Finexer LTD** for the purposes of providing this regulated activity to you. This means that when you connect a bank account to Sorted, the account information service you are using is performed under Finexer LTD's FCA authorisation, and Finexer LTD is the principal responsible for the regulated activity, with AURIQ LTD operating as its agent. You can check Finexer LTD's authorisation on the FCA Financial Services Register.
 
-Everything else about Sorted — the app itself, the way your data is presented, budgeting tools, forecasts, and insights — is provided by AURIQ LTD and is not itself a regulated financial service (see Section 6).
+Everything else about Sorted (the app itself, the way your data is presented, budgeting tools, forecasts, and insights) is provided by AURIQ LTD and is not itself a regulated financial service (see Section 6).
 
 ## 3. Eligibility
 
@@ -54,7 +55,7 @@ We provide **account information services only**. We do not initiate payments on
 
 ## 5. Connecting your bank accounts and consent
 
-To use Sorted, you connect your bank accounts via our banking data provider, **Finexer**. When you connect an account, you are directed to your bank's own secure authentication pages, where you authorise access directly with your bank — we do not see or store your online banking credentials.
+To use Sorted, you connect your bank accounts via our banking data provider, **Finexer**. When you connect an account, you are directed to your bank's own secure authentication pages, where you authorise access directly with your bank. We do not see or store your online banking credentials.
 
 Under the rules that apply to account information services (PSD2), your consent for us to access your account information lasts for a maximum of **90 days**, after which you will need to re-confirm your consent to continue using the Service with that account.
 
@@ -65,15 +66,15 @@ You can withdraw your consent at any time by:
 
 If you withdraw consent, we will stop retrieving new information from that account, though information already retrieved may be retained in line with our Privacy Policy and Section 15 below.
 
-## 6. Important — information, not financial advice
+## 6. Important: information, not financial advice
 
 Sorted provides **information and general guidance only**. It does **not** provide regulated financial advice, investment advice, tax advice, or debt counselling, and nothing in the app should be treated as a personal recommendation.
 
-Figures shown in the app — including forecasts, "safe to spend" amounts, budget projections, and any other calculated figures — are **estimates** based on the transaction data available to us at the time. This data may be incomplete, delayed, or inaccurate (for example, due to a delay in your bank reporting a transaction, or a gap in your connected accounts), and these estimates may therefore be wrong.
+Figures shown in the app (including forecasts, "safe to spend" amounts, budget projections, and any other calculated figures) are **estimates** based on the transaction data available to us at the time. This data may be incomplete, delayed, or inaccurate (for example, due to a delay in your bank reporting a transaction, or a gap in your connected accounts), and these estimates may therefore be wrong.
 
 Categorisation of your transactions is partly automated, including through the use of AI-based tools, and may be incorrect. You can review and correct categorisation within the app.
 
-You should not rely solely on any figure, forecast, or categorisation shown in Sorted as the basis for a financial decision. Where a decision is significant — for example, taking on or restructuring debt, or making an investment — you should seek independent, regulated financial advice.
+You should not rely solely on any figure, forecast, or categorisation shown in Sorted as the basis for a financial decision. Where a decision is significant, such as taking on or restructuring debt or making an investment, you should seek independent, regulated financial advice.
 
 ## 7. Your account and security
 
@@ -103,7 +104,7 @@ We do not charge any fee for connecting your bank accounts or for the underlying
 
 We aim to keep Sorted available and working properly, but we do not guarantee that the Service will be uninterrupted, error-free, or available at all times.
 
-Bank connections depend on third parties — including Finexer and your own bank — and information retrieval may occasionally fail, be delayed, or be temporarily unavailable for reasons outside our control. We may also carry out planned or emergency maintenance that temporarily affects availability.
+Bank connections depend on third parties, including Finexer and your own bank, and information retrieval may occasionally fail, be delayed, or be temporarily unavailable for reasons outside our control. We may also carry out planned or emergency maintenance that temporarily affects availability.
 
 ## 11. Intellectual property
 

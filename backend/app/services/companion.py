@@ -10,6 +10,7 @@ import math
 import re
 from datetime import date, datetime, time, timedelta
 from typing import Any
+from urllib.parse import quote
 
 from app.db.collections import (
     accounts_col,
@@ -21,10 +22,12 @@ from app.db.collections import (
     companion_items_col,
     needle_history_col,
     transactions_col,
+    yapily_transactions_col,
 )
 
 log = logging.getLogger(__name__)
-from app.routers.analytics import _build_cashflow_response, income_credit_ok
+from app.routers.analytics import _build_cashflow_response, income_credit_ok, is_assessable_bill
+from app.routers.allocations import list_active_allocations
 from app.services.card_rates import is_credit_card_account
 from app.services.categories import MOVEMENT
 from app.services.categorisation import series_key
@@ -124,6 +127,57 @@ def _humanise_bill_name(name: str) -> str:
     cleaned = re.sub(r"[A-Za-z]+", _title_word, cleaned)
 
     return cleaned or "bill"
+
+
+def _clean_descriptor_for_display(text: str) -> str:
+    """Tidy a raw one-off transaction descriptor for presentation only, e.g.
+    the rhythm checkpoint's "dominant transaction" name (`_rc_dominant`
+    below): card-network statement lines routinely carry a POS/reference
+    suffix after `*` (e.g. "AMZNMKTPLACE*NJ0X14124") or a trailing
+    transaction-id digit run that means nothing to a user and, left in,
+    reads as a raw bank export rather than a name (owner report, 2026-09-02:
+    "One payment: AMZNMKTPLACE*NJ0X14124..., 30 Aug." looked "off").
+
+    Distinct from `_humanise_bill_name` above (recurring DD/STO bill lines,
+    different noise shape: DD/STO suffixes and card-fragment ranges, no `*`
+    reference convention) — this is the equivalent pipeline for one-off
+    card-transaction descriptors. Display-only: never touches the stored
+    `merchant_name`/`description`, categorisation, or any naming rule — the
+    engine still owns identity and naming (ENGINE.md), this only reformats
+    copy at render time, same contract as `_humanise_bill_name`.
+
+    Conservative: if stripping would leave nothing meaningful behind (under
+    3 letters/digits), the original string is returned unchanged rather than
+    risking an over-aggressive cut turning a real merchant name into noise.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+
+    # Drop a `*`-delimited POS/reference suffix — only the first `*` matters,
+    # everything after it is the reference, everything before it is the name.
+    cleaned = raw.split("*", 1)[0]
+    # Strip a trailing transaction-id digit run (≥4 digits at the end only —
+    # digits embedded earlier, e.g. "3M" or "7-Eleven"-style names, are left
+    # alone; this only removes noise it's confident is a reference number).
+    cleaned = re.sub(r"\d{4,}\s*$", "", cleaned)
+    # Strip card-number fragment patterns, e.g. "3766-32000" / "3766 32000"
+    cleaned = re.sub(r"\b\d{4}[\s\-–—]\d{2,}\b", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—_/·*").strip()
+
+    if len(re.sub(r"[^A-Za-z0-9]", "", cleaned)) < 3:
+        return raw  # cleaning gutted it — fall back rather than show noise
+
+    # Title-case a shouty ALL-CAPS descriptor; already-mixed-case names
+    # (already human-formatted) pass through untouched, same rule as
+    # `_humanise_bill_name`'s Rule 2 above.
+    if cleaned.isupper():
+        def _title_word(m: re.Match) -> str:
+            w = m.group(0)
+            return w.title() if len(w) >= 3 else w
+        cleaned = re.sub(r"[A-Za-z]+", _title_word, cleaned)
+
+    return cleaned
 
 
 # Small allowlist of known acronyms/initialisms that must stay upper-case
@@ -454,6 +508,284 @@ async def _usual_payday_moves_with_counts(
     return medians, counts
 
 
+def _modal_account(counts: dict[str, int]) -> str | None:
+    """Dominant-account-wins tiebreak shared by EVERY funding-source
+    derivation channel in `_reserved_for_allocations` (the primary
+    `internal_inflows` channel and the direct fill-leg pairing fallback,
+    `_direct_fill_leg_source`): most votes wins, account id as the
+    deterministic tiebreak. Named and centralised so both channels visibly
+    share one rule (per the owner's "same modal rule and constant"
+    instruction) rather than two copies of the same `max(...)` expression
+    that could silently drift apart."""
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+
+
+async def _direct_fill_leg_source(
+    uid: str, fill_account_id: str, match_type: str, match_value: str,
+    start: date, end: date, account_map: dict[str, dict],
+) -> str | None:
+    """Fallback funding-source channel for `_reserved_for_allocations`,
+    consulted only when the primary `internal_inflows` channel finds
+    nothing for THIS allocation.
+
+    WHY THIS EXISTS (2026-08-31, coordinator finding): `internal_inflows`
+    is only ever populated for a debit series `analytics._detect_recurring`
+    classifies as recurring at all, and that classification has a cadence
+    floor — a genuinely DAILY series falls below the interval this file's
+    weekly/monthly occurrence-stepping recognises. The owner's actual
+    "Saving Challenge" envelope IS a daily, escalating-amount drip (a new
+    matched pair every single day) — the most consistent real recurring
+    transfer on the account, yet structurally invisible to
+    `_detect_recurring` / `_learn_transfer_destinations` purely because of
+    its cadence, never because the pairing evidence is weak. This channel
+    pairs directly against the allocation's OWN fill transactions instead
+    of depending on recurring classification at all, so exactly the
+    envelope that motivated this feature is covered.
+
+    Reuses `allocations.matching_fills_this_period` — the exact credits
+    `filled_this_period` sums — rather than re-deriving the fill query or
+    the match-rule logic; still not a fourth matcher, since the pairing
+    rule below is the same house doctrine `_transfer_pair_suggestions` /
+    `_learn_transfer_destinations` already established, just applied
+    directly to one allocation's own fills instead of a recurring series.
+
+    QUERY SHAPE: exactly ONE query per txn collection for the WHOLE window
+    (`{"user_id": uid, "transaction_type": "debit", "date": {"$gte": ...,
+    "$lte": ...}}`, the same (user_id, date)-scoped shape every other
+    window query in this file already uses) — never one query per credit.
+    Candidates are bucketed in Python by (calendar day, amount to 2dp) for
+    O(1) lookup per credit, so this costs exactly 2 DB round trips
+    (mirroring `matching_fills_this_period`'s own 2) regardless of how many
+    fills or candidate debits fall inside the window.
+
+    PAIRING (house matcher doctrine — same-day / exact-amount, tightened to
+    2dp since these are same-user internal legs, not the cross-bank
+    statement-lag transfers `_transfer_pair_suggestions` tolerates a day of
+    lag for): each debit consumed at most once; a credit with zero
+    candidate debits contributes nothing; a credit whose candidate debits
+    span MULTIPLE different accounts is CONTENDED and resolved by name-
+    affinity (`analytics._has_affinity`, checking whether the DEBIT's own
+    description names the fill account — e.g. a debit literally described
+    "Saving Challenge (2026)", the fill account's own name) — if affinity
+    narrows it to exactly one candidate account, that one wins; otherwise
+    (zero or more than one) the credit contributes nothing, fail-closed,
+    per the 2026-08-26 collision doctrine `_learn_transfer_destinations`
+    already established (an unresolved collision is a missed vote, never a
+    guessed one).
+
+    Returns the MODAL source account (`_modal_account`, the same rule the
+    primary channel uses) across every successfully paired credit this
+    period, or None if nothing paired at all.
+    """
+    from app.routers.allocations import matching_fills_this_period
+    from app.routers.analytics import _has_affinity
+
+    fills = await matching_fills_this_period(uid, fill_account_id, match_type, match_value, start, end)
+    if not fills:
+        return None
+
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    debit_q = {
+        "user_id": uid,
+        "transaction_type": "debit",
+        "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    proj = {"account_id": 1, "amount": 1, "date": 1, "description": 1, "merchant_name": 1}
+    candidates: list[dict] = []
+    for col in (transactions_col, yapily_transactions_col):
+        for t in await col.find(debit_q, proj).to_list(None):
+            if str(t.get("account_id") or "") == str(fill_account_id):
+                continue  # a source must be a DIFFERENT, own, non-fill account
+            candidates.append(t)
+
+    def _day(t):
+        d = t.get("date")
+        return d.date() if hasattr(d, "date") else d
+
+    buckets: dict[tuple, list[dict]] = {}
+    for c in candidates:
+        try:
+            key = (_day(c), round(float(c.get("amount") or 0), 2))
+        except (TypeError, ValueError):
+            continue
+        buckets.setdefault(key, []).append(c)
+
+    fill_acct = account_map.get(str(fill_account_id)) or {}
+    consumed: set = set()
+    votes: dict[str, int] = {}
+    for fill in fills:
+        try:
+            key = (_day(fill), round(abs(float(fill.get("amount") or 0)), 2))
+        except (TypeError, ValueError):
+            continue
+        pool = [c for c in buckets.get(key, []) if id(c) not in consumed]
+        if not pool:
+            continue  # zero candidate debits — contributes nothing
+        accounts_present = {str(c.get("account_id") or "") for c in pool}
+        if len(accounts_present) == 1:
+            winner = pool[0]
+        else:
+            # Contended — multiple different accounts share this (day,
+            # amount) bucket. Resolve by name-affinity to the fill account;
+            # anything other than EXACTLY one affine account fails closed.
+            affine = [
+                c for c in pool
+                if _has_affinity(c.get("description") or c.get("merchant_name") or "", fill_acct)
+            ]
+            affine_accounts = {str(c.get("account_id") or "") for c in affine}
+            if len(affine_accounts) != 1:
+                continue  # unresolved collision — no vote, per 2026-08-26 doctrine
+            winner = affine[0]
+        consumed.add(id(winner))
+        src = str(winner.get("account_id") or "")
+        if src:
+            votes[src] = votes.get(src, 0) + 1
+
+    return _modal_account(votes)
+
+
+async def _reserved_for_allocations(
+    uid: str, internal_inflows: list[dict], account_map: dict[str, dict],
+) -> dict[str, float]:
+    """Per-source-account £ reserved this period for allocations (envelopes,
+    e.g. "Saving Challenge") that account funds — the owner fix (2026-08-31,
+    verbatim): "does it take account [of] what has been set aside on the
+    envelope? ... it is focused on the transaction that enters the savings
+    challenge account, but is dependent on the [source] account we are
+    taking [money] from... would there be enough for this envelope?"
+
+    LOCKSTEP DISCLAIMER (this is companion-local, not a shared-walk change):
+    `_source_min_running`'s own comment (below, in `compute_today_items`)
+    already establishes that a source's "movable" balance is a
+    companion-only notion — the at-risk walks / to-last / payday_split
+    arithmetic never consult it, because allocations already reduce POOLED
+    availability there via `analytics.compute_safe_to_spend`'s
+    `total_reserved_remaining` call, a completely separate reservation on a
+    completely different figure (pooled spendable balance, not a specific
+    source account's headroom). This function is a SECOND, source-scoped
+    reservation, consumed only when SIZING a move/payday-plan leg FROM a
+    specific account (`compute_today_items`'s `source_capacity` and the
+    payday plan's `distributable`) — it never feeds the pooled figure and so
+    is not a lockstep violation for the same reason `_source_min_running`
+    itself is not: both are companion-local inputs to "how much of THIS
+    account can I safely draw down right now", not inputs to the shared
+    min-running walks.
+
+    DERIVATION (generic — no user/account hardcodes): for each ACTIVE
+    allocation (`list_active_allocations` already scopes to `active: True`
+    and computes `remaining` LIVE, this-period-scoped — see allocations.py's
+    `_serialise`: a completed OR pending allocation's `remaining` is forced
+    to 0 there, so both fall out of this function for free, no separate
+    completed/pending/inactive branch needed here), find which own account
+    funds its `fill_account_id` by reusing the ALREADY-LEARNED transfer-pair
+    mirroring in `internal_inflows` (`analytics._learn_transfer_destinations`
+    / `_build_cashflow_response`'s `raw_internal_inflows`) — the SAME list
+    this function's caller already threads into `window_inflows`/
+    `payday_day_inflows`. We do NOT re-derive pairing from raw transactions
+    (a fourth matcher): we only look at where inbound legs already mirrored
+    to this allocation's `fill_account_id` came FROM (`source_account_id`).
+
+    Multiple source accounts can, historically, feed one envelope (e.g. an
+    occasional manual top-up from a different account alongside the regular
+    drip). Rather than split the reservation proportionally (fragile — this
+    mirrored list is a windowed sample, not a full history), the FULL
+    remainder is reserved against the DOMINANT source: the one with the most
+    mirrored occurrences funding this fill account, ties broken by account
+    id for determinism (`_modal_account` names this rule). Simpler and
+    defensible, and it fails safe — the account that does most of the
+    funding is the one that would actually come up short if raided.
+
+    SECOND CHANNEL, fallback only (2026-08-31, coordinator finding): when
+    the `internal_inflows` channel finds nothing for an allocation, this
+    falls back to `_direct_fill_leg_source` — direct same-day/exact-amount
+    pairing against the allocation's own fill transactions. This exists
+    because `internal_inflows` depends on `_detect_recurring` classifying
+    the funding debit series as recurring at all, which has a cadence
+    floor a genuinely DAILY drip (the owner's actual "Saving Challenge"
+    envelope) never clears — see that function's docstring for the full
+    rationale. Both channels use the SAME `_modal_account` dominant-source
+    rule; the fallback is consulted per-allocation, only when the primary
+    channel's `counts` for that allocation is empty, so a fill account with
+    a genuinely learned recurring mirror never pays the extra query cost.
+
+    An allocation whose fill account has no signal from EITHER channel
+    (fills arrive from outside the tracked accounts, no matching debit
+    exists, or every candidate collided and failed closed) has no
+    derivable source and reserves nothing anywhere — fail-open by design,
+    exactly like every other best-effort signal in this file.
+
+    Failure-tolerant, same doctrine as `_active_commitment_slices`: any
+    error reading allocations, or running the fallback (including a
+    malformed/missing period window on the allocation doc), is caught
+    per-allocation and treated as "no derivable source" — one allocation's
+    lookup failure never takes down the whole reservation pass, and every
+    source-sizing call site below builds exactly as it did before this
+    feature existed.
+    """
+    try:
+        allocations = await list_active_allocations(uid)
+    except Exception:
+        log.exception("_reserved_for_allocations: failed to load allocations for %s", uid)
+        return {}
+    if not allocations:
+        return {}
+
+    reserved: dict[str, float] = {}
+    for alloc in allocations:
+        remaining = float(alloc.get("remaining") or 0.0)
+        if remaining <= 0:
+            continue  # completed/pending/fully-filled this period — nothing to reserve
+        fill_acct = alloc.get("fill_account_id")
+        if not fill_acct:
+            continue
+        counts: dict[str, int] = {}
+        for inflow in internal_inflows:
+            if inflow.get("account_id") != fill_acct:
+                continue
+            src = inflow.get("source_account_id")
+            if not src:
+                continue
+            counts[src] = counts.get(src, 0) + 1
+        dominant = _modal_account(counts)
+
+        if dominant is None:
+            # Primary channel found nothing for THIS allocation — fall back
+            # to direct fill-leg pairing (see `_direct_fill_leg_source`'s
+            # docstring: exactly the case a sub-week cadence like the
+            # owner's daily drip needs, since it never reaches
+            # `internal_inflows` at all).
+            try:
+                period_start_raw = alloc.get("period_start")
+                period_end_raw = alloc.get("period_end")
+                if not period_start_raw or not period_end_raw:
+                    raise ValueError("allocation has no period window")
+                p_start = date.fromisoformat(period_start_raw)
+                p_end = date.fromisoformat(period_end_raw)
+                effective_from_raw = alloc.get("effective_from")
+                window_start = (
+                    max(p_start, date.fromisoformat(effective_from_raw))
+                    if effective_from_raw else p_start
+                )
+                dominant = await _direct_fill_leg_source(
+                    uid, fill_acct, alloc.get("match_type"), alloc.get("match_value", ""),
+                    window_start, p_end, account_map,
+                )
+            except Exception:
+                log.exception(
+                    "_reserved_for_allocations: fallback fill-leg pairing failed for %s/%s",
+                    uid, fill_acct,
+                )
+                dominant = None
+
+        if dominant is None:
+            continue  # no derivable funding source via either channel — fail-open
+        reserved[dominant] = reserved.get(dominant, 0.0) + remaining
+    return reserved
+
+
 async def _active_commitment_slices(
     uid: str, pay_cfg: dict, live_balances: dict[str, float]
 ) -> dict[str, dict]:
@@ -548,6 +880,45 @@ def _is_offline(acc: dict) -> bool:
     moves by hand. Flagged on the normalised dicts built in compute_today_items;
     they never carry the type/subtype fields the other two classifiers read."""
     return bool(acc.get("_offline"))
+
+
+def _is_own_transfer_bill(b: dict) -> bool:
+    """True when bill `b` is a MOVEMENT-kind occurrence whose learned
+    destination (`dest_account_id`, stamped by
+    analytics._learn_transfer_destinations) is one of the user's OWN
+    accounts. `dest_account_id` is only ever populated when the matcher
+    traced the debit to a same-user account inside its own `account_map`
+    (that map is scoped to the caller's linked accounts only), so the mere
+    presence of the field already means "own account" — there is no
+    separate membership check to make.
+
+    Extends the POOLED doctrine (frontend/app/planning/PlanningPage.tsx's
+    `isPooledNoOp`, Kevin, 2026-08-26: "a bill where kind == movement &&
+    dest_account_spendable === true is skipped ENTIRELY" in pooled
+    arithmetic) to the payday plan's own pooled sizing — the plan
+    distributes ONE salary across accounts, so it is pooled arithmetic too,
+    and never had this rule applied to it before. Owner directive
+    (2026-08-29, verbatim): "it should be based on payments in the past
+    period and the cadence of money spent on each card not taking into
+    account any transfers." Deliberately checks `dest_account_id` alone,
+    not `dest_account_spendable` — unlike the frontend's "everywhere-
+    spendable" pool, the payday plan cares about ALL of the user's own
+    money, spendable or savings, so a transfer into a savings pot is just
+    as much a non-obligation here as one into another current account.
+
+    Strict fail-safe, same as the frontend rule: an UNSTAMPED movement
+    (no evidence for a destination, or a genuinely external one — Vanguard,
+    Foris/Crypto) returns False and keeps counting as a bill, exactly like
+    `isPooledNoOp`'s "missing or null means never traced, keep debiting"
+    contract. Card-repayment series are also MOVEMENT-kind but structurally
+    NEVER carry `dest_account_id` — they're linked via the separate
+    `card_dest_account_id` channel (see
+    analytics._learn_card_repayment_destinations, which exists precisely
+    because a card credit is thrown away by the general channel) — so this
+    predicate is naturally False for every card repayment and they keep
+    counting here without any special-casing.
+    """
+    return b.get("kind") == MOVEMENT and bool(b.get("dest_account_id"))
 
 
 def _walk_events(
@@ -872,12 +1243,109 @@ def _recelebration_gated(stored: dict, now_utc: datetime) -> bool:
     return (now_utc - ca).total_seconds() < _RECELEBRATE_COOLDOWN_SECONDS
 
 
-async def compute_today_items(uid: str, payday_preview: bool = False) -> list[dict]:
+def _executed_payday_plan_item(doc: dict) -> dict:
+    """Render a "done" payday_plan doc (companion_items_col) as a quiet
+    executed summary rather than recomputing anything — see the FIX A gate
+    in `compute_today_items` (2026-08-29). Carries the plan's REAL,
+    already-actioned dests/total (including any `commitment_names` on each
+    dest, unchanged from when the doc was persisted), flagged
+    `executed: True` so the frontend renders a calm "already split" state
+    instead of an editable/actionable plan card. Never persists anything —
+    the doc it reads already IS the persisted record."""
+    dests = doc.get("dests") or []
+    total = int(
+        doc.get("_total") if doc.get("_total") is not None
+        else round(sum(float(d.get("move") or 0) for d in dests))
+    )
+    n_moves = len([d for d in dests if (d.get("move") or 0) > 0])
+    headline = doc.get("headline") or (
+        f"Payday plan: split £{total:,} across {n_moves} accounts"
+        if total > 0 else "Payday plan: every account is already set"
+    )
+    body = doc.get("body") or (
+        f"£{total:,} already sorted across {n_moves} {'account' if n_moves == 1 else 'accounts'}."
+        if total > 0 else "Every account was already set this payday."
+    )
+    return {
+        "id": doc.get("_id"),
+        "type": "payday_plan",
+        "headline": headline,
+        "body": body,
+        "covered": bool(doc.get("covered", True)),
+        "total": total,
+        "trimmed": bool(doc.get("trimmed", False)),
+        "salary": doc.get("salary"),
+        "dests": dests,
+        "estimated": False,
+        "executed": True,
+        "action": doc.get("action") or {"label": "See what's due ›", "route": "/planning"},
+    }
+
+
+# ── HOME ITEM SUPPRESSION REGISTRY ──────────────────────────────────────────
+# One voice per fact on Home. When a standing surface elsewhere in the
+# product already states a fact from LIVE data, `compute_today_items` must
+# not ALSO emit a companion item narrating it. This generalises the
+# payday-window precedent that already lives inside the function below
+# (`_suppress_moves`, section 5b: "the plan card replaces the per-destination
+# cards during the payday window") into a declarative lookup that future
+# authors extend, so shipping a second, possibly-disagreeing voice for a
+# fact a standing surface already owns becomes a conscious registry edit
+# instead of an accidental duplicate card.
+#
+# key = the item kind/id-prefix this function would otherwise emit.
+# value.owner = the standing surface that now owns the fact.
+# value.rationale = why, and what (if anything) survives for other consumers.
+#
+# Add an entry here — do NOT hand-roll a new local suppression flag —
+# whenever an item this function is about to emit would restate a fact a
+# standing surface already carries from live data.
+HOME_ITEM_SUPPRESSION_REGISTRY: dict[str, dict[str, str]] = {
+    "rhythm:cliff": {
+        "owner": "coming_up",  # UpcomingBillsStrip (Home), sourced from live /cashflow
+        "rationale": (
+            "Owner decision B1, Home dedup review 2026-08-31: Coming Up "
+            "already states the heavy-week fact from LIVE /cashflow "
+            "occurrences. The rhythm:cliff card said the same thing from a "
+            "historical front_loader trait average, which could disagree "
+            "with Coming Up's live numbers -- one voice wins, so this card "
+            "never emits again. The front_loader trait DETECTION itself is "
+            "untouched (behaviour_portrait_col, the Mirror/behaviour "
+            "surfaces, and the trait's own keep/consent gate all still "
+            "apply) -- only this function's Home-card emission dies."
+        ),
+    },
+}
+
+
+def _home_item_suppressed(kind: str) -> bool:
+    """True when `kind` is owned by a standing surface per
+    `HOME_ITEM_SUPPRESSION_REGISTRY` above, so `compute_today_items` must
+    not emit it. Consult this before building/appending an item whose fact
+    another surface already states live."""
+    return kind in HOME_ITEM_SUPPRESSION_REGISTRY
+
+
+async def compute_today_items(uid: str, payday_preview: bool = False, persist: bool = True) -> list[dict]:
     """Compute companion items for `uid`. Cap at 3, moves first (one card per at-risk destination).
 
     `payday_preview`: force the Payday Plan section on regardless of window
     position, for design/QA. Preview mode builds and returns the card without
     persisting it and without suppressing the normal per-destination cards.
+
+    `persist`: gates EVERY write this function makes (state-transition
+    upserts on `companion_items_col`, and the two one-time "burn" stamps —
+    `celebrated_at` on a `savings_insights_col` doc and
+    `last_streak_celebrated` on `behaviour_portrait_col` — that each exist
+    to stop a celebration re-firing). Defaults True so `GET /today` (the
+    only caller before this flag existed) stays byte-identical. Audit
+    finding, 2026-08-27: `app.services.penny_tools.get_today_brief` calls
+    with `persist=False`, since a model asking "what's Penny suggesting"
+    must never consume a one-time surprise (a streak celebration, a saving
+    that's stuck) the user hasn't actually seen on Home yet, or start a
+    dismissal/7-day-hide window ticking on their behalf. Every write site
+    below is gated on this flag; the in-memory item is still computed and
+    returned either way, only the persistence is skipped.
     """
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
@@ -918,26 +1386,72 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     days_into_period = (today_d - _pstart).days + 1
     payday_window = days_into_period <= 3  # payday + 2 days: the moment to distribute the month
 
-    window_end = next_pay  # inclusive of payday: bills/income with days_away <= days_to_pay
-    lookahead = 5 if days_to_pay <= 1 else 0  # last-day lookahead: assess the next period's first 5 days once the current one is ending
+    window_end = next_pay  # the next payday — bills/income strictly BEFORE it count in this period's arithmetic
 
-    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] <= days_to_pay + lookahead]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= days_to_pay + lookahead]
-    # Snapshot BEFORE preview consumption (below) mutates window_income by removing
-    # reliably-credited items — the payday-plan salary-account selection always
-    # reasons over the untouched window, preview or not.
+    # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
+    # decision, owner verbatim: "we still want to have some visibility over
+    # the next pay period but I don't think it should count in the existing
+    # one"). A bill/income/inflow scheduled ON payday (days_away ==
+    # days_to_pay) belongs to the NEXT pay period's arithmetic, not this
+    # one — it drops into `payday_day_*` below instead, which stays VISIBLE
+    # via the payday_plan card's `payday_split` payload (section 5c) but is
+    # never counted toward at-risk/shortfall/to-last. Last-day lookahead
+    # (days_to_pay <= 1) is unchanged, encoded inside the helper — see
+    # app/services/pay_period.py's in_current_window/is_payday_day
+    # docstrings. Must stay in lockstep with the same boundary in
+    # analytics.at_risk_count and spend_impact._cashflow_window.
+    from app.services.pay_period import in_current_window as _in_window, is_payday_day as _is_payday_day
+
+    window_bills = [b for b in resp["upcoming_bills"] if _in_window(b["days_away"], days_to_pay)]
+    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], days_to_pay)]
+    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], days_to_pay)]
+
+    # Payday-day slice — the partition's second bucket (current window /
+    # payday day / strictly-after next-period). Visible-only: never fed into
+    # the running-balance walk below, only into the payday_plan card's
+    # `payday_split` (and `payday_split_risk`) payload in section 5c.
+    payday_day_bills = [b for b in resp["upcoming_bills"] if _is_payday_day(b["days_away"], days_to_pay)]
+    payday_day_income = [i for i in resp["upcoming_income"] if _is_payday_day(i["days_away"], days_to_pay)]
+    payday_day_inflows = [n for n in resp["internal_inflows"] if _is_payday_day(n["days_away"], days_to_pay)]
+
+    # Snapshot BEFORE preview consumption (below) mutates window_income/
+    # payday_day_income by removing reliably-credited items — the
+    # payday-plan salary-account selection always reasons over the
+    # untouched window, preview or not. The salary itself typically lands
+    # ON payday, i.e. now in `payday_day_income` rather than `window_income`
+    # under the exclusive boundary above, so both snapshots feed salary
+    # detection (section 5c).
     _orig_window_income = list(window_income)
+    _orig_payday_day_income = list(payday_day_income)
+
+    # Payday plan's salary candidate — identified HERE, before the running
+    # walk below, so a PREVIEW can credit it at the REAL next-payday date
+    # inside that same walk rather than crediting it immediately ("today").
+    # Owner directive, 2026-08-29 verbatim: "the payday plan should forecast
+    # how we should move money for the next period not today." Reused
+    # verbatim by section 5b below as the plan's own salary detection (single
+    # source of truth — the two must never diverge). Reasons over the
+    # UNMUTATED snapshots, preview or not — both the pre-payday window AND
+    # payday day itself, since the salary typically lands ON payday (now
+    # `_orig_payday_day_income` under the exclusive-window boundary, not
+    # `_orig_window_income`).
+    _pp_income_candidates = [
+        i for i in _orig_window_income + _orig_payday_day_income
+        if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
+    ]
+    _pp_salary_income = (
+        max(_pp_income_candidates, key=lambda i: float(i["amount"]))
+        if _pp_income_candidates else None
+    )
 
     # Skip bills where we have no balance data, or the bill is on a credit card
     # (credit cards have a credit limit, not an available balance, so a bill
-    # against one must never count toward at-risk/shortfall). Must match
-    # at_risk_count's assessable_bills filter in app/routers/analytics.py.
-    assessable_bills = [
-        b for b in window_bills
-        if b.get("account_balance") is not None
-        and b["account_balance"] >= 0
-        and not b.get("is_credit_card")
-    ]
+    # against one must never count toward at-risk/shortfall). A genuinely
+    # overdrawn CURRENT account's own bills stay assessable — see
+    # `is_assessable_bill`'s docstring (2026-09-01 fix) and its sims-lockstep
+    # note; must match at_risk_count's assessable_bills filter in
+    # app/routers/analytics.py and spend_impact._cashflow_window byte-for-byte.
+    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
 
     # ── 3. Load ALL accounts ONCE; seed live balances from the same listing ─
     # (Single fetch pass replaces the old per-bill `$in` fetch here plus the
@@ -982,19 +1496,28 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     for _oacc in offline_accounts:
         live_balances[_oacc["_str_id"]] = _oacc["balance"]
 
-    # PREVIEW = payday morning: reliable payday income is credited to its
-    # landing account up front so the plan distributes the salary rather than
-    # scraping pots mid-month.
-    if payday_preview:
-        _preview_consumed: list[dict] = []
-        for i in window_income:
-            _acct = str(i.get("account_id") or "")
-            if income_credit_ok(i, _acct, confirmed_income_keys):
-                live_balances[_acct] = live_balances.get(_acct, 0.0) + float(i["amount"])
-                _preview_consumed.append(i)
-        if _preview_consumed:
-            _consumed_ids = {id(_i) for _i in _preview_consumed}
-            window_income = [i for i in window_income if id(i) not in _consumed_ids]
+    # Envelope funding-source reservation (owner fix, 2026-08-31 — "does it
+    # take account of what has been set aside on the envelope"). Computed
+    # once here (after `all_uk_accounts`/`offline_accounts` exist, so the
+    # fallback fill-leg-pairing channel's name-affinity check can reuse this
+    # in-memory account listing instead of a second DB round trip), off the
+    # FULL (not window-filtered) `internal_inflows` list for the strongest
+    # available derivation signal, and reused by every source-sizing call
+    # site below — Step 2's `source_capacity` and the payday plan's
+    # `distributable` (section 5b) — so the two can never disagree about
+    # which source funds which envelope. See `_reserved_for_allocations`'s
+    # docstring for the derivation + lockstep rationale.
+    _account_map = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+    reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
+
+    # Snapshot RAW balances — the payday_split_risk race-warning (section 5c)
+    # always projects payday morning WITHOUT the same-day salary credit, so
+    # it can honestly answer "if the salary is late, can this account cover
+    # its payday split?" regardless of whether this call is itself a
+    # preview. (Also doubles as the walk's un-mutated starting point now that
+    # PREVIEW no longer pre-credits `live_balances` directly — see the
+    # dated walk-event injection below instead, 2026-08-29 FIX B.)
+    _pre_preview_live_balances = dict(live_balances)
 
     # ── 4. Running-balance simulation (same logic as at_risk_count) ─────────
     running: dict[str, float] = {}
@@ -1017,6 +1540,43 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         if acct in running and income_credit_ok(i, acct, confirmed_income_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
             credited_incomes.setdefault(acct, []).append(i)
+    # Mirror internal transfers into their learned destination account (see
+    # analytics._learn_transfer_destinations / _build_cashflow_response's
+    # `internal_inflows`), exactly as at_risk_count does, so the two walks
+    # stay in lockstep. Deliberately NOT added to `credited_incomes`, since that
+    # dict exists only to disclose ASSUMED INCOME to the user (the payday
+    # plan's "assumed_incomes" and the same-day-income recommendation gate
+    # below both read it), and an internal transfer from the user's own
+    # other account is not income, even though it is credited into the same
+    # walk here. It is also never folded into the preview salary event below,
+    # since that event exists to distribute a RELIABLE SALARY on payday
+    # morning, not to net off the user's own internal movements. Only
+    # credited to an account the walk already tracks (`acct in running`),
+    # same reasoning as at_risk_count: an inflow must never seed a brand-new
+    # account into the simulation.
+    for n in window_inflows:
+        acct = str(n.get("account_id") or "")
+        if acct in running:
+            events.append((n["days_away"], acct, float(n["amount"]), True, n))
+
+    # PREVIEW's projected salary — dated at the REAL next payday
+    # (`days_to_pay`), not today (2026-08-29 FIX B; see `_pp_salary_income`
+    # above). Entering it as a normal event on this SAME walk, under the
+    # standing same-day rule (bills before income), means it only ever lands
+    # AFTER every current-window bill between now and payday has already
+    # drained the account — exactly "drain current-window bills to that date
+    # first, exactly as the walk already does" (owner directive). Seeds the
+    # account into `running` at its live balance first when the walk hasn't
+    # already touched it (no bills of its own in-window), matching the same
+    # seeding `_walk_events` gives every other tracked account.
+    _pp_preview_salary_event: tuple[int, str, float, bool, dict] | None = None
+    if payday_preview and _pp_salary_income is not None:
+        _pp_sal_acct = str(_pp_salary_income.get("account_id") or "")
+        if _pp_sal_acct:
+            if _pp_sal_acct not in running:
+                running[_pp_sal_acct] = live_balances.get(_pp_sal_acct, 0.0)
+            _pp_preview_salary_event = (days_to_pay, _pp_sal_acct, float(_pp_salary_income["amount"]), True, _pp_salary_income)
+            events.append(_pp_preview_salary_event)
 
     events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # same-day: bills before income (conservative — an on-payday debit must be covered by balance, not that day's income)
 
@@ -1025,6 +1585,27 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # this replaced.
     _seed_balances = dict(running)
     running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
+
+    # Race-warning walk (section 5c's payday_split_risk) — the SAME events
+    # MINUS the preview salary credit (`_pp_preview_salary_event`, excluded
+    # by identity below — it's the one event this walk must never see), and
+    # re-seeded from `_pre_preview_live_balances`, the raw balances captured
+    # before any preview salary credit. This answers "if the salary is late,
+    # can this account still cover its payday-day outflows from what it has
+    # today?" — `running`/`_bal` above deliberately DOES include a
+    # preview-anticipated salary credit for the plan's own distribution
+    # math, which would make it lie in the optimistic direction for this
+    # specific check.
+    _race_events = (
+        [e for e in events if e is not _pp_preview_salary_event]
+        if _pp_preview_salary_event is not None else events
+    )
+    _race_seed_balances: dict[str, float] = {}
+    for _b in assessable_bills:
+        _acct = _b["account_id"] or "__unknown__"
+        if _acct not in _race_seed_balances:
+            _race_seed_balances[_acct] = _pre_preview_live_balances.get(str(_acct), float(_b.get("account_balance") or 0))
+    _race_running, _, _, _ = _walk_events(_race_events, _race_seed_balances)
 
     # SAME-DAY INCOME — for RECOMMENDATION gating only, never for the at-risk
     # DISPLAY. The conservative walk above (outflows-before-inflows on a
@@ -1109,17 +1690,18 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             continue  # expired — step 7 below retires it, not this pass
         if not _should_reactivate(_rstored, min_running):
             continue
-        await companion_items_col.update_one(
-            {"_id": _rid, "uid": uid},
-            {
-                "$set": {
-                    "status": "active",
-                    "_celebrated": False,
-                    "_reactivated_at": datetime.utcnow(),
+        if persist:
+            await companion_items_col.update_one(
+                {"_id": _rid, "uid": uid},
+                {
+                    "$set": {
+                        "status": "active",
+                        "_celebrated": False,
+                        "_reactivated_at": datetime.utcnow(),
+                    },
+                    "$inc": {"_reactivation_count": 1},
                 },
-                "$inc": {"_reactivation_count": 1},
-            },
-        )
+            )
 
     # Step 1: Collect shortfalls — a destination only reaches the
     # recommendation engine (the "move money" cards below) when its deficit
@@ -1189,7 +1771,18 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         if _is_current(acc) or _is_savings(acc) or _is_offline(acc):
             mn = _source_min_running(sid, bal)
             source_min_run[sid] = mn
-            source_capacity[sid] = mn
+            # Envelope reservation (own-account allocations this source
+            # funds, see `_reserved_for_allocations`) additionally shrinks
+            # what's MOVABLE from this source, on top of its own bills/
+            # income. Applied to `source_capacity` only, NOT `source_min_
+            # run` — the belt-and-braces SOURCE SAFETY check below compares
+            # total contribution against `source_min_run - 10`, and leaving
+            # that figure unreserved keeps it a strictly WEAKER bound than
+            # what candidate-building already enforces via the
+            # reservation-adjusted `source_capacity`: the reservation can
+            # only make that guarantee easier to satisfy, never harder, so
+            # this is not a second, conflicting notion of "safe".
+            source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
@@ -1293,7 +1886,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 "is_overdraft": False,
             }
 
-        def _build_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount):
+        def _build_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0):
             if src_own_bills > 0:
                 safe_note = f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
             elif is_overdraft:
@@ -1313,6 +1906,14 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "provider": src_provider,
                     "balance": float(src_balance),
                     "safe_note": safe_note,
+                    # Surface honesty (owner fix, 2026-08-31): £ already held
+                    # back this period for own-account allocations THIS
+                    # source funds (see `_reserved_for_allocations`) — 0 when
+                    # none. The move sizing above already consumed this
+                    # (`source_capacity` was pre-reduced by it), this is
+                    # disclosure only, so the card can say so rather than
+                    # silently sizing a smaller move.
+                    "reserved_for_allocations": round(src_reserved, 2),
                 },
                 "to": {
                     "account_id": dest_acct,
@@ -1391,7 +1992,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
             src_provider = _provider_of(acc)
             src_own_bills = acct_bills_total.get(sid, 0.0)
-            move_map = _build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount)
+            src_reserved = reserved_by_source.get(sid, 0.0)
+            move_map = _build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved)
             legs.append({
                 "amount": leg_amount,
                 "dest_acct": dest_acct,
@@ -1515,6 +2117,39 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # per-destination cards.
     _effective_payday_window = payday_window or payday_preview
     _suppress_moves = False
+    # Populated below (once `dests` is known) with every destination the LIVE
+    # payday plan is actually funding this window (move > 0) — read by the
+    # unfunded_move owner-extension (section 5d) so a movement whose learned
+    # destination the plan is already covering is never also described as
+    # unfunded. Stays empty outside the payday window, where there is no
+    # plan to overlap with.
+    _pp_dest_ids_final: set = set()
+
+    # FIX A gate (2026-08-29, Kevin): a call that lands INSIDE this window
+    # AFTER the live payday_plan doc has already auto-verified ("done" —
+    # step 7 below) must never compute a fresh plan. Left unguarded, a
+    # preview taken in this state priced the period AFTER next payday (a
+    # month out) on top of a balance that already has the real salary
+    # landed — the £2,365/3-accounts nonsense Kevin screenshotted next to
+    # the correct £600 live plan. Applies to BOTH the plain in-window call
+    # and a preview — an already-executed window has nothing left to
+    # forecast, only to report. Matched on the window's `_pstart` prefix
+    # (the fingerprint suffix can vary run to run; any done doc for this
+    # exact window means this window is spoken for) rather than recomputing
+    # `_pp_item_id`, which needs the full (skipped) computation below.
+    if payday_window:
+        _pp_win_prefix = f"payday_plan:{_pstart.isoformat()}:"
+        _pp_done_doc = None
+        async for _pp_cand in companion_items_col.find(
+            {"uid": uid, "type": "payday_plan", "status": "done"}
+        ):
+            if str(_pp_cand.get("_id", "")).startswith(_pp_win_prefix):
+                _pp_done_doc = _pp_cand
+                break
+        if _pp_done_doc:
+            items.append(_executed_payday_plan_item(_pp_done_doc))
+            _effective_payday_window = False
+
     if _effective_payday_window:
         # PREVIEW reads the PROJECTED payday-morning balance — today's live
         # balance carried through the running-balance walk above (`running`),
@@ -1537,13 +2172,15 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         # Salary account + amount — the most reliable in-window income item,
         # falling back to "the current account with the most cash" when no
         # income is confidently landing this window (e.g. mid-month preview).
-        # Reasons over the UNMUTATED income snapshot, preview or not.
-        _income_candidates = [
-            i for i in _orig_window_income
-            if income_credit_ok(i, str(i.get("account_id") or ""), confirmed_income_keys)
-        ]
+        # `_pp_income_candidates`/`_pp_salary_income` are computed once, up
+        # near `_orig_payday_day_income` (before the running walk, so preview
+        # can also date-inject the same candidate into that walk — 2026-08-29
+        # FIX B) and reused verbatim here rather than re-derived, so the
+        # walk's preview credit and this plan's own salary detection can
+        # never diverge.
+        _income_candidates = _pp_income_candidates
         if _income_candidates:
-            _salary_income = max(_income_candidates, key=lambda i: float(i["amount"]))
+            _salary_income = _pp_salary_income
             salary_acct = str(_salary_income.get("account_id") or "")
             salary_amount = int(round(float(_salary_income["amount"])))
         else:
@@ -1562,37 +2199,57 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             # mid-period. On a real payday the window already spans the whole
             # period, so window_bills stays correct there.
             #
-            # NEXT-PERIOD ONLY (days_away > days_to_pay): the incoming salary
-            # funds the period that's about to START, not the one ending
-            # today. Using the full unbounded horizon here stacked the rest
-            # of THIS period's bills AND all of next period's against one
-            # salary (~5 weeks of demand vs 1 month), crushing discretionary
+            # NEXT-PERIOD ONLY (everything NOT in the current window — i.e.
+            # payday day itself plus strictly after it, see
+            # pay_period.in_current_window): the incoming salary funds the
+            # period that's about to START, not the one ending today. Using
+            # the full unbounded horizon here stacked the rest of THIS
+            # period's bills AND all of next period's against one salary
+            # (~5 weeks of demand vs 1 month), crushing discretionary
             # allocations to near-zero. The current period's remaining bills
             # are already accounted for separately — they drain the balance
             # `_bal` below projects forward to payday morning, so funding
-            # them again here would double-count them.
+            # them again here would double-count them. Payday-day bills
+            # (2026-08-28 decision) now fall OUT of `window_bills` too, so
+            # they must land here instead of being silently dropped —
+            # `not _in_window(...)` (rather than the old `> days_to_pay`)
+            # is what pulls them in.
             _plan_bills = (
                 [
                     b for b in resp["upcoming_bills"]
-                    if not b.get("is_credit_card") and b.get("days_away", 0) > days_to_pay
+                    if not b.get("is_credit_card") and not _in_window(b.get("days_away", 0), days_to_pay)
                 ]
                 if payday_preview
                 else window_bills
             )
 
-            def _acct_bills(acct_id: str) -> tuple[float, int]:
+            def _acct_bills(acct_id: str) -> tuple[float, int, float]:
                 """Sum/count of THIS account's bills from `_plan_bills` (ALL
                 known bills, not just the balance-assessable subset
                 `assessable_bills` is scoped to) — the payday plan sizes
                 targets off everything due, regardless of whether we have
-                balance data to shortfall-simulate."""
+                balance data to shortfall-simulate.
+
+                A MOVEMENT bill whose learned destination is one of the
+                user's own accounts (`_is_own_transfer_bill`) is excluded
+                from `_total`/`_count` and folded into the third return
+                value instead — see that function's docstring for the
+                2026-08-29 pooled-sizing rule this applies. Unstamped
+                movements and every card repayment (never stamped with
+                `dest_account_id`, see `_is_own_transfer_bill`) are
+                unaffected and keep counting exactly as before."""
                 _total = 0.0
                 _count = 0
+                _skipped = 0.0
                 for _b in _plan_bills:
-                    if str(_b.get("account_id") or "") == acct_id and not _b.get("is_credit_card"):
-                        _total += float(_b["amount"])
-                        _count += 1
-                return _total, _count
+                    if str(_b.get("account_id") or "") != acct_id or _b.get("is_credit_card"):
+                        continue
+                    if _is_own_transfer_bill(_b):
+                        _skipped += float(_b["amount"])
+                        continue
+                    _total += float(_b["amount"])
+                    _count += 1
+                return _total, _count, _skipped
 
             recurring_keys = {r.get("key") for r in (cached.get("recurring_spend") or []) if r.get("key")}
             everyday_spend = await _per_account_everyday_spend(uid, recurring_keys)
@@ -1614,12 +2271,23 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 outflows (investments, card DDs) stay reserved, since they
                 have no matching dest move. Each `usual_moves` value is
                 consumed at most once so two £100 bills against a single
-                £100 usual dest only drop one."""
+                £100 usual dest only drop one.
+
+                2026-08-29 (Kevin, extends the same pooled-sizing rule as
+                `_acct_bills`): a bill that `_is_own_transfer_bill` already
+                recognises as a stamped own-account transfer is skipped
+                BEFORE the amount-match dedup below even runs, so it's never
+                tested twice by two different heuristics. The amount-match
+                dedup remains as the fallback for a salary-account own-
+                transfer that has NO stamp yet (no learned-destination
+                evidence) but still duplicates a `usual_moves` leg."""
                 _remaining = list(usual_moves.values())
                 _total = 0.0
                 _count = 0
                 for _b in _plan_bills:
                     if str(_b.get("account_id") or "") != acct_id or _b.get("is_credit_card"):
+                        continue
+                    if _is_own_transfer_bill(_b):
                         continue
                     _amt = float(_b["amount"])
                     _match_idx = next(
@@ -1635,7 +2303,17 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             _salary_bills_total, _ = _salary_bills_excl_own_dests(salary_acct)
             _salary_spend_typical = int(everyday_spend.get(salary_acct, 0))
             _salary_target = _salary_bills_total + _salary_spend_typical + payday_buffer
-            distributable = _bal(salary_acct) - _salary_target
+            # Envelope reservation (owner fix, 2026-08-31): the salary
+            # account is itself a SOURCE for this plan's own legs, so it
+            # reserves the same unfilled allocation remainder any other
+            # source would — see `_reserved_for_allocations` and Step 2's
+            # matching `source_capacity` reduction above. Shrinking
+            # `distributable` directly lets the existing trim/re-balance
+            # arithmetic below (Phase 1/Phase 2) consume the reduced pot
+            # exactly as it already does for any other overage, rather than
+            # special-casing allocations.
+            _salary_envelope_reserved = reserved_by_source.get(salary_acct, 0.0)
+            distributable = _bal(salary_acct) - _salary_target - _salary_envelope_reserved
 
             dests: list[dict] = []
             for acc in all_uk_accounts:
@@ -1646,7 +2324,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     continue
                 if acct_id in excluded_sources:
                     continue
-                bills_total, bill_count = _acct_bills(acct_id)
+                bills_total, bill_count, own_transfers_skipped = _acct_bills(acct_id)
                 balance = _bal(acct_id)
                 usual = usual_moves.get(acct_id)  # int or None — None means "no usual pattern seen"
                 if _is_savings(acc):
@@ -1693,6 +2371,14 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "target": int(round(target)),
                     "move": int(move),
                     "usual": int(usual) if usual is not None else None,
+                    # Sum of MOVEMENT bills on THIS account excluded from
+                    # `bills_total` above because their learned destination is
+                    # one of the user's own accounts (see
+                    # `_is_own_transfer_bill`, 2026-08-29 owner directive: the
+                    # payday plan should size off payments and card cadence,
+                    # "not taking into account any transfers"). Disclosure
+                    # only — PaydayPlanCard doesn't render this yet.
+                    "own_transfers_skipped": int(round(own_transfers_skipped)),
                 }
                 if _commit and _commit.get("names"):
                     _dest_entry["commitment_names"] = list(_commit["names"])
@@ -1757,6 +2443,10 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             else:
                 total = total_moves
 
+            # Every destination this plan is ACTUALLY funding this window
+            # (move > 0) — see the unfunded_move owner-extension (5d) below.
+            _pp_dest_ids_final = {d["account_id"] for d in dests if d["move"] > 0}
+
             n_moves = len([d for d in dests if d["move"] > 0])
             covered = bool(total <= distributable)
             stays = int(distributable - total) if (distributable - total) >= 0 else 0
@@ -1776,6 +2466,70 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 body = f"A tight month: buffers trimmed so every payment is covered. £{total:,} distributed."
             else:
                 body = f"£{total:,} distributed across {n_moves} accounts."
+
+            # payday_split — VISIBILITY for the payday-day items that no
+            # longer count in this period's arithmetic (2026-08-28 decision:
+            # "we still want to have some visibility over the next pay
+            # period but I don't think it should count in the existing
+            # one"). Built from `payday_day_bills`/`_orig_payday_day_income`
+            # (the untouched, pre-preview-mutation snapshots) so the figure
+            # never shrinks just because preview crediting already consumed
+            # the salary for the plan's own balance projection above.
+            # Amounts absolute per house convention.
+            _pd_bills_by_acct: dict[str, float] = {}
+            for _pdb in payday_day_bills:
+                if _pdb.get("is_credit_card"):
+                    continue
+                _pd_acct = str(_pdb.get("account_id") or "")
+                _pd_bills_by_acct[_pd_acct] = _pd_bills_by_acct.get(_pd_acct, 0.0) + float(_pdb["amount"])
+
+            payday_split = None
+            payday_split_risk = None
+            if _pd_bills_by_acct:
+                _pd_count = sum(1 for _pdb in payday_day_bills if not _pdb.get("is_credit_card"))
+                _pd_expected_in = round(sum(float(i["amount"]) for i in _orig_payday_day_income), 2)
+                _pd_accounts = []
+                # Race warning — hedged, and only when genuinely at risk (Kevin,
+                # 2026-08-28 contract): compare each account's projected
+                # payday-morning balance WITHOUT same-day income (`_race_running`,
+                # built above from `_pre_preview_live_balances` precisely so it
+                # never counts an anticipated-but-unlanded salary) against that
+                # account's payday-day outflows. Pick the single worst (largest
+                # shortfall) account to report, since the payload is one dict,
+                # not a list.
+                _pd_worst: tuple[str, str, float] | None = None
+                _pd_worst_shortfall = 0.0
+                for _pd_acct, _pd_out in sorted(_pd_bills_by_acct.items(), key=lambda kv: kv[1], reverse=True):
+                    _pd_acc_obj = next((a for a in all_uk_accounts if a["_str_id"] == _pd_acct), None)
+                    _pd_name = _clean_name(_pd_acc_obj.get("name") if _pd_acc_obj else None, _pd_acct)
+                    _pd_accounts.append({
+                        "account_id": _pd_acct,
+                        "name": _pd_name,
+                        "out": int(round(_pd_out)),
+                    })
+                    _pd_race_bal = _race_running.get(_pd_acct, _pre_preview_live_balances.get(_pd_acct, 0.0))
+                    _pd_shortfall = _pd_out - _pd_race_bal
+                    if _pd_shortfall > _pd_worst_shortfall:
+                        _pd_worst_shortfall = _pd_shortfall
+                        _pd_worst = (_pd_acct, _pd_name, _pd_out)
+
+                payday_split = {
+                    "total": int(round(sum(_pd_bills_by_acct.values()))),
+                    "count": _pd_count,
+                    "expected_in": int(round(_pd_expected_in)),
+                    "accounts": _pd_accounts,
+                }
+                if _pd_worst is not None:
+                    _pdw_acct, _pdw_name, _pdw_out = _pd_worst
+                    payday_split_risk = {
+                        "account_id": _pdw_acct,
+                        "name": _pdw_name,
+                        "shortfall": int(round(_pd_worst_shortfall)),
+                        "copy": (
+                            f"Your £{int(round(_pdw_out)):,} payday split fires the morning your salary "
+                            f"is expected. If the salary is late, {_pdw_name} can't cover it."
+                        ),
+                    }
 
             _pp_fp = _shortfall_fingerprint([(d["account_id"], round(d["move"] / 50) * 50) for d in dests])
             _pp_item_id = f"payday_plan:{_pstart.isoformat()}:{_pp_fp}"
@@ -1800,10 +2554,18 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     "estimated": False,
                     "action": {"label": "See what's due ›", "route": "/planning"},
                 }
+                if payday_split is not None:
+                    payday_plan_item["payday_split"] = payday_split
+                    if payday_split_risk is not None:
+                        payday_plan_item["payday_split_risk"] = payday_split_risk
                 if payday_preview:
                     # Preview never touches persistence or state — build and
                     # return only, and never suppress the normal move cards.
+                    # `next_pay` (ISO date) lets the frontend head the card
+                    # "Once your pay lands ~<date>..." instead of the old,
+                    # incorrect "if your pay landed today" framing (FIX B).
                     payday_plan_item["preview"] = True
+                    payday_plan_item["next_pay"] = next_pay.isoformat()
                     items.append(payday_plan_item)
                 elif payday_window:
                     # Persist like the existing plan docs so the multi-dest
@@ -1829,15 +2591,161 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                             "salary": payday_plan_item["salary"],
                             "trimmed": bool(trimmed),
                         }
-                        await companion_items_col.update_one(
-                            {"_id": _pp_item_id, "uid": uid},
-                            {"$set": {k: v for k, v in _pp_doc.items() if k != "_id"}},
-                            upsert=True,
-                        )
+                        if persist:
+                            await companion_items_col.update_one(
+                                {"_id": _pp_item_id, "uid": uid},
+                                {"$set": {k: v for k, v in _pp_doc.items() if k != "_id"}},
+                                upsert=True,
+                            )
                         items.append(payday_plan_item)
                         # The plan card replaces the per-destination cards during
                         # the payday window.
                         _suppress_moves = True
+
+    # ── 5d. UNFUNDED MOVE — deliberate owner extension of movement doctrine
+    # (Kevin, 2026-08-27) ────────────────────────────────────────────────────
+    # Standing doctrine (unchanged, everywhere else in this file): a
+    # movement bounce never counts as at-risk/RED and never resurrects a
+    # "move money" recommendation (`_gate_recommendation` gate (b)) — a
+    # bounced own-transfer has no fee and no credit damage. What's NEW here,
+    # scoped ONLY to this section, is narrower than that: a movement that is
+    # BOTH due-or-overdue (`pending` — the due date has arrived or passed
+    # with nothing observed yet, straight off the /cashflow occurrence the
+    # walk already carries) AND unfundable per the SAME conservative walk
+    # (present in `bounced_bills` for its account — no new arithmetic, this
+    # reuses the walk's own verdict) is a genuine call to action: fund it,
+    # do it anyway, or consciously skip it. It still never sets a RED
+    # signal and never reopens the suppressed "move money" card — the only
+    # action offered below is a SKIP, via the SAME per-occurrence override
+    # endpoint Planning's "Dismiss for this month" button already uses
+    # (/cashflow/skip-occurrence), so Planning and Penny can never disagree
+    # about whether a move was skipped. One aggregated QUIET item (never one
+    # per move); resolves itself on the next compute once every listed move
+    # is skipped or observed, rather than lingering.
+    unfunded_move_items: list[dict] = []
+    try:
+        _um_qualifying: list[tuple[str, dict]] = []
+        for _um_acct, _um_bills in bounced_bills.items():
+            for _um_bill in _um_bills:
+                if _um_bill.get("kind") != MOVEMENT or not _um_bill.get("pending"):
+                    continue
+                # Payday-plan overlap: this move's learned destination is
+                # already being funded by the LIVE plan this window, so the
+                # plan card already speaks for it — describing it again here
+                # would double-describe the same move.
+                if _um_bill.get("dest_account_id") in _pp_dest_ids_final:
+                    continue
+                _um_qualifying.append((_um_acct, _um_bill))
+
+        _um_item_id: str | None = None
+        if _um_qualifying:
+            _um_fp = _shortfall_fingerprint([
+                (
+                    f"{_a}:{_b.get('name', '')}",
+                    round(float(_b.get('amount') or 0) / 50) * 50,
+                )
+                for _a, _b in _um_qualifying
+            ])
+            _um_item_id = f"unfunded_move:{window_end.isoformat()}:{_um_fp}"
+
+            def _um_account_display(acct_id: str) -> tuple[str, str]:
+                for _acc in all_uk_accounts + offline_accounts:
+                    if _acc["_str_id"] == acct_id:
+                        return _clean_name(_acc.get("name"), acct_id), _provider_of(_acc)
+                return acct_id, "Bank"
+
+            _um_moves: list[dict] = []
+            for _a, _b in _um_qualifying:
+                _um_src_name, _um_src_bank = _um_account_display(_a)
+                # `expected_date` here is the ORIGINAL due date (`original_date`
+                # when the occurrence rolled forward, else the bill's own
+                # `expected_date` — same value Planning's own skip button
+                # sends as `date` to /cashflow/skip-occurrence, see
+                # UpcomingEditSheet.tsx's `item.original_date ?? item.expected_date`).
+                _um_due = _b.get("original_date") or _b.get("expected_date")
+                _um_moves.append({
+                    "key": _b.get("name", ""),
+                    "label": _humanise_bill_name(_b.get("name", "")),
+                    "amount": int(round(float(_b.get("amount") or 0))),
+                    "expected_date": _um_due,
+                    "days_past_due": int(_b.get("days_past_due") or 0),
+                    "source_account_id": _a,
+                    "source_name": _um_src_name,
+                    "source_bank": _um_src_bank,
+                })
+            # Soonest-due first — matches the rest of the file's "most urgent
+            # first" convention.
+            _um_moves.sort(key=lambda m: m["expected_date"] or "")
+
+            _um_n = len(_um_moves)
+            headline = f"{_um_n} planned {'move' if _um_n == 1 else 'moves'} may not have the funds."
+            _um_sentences = []
+            for m in _um_moves:
+                try:
+                    _um_when = date.fromisoformat(m["expected_date"]).strftime("%a %-d %b")
+                except (TypeError, ValueError):
+                    _um_when = "recently"
+                _um_sentences.append(
+                    f"£{m['amount']:,} to {m['label']} from {humanise_account_name(m['source_name'])} "
+                    f"was due {_um_when}."
+                )
+            _um_sentences.append(
+                "Top up the account, make the move if you already have, or skip it for this month."
+            )
+            body = " ".join(_um_sentences)
+
+            _um_first = _um_moves[0]
+            if _um_first["expected_date"]:
+                _um_route = f"/planning?day={_um_first['expected_date']}&bill={quote(_um_first['key'], safe='')}"
+            else:
+                _um_route = "/planning"
+
+            if _um_item_id not in dismissed:
+                _um_action = {"label": "Review in Planning ›", "route": _um_route}
+                item_doc = {
+                    "_id": _um_item_id,
+                    "uid": uid,
+                    "type": "unfunded_move",
+                    "status": "active",
+                    "headline": headline,
+                    "body": body,
+                    "action": _um_action,
+                    "estimated": False,
+                    "created_at": datetime.utcnow(),
+                    "_window_end": window_end.isoformat(),
+                    "moves": _um_moves,
+                }
+                if persist:
+                    await companion_items_col.update_one(
+                        {"_id": _um_item_id, "uid": uid},
+                        {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
+                        upsert=True,
+                    )
+                unfunded_move_items.append({
+                    "id": _um_item_id,
+                    "type": "unfunded_move",
+                    "headline": headline,
+                    "body": body,
+                    "action": _um_action,
+                    "estimated": False,
+                    "moves": _um_moves,
+                })
+
+        # Resolve/close stale docs: any OTHER active unfunded_move doc for
+        # this user (a different fingerprint — an earlier run's move set
+        # that no longer qualifies, whether skipped, observed, or simply no
+        # longer bounced) must not linger. At most one unfunded_move item is
+        # ever live per user, so anything but the current id is stale.
+        if persist:
+            _um_stale_filter: dict = {"uid": uid, "type": "unfunded_move", "status": "active"}
+            if _um_item_id:
+                _um_stale_filter["_id"] = {"$ne": _um_item_id}
+            await companion_items_col.update_many(
+                _um_stale_filter,
+                {"$set": {"status": "resolved"}},
+            )
+    except Exception as _um_exc:
+        log.warning("unfunded_move item failed for %s: %s", uid, _um_exc)
 
     # ── 6. Emission — ONE CARD PER AT-RISK DESTINATION ──────────────────────
     # Each card is a self-contained instruction about ONE account: its own headline,
@@ -1906,11 +2814,12 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 "_no_source": True,
                 "_window_end": window_end.isoformat(),
             }
-            await companion_items_col.update_one(
-                {"_id": item_id, "uid": uid},
-                {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
-                upsert=True,
-            )
+            if persist:
+                await companion_items_col.update_one(
+                    {"_id": item_id, "uid": uid},
+                    {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
+                    upsert=True,
+                )
             items.append({
                 "id": item_id,
                 "type": "move",
@@ -1955,6 +2864,16 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         dest_summary = dest_summaries[dest_acct]
         dest_name = dest_summary["name"]
 
+        # Surface honesty (owner fix, 2026-08-31): true when at least one
+        # row's source actually had an envelope reservation applied to its
+        # contribution here — drives the frontend's "...and envelopes" extra
+        # clause on the assurance line. False (never omitted) so the
+        # frontend template can branch on it cheaply.
+        envelope_reserved = any(
+            reserved_by_source.get(_r["move_map"]["from"]["account_id"], 0.0) > 0
+            for _r in rows
+        )
+
         # This destination's own arithmetic — never a pooled figure.
         # RATIONALE: the pooled figure counted bills on accounts with no balance
         # data (credit cards) that the cover plan cannot assess, so asserting it
@@ -1995,12 +2914,24 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             elif len(_ds_bills) > 1:
                 # Account-level story: several payments leave this account before
                 # payday; quote the total vs held so the shortfall is legible.
+                # An already-overdrawn starting balance (owner bug report,
+                # 2026-09-01: "the Barclays account is short and it still has
+                # bills to cover") reads as "it's £X overdrawn" instead of
+                # "it holds £-X", which would otherwise print a negative
+                # "held" figure — see `is_assessable_bill`'s docstring for
+                # why this branch can now be reached with a negative balance.
                 _spare = int(round(total - _r["shortfall"]))
                 _spare_phrase = f", with about £{_spare} spare." if (dest_covered and _spare >= 2) else "."
                 _all_phrase = "covers all of them" if dest_covered else "covers most of it"
+                _ds_bal = float(_ds.get("balance", 0) or 0)
+                _held_phrase = (
+                    f"it's £{_fmt_overdrawn(_ds_bal)} overdrawn"
+                    if _ds_bal < 0 else
+                    f"it holds £{int(round(_ds_bal))}"
+                )
                 body = (
                     f"{len(_ds_bills)} payments (£{_ds.get('needs_total', 0):,}) leave {dest_name} "
-                    f"before period end and it holds £{int(round(_ds.get('balance', 0)))}. "
+                    f"before period end and {_held_phrase}. "
                     f"£{_shortfall_i} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_all_phrase}{_spare_phrase}"
                 )
@@ -2056,6 +2987,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             "covered": dest_covered,
             "amount": total,
             "sources_safe": sources_safe,
+            "envelope_reserved": envelope_reserved,
             "assumed_incomes": assumed_incomes,
             "income_note": income_note,
         }
@@ -2063,11 +2995,12 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             item_doc["move_map"] = rows[0]["move_map"]
         if residual is not None:
             item_doc["residual"] = residual
-        await companion_items_col.update_one(
-            {"_id": item_id, "uid": uid},
-            {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
-            upsert=True,
-        )
+        if persist:
+            await companion_items_col.update_one(
+                {"_id": item_id, "uid": uid},
+                {"$set": {k: v for k, v in item_doc.items() if k != "_id"}},
+                upsert=True,
+            )
 
         emit = {
             "id": item_id,
@@ -2085,6 +3018,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             "covered": dest_covered,
             "amount": total,
             "sources_safe": sources_safe,
+            "envelope_reserved": envelope_reserved,
             "assumed_incomes": assumed_incomes,
         }
         if n_rows == 1:
@@ -2105,10 +3039,11 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             else f"{capped_out} more accounts are short this window. They'll show here once these are cleared."
         )
         items[-1]["overflow_note"] = overflow_note
-        await companion_items_col.update_one(
-            {"_id": items[-1]["id"], "uid": uid},
-            {"$set": {"overflow_note": overflow_note}},
-        )
+        if persist:
+            await companion_items_col.update_one(
+                {"_id": items[-1]["id"], "uid": uid},
+                {"$set": {"overflow_note": overflow_note}},
+            )
 
     # ── 7. Auto-verification + celebration pass ─────────────────────────────
     # Active moves whose destination now clears its window flip to "done" and
@@ -2203,10 +3138,11 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         # Window closed → expired, whether the move was still active or already
         # done+celebrated. A celebration lives until dismissal or window end.
         if stored_window and date.fromisoformat(stored_window) < today_d:
-            await companion_items_col.update_one(
-                {"_id": stored_id, "uid": uid},
-                {"$set": {"status": "expired"}},
-            )
+            if persist:
+                await companion_items_col.update_one(
+                    {"_id": stored_id, "uid": uid},
+                    {"$set": {"status": "expired"}},
+                )
             continue
         # Handle plan docs (multiple dest accounts)
         stored_dest_accts = stored.get("_dest_accts")
@@ -2218,31 +3154,35 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                         # Reactivated and resolved again too soon after its
                         # last celebration — go quietly "done" with no fresh
                         # toast/push. See `_recelebration_gated` for why.
+                        if persist:
+                            await companion_items_col.update_one(
+                                {"_id": stored_id, "uid": uid},
+                                {"$set": {"status": "done"}},
+                            )
+                        continue
+                    if persist:
                         await companion_items_col.update_one(
                             {"_id": stored_id, "uid": uid},
-                            {"$set": {"status": "done"}},
+                            {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
                         )
-                        continue
-                    await companion_items_col.update_one(
-                        {"_id": stored_id, "uid": uid},
-                        {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
-                    )
                 # Legacy heal: docs already done+celebrated without _celebrated_at
                 # get stamped now so they get a full 24 h from this moment.
                 if stored.get("_celebrated_at") is None:
-                    await companion_items_col.update_one(
-                        {"_id": stored_id, "uid": uid},
-                        {"$set": {"_celebrated_at": _cel_now_utc}},
-                    )
+                    if persist:
+                        await companion_items_col.update_one(
+                            {"_id": stored_id, "uid": uid},
+                            {"$set": {"_celebrated_at": _cel_now_utc}},
+                        )
                     stored = dict(stored)
                     stored["_celebrated_at"] = _cel_now_utc
                 # 24-hour lapse gate
                 if _celebration_lapsed(stored, _cel_now_utc):
                     if not stored.get("_celebration_lapsed"):
-                        await companion_items_col.update_one(
-                            {"_id": stored_id, "uid": uid},
-                            {"$set": {"_celebration_lapsed": True}},
-                        )
+                        if persist:
+                            await companion_items_col.update_one(
+                                {"_id": stored_id, "uid": uid},
+                                {"$set": {"_celebration_lapsed": True}},
+                            )
                     continue
                 _cel_candidates.append({
                     "cel_id": f"celebrate:{stored_id}",
@@ -2261,10 +3201,11 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             elif stored_status == "active" and len(stored_dest_accts) > 1 and emitted_dests > 0:
                 # Legacy pooled plan card, superseded by per-destination cards emitted
                 # this run. Retire it quietly — the new cards own these destinations.
-                await companion_items_col.update_one(
-                    {"_id": stored_id, "uid": uid},
-                    {"$set": {"status": "expired"}},
-                )
+                if persist:
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"status": "expired"}},
+                    )
             continue
         # Single-dest logic — only celebrate while the destination still clears
         # its window; a re-opened shortfall must not be toasted as sorted.
@@ -2273,39 +3214,44 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                 if _recelebration_gated(stored, _cel_now_utc):
                     # Reactivated and resolved again too soon after its last
                     # celebration — go quietly "done" with no fresh toast/push.
+                    if persist:
+                        await companion_items_col.update_one(
+                            {"_id": stored_id, "uid": uid},
+                            {"$set": {"status": "done"}},
+                        )
+                    continue
+                if persist:
                     await companion_items_col.update_one(
                         {"_id": stored_id, "uid": uid},
-                        {"$set": {"status": "done"}},
+                        {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
                     )
-                    continue
-                await companion_items_col.update_one(
-                    {"_id": stored_id, "uid": uid},
-                    {"$set": {"status": "done", "_celebrated": True, "_celebrated_at": _cel_now_utc}},
-                )
             dest_name, _healed = await _resolve_dest_display_name(stored)
             if _healed:
                 # Heal whitespace-damaged / pre-_dest_name docs in place so the
                 # next run resolves without a lookup.
-                await companion_items_col.update_one(
-                    {"_id": stored_id, "uid": uid},
-                    {"$set": {"_dest_name": dest_name}},
-                )
+                if persist:
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"_dest_name": dest_name}},
+                    )
             # Legacy heal: docs already done+celebrated without _celebrated_at
             # get stamped now so they get a full 24 h from this moment.
             if stored.get("_celebrated_at") is None:
-                await companion_items_col.update_one(
-                    {"_id": stored_id, "uid": uid},
-                    {"$set": {"_celebrated_at": _cel_now_utc}},
-                )
+                if persist:
+                    await companion_items_col.update_one(
+                        {"_id": stored_id, "uid": uid},
+                        {"$set": {"_celebrated_at": _cel_now_utc}},
+                    )
                 stored = dict(stored)
                 stored["_celebrated_at"] = _cel_now_utc
             # 24-hour lapse gate
             if _celebration_lapsed(stored, _cel_now_utc):
                 if not stored.get("_celebration_lapsed"):
-                    await companion_items_col.update_one(
-                        {"_id": stored_id, "uid": uid},
-                        {"$set": {"_celebration_lapsed": True}},
-                    )
+                    if persist:
+                        await companion_items_col.update_one(
+                            {"_id": stored_id, "uid": uid},
+                            {"$set": {"_celebration_lapsed": True}},
+                        )
                 continue
             _cel_candidates.append({
                 "cel_id": f"celebrate:{stored_id}",
@@ -2347,10 +3293,32 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         from app.db.collections import savings_insights_col
 
         _win_now = datetime.utcnow()
+        # Evidence-gone retirement (savings_insights.py's `retired_at`) never
+        # sets on a doc that already has `verified_savings` (see the guard
+        # in `_refresh_savings_insights_for_user` — a resolved win is a
+        # closed historical fact, not live advice needing grounding), so
+        # this filter is structurally redundant today. Kept explicit anyway:
+        # this reads the collection directly, not through GET
+        # /savings-insights, so it must not silently start narrating a
+        # retired card if that guard ever changes.
+        #
+        # `substituted_at` exclusion (Insights honesty review, incoherence
+        # A — owner phone report 2026-09-01): an incomplete early-return
+        # guard (fixed, see `_check_verified_saving`) previously let an
+        # already-`substituted` doc get re-evaluated and additionally
+        # stamped `verified_savings` on top — the source of truth for which
+        # resolution actually wins is `_derive_insight_state` in
+        # savings_insights.py (first-write-wins on the timestamps). This
+        # reads the collection directly, not through that function, so
+        # without this guard Mirror could narrate "that change stuck" for a
+        # spend that actually just moved to a different merchant in the
+        # same category, not a real saving.
         _win_cursor = savings_insights_col.find({
             "user_id": uid,
             "verified_savings": {"$gt": 0},
             "celebration_lapsed": {"$ne": True},
+            "retired_at": {"$exists": False},
+            "substituted_at": {"$exists": False},
         }).sort("verified_at", -1).limit(_MOVE_CARD_CAP)
         async for _ins in _win_cursor:
             _win_id = f"insight_win:{_ins.get('insight_id', str(_ins['_id']))}"
@@ -2359,15 +3327,17 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
             _win_ca = _ins.get("celebrated_at")
             if _win_ca is None:
                 _win_ca = _win_now
-                await savings_insights_col.update_one(
-                    {"_id": _ins["_id"]},
-                    {"$set": {"celebrated_at": _win_ca}},
-                )
+                if persist:
+                    await savings_insights_col.update_one(
+                        {"_id": _ins["_id"]},
+                        {"$set": {"celebrated_at": _win_ca}},
+                    )
             if (_win_now - _win_ca).total_seconds() >= 7 * 86400:
-                await savings_insights_col.update_one(
-                    {"_id": _ins["_id"]},
-                    {"$set": {"celebration_lapsed": True}},
-                )
+                if persist:
+                    await savings_insights_col.update_one(
+                        {"_id": _ins["_id"]},
+                        {"$set": {"celebration_lapsed": True}},
+                    )
                 continue
             _win_amt = float(_ins.get("verified_savings") or 0)
             if _win_amt <= 0:
@@ -2411,8 +3381,16 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
         next_month_1st = (today_obj.replace(day=1) + timedelta(days=32)).replace(day=1)
         days_to_month_end = (next_month_1st - today_obj).days
 
-        # Anticipation card — suppressed when the trait is marked "keep" (consent rule).
-        if "front_loader" in traits_by_id and not _trait_kept("front_loader") and 0 < days_to_month_end <= 3:
+        # Anticipation card — suppressed when the trait is marked "keep" (consent
+        # rule), and suppressed outright per HOME_ITEM_SUPPRESSION_REGISTRY: Coming
+        # Up (UpcomingBillsStrip) now owns the heavy-week fact from live data, so
+        # this card never emits on Home (see the registry doc-comment above).
+        if (
+            not _home_item_suppressed("rhythm:cliff")
+            and "front_loader" in traits_by_id
+            and not _trait_kept("front_loader")
+            and 0 < days_to_month_end <= 3
+        ):
             trait = traits_by_id["front_loader"]
             evidence = trait.get("evidence", [])
             # Extract avg early-month from evidence e.g. "£300 average early-month spend"
@@ -2528,10 +3506,11 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                     rid = f"celebrate:streak:{n}"
                     if rid not in dismissed:
                         # Update portrait to mark this n as celebrated
-                        await behaviour_portrait_col.update_one(
-                            {"_id": uid},
-                            {"$set": {"last_streak_celebrated": n}},
-                        )
+                        if persist:
+                            await behaviour_portrait_col.update_one(
+                                {"_id": uid},
+                                {"$set": {"last_streak_celebrated": n}},
+                            )
                         celebration_items.append({
                             "id": rid,
                             "type": "celebration",
@@ -3004,7 +3983,17 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
                                 continue
                             _rc_raw_txns.append({
                                 "amount": _doc_amt,
-                                "name": (_doc.get("merchant_name") or _doc.get("description") or "").strip(),
+                                # Display-only cleanup (_clean_descriptor_for_display,
+                                # above) — merchant_name is often blank for card
+                                # transactions, leaving the raw bank descriptor
+                                # (e.g. "AMZNMKTPLACE*NJ0X14124") as the only
+                                # candidate; this strips its POS reference suffix
+                                # and title-cases it for the rhythm checkpoint's
+                                # "dominant transaction" line. Never rewrites the
+                                # stored fields or feeds back into categorisation.
+                                "name": _clean_descriptor_for_display(
+                                    (_doc.get("merchant_name") or _doc.get("description") or "").strip()
+                                ),
                                 "date": (
                                     _doc["date"].date()
                                     if hasattr(_doc.get("date"), "date")
@@ -3107,10 +4096,16 @@ async def compute_today_items(uid: str, payday_preview: bool = False) -> list[di
     # Moves are capped at emission time (_MOVE_CARD_CAP); the slice is belt-and-braces.
     # Celebrations get the same allowance as move cards, so covering two accounts is
     # acknowledged twice rather than one card vanishing without a word.
+    # unfunded_move sits right after the genuine bill-shortfall/payday-plan
+    # cards (`items`) and BEFORE everything else — it is a real call to
+    # action, but `items[:_MOVE_CARD_CAP]` is placed first here specifically
+    # so a genuine bill-shortfall card is never evicted to make room for it;
+    # it only ever claims a slot `items` didn't already need.
     # Cliff items slot after celebrations (important standing fact), then trajectory
     # (debt pace — with the cliffs, after celebrations, before asks), then asks.
     result = (
         items[:_MOVE_CARD_CAP]
+        + unfunded_move_items[:1]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
         + trajectory_items[:1]

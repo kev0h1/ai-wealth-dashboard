@@ -1,6 +1,7 @@
+<!-- Published copy lives in frontend/content/, keep in sync when editing. -->
 # Privacy Policy
 
-> **DRAFT for review — not yet published. Requires legal review before publication.**
+> **DRAFT for review, not yet published. Requires legal review before publication.**
 
 **Last updated:** 2026-08-14
 **Version:** 1.0 (draft)
@@ -17,21 +18,21 @@ Sorted is provided by AURIQ LTD, a company registered in England and Wales under
 - **Contact:** kevin.maingi@auriqltd.co.uk
 - **ICO registration:** ZC214737
 
-AURIQ LTD is the data controller for the personal data described in this policy — we decide what data is collected and why.
+AURIQ LTD is the data controller for the personal data described in this policy: we decide what data is collected and why.
 
-We provide an account information service (AIS): a personal finance dashboard that shows you your own bank data — spending categorisation, budgets, upcoming bills, debt payoff tracking and savings insights — in one place. **We never initiate payments and we never move your money.** We only read data from accounts you choose to connect.
+We provide an account information service (AIS): a personal finance dashboard that shows you your own bank data (spending categorisation, budgets, upcoming bills, debt payoff tracking and savings insights) in one place. **We never initiate payments and we never move your money.** We only read data from accounts you choose to connect.
 
 ## 2. What data we collect
 
 We collect the following categories of data:
 
-1. **Account details** — your name and email address, obtained when you sign in with Google.
-2. **Open banking data** — account names, account types, balances, and transactions (date, amount, description, merchant) from the bank accounts you choose to connect.
-3. **Postcode** — if you provide it during onboarding, so we can show you location-relevant information. This is optional.
-4. **Documents you choose to upload** — such as bank or investment statements, and receipt photos.
-5. **In-app chat content** — the messages you send to, and receive from, our AI assistant.
-6. **Device push notification tokens** — so we can deliver notifications to your phone.
-7. **Basic technical and security logs** — for example, records needed to detect and prevent fraud or abuse of the service.
+1. **Account details**: your name and email address, obtained when you sign in with Google.
+2. **Open banking data**: account names, account types, balances, and transactions (date, amount, description, merchant) from the bank accounts you choose to connect.
+3. **Postcode**: if you provide it during onboarding, so we can show you location-relevant information. This is optional.
+4. **Documents you choose to upload**: such as bank or investment statements, and receipt photos.
+5. **In-app chat content**: the messages you send to, and receive from, our AI assistant.
+6. **Device push notification tokens**: so we can deliver notifications to your phone.
+7. **Basic technical and security logs**: for example, records needed to detect and prevent fraud or abuse of the service.
 
 We do not collect special category data (such as health or biometric data) as part of the service.
 
@@ -39,9 +40,9 @@ We do not collect special category data (such as health or biometric data) as pa
 
 We use your data to provide, secure and improve the service. Under UK GDPR, we rely on the following lawful bases:
 
-- **Explicit consent** — for accessing your open banking data (account and transaction information) via our banking data providers. You give this consent when you connect a bank account, and you can withdraw it at any time (see Section 4 and Section 9).
-- **Performance of a contract** — for the core functionality of the app: showing your accounts, categorising spending, building budgets, tracking bills, debt and savings, and providing the AI assistant, once you have connected a bank account or created an account with us.
-- **Legitimate interests** — for security, fraud prevention and improving the service (for example, understanding which features are used so we can make the app more reliable and useful). We only rely on this basis where our interests are not overridden by your rights and interests.
+- **Explicit consent**: for accessing your open banking data (account and transaction information) via our banking data providers. You give this consent when you connect a bank account, and you can withdraw it at any time (see Section 4 and Section 9).
+- **Performance of a contract**: for the core functionality of the app: showing your accounts, categorising spending, building budgets, tracking bills, debt and savings, and providing the AI assistant, once you have connected a bank account or created an account with us.
+- **Legitimate interests**: for security, fraud prevention and improving the service (for example, understanding which features are used so we can make the app more reliable and useful). We only rely on this basis where our interests are not overridden by your rights and interests.
 
 We do not use your data for marketing purposes, and we do not use your open banking data for advertising.
 
@@ -53,7 +54,7 @@ To show you your accounts, balances and transactions, we connect to your bank us
 - **Your consent.** When you connect a bank account, you give explicit consent to access your account and transaction data, in line with the second Payment Services Directive (PSD2). We only access data covered by that consent.
 - **Consent renewal.** Under PSD2, this consent is time-limited and must be reconfirmed with your bank approximately every 90 days. We'll prompt you to reconfirm before it expires; if you don't, we stop retrieving new data from that account until you reconnect.
 - **Historical data.** On first connection, we retrieve approximately 90 days of transaction history, as permitted by your consent. After that, we retrieve only new transactions incrementally.
-- **Withdrawing consent.** You can withdraw consent and disconnect a bank account at any time from within the app — see Section 9 for what happens next.
+- **Withdrawing consent.** You can withdraw consent and disconnect a bank account at any time from within the app. See Section 9 for what happens next.
 
 ## 5. AI processing
 
@@ -113,8 +114,8 @@ We keep data only as long as necessary for the purposes described in this policy
 
 You're in control of your data at all times, directly in the app:
 
-- **Disconnect a bank account** — deletes the accounts and transactions from that connection, and revokes the underlying consent with the banking data provider.
-- **Delete your account** — erases your records across all our systems, subject to the retention periods in Section 8 (for example, backups roll off on a 30-day cycle, and consent records are kept 12 months for audit purposes as required by regulation).
+- **Disconnect a bank account**: deletes the accounts and transactions from that connection, and revokes the underlying consent with the banking data provider.
+- **Delete your account**: erases your records across all our systems, subject to the retention periods in Section 8 (for example, backups roll off on a 30-day cycle, and consent records are kept 12 months for audit purposes as required by regulation).
 
 You don't need to contact us to exercise either option, though you're welcome to email us if you'd like help.
 
@@ -126,10 +127,10 @@ Under UK GDPR, you have the right to:
 - **Rectification** of inaccurate or incomplete data.
 - **Erasure** of your data ("the right to be forgotten").
 - **Restriction** of how we process your data in certain circumstances.
-- **Portability** — to receive your data in a structured, commonly used format.
+- **Portability**: to receive your data in a structured, commonly used format.
 - **Object** to processing based on legitimate interests.
 - **Withdraw consent** to open banking data access at any time, without affecting the lawfulness of processing before withdrawal.
-- **Complain to the ICO** — see Section 15.
+- **Complain to the ICO**: see Section 15.
 
 To exercise any of these rights, email us at kevin.maingi@auriqltd.co.uk. We will respond within one month.
 

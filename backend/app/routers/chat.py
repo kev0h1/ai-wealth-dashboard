@@ -4,9 +4,14 @@
 (from preferences_col) + system prompt + OpenRouter call, returning the
 reply string. It deliberately does NOT touch the AI-chat usage limit
 (check_ai_chat_limit / increment_ai_chat_usage) — callers own that, so a
-single question is never counted twice against a user's quota. See
-app/routers/can_i.py's tax routing branch, which does its own limit check
-and increment around this call exactly once per /can-i request.
+single question is never counted twice against a user's quota.
+
+Ground-up loop-first rebuild, 2026-08-26 (see PENNY_TOOLS.md): POST /can-i
+no longer has a dedicated tax-routing branch that calls this function — see
+`/chat/tax`'s own comment below for where the doctrine here now lives
+instead (folded into app.services.penny_agent's system prompt). This module
+is otherwise unchanged and `answer_tax_question` is still a valid, working
+function; nothing currently calls it.
 """
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -19,17 +24,36 @@ import httpx
 router = APIRouter(tags=["chat"])
 
 
-async def answer_tax_question(uid: str, name: str, messages: list[dict]) -> str:
-    """Deterministic tax fact pack (income, pension, bracket, child benefit,
-    adjusted net income, personal-allowance taper line) + system prompt,
-    then one OpenRouter call. Returns the reply string only — no limit
-    check, no usage increment, no HTTP status handling beyond raising on a
-    non-200 response; that's the caller's job (see module docstring).
+def _safe_float(value, default: float = 0.0) -> float:
+    """Tolerant float coercion for stored preference fields. A poisoned
+    (non-numeric) income_value/pension_annual doc must degrade to the
+    surface's existing no-income state, not 500 the whole endpoint."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+async def build_tax_fact_pack(uid: str) -> dict:
+    """The user's own UK tax fact pack (tax year 2026/27): income, pension
+    contributions, adjusted net income, and the personal-allowance taper
+    line/remaining-allowance figure — computed from preferences_col.
+
+    Extracted out of `answer_tax_question` below (audit fix, 2026-08-26,
+    the ground-up loop-first rebuild's own independent review): the deleted
+    can_i.py tax-routing branch used to call `answer_tax_question` directly,
+    which is where a "how much personal allowance do I have left" question
+    got the user's own real figures from. The rebuilt Penny agent loop has
+    no equivalent — general UK tax MECHANICS moved into that loop's own
+    system prompt, but the user's own PERSONAL figures never did — so this
+    is exposed as its own function precisely so app.services.penny_tools's
+    `get_tax_position` tool can call it too, both callers reading the exact
+    same arithmetic rather than two copies that could drift.
     """
     from app.db.collections import preferences_col
     prefs          = await preferences_col.find_one({"user_id": uid}) or {}
-    income         = float(prefs.get("income_value", 0))
-    pension_annual = float(prefs.get("pension_annual", 0))
+    income         = _safe_float(prefs.get("income_value", 0))
+    pension_annual = _safe_float(prefs.get("pension_annual", 0))
     bracket        = prefs.get("income_bracket", "")
     has_cb         = prefs.get("has_child_benefit", False)
 
@@ -38,15 +62,45 @@ async def answer_tax_question(uid: str, name: str, messages: list[dict]) -> str:
     taper_end = 125_140
 
     if adjusted >= taper_end:
+        allowance_remaining = 0.0
         allowance_line = "Personal allowance fully withdrawn (adjusted income ≥ £125,140)"
     elif over > 0:
         lost   = int(over / 2)
         needed = int(over)
+        allowance_remaining = float(12570 - lost)
         allowance_line = f"Personal allowance: £{12570 - lost:,} remaining, needs £{needed:,} more pension to restore in full"
     else:
+        allowance_remaining = 12570.0
         allowance_line = "Full personal allowance intact (£12,570)"
 
     income_line = f"£{income:,.0f}" if income else f"bracket {bracket} (exact income not entered)"
+
+    return {
+        "income": income,
+        "income_known": bool(income),
+        "income_bracket": bracket,
+        "pension_annual": pension_annual,
+        "adjusted_net_income": adjusted,
+        "personal_allowance_remaining": allowance_remaining,
+        "personal_allowance_taper_over": over,
+        "allowance_line": allowance_line,
+        "income_line": income_line,
+        "has_child_benefit": bool(has_cb),
+    }
+
+
+async def answer_tax_question(uid: str, name: str, messages: list[dict]) -> str:
+    """Deterministic tax fact pack (`build_tax_fact_pack` above) + system
+    prompt, then one OpenRouter call. Returns the reply string only — no
+    limit check, no usage increment, no HTTP status handling beyond raising
+    on a non-200 response; that's the caller's job (see module docstring).
+    """
+    fact_pack      = await build_tax_fact_pack(uid)
+    income_line    = fact_pack["income_line"]
+    pension_annual = fact_pack["pension_annual"]
+    adjusted       = fact_pack["adjusted_net_income"]
+    allowance_line = fact_pack["allowance_line"]
+    has_cb         = fact_pack["has_child_benefit"]
 
     system = f"""You are Penny, {name}'s personal finance advisor, currently acting as their UK tax adviser. Be direct — 2-3 sentences max per reply, no preamble, no encouragement. Lead with the answer.
 
@@ -86,11 +140,16 @@ Write in plain, human punctuation: no em-dashes (—) or en-dashes (–); use a 
     return r.json()["choices"][0]["message"]["content"]
 
 
-# The app no longer calls this route after tax Q&A folded into POST /can-i
-# (see can_i.py's _is_tax_question routing branch, which calls
-# answer_tax_question directly). Left in place as a thin wrapper so nothing
-# that still points at it breaks; candidate for retirement in a later route
-# cleanup once the old Tax tab chat UI is confirmed gone from the frontend.
+# The app no longer calls this route after tax Q&A folded into POST /can-i.
+# Ground-up loop-first rebuild, 2026-08-26 (see PENNY_TOOLS.md): can_i.py no
+# longer has a dedicated tax-routing branch at all — a UK tax mechanics
+# question now reaches the Penny agent loop (app.services.penny_agent) like
+# any other question, and the loop's own system prompt folds in this
+# module's UK tax facts/doctrine directly rather than calling
+# `answer_tax_question` as a sub-routine. Left in place as a thin wrapper so
+# nothing that still points at it breaks; candidate for retirement in a
+# later route cleanup once the old Tax tab chat UI is confirmed gone from
+# the frontend.
 @router.post("/chat/tax")
 async def tax_chat(body: dict, user: dict = Depends(current_user)):
     messages = body.get("messages", [])

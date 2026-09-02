@@ -1,0 +1,48 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    V3 "Ember" — adaptive-icon BACKGROUND layer.
+
+    Derived from settle-glyph-v3-ember.svg by dropping the glyph bars and
+    rim light, keeping the background-wash rect and the ember glow stack.
+    Rendered against the opaque background rect, cairosvg flattens the
+    semi-transparent ember gradients into opaque colour (no alpha channel),
+    matching the previous icon-background.png (a TrueColor PNG, no alpha,
+    with the glow baked in as an opaque navy-to-violet blend). This way the
+    ember glow is redundantly encoded in both layers, so it reads correctly
+    however the OS composites/parallaxes the adaptive-icon pair.
+
+    Geometry is identical to settle-glyph-v3-ember.svg.
+  -->
+  <defs>
+    <linearGradient id="v3-bgWash" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="55%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#161d36" />
+    </linearGradient>
+
+    <radialGradient id="v3-ember-core">
+      <stop offset="0%" stop-color="#c4b5fd" stop-opacity="0.74" />
+      <stop offset="45%" stop-color="#8b5cf6" stop-opacity="0.46" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="v3-ember-under">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.40" />
+      <stop offset="60%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="v3-ember-spill">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background — faintest vertical wash, lighter toward the bar -->
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#v3-bgWash)" />
+
+  <!-- Ember glow stack, flattened onto the opaque background -->
+  <ellipse cx="500" cy="565" rx="340" ry="175" fill="url(#v3-ember-spill)" />
+  <ellipse cx="511" cy="655" rx="400" ry="180" fill="url(#v3-ember-under)" />
+  <ellipse cx="511" cy="701" rx="260" ry="120" fill="url(#v3-ember-core)" />
+</svg>

@@ -11,6 +11,7 @@ import ThemeColor from "@/components/ThemeColor";
 import BiometricLock from "@/components/BiometricLock";
 import { TutorialProvider } from "@/components/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import TutorialOffer from "@/components/TutorialOffer";
 import { PennySheetProvider } from "@/components/PennySheetProvider";
 
 export const metadata: Metadata = {
@@ -76,6 +77,17 @@ export default function RootLayout({
             __html: `try{if(localStorage.getItem('wd_dark')==='1'){document.documentElement.classList.add('dark');var m=document.querySelector('meta[name="color-scheme"]');if(m)m.setAttribute('content','dark')}}catch(e){}`,
           }}
         />
+        {/* Public legal pages (/terms, /privacy) render with no nav chrome —
+            anonymous visitors and regulators only, never the sidebar or the
+            app-shell's desktop margin reserved for it. Same pre-paint,
+            class-on-<html> technique as the dark-mode script above, so
+            there's no flash of the shell before this applies. See the
+            `html.legal-page` rule in globals.css. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(location.pathname==='/terms'||location.pathname==='/privacy'){document.documentElement.classList.add('legal-page')}}catch(e){}`,
+          }}
+        />
       </head>
       <body className="relative isolate min-h-full bg-[#f0f2f7] dark:bg-[#0f172a] antialiased">
         <Providers>
@@ -99,6 +111,7 @@ export default function RootLayout({
               style={{ height: "env(safe-area-inset-top, 0px)" }}
             />
             <TutorialOverlay />
+            <TutorialOffer />
             <ScrollReset />
             <Sidebar />
             {/* PennySheetProvider wraps #app-shell rather than nesting

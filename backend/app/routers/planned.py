@@ -101,6 +101,13 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
             "date":       expense_date.isoformat(),
             "account_id": account_id,
             "status":     "planned",
+            # Penny Agent Mode v1 origin badge (owner decision, 2026-08-30):
+            # None here — a plain POST /planned save is never Penny-originated
+            # on its own; app.routers.can_i's execute_proposal stamps this
+            # field onto the doc (and mirrors it into this same response
+            # dict) right after this function returns, when the caller WAS a
+            # Penny proposal.
+            "created_via": doc.get("created_via"),
         },
         "impact": {
             "safe_to_spend_before": _sts(before),
@@ -134,6 +141,9 @@ async def list_planned_expenses(user: dict = Depends(current_user)):
             "date":       pdate.isoformat(),
             "account_id": d.get("account_id"),
             "created_at": created.isoformat() if created else None,
+            # Penny Agent Mode v1 origin badge — see create_planned_expense's
+            # own comment above.
+            "created_via": d.get("created_via"),
         })
     return out
 
@@ -233,6 +243,7 @@ async def update_planned_expense(planned_id: str, body: dict, user: dict = Depen
             "date": pdate.isoformat(),
             "account_id": doc.get("account_id"),
             "status": doc.get("status", "planned"),
+            "created_via": doc.get("created_via"),
         }
 
     await planned_expenses_col.update_one({"_id": oid, "user_id": uid}, {"$set": updates})
@@ -250,4 +261,5 @@ async def update_planned_expense(planned_id: str, body: dict, user: dict = Depen
         "date": pdate.isoformat(),
         "account_id": merged.get("account_id"),
         "status": merged.get("status", "planned"),
+        "created_via": merged.get("created_via"),
     }

@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, AlertTriangle, TrendingDown, X, ChevronRight, UserRound } from "lucide-react";
-import type { CompanionItem, PlanDest, SafeToSpend } from "@/lib/api";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { RefreshCw, AlertTriangle, AlertCircle, TrendingDown, X, ChevronRight, UserRound } from "lucide-react";
+import type { CompanionItem, PlanDest, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/AuthProvider";
 import PaydayPlanCard from "@/components/PaydayPlanCard";
@@ -19,6 +19,7 @@ import { getCategoryColour } from "@/lib/categories";
 import type { AttentionTarget } from "@/lib/attention";
 import { isPaydayWindowActive } from "@/lib/paydayWindow";
 import { readHomeDismissedAdvice, dismissOnHome, pruneHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
+import { isActionableCompanionItem } from "@/lib/companionItems";
 import MoneyText from "@/components/MoneyText";
 
 // Window-scoped local dismiss for the Payday plan ENTRY ROW (the Home-only
@@ -80,6 +81,21 @@ interface HomeBriefProps {
   hasAccounts?: boolean;
   /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onClearedChange. */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
+  /** Home-only: forwarded straight to BriefBody, see BriefBodyProps.onInsightWinVisibleChange. */
+  onInsightWinVisibleChange?: (visible: boolean) => void;
+  /**
+   * Home-only: rendered directly beneath the greeting row (avatar/"Good
+   * morning"/refresh), above everything else the brief renders (sync-error
+   * banner, brief body, the payday plan card). This is the one slot that's
+   * guaranteed to sit at the very top of the visual stack on Home — a
+   * caller that wants a "this outranks everything below it" banner (e.g.
+   * HomePage's expired-provider reconnect banner) must pass it here rather
+   * than rendering it as HomeBrief's sibling, since HomeBrief itself
+   * (greeting + payday plan card) renders inline before any sibling
+   * markup ever gets a chance to appear above the payday card. Renders
+   * nothing when omitted.
+   */
+  banner?: React.ReactNode;
 }
 
 export function BriefSkeleton() {
@@ -114,6 +130,44 @@ function resolveBankChip(provider: string) {
     bg: meta?.bg,
     initialsSize: meta?.initialsSize,
   };
+}
+
+// Dismiss × — the ONE dismiss-x treatment for cards across the app (owner
+// decision, Kevin 2026-08-27, /design/dismiss-x — V2 "Glass chip", lifted
+// verbatim from that page's DismissV2). Replaces the old bare-ghost x that
+// used to live at each of this file's six dismiss sites (previously
+// undocumented/copy-pasted per site — factored here so the vocabulary can't
+// drift again). Outer button keeps the 44px hit target, the aria-label and
+// the focus-visible ring, and carries active:scale-95 + transition-transform
+// (matches the design page: the press-scale sits on the outer button, not a
+// nested span, even though it visually reads as "the tile scales"). The
+// inner ~28px span is the actual glass chip: translucent fill only (no
+// backdrop-filter — same glass-tile fill-only rule as globals.css), a
+// hairline border, and a hover-capable-only deepened fill. `className`
+// carries each call site's OWN positioning (flex-in-row offset vs absolute
+// top-right), defaulting to the five sites that share the flex layout;
+// PaydayPlanSection's entry-row dismiss passes its own absolute positioning.
+function DismissChip({
+  label,
+  onClick,
+  className = "flex-shrink-0 -mt-2 -mr-2",
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className={`${className} w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150`}
+    >
+      <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
+        <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+      </span>
+    </button>
+  );
 }
 
 interface AskPaydayCardProps {
@@ -366,14 +420,7 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
           )}
         </div>
         {dismissible && (
-          <button
-            type="button"
-            aria-label="Hide on Home"
-            onClick={handleDismiss}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
+          <DismissChip label="Hide on Home" onClick={handleDismiss} />
         )}
       </div>
     </div>
@@ -436,14 +483,152 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
           )}
         </div>
         {dismissible && (
+          <DismissChip label="Hide on Home" onClick={handleDismiss} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface UnfundedMoveCardProps {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  hideNetWorth: boolean;
+  maskAmounts: (text: string) => string;
+  /** Penny screen only — see AskPaydayCardProps.hideAttribution. */
+  hideAttribution?: boolean;
+  /** Home-only "hide on Home" mode — see BriefBodyProps.dismissible. */
+  dismissible?: boolean;
+  onHomeDismiss?: (id: string) => void;
+}
+
+// Owner decision (Kevin, 2026-08-27): due-but-unfunded OWN transfers get a
+// quiet Penny flag with a skip affordance — "there is a call to action
+// here". AlertCircle/amber-500 (SafeToSpendCard's "tight" convention, not
+// CliffCard's AlertTriangle) is the ONE amber signifier on the whole card;
+// a missed movement has no fee/cut-off/credit damage, so it reads as a soft
+// attention cue, never the materialised-risk red treatment (Figures Are
+// Ink, Red Is Risk — a movement never takes red anywhere). Headline, body
+// and every money figure stay plain ink. Each row's "Skip this month"
+// button calls the exact same dismiss-occurrence endpoint PlanningPage's
+// "Dismiss for this month" button uses (api.skipUpcomingOccurrence) — no
+// second dismissal path. Skipping is optimistic (row removed immediately);
+// when the last move is skipped the whole card quietly resolves
+// (setHidden(true), the same no-animation pattern every sibling card in
+// this file uses for a resolved/dismissed state).
+function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: UnfundedMoveCardProps) {
+  // `item.moves` is declared PlanMove[] on CompanionItem (MoveCard's own
+  // field) since the two item types can't share a TS-narrowable shape
+  // under one flat interface — see the field's doc comment in lib/api.ts.
+  // `item.type === "unfunded_move"` (this component only ever renders for
+  // that type) is the real runtime discriminant, so the cast is sound.
+  const [moves, setMoves] = useState<UnfundedMoveEntry[]>(
+    (item.moves as unknown as UnfundedMoveEntry[] | undefined) ?? []
+  );
+  const [hidden, setHidden] = useState(false);
+
+  if (hidden || moves.length === 0) return null;
+
+  function handleDismiss(e: React.MouseEvent) {
+    e.stopPropagation();
+    setHidden(true);
+    if (dismissible && onHomeDismiss) {
+      onHomeDismiss(item.id);
+    } else {
+      api.dismissTodayItem(item.id).catch(() => {
+        /* card already removed locally; the backend will re-surface next run */
+      });
+    }
+  }
+
+  function handleSkip(move: UnfundedMoveEntry) {
+    const remaining = moves.filter(m => !(m.key === move.key && m.expected_date === move.expected_date));
+    const collapses = remaining.length === 0;
+    setMoves(remaining);
+    if (collapses) setHidden(true);
+    // Same per-occurrence override endpoint Planning's "Dismiss for this
+    // month" button already calls (backend comment, companion.py) — `key`
+    // is the series identifier, `expected_date` is already the original
+    // due date, so no new dismiss path exists for this card.
+    api.skipUpcomingOccurrence(move.key, move.expected_date ?? "").catch(() => {
+      // Revert: restore the move (and the card, if skipping it collapsed
+      // the last one) — same fail-safe-visible approach as PlanningPage's
+      // own skipOccurrence.
+      setMoves(prev =>
+        prev.some(m => m.key === move.key && m.expected_date === move.expected_date) ? prev : [...prev, move]
+      );
+      if (collapses) setHidden(false);
+    });
+  }
+
+  const route = item.action?.route ?? "/planning";
+  const actionLabel = item.action?.label ?? "See it in Planning ›";
+
+  return (
+    <div className="glass-card rounded-2xl p-4">
+      <div className="flex items-start gap-3">
+        <AlertCircle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
+        <div className="flex-1 min-w-0">
+          {/* Penny gradient chip — same convention as sibling advice cards,
+              suppressed on the Penny screen itself (its header already
+              establishes Penny's voice there). */}
+          {!hideAttribution && (
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
+                style={{ background: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)" }}
+              >
+                <PennyMark size={11} />
+                Penny
+              </span>
+            </div>
+          )}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+            <MoneyText text={maskAmounts(item.headline)} />
+          </p>
+          {item.body && (
+            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
+              <MoneyText text={maskAmounts(item.body)} />
+            </p>
+          )}
+          {/* Per-move list — name, mono money figure (DESIGN.md's Money Is
+              Mono rule, .money = --font-mono), due date, quiet skip.
+              `amount` arrives pre-rounded to whole pounds from the backend
+              (int(round(...)) server-side), so no decimal places here. */}
+          <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-700/60">
+            {moves.map(m => {
+              const dateStr = m.expected_date
+                ? new Date(m.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                : "recently";
+              return (
+                <div key={m.key} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
+                    <p className="text-[12px] text-slate-400 dark:text-slate-500">{dateStr}</p>
+                  </div>
+                  <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                    {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleSkip(m)}
+                    className="flex-shrink-0 text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
+                  >
+                    Skip this month
+                  </button>
+                </div>
+              );
+            })}
+          </div>
           <button
-            type="button"
-            aria-label="Hide on Home"
-            onClick={handleDismiss}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            onClick={() => router.push(route)}
+            className="mt-3 inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold px-4 py-2 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <X size={16} aria-hidden="true" />
+            {actionLabel}
           </button>
+        </div>
+        {dismissible && (
+          <DismissChip label="Hide on Home" onClick={handleDismiss} />
         )}
       </div>
     </div>
@@ -494,14 +679,7 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
           )}
         </div>
         {dismissible && (
-          <button
-            type="button"
-            aria-label="Hide on Home"
-            onClick={handleDismiss}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
+          <DismissChip label="Hide on Home" onClick={handleDismiss} />
         )}
       </div>
     </div>
@@ -571,14 +749,7 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, di
             </span>
           )}
           {dismissible && (
-            <button
-              type="button"
-              aria-label="Hide on Home"
-              onClick={handleDismiss}
-              className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
+            <DismissChip label="Hide on Home" onClick={handleDismiss} />
           )}
         </div>
       )}
@@ -668,8 +839,15 @@ function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, di
               : destBillCount > 0
               ? (destBillCount === 1 ? "Clears the payment" : `Clears all ${destBillCount} payments`)
               : null;
+            // "...and envelopes" only appended when true (owner fix,
+            // 2026-08-31): an envelope reservation actually reduced a
+            // source's contribution here — see item.envelope_reserved /
+            // MoveMap.from.reserved_for_allocations.
+            const safeSuffix = item.envelope_reserved ? " and envelopes" : "";
             const safeClause = item.sources_safe
-              ? (legs.length === 1 ? "the source still covers its own bills" : "every source still covers its own bills")
+              ? (legs.length === 1
+                  ? `the source still covers its own bills${safeSuffix}`
+                  : `every source still covers its own bills${safeSuffix}`)
               : null;
             const assurance =
               clearClause && safeClause ? `${clearClause}; ${safeClause}.`
@@ -760,20 +938,30 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
     ? `${fmtSpent} in ${category}, way above your usual`
     : `${category} ran ${fmtMultiple} your usual`;
 
-  // ONE supporting line — collapses the redundant triple to a single statement
-  let supportLine: string | null = null;
+  // ONE supporting line — collapses the redundant triple to a single statement.
+  // When a dominant transaction exists, this is `{ prefix, name, suffix }`
+  // rather than one flat string: the render below CSS-truncates just the
+  // `name` span at its real available width (flex row, shrink-0 prefix/
+  // suffix either side) instead of the old fixed 24-char slice. That slice
+  // cut mid-word at a character count with no relation to the rendered
+  // width, so on a phone-width card the "…" it produced routinely wrapped
+  // onto its own line ahead of the date (owner report, 2026-09-02: "the
+  // format on the card of the text seems a bit off" for a long bank
+  // descriptor like "AMZNMKTPLACE*NJ0X14124…, 30 Aug."). Keeping the date in
+  // its own shrink-0 span means it can never be separated from the name by
+  // a mid-sentence wrap. No copy rewrite — same two sentences, same wording.
+  let supportLine: { prefix: string; name: string; suffix: string } | string | null = null;
   if (dominant) {
-    const name = dominant.name.length > 24 ? dominant.name.slice(0, 23) + "…" : dominant.name;
     const amt = "£" + Math.round(dominant.amount).toLocaleString("en-GB");
     const d = new Date(dominant.date);
     const dateStr = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
     const dominantShare = spent > 0 ? dominant.amount / spent : 0;
     if (dominantShare >= 0.95) {
       // Dominant IS the spend — no need to repeat the £ figure
-      supportLine = `One payment: ${name}, ${dateStr}.`;
+      supportLine = { prefix: "One payment: ", name: dominant.name, suffix: `, ${dateStr}.` };
     } else {
       // Dominant is notable but not everything
-      supportLine = `Mostly one payment: ${name}, ${amt} on ${dateStr}.`;
+      supportLine = { prefix: "Mostly one payment: ", name: dominant.name, suffix: `, ${amt} on ${dateStr}.` };
     }
   } else {
     supportLine = `${fmtSpent} so far this period.`;
@@ -828,24 +1016,37 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
             <MoneyText text={headline} />
           </p>
-          {/* One supporting line */}
-          {supportLine && (
-            <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
-              <MoneyText text={maskAmounts(supportLine)} />
-            </p>
+          {/* One supporting line. Plain string (no dominant transaction):
+              same single-paragraph MoneyText render as every other card's
+              body copy. Structured `{ prefix, name, suffix }` (dominant
+              transaction present): a flex row instead, so the merchant name
+              alone truncates at its real available width and the trailing
+              date — `suffix`, `shrink-0` — can never wrap away from it onto
+              its own line. See the `supportLine` comment above for why. */}
+          {typeof supportLine === "string" ? (
+            supportLine && (
+              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400 leading-snug text-pretty">
+                <MoneyText text={maskAmounts(supportLine)} />
+              </p>
+            )
+          ) : (
+            supportLine && (
+              <p className="mt-1 flex items-baseline text-[13px] text-slate-500 dark:text-slate-400 leading-snug min-w-0">
+                <span className="shrink-0 whitespace-nowrap">{supportLine.prefix}</span>
+                <span className="truncate min-w-0" title={supportLine.name}>
+                  {supportLine.name}
+                </span>
+                <span className="shrink-0 whitespace-nowrap">
+                  <MoneyText text={maskAmounts(supportLine.suffix)} />
+                </span>
+              </p>
+            )
           )}
         </div>
 
         {/* Dismiss button — Home-only, see the dismissible docstring above */}
         {dismissible && (
-          <button
-            type="button"
-            aria-label="Hide on Home"
-            onClick={handleDismiss}
-            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            <X size={16} aria-hidden="true" />
-          </button>
+          <DismissChip label="Hide on Home" onClick={handleDismiss} />
         )}
       </div>
 
@@ -953,22 +1154,17 @@ function useHomeDismissedAdvice(items: CompanionItem[], enabled: boolean) {
   return { dismissedIds, dismiss };
 }
 
-/**
- * Which item types belong in the Penny hub's (`app/penny/PennyPage.tsx`)
- * PRIMARY section — owner's Penny hub IA rule, 2026-08-18: only cash-move
- * recommendations, payday plans, and the payday-detection ask get the full
- * card treatment there; everything else already has a home on another page.
- *
- * This predicate no longer means "visible on Penny at all". Since Penny
- * grew a quiet "cleared from Home" archive section for anything dismissed
- * on Home that isn't one of these types, every dismissed item is visible on
- * Penny somewhere now — this only decides primary vs. archive. Exported so
- * PennyPage's `pennyItems`/`clearedItems` filters share one definition
- * instead of copies that can silently drift apart.
- */
-export function isPennyVisible(item: CompanionItem): boolean {
-  return item.type === "move" || item.type === "payday_plan" || (item.type === "ask" && item.id === "ask:payday");
-}
+// `isPennyVisible` (owner's original 2026-08-18 Penny hub IA rule: only
+// cash-move recs, payday plans, and the payday-detection ask are "primary"
+// on Penny, backed by a "cleared from Home" archive for everything else a
+// user dismissed on Home) is RETIRED (owner rule, 2026-09-01): that archive
+// is exactly what let purely informational cards ("X is covered", "£X/mo
+// staying in your pocket") linger on the Penny hub after a Home dismissal,
+// which is the incoherence the owner flagged. It's replaced by
+// `isActionableCompanionItem` (lib/companionItems.ts), the actionable/
+// informational split PennyPage.tsx now uses directly: actionable items
+// show on Penny regardless of Home-dismissal, informational items show only
+// while not dismissed anywhere, and there is no separate archive any more.
 
 export interface BriefBodyProps {
   items: CompanionItem[];
@@ -1004,13 +1200,35 @@ export interface BriefBodyProps {
    * function every render is fine and won't cause a re-render loop.
    */
   onClearedChange?: (cleared: { count: number; type: CompanionItem["type"] } | null) => void;
+  /**
+   * Home-only: reports whether a LIVE insight_win celebration ("£49/mo is
+   * staying in your pocket", type "celebration", id prefixed
+   * `insight_win:`) is currently visible on Home — present in the
+   * dismissed-filtered `items` this component actually renders, i.e. the
+   * SAME set CelebrationCard below reads from. Owner decision A1, Home
+   * dedup review 2026-08-31: while that card is live, ValueDeliveredStat's
+   * "£X/mo saved" chip hides (one voice at a time, story before ledger);
+   * the moment it lapses or is dismissed on Home, this flips false in the
+   * SAME render pass and the chip reappears. Undefined on Penny — the
+   * effect below no-ops entirely when this is omitted, same convention as
+   * onClearedChange above.
+   */
+  onInsightWinVisibleChange?: (visible: boolean) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onInsightWinVisibleChange }: BriefBodyProps) {
   // Hooks must run unconditionally, before the items.length early return below.
   const { dismissedIds, dismiss: homeDismiss } = useHomeDismissedAdvice(rawItems, dismissible);
   const items = dismissible ? rawItems.filter(i => !dismissedIds.has(i.id)) : rawItems;
   const onHomeDismiss = dismissible ? homeDismiss : undefined;
+
+  // Same dismissed-filtered `items` CelebrationCard renders from below —
+  // narrowed to the insight_win kind specifically (type "celebration" is
+  // shared with the payday-plan "Sorted" card and the saving-streak card,
+  // neither of which gates ValueDeliveredStat under owner decision A1).
+  const hasInsightWinCelebration = items.some(
+    i => i.type === "celebration" && i.id.startsWith("insight_win:")
+  );
 
   // Latest-ref, not a dep: onClearedChange is public on BriefBodyProps, so
   // nothing stops a future caller passing a fresh inline function every
@@ -1034,30 +1252,57 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   useEffect(() => {
     if (!onClearedChangeRef.current) return;
     if (dismissible && rawItems.length > 0 && items.length === 0) {
-      onClearedChangeRef.current({ count: rawItems.length, type: rawItems[0].type });
+      // Only ACTIONABLE items are guaranteed to still be reachable on Penny
+      // once every Home card is hidden (owner rule, 2026-09-01: the Penny
+      // hub only keeps actionable items regardless of Home-dismissal — an
+      // informational one disappears from the hub entirely). Pointing at
+      // Penny for a batch that was purely informational (e.g. two
+      // celebration cards) would be a promise Penny can't keep, so the
+      // pointer counts/labels only the actionable survivors and stays
+      // silent when there aren't any.
+      const stillOnPenny = rawItems.filter(isActionableCompanionItem);
+      if (stillOnPenny.length > 0) {
+        onClearedChangeRef.current({ count: stillOnPenny.length, type: stillOnPenny[0].type });
+      } else {
+        onClearedChangeRef.current(null);
+      }
     } else {
       onClearedChangeRef.current(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dismissible, rawItems.length, items.length, rawItems[0]?.type]);
 
+  // Same ref pattern as onClearedChange above, same reason: no stability
+  // requirement on the callback identity. Reports in the SAME render pass
+  // a dismiss (or a natural 7-day lapse dropping the item from the feed)
+  // flips `hasInsightWinCelebration` — see BriefBodyProps' doc comment.
+  // useLayoutEffect (not useEffect): BriefBody first mounts on the same
+  // render `loading` flips to false, so a plain effect would let
+  // ValueDeliveredStat paint for one frame with the stale `false` default
+  // before this fires. The layout effect flushes HomePage's state update
+  // synchronously before that paint, so the chip and the card never both
+  // show, even for a frame.
+  const onInsightWinVisibleChangeRef = useRef(onInsightWinVisibleChange);
+  onInsightWinVisibleChangeRef.current = onInsightWinVisibleChange;
+
+  useLayoutEffect(() => {
+    onInsightWinVisibleChangeRef.current?.(hasInsightWinCelebration);
+  }, [hasInsightWinCelebration]);
+
   if (items.length === 0) {
     // Home-only: everything that existed got hidden via "Hide on Home", not
     // genuinely absent (rawItems is non-empty but the dismissed-filtered
-    // `items` came back empty). Saying "Nothing needs you today" here would
-    // be a lie the user could disprove by opening Penny. Penny now has a
-    // primary list (isPennyVisible types) PLUS a quiet "cleared from Home"
-    // archive for everything else that's been dismissed here, so every
-    // cleared item is genuinely visible on Penny somewhere — no need to
-    // check which subset qualifies before pointing the user there.
-    //
-    // This branch itself renders nothing: a pointer to Penny is not advice,
-    // so it doesn't belong in the Brief's own slot at the top of Home (that
-    // slot answers "am I okay", the verdict's job) and it shouldn't carry
-    // the verdict's card weight either. HomeBriefClearedRow below owns the
-    // actual row; HomePage mounts it under SafeToSpendCard so the pointer
-    // sits below the answer instead of above it.
-    if (dismissible && rawItems.length > 0) {
+    // `items` came back empty). Whether "Nothing needs you today" would be a
+    // lie the user could disprove by opening Penny now depends on WHAT got
+    // dismissed (owner rule, 2026-09-01): Penny keeps only actionable items
+    // regardless of Home-dismissal, so if at least one dismissed item was
+    // actionable, it genuinely is still there — defer to the pointer row
+    // (HomeBriefClearedRow, mounted by HomePage below SafeToSpendCard) and
+    // render nothing here. If every dismissed item was purely informational,
+    // it disappeared from Penny too (see lib/companionItems.ts), so there is
+    // nothing left anywhere to point at — fall through to the ordinary
+    // fallback text below instead of silently rendering a blank Brief.
+    if (dismissible && rawItems.length > 0 && rawItems.some(isActionableCompanionItem)) {
       return null;
     }
 
@@ -1070,9 +1315,16 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
       fallbackText = "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills are mapped. I'll flag anything that needs you.";
     } else if (safeToSpend.state === "short" && safeToSpend.safe_to_spend <= -1) {
       // Same genuine-shortfall threshold as SafeToSpendCard's remap — a
-      // near-zero "short" from the backend must not claim "one thing's
-      // worth a look" above a hero that's about to render as comfortable.
-      fallbackText = "One thing's worth a look below, otherwise I've got the rest mapped.";
+      // near-zero "short" from the backend must not claim anything's worth
+      // a look above a hero that's about to render as comfortable. There is
+      // no separate Brief item to point at here: the "thing worth a look"
+      // IS the Safe to Spend card rendered directly below this paragraph,
+      // so the copy names what it actually is (card spend vs a genuine
+      // bills gap, mirroring SafeToSpendCard's own short_reason branch)
+      // instead of sending the user hunting for a card that doesn't exist.
+      fallbackText = safeToSpend.short_reason === "cards"
+        ? "Nothing new needs you. The one thing worth a look is the card spending this period, shown in Safe to Spend below."
+        : "Nothing new needs you. You're short this pay period, the gap is shown in Safe to Spend below.";
     } else {
       fallbackText = "Nothing needs you today. You've got headroom, and I'm watching the bills, enjoy it.";
     }
@@ -1105,7 +1357,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
   // "intent_pace" — quiet pace note against a Mirror-chosen aim; own bucket so
   // it never falls into otherItems' bare-paragraph rendering.
   const intentPaceItems = items.filter(i => i.type === "intent_pace");
-  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace");
+  // "unfunded_move" — own bucket so a due-but-unfunded transfer's per-move
+  // list/skip affordance never falls into otherItems' bare-paragraph
+  // rendering (owner, 2026-08-27).
+  const unfundedMoveItems = items.filter(i => i.type === "unfunded_move");
+  const otherItems = items.filter(i => i.type !== "move" && i.type !== "payday_plan" && i.type !== "celebration" && i.type !== "needle" && i.type !== "ask" && i.type !== "cliff" && i.type !== "trajectory" && i.type !== "rhythm" && i.type !== "intent_pace" && i.type !== "unfunded_move");
 
   // Mask £ figures in a string when hideNetWorth is on
   function maskAmounts(text: string): string {
@@ -1142,6 +1398,12 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
         {/* Intent-pace notes — quiet info cards, no accent, no CTA */}
         {intentPaceItems.map(item => (
           <IntentPaceCard key={item.id} item={item} maskAmounts={maskAmounts} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
+        ))}
+
+        {/* Unfunded moves — Penny's quiet flag for a due-but-unfunded own
+            transfer (owner, 2026-08-27); see UnfundedMoveCard's docstring */}
+        {unfundedMoveItems.map(item => (
+          <UnfundedMoveCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} hideAttribution={hideAttribution} dismissible={dismissible} onHomeDismiss={onHomeDismiss} />
         ))}
 
         {/* Ask cards — payday keeps its bespoke confirm/decline (unaffected
@@ -1232,6 +1494,7 @@ const CLEARED_TYPE_LABEL: Record<string, string> = {
   ask: "a question",
   needle: "last month's review",
   payday_plan: "your payday plan",
+  unfunded_move: "a planned move",
 };
 
 // The "everything's hidden, but not actually done" pointer — see the
@@ -1277,7 +1540,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange }: HomeBriefProps) {
+export default function HomeBrief({ items, firstName, safeToSpend, loading, syncing, syncError, onSync, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onInsightWinVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const { user } = useAuth();
   const name = firstName || "there";
@@ -1340,13 +1603,22 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         </button>
       </div>
 
+      {/* Caller-supplied banner — see HomeBriefProps.banner. Sits directly
+          under the greeting row and above everything else this component
+          renders, so it can never end up below the payday plan card. The
+          banner itself carries no outer margin (slot spacing is the slot's
+          job, not the content's) — this mb-3 is what gives it the same 12px
+          rhythm as the greeting's own mb-3 above it and the body's
+          space-y-3 below it. */}
+      {banner && <div className="mb-3">{banner}</div>}
+
       {/* Brief body */}
       <div className="space-y-3">
         {syncError && <SyncErrorBanner glow={attnTarget === "sync"} />}
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} />
+          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onInsightWinVisibleChange={onInsightWinVisibleChange} />
         )}
       </div>
 
@@ -1361,7 +1633,6 @@ export default function HomeBrief({ items, firstName, safeToSpend, loading, sync
         safeToSpend={safeToSpend}
         hideNetWorth={hideNetWorth}
         onRefresh={onRefresh}
-        attnTarget={attnTarget}
         gate
         hasAccounts={hasAccounts}
       />
@@ -1374,8 +1645,6 @@ export interface PaydayPlanSectionProps {
   safeToSpend: SafeToSpend | null;
   hideNetWorth?: boolean;
   onRefresh?: () => void;
-  /** Which card, if any, should glow — resolved centrally in lib/attention.ts. */
-  attnTarget?: AttentionTarget;
   /**
    * Home-only: also require the last-5-days-before-period-end/live-execution
    * window (lib/paydayWindow.ts) before showing the (non-live) entry row.
@@ -1394,10 +1663,76 @@ export interface PaydayPlanSectionProps {
   hasAccounts?: boolean;
 }
 
+// Third state (2026-08-29 FIX A): the window's live payday_plan has already
+// auto-verified ("done") — nothing left to forecast, only to report. A
+// quiet, single tap target ("Already split: £600 to 2 accounts ›") that
+// expands IN PLACE into the same full PaydayPlanCard using the item's own
+// (already-fetched) data — never a fresh preview fetch, and no glow (the
+// attention rung was removed app-wide, 2026-08-29 — this state is calm,
+// not something that needs eyes on it).
+//
+// FIX D (2026-08-29, owner report): passes `onClose` (never `dismissible`)
+// to the expanded PaydayPlanCard below, on BOTH Home and Penny. Before
+// PaydayPlanCard's `showCloseButton`/`onClose` fix, its × branched on
+// `item.preview` — false for an executed item — so this expand's × fell
+// into `handleDismiss`: the row looked like it "disappeared" on click
+// (rather than collapsing) and silently persisted a backend dismiss that
+// didn't even suppress regeneration (companion.py's executed-item path
+// never consulted the dismissed set), hence "clears but comes back on
+// refresh". Now the × here only ever collapses back to the summary row —
+// never a real dismiss — so it's safe to keep on Penny too, which per the
+// owner's rule (payday plan is Penny's permanent, non-dismissible content)
+// must never let this report be dismissed away, only shown or collapsed.
+function ExecutedPaydayRow({
+  item, router, hideNetWorth, maskAmounts, onRefresh,
+}: {
+  item: CompanionItem;
+  router: ReturnType<typeof useRouter>;
+  hideNetWorth: boolean;
+  maskAmounts: (text: string) => string;
+  onRefresh?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const moveCount = (item.dests ?? []).filter(d => d.move > 0).length;
+  const total = Math.round(item.total ?? 0);
+  const summary = hideNetWorth
+    ? `Already split: £•••• to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`
+    : `Already split: £${total.toLocaleString("en-GB")} to ${moveCount} ${moveCount === 1 ? "account" : "accounts"}`;
+
+  if (expanded) {
+    return (
+      <PaydayPlanCard
+        item={item}
+        router={router}
+        hideNetWorth={hideNetWorth}
+        maskAmounts={maskAmounts}
+        onRefresh={onRefresh}
+        onClose={() => setExpanded(false)}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      aria-expanded={false}
+      className="glass-card rounded-2xl w-full min-h-[44px] px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    >
+      <span className="min-w-0">
+        <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+          {maskAmounts(summary)}
+        </span>
+      </span>
+      <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+    </button>
+  );
+}
+
 // Extracted out of HomeBrief/BriefBody so both Home (gated to a timely
 // window) and the Penny screen (its permanent, ungated home) render the
 // exact same live-card + entry/preview logic — no forked copy to drift.
-export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, onRefresh, attnTarget, gate, hasAccounts }: PaydayPlanSectionProps) {
+export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, onRefresh, gate, hasAccounts }: PaydayPlanSectionProps) {
   const router = useRouter();
 
   // Payday plan preview — fetches /today?payday_preview=1 directly and
@@ -1414,8 +1749,20 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   const paydayPlanItems = items.filter(i => i.type === "payday_plan");
   // Hide the entry row entirely once a real payday_plan item is already
-  // surfaced in items (payday itself) — no duplication on payday.
+  // surfaced in items (payday itself) — no duplication on payday. An
+  // `executed` item (2026-08-29 FIX A: the window's live plan has already
+  // auto-verified) still counts as "there's a plan here" for this purpose —
+  // it renders its own quiet row below rather than the entry row reopening
+  // a preview that, inside an already-paid window, has nothing left to
+  // forecast.
   const hasLivePlan = paydayPlanItems.length > 0;
+  // Third state (window active + plan executed): a quiet "Already split"
+  // row, expandable in place into the SAME full PaydayPlanCard using data
+  // already on hand — never a fresh `/today?payday_preview=1` fetch, which
+  // is exactly the call FIX A's gate now knows to answer with this same
+  // executed summary anyway.
+  const executedPlanItems = paydayPlanItems.filter(i => i.executed);
+  const activePlanItems = paydayPlanItems.filter(i => !i.executed);
 
   const windowActive = isPaydayWindowActive({
     hasLivePlan,
@@ -1505,8 +1852,12 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
 
   return (
     <div className="mt-3 space-y-3">
-      {paydayPlanItems.map(item => (
-        <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} glow={attnTarget === "payday"} />
+      {activePlanItems.map(item => (
+        <PaydayPlanCard key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} dismissible={!!gate} />
+      ))}
+
+      {executedPlanItems.map(item => (
+        <ExecutedPaydayRow key={item.id} item={item} router={router} hideNetWorth={hideNetWorth} maskAmounts={maskAmounts} onRefresh={onRefresh} />
       ))}
 
       {showEntryRow && (
@@ -1522,7 +1873,7 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
               onClick={handleTogglePreview}
               disabled={previewLoading}
               aria-expanded={!!previewItem}
-              className={`glass-card rounded-2xl w-full min-h-[44px] px-4 py-3${canDismissEntry ? " pr-14" : ""} flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500${attnTarget === "payday" ? " needs-you" : ""}`}
+              className={`glass-card rounded-2xl w-full min-h-[44px] px-4 py-3${canDismissEntry ? " pr-14" : ""} flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
             >
               <span className="min-w-0">
                 <span className="block text-[15px] font-semibold text-slate-900 dark:text-slate-100 leading-snug">
@@ -1544,14 +1895,11 @@ export function PaydayPlanSection({ items, safeToSpend, hideNetWorth = false, on
                 good. Not rendered on Penny, where this section is the
                 page's own permanent content rather than an interjection. */}
             {canDismissEntry && (
-              <button
-                type="button"
-                aria-label="Dismiss until next payday"
+              <DismissChip
+                label="Dismiss until next payday"
                 onClick={handleDismissEntry}
-                className="absolute top-1/2 right-1 -translate-y-1/2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
+                className="absolute top-1/2 right-1 -translate-y-1/2"
+              />
             )}
           </div>
 

@@ -3,21 +3,26 @@
 // The Spend hub's TOP region — everything above SpendVerdictView's reading.
 //
 // "Verdict Header" — one glass-hero card holding a whisper period row (tap
-// to open the period sheet), an Out | In | Moved instrument row (with an
-// optional pace-strip sparkline nested in a lit-panel inset), and the
+// to open the period sheet), a weighted Out / In / Moved instrument, and the
 // reading as a caption underneath. This is the ONE header: production
-// (SpendPage.tsx) and the /design/spend-inst-b preview both trace back to
+// (SpendPage.tsx) and the /design/spend-live preview both trace back to
 // this component's approved content — verdict.pills / verdict.period /
-// verdict.reading / verdict.pace_series / verdict.moved_total are all
-// server-computed (Show Your Working Rule, ENGINE.md) — so preview and
-// production can never draw different numbers again (the bug that shipped:
-// the real page computed its own client-side "spent" including Savings/
-// Investment/Debt-kind categories, while the preview route hand-copied a
-// header that happened to read the correct verdict.pills figure — nobody
-// noticed the two disagreed because nothing forced them to share code).
+// verdict.reading / verdict.moved_total are all server-computed (Show Your
+// Working Rule, ENGINE.md) — so preview and production can never draw
+// different numbers again (the bug that shipped: the real page computed its
+// own client-side "spent" including Savings/Investment/Debt-kind
+// categories, while the preview route hand-copied a header that happened to
+// read the correct verdict.pills figure — nobody noticed the two disagreed
+// because nothing forced them to share code).
 // Earlier "current" and "a" top variants were retired once the owner picked
-// this one (2026-08); the two-cell Out/In footer was retired for the
-// three-cell instrument row once "lit panel" (spend-inst-b) was approved.
+// the three-cell instrument (2026-08, "lit panel"/spend-inst-b); that in
+// turn was retired for THIS weighted re-ranking once the owner picked
+// variant B ("weighted instrument") of the notable-cards/header review
+// (2026-08-27) — Out leads as the hero figure since Spend is about
+// spending, In and Moved are a secondary tier below it, and the pace strip
+// is cut entirely (it read as a sparkline nobody could act on; the
+// category rows and the reading already carry the same "running ahead of
+// usual" fact in words). See DESIGN.md's "The Instrument Header (Spend)".
 //
 // This component never derives a money figure from raw transactions.
 
@@ -28,7 +33,7 @@ import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";
-import type { SpendVerdict, SpendVerdictPaceEntry, Transaction } from "@/lib/api";
+import type { SpendVerdict, Transaction } from "@/lib/api";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
 // minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
@@ -91,8 +96,15 @@ export interface SpendHeaderProps {
    *  sheet's in-sheet row list (native pickers never appear, DESIGN.md). */
   recentPeriods?: RecentPeriodOption[];
   onSelectOffset?: (offset: number) => void;
-  /** Gates pill/hero rendering until the verdict has loaded (true = show
-   *  nothing yet rather than a wrong number). */
+  /** UNUSED by this component — the hero only ever gates on `verdict` itself
+   *  now (see the bail-out below). This page-level "accounts + all
+   *  transactions" flag used to also suppress the hero, which was the bug:
+   *  on a warm-cache back-navigation the verdict is already here but
+   *  `loading` (SpendPage's `pageLoading`) was still true for a beat, so the
+   *  hero rendered as a bare 220px box while the rest of the page painted,
+   *  then popped in at full height and shoved everything down. Kept only so
+   *  existing callers (app/design/spend-live/SpendLiveClient.tsx, which
+   *  still passes `loading={false}`) don't need a synchronised edit. */
   loading?: boolean;
 }
 
@@ -110,168 +122,15 @@ function IncomeDrilldown({ incomeTxns, onTransactionClick }: { incomeTxns: Trans
   );
 }
 
-// Monotone cubic Hermite interpolation (Fritsch-Carlson, i.e. d3's
-// curveMonotoneX) — builds a smooth <path> "d" string through points that
-// are monotone (non-decreasing) in x, WITHOUT ever overshooting above or
-// undershooting below the data values it passes through. This matters
-// because the pace strip plots cumulative money: a plain Catmull-Rom/basis
-// spline can ring past a point (dip below on the way up, bulge above on the
-// way down) which would visually claim money came back — dishonest for a
-// cumulative series that only climbs or holds. Fritsch-Carlson clamps each
-// segment's tangent so the interpolant never exceeds the range of its two
-// bracketing points, i.e. it stays within [min(y_i, y_i+1), max(y_i, y_i+1)]
-// on every segment — that's the monotonicity guarantee, and it holds
-// regardless of whether the input itself is monotone (flat/step-y bill-day
-// data is exactly what this is for).
-function monotonePath(points: { x: number; y: number }[]): string {
-  const n = points.length;
-  if (n === 0) return "";
-  if (n === 1) return `M ${points[0].x} ${points[0].y}`;
-  if (n === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-
-  // Secant (segment) slopes.
-  const d: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    const dx = xs[i + 1] - xs[i];
-    d.push(dx === 0 ? 0 : (ys[i + 1] - ys[i]) / dx);
-  }
-
-  // Initial tangents: average of adjacent secants (endpoints borrow their
-  // single neighbouring secant).
-  const m: number[] = new Array(n);
-  m[0] = d[0];
-  m[n - 1] = d[n - 2];
-  for (let i = 1; i < n - 1; i++) {
-    m[i] = (d[i - 1] === 0 || d[i] === 0 || Math.sign(d[i - 1]) !== Math.sign(d[i])) ? 0 : (d[i - 1] + d[i]) / 2;
-  }
-
-  // Fritsch-Carlson: clamp tangents so each segment stays within the data
-  // range (the step that makes this "monotone" rather than plain Hermite).
-  for (let i = 0; i < n - 1; i++) {
-    if (d[i] === 0) {
-      m[i] = 0;
-      m[i + 1] = 0;
-      continue;
-    }
-    const a = m[i] / d[i];
-    const b = m[i + 1] / d[i];
-    const s = a * a + b * b;
-    if (s > 9) {
-      const t = 3 / Math.sqrt(s);
-      m[i] = t * a * d[i];
-      m[i + 1] = t * b * d[i];
-    }
-  }
-
-  let path = `M ${xs[0]} ${ys[0]}`;
-  for (let i = 0; i < n - 1; i++) {
-    const dx = xs[i + 1] - xs[i];
-    const c1x = xs[i] + dx / 3;
-    const c1y = ys[i] + m[i] * (dx / 3);
-    const c2x = xs[i + 1] - dx / 3;
-    const c2y = ys[i + 1] - m[i + 1] * (dx / 3);
-    path += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${xs[i + 1]} ${ys[i + 1]}`;
-  }
-  return path;
-}
-
-// ── Pace strip — a small "instrument" reading: cumulative actual spend
-// (solid indigo, the actual-spend line colour per DESIGN.md) against a
-// cumulative usual pace (dotted slate), today marked with a 4px dot. Pure
-// SVG, no chart library — this is a sparkline, not a real chart. Lines are
-// drawn as monotone cubic <path>s (see monotonePath above) rather than
-// straight <polyline> segments, so bill-day step jumps read as smooth
-// curves instead of sharp corners — without ever overshooting the data. ──
-function PaceStrip({ series }: { series: SpendVerdictPaceEntry[] }) {
-  if (series.length === 0) return null;
-
-  const width = 300;
-  const height = 56;
-  const pad = 6;
-
-  const maxDay = Math.max(1, ...series.map((p) => p.day));
-  const usualPoints = series.filter(
-    (p): p is SpendVerdictPaceEntry & { usual: number } => p.usual != null,
-  );
-  const hasUsual = usualPoints.length > 0;
-  const maxVal = Math.max(
-    1,
-    ...series.map((p) => p.actual),
-    ...usualPoints.map((p) => p.usual),
-  );
-
-  const x = (day: number) => pad + (day / maxDay) * (width - 2 * pad);
-  const y = (val: number) => height - pad - (val / maxVal) * (height - 2 * pad);
-
-  const actualPath = monotonePath(series.map((p) => ({ x: x(p.day), y: y(p.actual) })));
-  const usualPath = monotonePath(usualPoints.map((p) => ({ x: x(p.day), y: y(p.usual) })));
-
-  const last = series[series.length - 1];
-  const lastUsual = usualPoints[usualPoints.length - 1];
-
-  const summary = hasUsual
-    ? `Spending pace: ${fmt(last.actual)} so far this period, against a usual pace of ${fmt(lastUsual.usual)}.`
-    : `Spending pace: ${fmt(last.actual)} so far this period. Still learning your usual.`;
-
-  return (
-    <div>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        className="w-full"
-        style={{ height: 56 }}
-        role="img"
-        aria-label={summary}
-      >
-        {hasUsual && (
-          <path
-            d={usualPath}
-            fill="none"
-            stroke="currentColor"
-            className="text-slate-600 dark:text-slate-400"
-            strokeWidth={1.5}
-            strokeDasharray="3 4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-        <path
-          d={actualPath}
-          fill="none"
-          stroke="#4f46e5"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle cx={x(last.day)} cy={y(last.actual)} r={4} fill="#4f46e5" vectorEffect="non-scaling-stroke" />
-        {hasUsual && (
-          <text
-            x={x(lastUsual.day)}
-            y={y(lastUsual.usual) - 6}
-            fontSize={10}
-            textAnchor="end"
-            className="fill-slate-600 dark:fill-slate-400"
-          >
-            usual
-          </text>
-        )}
-      </svg>
-      {!hasUsual && (
-        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">still learning your usual</p>
-      )}
-    </div>
-  );
-}
-
-// ── This period / Over time toggle — an ARIA tablist immediately above the
+// ── Breakdown / Charts toggle — an ARIA tablist immediately above the
 // majority list (SpendVerdictView's `aboveMajority` slot), styled as that
-// section's own header row, so the swap between "this period" and "over
-// time" is announced. Rebuilt at a true 44px tap target;
+// section's own header row, so the swap between the reconciled breakdown
+// and the chart widgets is announced. Labels renamed from "This period"/
+// "Over time" (owner call, 2026-09): the page header already owns period
+// navigation, so "This period" was still saying "This period" after
+// stepping back to an earlier one, and four of the five chart widgets are
+// themselves period-scoped, so "Over time" misdescribed them too. Rebuilt
+// at a true 44px tap target;
 // slate-600/dark:slate-400 (production's old slate-400-alone was 2.26:1
 // against the canvas — fails WCAG AA 4.5:1). ───────────────────────────────
 export function SpendPatternsToggle({
@@ -282,8 +141,8 @@ export function SpendPatternsToggle({
   onSetShowPatterns: (v: boolean) => void;
 }) {
   const items: Array<{ key: "period" | "over"; label: string; active: boolean; onClick: () => void }> = [
-    { key: "period", label: "This period", active: !showPatterns, onClick: () => onSetShowPatterns(false) },
-    { key: "over", label: "Over time", active: showPatterns, onClick: () => onSetShowPatterns(true) },
+    { key: "period", label: "Breakdown", active: !showPatterns, onClick: () => onSetShowPatterns(false) },
+    { key: "over", label: "Charts", active: showPatterns, onClick: () => onSetShowPatterns(true) },
   ];
   return (
     <div className="flex items-center gap-1.5 px-1 mb-2" role="tablist" aria-label="Spend view">
@@ -348,7 +207,7 @@ function PeriodSheet({
             <X size={18} className="text-slate-500 dark:text-slate-400" />
           </button>
         </div>
-        <div className="px-2 pb-2">
+        <div className="px-2 pb-2" data-tutorial-id="tutorial-spend-periods">
           {recentPeriods.map((p) => (
             <button
               key={p.offset}
@@ -376,6 +235,7 @@ function PeriodSheet({
             type="button"
             onClick={() => { onOpenRules(); onClose(); }}
             className="w-full min-h-[44px] flex items-center gap-2.5 px-3 rounded-xl active:bg-slate-100 dark:active:bg-slate-700/40 transition-colors text-left"
+            data-tutorial-id="tutorial-spend-manage"
           >
             <Info size={15} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">How we categorise your money</span>
@@ -386,30 +246,107 @@ function PeriodSheet({
   );
 }
 
+// ── Hero placeholder — shown only when there is genuinely no verdict to
+// paint yet (cold load, or a period swiped to that has no cached verdict
+// while its fetch is in flight). Traces the real glass-hero card's own DOM
+// shape below line for line — period row (44px via the search glyph's
+// h-11), the bordered instrument inset (Out row, the In/Moved divided row,
+// the gap-line caption) and a two-line reading placeholder — rather than a
+// loose approximation, so the placeholder-to-real swap doesn't itself shift
+// the page (measured: real hero ~319-343px incl. its px-4 pt-6 wrapper vs
+// this placeholder's ~295-319px — within ~7%, the remaining gap being the
+// reading's own variable line count). SpendPage.tsx's cold-load
+// `SpendSkeleton` renders this exact component for its hero block too, so
+// the two can never drift apart into two different heights again.
+export function SpendHeroSkeleton() {
+  return (
+    <div className="px-4 pt-6" aria-hidden="true">
+      <div className="glass-hero rounded-3xl p-4 animate-pulse">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-h-[44px] flex items-center">
+            <div className="h-3 w-40 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+          <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3">
+          <div className="min-h-[44px] px-1 py-1 flex flex-col items-start justify-center gap-1.5">
+            <div className="h-2.5 w-10 rounded bg-slate-200 dark:bg-slate-700" />
+            <div className="h-7 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+          <div className="mt-1 pt-2 flex divide-x divide-slate-200/70 dark:divide-slate-700/70 border-t border-slate-200/70 dark:border-slate-700/70">
+            <div className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center gap-1">
+              <div className="h-2 w-6 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
+            </div>
+            <div className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center gap-1">
+              <div className="h-2 w-10 rounded bg-slate-200 dark:bg-slate-700" />
+              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
+            </div>
+          </div>
+          <div className="mt-2 px-1">
+            <div className="h-3 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+          </div>
+        </div>
+        <div className="mt-3 space-y-1.5">
+          <div className="h-3.5 w-full rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="h-3.5 w-2/3 rounded bg-slate-200 dark:bg-slate-700" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SpendHeader(props: SpendHeaderProps) {
   const {
     verdict, isCurrentPeriod, canGoPrev, onPrev, onNext, periodLabel, swipeHandlers,
     onOpenSettings, onOpenRules, incomeTxns, onTransactionClick, onOutTap, onMovedTap,
-    onUnresolvedTap, recentPeriods = [], onSelectOffset, loading,
+    onUnresolvedTap, recentPeriods = [], onSelectOffset,
   } = props;
   const [incomeExpanded, setIncomeExpanded] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  if (loading || !verdict) {
-    return <div className="px-4 pt-6" style={{ minHeight: 220 }} />;
+  // Gates on `verdict` alone now — see the `loading` prop's own comment
+  // above. incomeTxns/recentPeriods (the other props fed from SpendPage's
+  // still-loading accounts+transactions fetch) are safe to leave stale
+  // here: incomeTxns only ever paints inside IncomeDrilldown, which is
+  // gated on `incomeExpanded` (starts false, never restored), and
+  // recentPeriods only ever paints inside PeriodSheet, gated on `sheetOpen`
+  // (also starts false) — neither can appear on first paint, so neither can
+  // shift it when its data arrives a moment later.
+  if (!verdict) {
+    return <SpendHeroSkeleton />;
   }
 
-  const { reading, pills, period, pace_series, moved_total, unresolved_total, unresolved_material } = verdict;
-  // Both are additive/optional on SpendVerdict (lib/api.ts) — older payloads
-  // without them still render a correct, flat two-cell Out | In header with
-  // no strip and no glow.
-  const hasStrip = !!pace_series && pace_series.length > 0;
+  const { reading, pills, period, moved_total, unresolved_total, unresolved_material } = verdict;
+  // moved_total is additive/optional on SpendVerdict (lib/api.ts) — older
+  // payloads without it still render a correct, flat two-cell Out | In
+  // header. verdict.pace_series remains on the payload/type (lib/api.ts) —
+  // the owner's weighted-instrument pick (variant B, 2026-08-27) cut the
+  // pace strip from the rendered header entirely, and it is still never read
+  // here. The series didn't stay unused for long, though: SpendTrends.tsx's
+  // "pace_curve" chart widget (Charts tab, added after this header's own
+  // strip was cut) reads it from SpendPage.tsx's verdict state directly, so
+  // it is no longer true that only this file's fixtures touched the field.
   const hasMoved = moved_total !== undefined;
   // OUT-pill footnote — server-decided (spend_impact.is_unresolved_material)
   // so this can never disagree with the reading's own hedge; absent on
-  // older payloads (unresolved_material undefined) just like hasStrip/
-  // hasMoved above.
+  // older payloads (unresolved_material undefined) just like hasMoved above.
   const showUnresolvedFootnote = !!unresolved_material && unresolved_total !== undefined;
+
+  // Point 3 (variant B) — a quiet observation on the relationship between
+  // Out and In, computed from figures already on the payload (presentational
+  // arithmetic, no new engine field, mirrors design/spend-verdict-b/
+  // Header.tsx's gapLine exactly). Never red, never amber: a gap between
+  // what's gone out and what's come in so far this pay period is completely
+  // ordinary (income often lands in one lump near the start), not genuine
+  // risk (DESIGN.md's Red Is Risk Rule).
+  const gap = pills.spent - pills.income;
+  const gapLine =
+    gap > 0
+      ? `${fmt(gap)} more has gone out than come in so far.`
+      : gap < 0
+        ? `${fmt(Math.abs(gap))} more has come in than gone out so far.`
+        : `Out and in are level so far.`;
 
   return (
     <div className="px-4 pt-6">
@@ -426,7 +363,7 @@ export default function SpendHeader(props: SpendHeaderProps) {
         </button>
       )}
 
-      <div className="glass-hero rounded-3xl p-4" {...swipeHandlers} style={{ touchAction: "pan-y" }}>
+      <div className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-spend-verdict" {...swipeHandlers} style={{ touchAction: "pan-y" }}>
         {/* Whisper period row — tap the label to open the period sheet */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 min-w-0">
@@ -445,8 +382,11 @@ export default function SpendHeader(props: SpendHeaderProps) {
               onClick={() => setSheetOpen(true)}
               className="min-h-[44px] flex items-center text-left active:opacity-60 transition-opacity min-w-0"
             >
+              {/* Point 5 (variant B) — the redundant "PAY PERIOD" prefix is
+                  dropped (the whole app already knows this is Spend's period
+                  row) and the eyebrow keeps at most one middle dot. */}
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400 truncate">
-                PAY PERIOD · {periodLabel.toUpperCase()} · DAY {period.days_elapsed}
+                {periodLabel.toUpperCase()} · DAY {period.days_elapsed}
               </p>
             </button>
             {!isCurrentPeriod && (
@@ -469,63 +409,74 @@ export default function SpendHeader(props: SpendHeaderProps) {
           </Link>
         </div>
 
-        {/* The instrument — cells + pace strip treated as ONE unit, always
-            housed in a bordered inset (the lit-panel identity, permanent).
-            This card deliberately never takes the app's glow-as-attention
-            treatment (.needs-you). Running ahead of usual pace is
-            information, not an action for the user to take: the category
-            rows already carry their own "N× usual" amber chip, and the
-            reading states the same fact in words underneath. `.needs-you`
-            means "your move" and stays reserved for cards that actually
-            have one (HomeBrief.tsx/PaydayPlanCard.tsx/SafeToSpendCard.tsx/
-            UpcomingBillsStrip.tsx). An earlier version of this card lit up
-            whenever the strip read over-pace, including on closed past
-            periods that nobody can act on, which is what this comment now
-            rules out. */}
+        {/* The instrument — re-weighted per the owner's variant B pick
+            (2026-08-27, "weighted instrument"): OUT leads as the hero
+            figure (Spend is about spending), IN and MOVED drop to a
+            secondary tier below it rather than sitting beside it as three
+            equal cells, and the pace strip is cut entirely — see DESIGN.md's
+            "The Instrument Header (Spend)" for the rewritten doctrine. Still
+            housed in the same bordered inset (the lit-panel identity,
+            permanent) and this card still deliberately never takes the
+            app's glow-as-attention treatment (.needs-you) — that stays
+            reserved for cards with an actual move to make
+            (HomeBrief.tsx/PaydayPlanCard.tsx/SafeToSpendCard.tsx/
+            UpcomingBillsStrip.tsx). */}
         <div className="mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3">
-          <div className="flex divide-x divide-slate-200/70 dark:divide-slate-700/70">
-            <button
-              type="button"
-              onClick={onOutTap}
-              className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
-            >
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Out</span>
-              <span className="text-[20px] font-bold tabular-nums font-mono text-slate-900 dark:text-slate-100">{fmt(pills.spent)}</span>
-            </button>
+          <button
+            type="button"
+            onClick={onOutTap}
+            className="w-full min-h-[44px] px-1 py-1 flex flex-col items-start justify-center text-left active:opacity-70 transition-opacity"
+          >
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Out</span>
+            {/* Display/30 (DESIGN.md Typography Hierarchy: "the one hero
+                figure per screen") — the nearest documented type step to
+                variant B's un-ramped text-[28px]. Out is now that hero
+                figure for this instrument, so Display is the correct step,
+                not just the closer number. */}
+            <span className="text-[30px] leading-tight tracking-[-0.025em] font-bold tabular-nums font-mono text-slate-900 dark:text-slate-100">
+              {fmt(pills.spent)}
+            </span>
+          </button>
+
+          <div className="mt-1 pt-2 flex divide-x divide-slate-200/70 dark:divide-slate-700/70 border-t border-slate-200/70 dark:border-slate-700/70">
             <button
               type="button"
               onClick={() => setIncomeExpanded((v) => !v)}
               aria-expanded={incomeExpanded}
-              className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
+              className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
             >
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">In</span>
-              <span className="text-[20px] font-bold tabular-nums font-mono text-slate-900 dark:text-slate-100">{fmt(pills.income)}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">In</span>
+              {/* Title/14 (DESIGN.md: "Row primaries, button labels") — the
+                  secondary tier's step, one below Out's Display/30. */}
+              <span className="text-sm font-bold tabular-nums font-mono text-slate-700 dark:text-slate-300">{fmt(pills.income)}</span>
             </button>
             {hasMoved && (
+              // Point 2 (variant B) — MOVED loses the Verified Emerald
+              // treatment and renders in the same neutral ink as In: mostly-
+              // shuffling money (own-account transfers) hasn't earned
+              // Verified Emerald, which DESIGN.md now reserves for genuine
+              // good news (see the rewritten "Instrument Header" section).
               <button
                 type="button"
                 onClick={onMovedTap}
                 aria-label="Money you moved"
-                className="flex-1 min-h-[44px] px-3 py-1.5 flex flex-col items-start justify-center active:scale-95 transition-transform"
+                className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center active:scale-95 transition-transform"
               >
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Moved</span>
-                <span className="text-[20px] font-bold tabular-nums font-mono text-emerald-600 dark:text-emerald-400">{fmt(moved_total!)}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Moved</span>
+                <span className="text-sm font-bold tabular-nums font-mono text-slate-700 dark:text-slate-300">{fmt(moved_total!)}</span>
               </button>
             )}
           </div>
 
-          {hasStrip && (
-            <div className="mt-3 glass-tile rounded-xl p-3">
-              <PaceStrip series={pace_series!} />
-            </div>
-          )}
+          {/* Point 3 (variant B) — the quiet Out-vs-In gap observation. */}
+          <p className="mt-2 px-1 text-[12px] text-slate-500 dark:text-slate-400">{gapLine}</p>
         </div>
 
-        {/* OUT-pill footnote — sits below the instrument (not inside it,
-            so it never crowds the pace strip) and above the reading, since
-            it's an annotation on the Out figure specifically. 44px tap
-            target via the established invisible-pseudo-element pattern
-            (PennyConversation.tsx's SuggestionChip) around an 11px line. */}
+        {/* OUT-pill footnote — sits below the instrument and above the
+            reading, since it's an annotation on the Out figure specifically.
+            44px tap target via the established invisible-pseudo-element
+            pattern (PennyConversation.tsx's SuggestionChip) around an 11px
+            line. */}
         {showUnresolvedFootnote && (
           <button
             type="button"

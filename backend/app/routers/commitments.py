@@ -773,6 +773,12 @@ async def _serialise(
         "on_track":            on_track,
         "feasibility":         None,
         "shared_pot_goals":    [],
+        # Penny Agent Mode v1 origin badge (owner decision, 2026-08-30):
+        # "penny" when this commitment was created via a Penny proposal
+        # (app.routers.can_i's execute_proposal stamps it right after
+        # POST /commitments returns), absent/None for an ordinary
+        # CommitmentSheet save.
+        "created_via":         doc.get("created_via"),
     }
 
 

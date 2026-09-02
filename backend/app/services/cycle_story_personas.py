@@ -30,7 +30,7 @@ PERSONAS: dict[str, dict] = {
                 {"payee": "Home Insurance", "total": 45.0},
             ],
         },
-        "cards": {"present": False, "material": False, "new_spend": 0.0, "payments": 0.0, "delta": 0.0, "share_of_spend": 0.0},
+        "cards": {"present": False, "material": False, "new_spend": 0.0, "payments": 0.0, "delta": 0.0, "share_of_spend": 0.0, "breakdown": []},
         "switch": None,
         "moves": {
             "card_feeding": {"count": 0, "total": 0.0},
@@ -72,7 +72,21 @@ PERSONAS: dict[str, dict] = {
                 {"payee": "Energy Supplier", "total": 95.0},
             ],
         },
-        "cards": {"present": True, "material": True, "new_spend": 900.0, "payments": 838.0, "delta": 62.0, "share_of_spend": 0.349},
+        "cards": {
+            "present": True,
+            "material": True,
+            "new_spend": 900.0,
+            "payments": 838.0,
+            "delta": 62.0,
+            "share_of_spend": 0.349,
+            "breakdown": [
+                {"account_id": "persona-breakeven-barclaycard", "name": "Barclaycard Platinum", "provider": "Barclaycard", "new_spend": 620.0, "delta": 40.0},
+                {"account_id": "persona-breakeven-amex", "name": "Amex Everyday", "provider": "American Express", "new_spend": 280.0, "delta": 22.0},
+                # Dormant card: no new spend this cycle, ranked last. Exercises
+                # the "all cards, not just active ones" contract in previews.
+                {"account_id": "persona-breakeven-halifax", "name": "Halifax Clarity", "provider": "Halifax", "new_spend": 0.0, "delta": 0.0},
+            ],
+        },
         "switch": {"week1_card_pct": 12.0, "rest_card_pct": 58.0, "switch_day": "2026-06-12"},
         "moves": {
             "card_feeding": {"count": 2, "total": 838.0},
@@ -106,7 +120,7 @@ PERSONAS: dict[str, dict] = {
             ],
         },
         "cliff": None,
-        "cards": {"present": False, "material": False, "new_spend": 0.0, "payments": 0.0, "delta": 0.0, "share_of_spend": 0.0},
+        "cards": {"present": False, "material": False, "new_spend": 0.0, "payments": 0.0, "delta": 0.0, "share_of_spend": 0.0, "breakdown": []},
         "switch": None,
         "moves": {
             "card_feeding": {"count": 0, "total": 0.0},

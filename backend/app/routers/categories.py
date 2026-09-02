@@ -13,6 +13,7 @@ from app.core.subscription import Tier, require_tier
 from app.db.collections import (
     behaviour_portrait_col,
     cashflow_cache_col,
+    money_shape_cache_col,
     user_categories_col,
     user_rules_col,
 )
@@ -147,11 +148,20 @@ async def _invalidate_kind_caches(uid: str) -> None:
     - ``response_cache`` (``today`` / ``safe-to-spend``) has a public
       ``invalidate(uid)`` that already drops every named cache for a user;
       used the same way commitments/accounts/planned routers do.
+    - ``money_shape_cache_col`` (``services/money_shape.py:get_money_shape_cached``)
+      is the whole Money Shape response persisted as one per-user document,
+      keyed the same way as ``behaviour_portrait_col``; its ``computed_at``
+      is both the TTL sentinel and the response field, so unsetting it forces
+      the next ``/money-shape`` call to recompute fresh, fixed/moved/free
+      shares included.
     """
     await cashflow_cache_col.update_one(
         {"_id": uid}, {"$unset": {"monthly_cf": "", "total_baselines": ""}}
     )
     await behaviour_portrait_col.update_one(
+        {"_id": uid}, {"$unset": {"computed_at": ""}}
+    )
+    await money_shape_cache_col.update_one(
         {"_id": uid}, {"$unset": {"computed_at": ""}}
     )
     response_cache.invalidate(uid)

@@ -11,6 +11,7 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col,
     manual_accounts_col, manual_account_rules_col, manual_account_mirrors_col,
 )
+from app.services.description_match import matches_contains, matches_equals
 
 _TXN_COLLECTIONS = [
     transactions_col, statement_transactions_col, yapily_transactions_col,
@@ -77,23 +78,21 @@ def _matches(rule: dict, txn: dict) -> bool:
     if not _within_window(rule, txn):
         return False
     mt = rule.get("match_type")
-    val = str(rule.get("match_value", "")).strip().lower()
-    if not val:
+    raw_val = rule.get("match_value", "")
+    if not str(raw_val).strip():
         return False
     if mt == "category":
-        return str(txn.get("category") or "").strip().lower() == val
+        return matches_equals(txn.get("category"), raw_val)
     if mt == "description_equals":
         # Exact comparison against one named field only — never the concatenated
         # haystack, so which field the rule targets is always unambiguous.
         field = rule.get("match_field") or "description"
-        if field == "merchant":
-            candidate = str(txn.get("merchant_name") or "").strip().lower()
-        else:
-            candidate = str(txn.get("description") or "").strip().lower()
-        return candidate == val
-    # description_contains: search description + merchant
-    haystack = f"{txn.get('description', '')} {txn.get('merchant_name') or ''}".lower()
-    return val in haystack
+        candidate = txn.get("merchant_name") if field == "merchant" else txn.get("description")
+        return matches_equals(candidate, raw_val)
+    # description_contains (and any other/legacy value): search description + merchant.
+    # Shared with app/routers/allocations.py via app/services/description_match.py
+    # so the two rule systems' equals/contains behaviour cannot drift apart.
+    return matches_contains(raw_val, txn.get("description"), txn.get("merchant_name"))
 
 
 def _delta(rule: dict, txn: dict) -> float:

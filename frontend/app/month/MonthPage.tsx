@@ -56,7 +56,7 @@ function maskAmounts(text: string): string {
 const MOVE_META: { key: keyof CycleStoryChapters["moves"]; label: string }[] = [
   { key: "ritual_saving", label: "Ritual saving" },
   { key: "deliberate_saving", label: "Deliberate saving" },
-  { key: "card_feeding", label: "Fed to cards" },
+  { key: "card_feeding", label: "Fed to credit cards" },
   { key: "buffer_draws", label: "Buffer draws" },
   { key: "other_shuffles", label: "Other shuffles" },
 ];
@@ -439,7 +439,7 @@ export default function MonthPage() {
             {chapters.cards?.material && (
               <div className="border-t border-slate-100 dark:border-slate-700/60 mt-3 pt-3">
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                  <span className="font-mono tabular-nums">{fmt(chapters.cards.new_spend)}</span> of it rode on your cards.
+                  <span className="font-mono tabular-nums">{fmt(chapters.cards.new_spend)}</span> of it rode on your credit cards.
                 </p>
                 {chapters.cards.delta === 0 ? (
                   <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
@@ -456,14 +456,14 @@ export default function MonthPage() {
                 )}
                 {chapters.switch?.switch_day && (
                   <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-                    Your cards took over from cash on {fmtDate(chapters.switch.switch_day)}.
+                    Your credit cards took over from cash on {fmtDate(chapters.switch.switch_day)}.
                   </p>
                 )}
                 <button
                   onClick={() => router.push("/cards")}
                   className="text-sm font-medium text-indigo-600 dark:text-indigo-400 active:opacity-70 mt-2 block"
                 >
-                  The cards chapter ›
+                  The credit cards chapter ›
                 </button>
               </div>
             )}

@@ -22,11 +22,8 @@ function goalBarColour(g: GoalSummary): string {
 }
 
 function humaniseDetail(g: GoalSummary): string {
-  // "7 over" → "7 categories over budget" (budget pillar only)
-  if (g.pillar === "budget" && g.at_risk) {
-    const match = g.detail.match(/^(\d+)\s+over$/);
-    if (match) return `${match[1]} categories over budget`;
-  }
+  // The "budget" pillar (and its "N over" phrasing) was retired 2026-08-30
+  // — this goal strip now only ever sees "debt" and "savings" pillars.
   return g.detail;
 }
 
@@ -84,7 +81,7 @@ export default function GoalsStrip() {
             No goals set yet. Start tracking debt payoff, a safety net, or your budget pace.
           </p>
           <button
-            onClick={() => router.push("/debt-plan")}
+            onClick={() => router.push("/cards")}
             className="flex items-center gap-1 text-xs font-semibold text-indigo-500 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150"
           >
             Start with debt payoff

@@ -8,7 +8,7 @@
 //
 // Rendered across AccountsPage and HomePage.
 
-import { Percent, RefreshCw, Star } from "lucide-react";
+import { RefreshCw, Star } from "lucide-react";
 import { BankBadge, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
@@ -140,8 +140,22 @@ export default function AccountLedgerRow({
   const isOwedOnCredit = isCredit && row.balance < 0;
   const isCreditInCredit = isCredit && row.balance > 0;
   const negative = row.balance < 0;
-  const amountText = isOverdrawn ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
+  // Minus sign now carries the direction for every negative balance,
+  // credit cards included — Variant B drops the "owed" caption stack, so
+  // the sign has to do that job on its own (matches design/account-rows
+  // shared.tsx's amountText). Non-credit output is unchanged: isOverdrawn
+  // and `negative` are equivalent there.
+  const amountText = negative ? `${MINUS}${moneyStr(row.balance)}` : moneyStr(row.balance);
+  // Spoken/aria state word — unchanged from before the redesign, so screen
+  // readers still hear "owed" / "in credit" / "overdrawn" even though the
+  // visual caption below only survives for non-credit rows.
   const stateCaption = isOwedOnCredit ? "owed" : isCreditInCredit ? "in credit" : isOverdrawn ? "overdrawn" : null;
+  // Red is earned (Variant B): a credit balance only renders rose when the
+  // card is genuinely accruing interest right now — a confirmed standard
+  // APR with no active 0% promo covering today (termsPillFor sets
+  // accruing:true only in that case). Every 0%-covered balance, and any
+  // card with no recorded terms at all, stays ink.
+  const isCreditAccruing = isCredit && negative && !!termsPill?.accruing;
 
   return (
     <div
@@ -197,17 +211,33 @@ export default function AccountLedgerRow({
         {isInvestment && sparkline && sparkline.length > 0 && <MiniSparkline series={sparkline} />}
         <p
           className={`text-[16px] font-semibold money ${
-            negative ? "text-rose-600 dark:text-rose-400" : muted ? "text-slate-400 dark:text-slate-500" : "text-slate-900 dark:text-slate-100"
+            isCredit
+              ? isCreditAccruing
+                ? "text-rose-600 dark:text-rose-400"
+                : muted
+                  ? "text-slate-400 dark:text-slate-500"
+                  : "text-slate-900 dark:text-slate-100"
+              : negative
+                ? "text-rose-600 dark:text-rose-400"
+                : muted
+                  ? "text-slate-400 dark:text-slate-500"
+                  : "text-slate-900 dark:text-slate-100"
           }`}
         >
           {amountText}
         </p>
-        {stateCaption && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
+        {/* Visual "owed"/"in credit" caption is gone on credit rows per
+            Variant B — the minus sign above plus the terms chip below carry
+            that meaning instead, so the right column never stacks three
+            deep. Non-credit rows are untouched: "overdrawn" still renders. */}
+        {!isCredit && stateCaption && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted
             slate); amber only when a confirmed 0% promo is genuinely close
-            to ending (Red Is Risk stays reserved for real risk states). */}
+            to ending (Red Is Risk stays reserved for real risk states). This
+            is the single chip Variant B allows under the amount — never a
+            second stacked caption alongside it. */}
         {isCredit && termsPill && onTermsClick ? (
           <button
             type="button"
@@ -229,16 +259,22 @@ export default function AccountLedgerRow({
             </span>
           </button>
         ) : isCredit && onAddRates ? (
+          // No recorded terms at all — Variant B's "Add APR ›" chip fills the
+          // same one-chip slot, same size, so an unknown card never grows a
+          // second line either. Chip stays visually 22px (matches the terms
+          // pill above and the design source), but the button's hit area is
+          // padded out to 44px via the invisible before:inset overlay so it
+          // doesn't inflate the row's flex layout the way a literal min-h
+          // would.
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               onAddRates();
             }}
-            className="mt-0.5 min-h-[28px] flex items-center gap-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none"
+            className="relative mt-0.5 min-h-[22px] flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/25 text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity motion-reduce:transition-none before:absolute before:-inset-y-[11px] before:-inset-x-2 before:content-['']"
           >
-            <Percent size={10} aria-hidden="true" />
-            Add rates
+            Add APR ›
           </button>
         ) : null}
       </div>

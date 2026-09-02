@@ -19,6 +19,7 @@ import {
   UserRound,
   HelpCircle,
   AlertTriangle,
+  Wand2,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -32,7 +33,7 @@ import {
   setLockEnabled as setBiometricLockEnabled,
 } from "@/lib/biometrics";
 import BottomNav from "@/components/BottomNav";
-import { useTutorial } from "@/components/TutorialContext";
+import { useTutorial, TUTORIAL_FLOWS } from "@/components/TutorialContext";
 import Toggle from "@/components/Toggle";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
@@ -101,7 +102,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { darkMode, setDarkMode, rawPrefs } = usePreferences();
-  const { start: startTutorial } = useTutorial();
+  const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
   const [syncHistoryMsg, setSyncHistoryMsg] = useState<{ text: string; ok: boolean } | null>(null);
@@ -122,7 +123,9 @@ export default function SettingsPage() {
 
   const [incomeBracket, setIncomeBracket] = useState("");
   const [incomeInput, setIncomeInput] = useState("");
+  const [incomeFocused, setIncomeFocused] = useState(false);
   const [pensionAnnual, setPensionAnnual] = useState("");
+  const [pensionFocused, setPensionFocused] = useState(false);
   const [hasChildBenefit, setHasChildBenefit] = useState(false);
   const [financeMsg, setFinanceMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
@@ -564,6 +567,58 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Penny (agent mode v1) ── */}
+        {/* Consent-state row for Penny's agent mode (setting up envelopes/
+            goals/one-offs on the user's behalf, always with a confirm card
+            first — see PennyConversation.tsx's ConsentCard/ProposalConfirmCard).
+            Reads `rawPrefs.penny_agent_consent` (an ISO timestamp when
+            granted, absent/null otherwise) straight from the same
+            preferences fetch every other row on this page already uses —
+            no separate request.
+
+            GAP, flagged deliberately rather than guessed around: the
+            backend contract for this feature only specifies POST
+            /penny/agent-consent (grant). There is no revoke/toggle-off
+            endpoint in the contract, so this row is READ-ONLY — no Toggle
+            component — with "ask Penny to stop" copy instead of a switch,
+            per this feature's own instruction for exactly this situation.
+            If a revoke endpoint lands later, this becomes a normal
+            Toggle-backed row like every other preference on this page.
+
+            Placement: this doesn't nest inside an existing card (no
+            existing section is both an unconditional render and a clean
+            semantic fit for "can Penny act on my behalf at all" — "Where
+            money can come from" is conditional on having eligible accounts
+            and is specifically about SOURCE accounts, a narrower and
+            different permission). A small dedicated card, same
+            glass-card/SectionHeader family as every other section here,
+            was the more honest fit than forcing this into a card about
+            something else. Icon is a plain INDIGO-tinted IconChip (Wand2),
+            not the Penny gradient: DESIGN.md's Penny Gradient Rule reserves
+            that gradient for surfaces that give advice, and Settings isn't
+            one. */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <SectionHeader icon={Wand2} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
+          <div className="px-4 py-3.5">
+            {rawPrefs?.penny_agent_consent ? (
+              <>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is on</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Penny can create envelopes, goals and one-off payments when you ask her to. You&apos;ll always see exactly what would change and confirm before anything happens.
+                </p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">To turn this off, ask Penny to stop in chat.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is off</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Penny can only answer questions right now. Ask her to set something up, like an envelope or a goal, and she&apos;ll offer to turn this on.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* ── Notifications ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Bell} hex={INDIGO} title="Notifications" />
@@ -686,7 +741,6 @@ export default function SettingsPage() {
               </div>
               {([
                 { key: "insights", title: "Tips & insights", desc: "Ways to save money we spot for you" },
-                { key: "budget_alerts", title: "Budget alerts", desc: "When you go over a budget category" },
                 { key: "category_pace", title: "Category running hot", desc: "When a category is well above your usual pace" },
                 { key: "classification_attention", title: "Payments needing a look", desc: "Unplaced or possibly miscategorised payments" },
                 { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear" },
@@ -778,7 +832,7 @@ export default function SettingsPage() {
         })()}
 
         {/* ── Financial profile ── */}
-        <div data-tutorial-id="tutorial-income" className="glass-card rounded-2xl overflow-hidden">
+        <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader
             icon={Landmark}
             hex={INDIGO}
@@ -797,9 +851,10 @@ export default function SettingsPage() {
                     id="settings-income"
                     type="text"
                     inputMode="numeric"
-                    value={fmtDigits(incomeInput)}
+                    value={incomeFocused ? incomeInput : fmtDigits(incomeInput)}
                     onChange={e => setIncomeInput(e.target.value.replace(/[^0-9]/g, ""))}
-                    onBlur={handleIncomeBlur}
+                    onFocus={() => setIncomeFocused(true)}
+                    onBlur={() => { setIncomeFocused(false); handleIncomeBlur(); }}
                     placeholder="e.g. 110000"
                     className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
@@ -822,9 +877,10 @@ export default function SettingsPage() {
                     id="settings-pension"
                     type="text"
                     inputMode="numeric"
-                    value={fmtDigits(pensionAnnual)}
+                    value={pensionFocused ? pensionAnnual : fmtDigits(pensionAnnual)}
                     onChange={e => setPensionAnnual(e.target.value.replace(/[^0-9]/g, ""))}
-                    onBlur={handlePensionBlur}
+                    onFocus={() => setPensionFocused(true)}
+                    onBlur={() => { setPensionFocused(false); handlePensionBlur(); }}
                     placeholder="0"
                     className="w-full pl-7 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
@@ -894,6 +950,17 @@ export default function SettingsPage() {
               <p className={`mt-2 text-xs font-medium ${syncHistoryMsg.ok ? "text-emerald-500" : "text-red-500"}`}>{syncHistoryMsg.text}</p>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => router.push("/planning/dismissed")}
+            className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-left active:opacity-70 transition-opacity"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Set aside</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Payments and bills excluded from your projections</span>
+            </span>
+            <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+          </button>
         </div>
 
         {/* ── Account ── */}
@@ -953,18 +1020,44 @@ export default function SettingsPage() {
           </button>
         </div>
 
+        {/* ── How Sorted works (tutorial replay, one row per per-screen flow) ── */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <SectionHeader icon={HelpCircle} hex={INDIGO} title="How Sorted works" subtitle="Replay any screen's tour" />
+          {TUTORIAL_FLOWS.map((flow, i) => (
+            <button
+              key={flow.id}
+              type="button"
+              onClick={() => startFlow(flow.id)}
+              className={`w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 text-left active:opacity-70 transition-opacity${
+                i > 0 ? " border-t border-slate-100 dark:border-slate-700" : ""
+              }`}
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">{flow.label}</span>
+                <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">{flow.blurb}</span>
+              </span>
+              <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+            </button>
+          ))}
+        </div>
+
         {/* ── Help ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={HelpCircle} hex={INDIGO} title="Help" />
           <button
             type="button"
-            onClick={startTutorial}
+            onClick={() => router.push("/terms")}
             className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 text-left active:opacity-70 transition-opacity"
           >
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">How Sorted works</span>
-              <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">A quick tour of Penny and the loop</span>
-            </span>
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Terms &amp; Conditions</span>
+            <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/privacy")}
+            className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-left active:opacity-70 transition-opacity"
+          >
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">Privacy Policy</span>
             <ChevronRight size={16} className="flex-shrink-0 text-slate-400 dark:text-slate-500" />
           </button>
         </div>

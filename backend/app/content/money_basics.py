@@ -1,6 +1,6 @@
 """Curated UK personal-finance explainers ("Money basics").
 
-General educational information — NOT financial advice. Figures are for the
+General educational information, not financial advice. Figures are for the
 2026/27 UK tax year; review each April when allowances are confirmed. Keep this
 list curated by hand rather than LLM-generated so the numbers stay accurate.
 """
@@ -15,15 +15,15 @@ MONEY_BASICS: list[dict] = [
         "topic": "ISAs",
         "icon": "🏦",
         "title": "You can shelter £20,000 a year in ISAs",
-        "body": "Each tax year you can pay up to £20,000 into ISAs and pay no tax on the interest, dividends or growth — ever. The allowance resets every 6 April and you can't carry unused amounts forward, so it's use-it-or-lose-it.",
-        "takeaway": "Unused ISA allowance disappears each April — it doesn't roll over.",
+        "body": "Each tax year you can pay up to £20,000 into ISAs and pay no tax on the interest, dividends or growth, ever. The allowance resets every 6 April and you can't carry unused amounts forward, so it's use-it-or-lose-it.",
+        "takeaway": "Unused ISA allowance disappears each April: it doesn't roll over.",
     },
     {
         "id": "cash-vs-ss-isa",
         "topic": "ISAs",
         "icon": "⚖️",
         "title": "Cash ISA vs Stocks & Shares ISA",
-        "body": "A Cash ISA works like a tax-free savings account — safe, predictable, good for money you'll need soon. A Stocks & Shares ISA invests in funds or shares: more ups and downs, but historically higher returns over the long run. Both share the same £20,000 yearly limit.",
+        "body": "A Cash ISA works like a tax-free savings account: safe, predictable, good for money you'll need soon. A Stocks & Shares ISA invests in funds or shares: more ups and downs, but historically higher returns over the long run. Both share the same £20,000 yearly limit.",
         "takeaway": "Cash ISA for short-term safety; S&S ISA for long-term growth.",
     },
     {
@@ -31,7 +31,7 @@ MONEY_BASICS: list[dict] = [
         "topic": "ISAs",
         "icon": "🔑",
         "title": "The Lifetime ISA adds a 25% government bonus",
-        "body": "If you're 18–39 you can open a Lifetime ISA and pay in up to £4,000 a year (part of your £20,000 ISA allowance). The government tops it up by 25% — up to £1,000 free each year — toward a first home under £450,000 or retirement from age 60. Withdraw early for anything else and you lose 25%.",
+        "body": "If you're 18-39 you can open a Lifetime ISA and pay in up to £4,000 a year (part of your £20,000 ISA allowance). The government tops it up by 25%, up to £1,000 free each year, toward a first home under £450,000 or retirement from age 60. Withdraw early for anything else and you lose 25%.",
         "takeaway": "Up to £1,000/year free toward a first home or retirement.",
     },
     {
@@ -39,15 +39,15 @@ MONEY_BASICS: list[dict] = [
         "topic": "Tax",
         "icon": "💸",
         "title": "Your first £1,000 of savings interest is tax-free",
-        "body": "The Personal Savings Allowance lets basic-rate taxpayers earn £1,000 of interest a year tax-free (£500 if you're a higher-rate taxpayer, £0 for additional-rate). Interest inside an ISA never counts toward it — that's the ISA's edge once your savings grow.",
+        "body": "The Personal Savings Allowance lets basic-rate taxpayers earn £1,000 of interest a year tax-free (£500 if you're a higher-rate taxpayer, £0 for additional-rate). Interest inside an ISA never counts toward it: that's the ISA's edge once your savings grow.",
         "takeaway": "Past the allowance, an ISA keeps the rest tax-free.",
     },
     {
         "id": "emergency-fund",
         "topic": "Saving",
         "icon": "🛟",
-        "title": "Aim for 3–6 months of essential spending",
-        "body": "An emergency fund is cash set aside for the unexpected — a boiler, a job gap, a car repair. The rule of thumb is 3–6 months of essential outgoings, kept somewhere instant-access (an easy-access or Cash ISA), not invested. It's the foundation everything else is built on.",
+        "title": "Aim for 3-6 months of essential spending",
+        "body": "An emergency fund is cash set aside for the unexpected: a boiler, a job gap, a car repair. The rule of thumb is 3-6 months of essential outgoings, kept somewhere instant-access (an easy-access or Cash ISA), not invested. It's the foundation everything else is built on.",
         "takeaway": "Build the buffer before you invest or overpay debt.",
     },
     {
@@ -72,14 +72,14 @@ MONEY_BASICS: list[dict] = [
         "icon": "📈",
         "title": "Pensions get topped up by tax relief",
         "body": "Pay into a pension and the government adds back the tax you'd have paid. For a basic-rate taxpayer, £80 becomes £100 automatically; higher-rate taxpayers can claim more back. The annual allowance for most people is £60,000 (or 100% of earnings, if lower).",
-        "takeaway": "£80 in can become £100 — or more for higher earners.",
+        "takeaway": "£80 in can become £100, or more for higher earners.",
     },
     {
         "id": "compound-interest",
         "topic": "Investing",
         "icon": "🪴",
         "title": "Compounding rewards starting early",
-        "body": "Compounding means your returns earn returns. Money invested has time to snowball — which is why £100/month started in your 20s can dwarf the same amount started in your 40s. Time in the market matters more than timing it.",
+        "body": "Compounding means your returns earn returns. Money invested has time to snowball, which is why £100/month started in your 20s can dwarf the same amount started in your 40s. Time in the market matters more than timing it.",
         "takeaway": "The earliest pound you invest works the hardest.",
     },
     {
@@ -87,7 +87,7 @@ MONEY_BASICS: list[dict] = [
         "topic": "Investing",
         "icon": "🧮",
         "title": "Fees quietly eat returns",
-        "body": "A 1% annual fee sounds small but compounds against you over decades — potentially tens of thousands over an investing lifetime. Low-cost index funds (often 0.1–0.3%) are why many long-term investors favour them over pricier actively managed funds.",
+        "body": "A 1% annual fee sounds small but compounds against you over decades, potentially tens of thousands over an investing lifetime. Low-cost index funds (often 0.1-0.3%) are why many long-term investors favour them over pricier actively managed funds.",
         "takeaway": "Lower fees leave more of the growth with you.",
     },
     {
@@ -95,7 +95,7 @@ MONEY_BASICS: list[dict] = [
         "topic": "Investing",
         "icon": "🧺",
         "title": "Don't put all your eggs in one basket",
-        "body": "Spreading money across many companies, sectors and countries softens the blow when any single one falls. A global index fund does this in one purchase — thousands of companies worldwide — which is why it's a common starting point for new investors.",
+        "body": "Spreading money across many companies, sectors and countries softens the blow when any single one falls. A global index fund does this in one purchase, thousands of companies worldwide, which is why it's a common starting point for new investors.",
         "takeaway": "A global fund diversifies in a single holding.",
     },
     {
@@ -111,7 +111,7 @@ MONEY_BASICS: list[dict] = [
         "topic": "Tax",
         "icon": "✂️",
         "title": "Capital gains have a £3,000 tax-free band",
-        "body": "Sell investments held outside an ISA for a profit and you can make £3,000 of gains a year before Capital Gains Tax applies. Gains inside an ISA are completely tax-free — another reason to use your ISA allowance before investing in a taxable account.",
+        "body": "Sell investments held outside an ISA for a profit and you can make £3,000 of gains a year before Capital Gains Tax applies. Gains inside an ISA are completely tax-free, another reason to use your ISA allowance before investing in a taxable account.",
         "takeaway": "ISA gains never trigger Capital Gains Tax.",
     },
     {
@@ -135,8 +135,32 @@ MONEY_BASICS: list[dict] = [
         "topic": "Tax",
         "icon": "💍",
         "title": "Couples can share unused tax allowance",
-        "body": "If one partner earns under the £12,570 personal allowance and the other is a basic-rate taxpayer, Marriage Allowance lets you transfer £1,260 of allowance — worth up to £252 a year off your tax bill. You can also backdate claims by up to four years.",
+        "body": "If one partner earns under the £12,570 personal allowance and the other is a basic-rate taxpayer, Marriage Allowance lets you transfer £1,260 of allowance, worth up to £252 a year off your tax bill. You can also backdate claims by up to four years.",
         "takeaway": "Up to £252/year if one partner is a low earner.",
+    },
+    {
+        "id": "conscious-spending-plan",
+        "topic": "Budgeting",
+        "icon": "🧭",
+        "title": "Ramit Sethi's Conscious Spending Plan: four buckets for take-home pay",
+        "body": "The Conscious Spending Plan, from Ramit Sethi's book I Will Teach You To Be Rich, splits take-home pay into four buckets: fixed costs (50-60%), investments (10%), savings goals (5-10%) and guilt-free spending (20-35%). It's a US framework, so his 401(k) and Roth IRA map loosely onto a UK workplace pension and ISA, and the percentages are his suggested starting points, not fixed rules everyone should hit.",
+        "takeaway": "The useful part is the shape, roughly how pay splits between jobs, not the exact numbers. The app shows your own shape on Insights and doesn't grade it against these ranges.",
+    },
+    {
+        "id": "fifty-thirty-twenty",
+        "topic": "Budgeting",
+        "icon": "📐",
+        "title": "The 50/30/20 rule: needs, wants, savings",
+        "body": "Popularised by US senator Elizabeth Warren in the book All Your Worth, the 50/30/20 rule splits after-tax income into three bands: 50% needs (rent or mortgage, bills, groceries, minimum debt payments), 30% wants (eating out, subscriptions, holidays) and 20% savings or extra debt repayment. A common criticism, especially in UK cities, is that rent or mortgage alone can eat past 50% of take-home pay, before any other need is counted.",
+        "takeaway": "It's a rough starting point for thinking about proportions, not a target to hit exactly.",
+    },
+    {
+        "id": "pay-yourself-first",
+        "topic": "Saving",
+        "icon": "⏩",
+        "title": "Pay yourself first: move money to savings before you spend",
+        "body": "Pay yourself first means moving a slice of your income into savings the moment it lands, on payday, before any spending happens, rather than saving whatever is left at the end of the month. The idea is behavioural: once the transfer happens automatically, there's no daily decision to make and no temptation to skip it.",
+        "takeaway": "It's the same logic behind the app's Payday Plan, which groups that payday transfer into one step rather than leaving it to memory.",
     },
 ]
 

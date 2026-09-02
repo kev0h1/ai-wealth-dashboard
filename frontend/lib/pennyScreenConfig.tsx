@@ -182,6 +182,12 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
       { kind: "ask", label: "What counts as salary sacrifice?", q: "What counts as salary sacrifice?", short: "Salary sacrifice?" },
       { kind: "ask", label: "Do I need to register for self-assessment?", q: "Do I need to register for self-assessment?", short: "Self-assessment?" },
       { kind: "ask", label: "How does Gift Aid reduce my tax?", q: "How does Gift Aid reduce my tax?", short: "Gift Aid?" },
+      // "What is the Marriage Allowance?" chip added then removed same day
+      // (2026-08-27, back to the established 4-chip comfortable max): the
+      // four explainers above are personalised to the user's own tax
+      // position, which outranks a generic explainer, and the topic stays
+      // fully reachable through Penny's `explain` tool (the
+      // `marriage-allowance` key still exists) by just asking.
     ],
     personalisedChips: false,
   },
@@ -213,6 +219,19 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
       // LLM. `deterministic: true` documents that, same as the payday chips
       // above.
       { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", deterministic: true, short: "Saving vs investing?" },
+      // Money-basics retirement (2026-08-27): the rotating "Money basics"
+      // Home card is gone, its 16 curated explainers now ground Penny's
+      // `explain` tool instead (backend/app/services/penny_tools.py's
+      // `_BASICS_COPY`, built from app/content/money_basics.py). These two
+      // map straight to that registry's `lisa`/`cash-vs-ss-isa` keys — same
+      // deterministic, no-verdict-on-your-own-data class as the
+      // saving-vs-investing chip above.
+      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", deterministic: true },
+      // "Cash ISA or Stocks and Shares ISA?" chip removed (2026-08-27, back
+      // to the established 4-chip comfortable max) — the saving-vs-investing
+      // explainer chip above already covers adjacent ground, and the topic
+      // stays fully reachable through Penny's `explain` tool (the
+      // `cash-vs-ss-isa` key still exists) by just asking.
       // Not a link back to /grow itself (redundant, chip would fire while
       // already on that screen) — Planning is the umbrella page Grow is
       // actually reached from (PlanningPage.tsx's onGrowTap).

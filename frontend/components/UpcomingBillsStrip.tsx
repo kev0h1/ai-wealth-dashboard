@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -21,18 +21,38 @@ const SYM: Record<string, string> = { UK: "£", Kenya: "KSh " };
 
 type Status = "loading" | "ready" | "failed";
 
-export default function UpcomingBillsStrip() {
+interface UpcomingBillsStripProps {
+  /** Called exactly once, when this card's own fetch first settles (success
+   *  or failure) — never again on a later retry. Lets HomePage's full-page
+   *  loading hold know this self-fetching strip is done, since it has no
+   *  other way to see into this component's own request. */
+  onReady?: () => void;
+}
+
+export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps = {}) {
   const { region } = usePreferences();
   const sym = SYM[region] ?? "£";
   const router = useRouter();
   const [data, setData] = useState<CashflowData | null>(null);
   const [status, setStatus] = useState<Status>("loading");
 
+  // Latest onReady in a ref rather than a `fetch` dependency — HomePage
+  // passes a fresh callback identity most renders, and this must never
+  // retrigger the fetch effect below or re-fire onReady itself.
+  const onReadyRef = useRef(onReady);
+  useEffect(() => { onReadyRef.current = onReady; });
+  const readyFiredRef = useRef(false);
+
   const fetch = useCallback(() => {
     setStatus("loading");
     api.cashflow()
       .then(d => { setData(d); setStatus("ready"); })
-      .catch(() => setStatus("failed"));
+      .catch(() => setStatus("failed"))
+      .finally(() => {
+        if (readyFiredRef.current) return;
+        readyFiredRef.current = true;
+        onReadyRef.current?.();
+      });
   }, []);
 
   useEffect(() => { fetch(); }, [fetch]);

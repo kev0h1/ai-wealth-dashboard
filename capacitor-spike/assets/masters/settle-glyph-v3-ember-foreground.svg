@@ -1,0 +1,69 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    V3 "Ember" — adaptive-icon FOREGROUND layer.
+
+    Derived from settle-glyph-v3-ember.svg by dropping the background-wash
+    rect only. Everything else (ember glow stack, glyph bars, rim light) is
+    identical and rendered on a transparent canvas, so cairosvg keeps the
+    ember glow's radial-gradient falloff as real alpha instead of flattening
+    it onto an opaque colour. This mirrors the previous icon-foreground.png,
+    which also carried its own alpha-faded glow halo (visible in the PNG's
+    alpha channel) so the adaptive icon reads correctly even where the OS
+    only composites the foreground layer.
+
+    Geometry is identical to settle-glyph-master.svg / settle-glyph-v3-ember.svg
+    (safe-zone proven by the currently-shipped icon-foreground.png).
+  -->
+  <defs>
+    <linearGradient id="v3-brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <radialGradient id="v3-ember-core">
+      <stop offset="0%" stop-color="#c4b5fd" stop-opacity="0.74" />
+      <stop offset="45%" stop-color="#8b5cf6" stop-opacity="0.46" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="v3-ember-under">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.40" />
+      <stop offset="60%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="v3-ember-spill">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="v3-rimLight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0" />
+      <stop offset="18%" stop-color="#a78bfa" stop-opacity="0.32" />
+      <stop offset="82%" stop-color="#a78bfa" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- No background rect here — transparent canvas so the glow falls off via alpha. -->
+
+  <!-- Ember glow stack — drawn before the bars -->
+  <ellipse cx="500" cy="565" rx="340" ry="175" fill="url(#v3-ember-spill)" />
+  <ellipse cx="511" cy="655" rx="400" ry="180" fill="url(#v3-ember-under)" />
+  <ellipse cx="511" cy="701" rx="260" ry="120" fill="url(#v3-ember-core)" />
+
+  <!-- Glyph group -->
+  <g>
+    <rect x="292" y="257" width="475" height="119" rx="28.6" fill="#475569"
+      transform="rotate(6.86 529.5 316.5)" />
+    <rect x="241" y="447" width="505" height="119" rx="28.5" fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)" />
+    <rect x="232" y="637" width="559" height="129" rx="31.5" fill="url(#v3-brandGradient)" />
+  </g>
+
+  <!-- Rim light -->
+  <rect x="304" y="369" width="451" height="14" rx="7" fill="url(#v3-rimLight)"
+    transform="rotate(6.86 529.5 316.5)" />
+  <rect x="253" y="559" width="481" height="14" rx="7" fill="url(#v3-rimLight)"
+    transform="rotate(-6.84 493.5 506.5)" />
+</svg>

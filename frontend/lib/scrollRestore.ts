@@ -17,7 +17,32 @@
 // via storage), adapted to wait for content height before restoring.
 
 const KEY_PREFIX = "wd_scroll:";
-const RESTORE_TIMEOUT_MS = 2000;
+// Bug round 3 (owner report, 2026-08-31 — /spend "Money you moved" ->
+// /transactions -> BACK still landing at the top): reproduced with a real,
+// CDP-driven round trip (headless Chrome, mobile viewport, real
+// pushState/history-traversal navigation) at
+// frontend/app/design/spend-restore-check/ against the real SpendHeader +
+// SpendVerdictView components. A round trip fast enough for the revisit's
+// data to already be warm (in-memory verdict cache, <1s) restored correctly
+// every time; forcing the revisit's fetch to be genuinely slow (>2s — the
+// realistic case on a phone: cellular data, a cold Railway container, or
+// the module-level cache having gone cold, e.g. the WebView was discarded
+// while backgrounded) reproduced the bug exactly: the page was still short
+// (no verdict painted, scrollHeight ~844) when this poll's old 2000ms
+// deadline hit, so `finish()` clamped to whatever the short page allowed —
+// 0 — and considered itself DONE. When the real content landed a second
+// later and the page grew to its true height, nothing was left watching for
+// that growth, so the clamped 0 stuck permanently even though the page was
+// now tall enough to hold the real target. Measured before/after with the
+// harness: at the old 2000ms deadline the doc was still 844px tall
+// (verdict hadn't painted); the verdict actually landed around 4000ms and
+// the doc reached its full 2077px around 5000ms — a full ~3s past the old
+// deadline. 15000ms comfortably covers that gap (and much worse mobile
+// conditions) while still giving up eventually rather than polling forever.
+// This does not reintroduce visible crawling: intermediate polls never call
+// scrollTo, only the final `finish()` does — still a single jump, just one
+// that now waits for the real content instead of a fixed sleep.
+const RESTORE_TIMEOUT_MS = 15000;
 
 function routeKey(pathname: string, search: string): string {
   return `${KEY_PREFIX}${pathname}${search ? `?${search}` : ""}`;

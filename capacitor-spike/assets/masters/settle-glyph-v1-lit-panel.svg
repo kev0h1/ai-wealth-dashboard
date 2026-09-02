@@ -1,0 +1,66 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    V1 "Lit panel" — restrained glow with a believable SOURCE.
+    Light reads as emanating upward from the gradient bar only: a tight
+    bright core hugging the bar's top edge, softening as it climbs toward
+    the middle bar's underside, and essentially gone before it reaches the
+    top bar. The top third of the icon stays dark on purpose.
+
+    Built entirely from stacked radial-gradient ellipses (cairosvg's
+    feGaussianBlur does not blur — verified separately — so no SVG filters
+    are used anywhere in this file). Each ellipse uses the SVG default
+    objectBoundingBox radial gradient, which auto-stretches a circular
+    falloff to the ellipse's own aspect ratio — this is what gives the
+    "light hugging a wide flat bar" shape without any filter.
+
+    Geometry is identical to settle-glyph-master.svg (measured off the
+    original icon.png) — do not edit bar numbers here without updating the
+    master too.
+  -->
+  <defs>
+    <linearGradient id="v1-brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <!-- glow-source: tight, bright, hugs the bar's top edge — the "light source" itself.
+         Opacity/size tuned up from the first pass once a launcher-scale (72/48px,
+         circle-masked) simulation showed the original values reading as almost
+         nothing once downscaled — restrained still means visible. -->
+    <radialGradient id="v1-glow-source">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.72" />
+      <stop offset="55%" stop-color="#8b5cf6" stop-opacity="0.42" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- glow-spill: softer, wider, reaches up to the middle bar's underside -->
+    <radialGradient id="v1-glow-spill">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.34" />
+      <stop offset="60%" stop-color="#6366f1" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- glow-wash: barest suggestion, fades out well before the top bar -->
+    <radialGradient id="v1-glow-wash">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background — Midnight Canvas, stays dark at the top by design -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#0f172a" />
+
+  <!-- Glow stack — drawn BEFORE the bars so the bars sit crisp on top -->
+  <ellipse cx="500" cy="470" rx="450" ry="250" fill="url(#v1-glow-wash)" />
+  <ellipse cx="505" cy="555" rx="375" ry="195" fill="url(#v1-glow-spill)" />
+  <ellipse cx="511" cy="637" rx="300" ry="125" fill="url(#v1-glow-source)" />
+
+  <!-- Glyph group — identical geometry to settle-glyph-master.svg -->
+  <g>
+    <rect x="292" y="257" width="475" height="119" rx="28.6" fill="#475569"
+      transform="rotate(6.86 529.5 316.5)" />
+    <rect x="241" y="447" width="505" height="119" rx="28.5" fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)" />
+    <rect x="232" y="637" width="559" height="129" rx="31.5" fill="url(#v1-brandGradient)" />
+  </g>
+</svg>

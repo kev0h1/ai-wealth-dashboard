@@ -300,3 +300,37 @@ export function nextPeriodWithConfig(end: Date, config: PayPeriodConfig): [Date,
   const d = new Date(end.getTime() + 86400000);
   return getPayPeriodWithConfig(d, config);
 }
+
+// ── Period lookup by stable start date ────────────────────────────────────
+// SpendPage.tsx's `offset` (0 = current period, negative = N periods
+// before) is relative to "now" — it can't be persisted directly across a
+// session, because "now" moves and the calendar can roll between saving it
+// and restoring it (a previous-period offset of -1 saved just before
+// midnight would silently mean a DIFFERENT period once restored the next
+// day). The period's own START date doesn't have that problem — it's the
+// stable identifier lib/spendUiState.ts persists — but every fetch
+// (verdict/signals/miscategorised-count) is keyed by offset server-side, so
+// a restore has to translate the saved start date back into the offset
+// that actually reaches it.
+//
+// Walks backward from the current period (offset 0), one period at a time,
+// comparing each period's start against targetStart. Bails out (returns
+// null) once a candidate's start moves earlier than targetStart without
+// ever matching — the persisted date isn't reachable as a genuine period
+// boundary under this config (e.g. the pay-period config changed underneath
+// it), and callers should fall back to the current period rather than land
+// somewhere that doesn't correspond to real data. maxSteps caps the walk
+// (2+ years back) so a corrupt/ancient persisted value can't spin forever.
+export function findPeriodByStart(
+  targetStart: Date,
+  config: PayPeriodConfig,
+  maxSteps = 120
+): { start: Date; end: Date; offset: number } | null {
+  let [s, e] = getPayPeriodWithConfig(new Date(), config);
+  for (let offset = 0; offset >= -maxSteps; offset--) {
+    if (s.getTime() === targetStart.getTime()) return { start: s, end: e, offset };
+    if (s.getTime() < targetStart.getTime()) return null;
+    [s, e] = prevPeriodWithConfig(s, config);
+  }
+  return null;
+}

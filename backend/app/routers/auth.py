@@ -1,17 +1,39 @@
-"""Auth endpoints: PIN login, Google OAuth, session validation."""
+"""Auth endpoints: PIN login, Google OAuth, Sign in with Apple, session validation."""
 import time
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 import httpx
+import jwt
+from jwt.algorithms import RSAAlgorithm
 
 from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
     APP_URL, ALLOWED_EMAILS, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
 )
 from itsdangerous import SignatureExpired, BadSignature
 
 router = APIRouter(tags=["auth"])
+
+# Apple's JWKS rotates rarely; cache it in-process rather than refetching on
+# every sign-in (same dict-with-timestamp idiom as the APNs JWT cache in
+# app/core/push.py). `_get_apple_jwks` is monkeypatched directly in tests
+# rather than mocking the HTTP layer.
+APPLE_JWKS_URL   = "https://appleid.apple.com/auth/keys"
+_APPLE_JWKS_TTL  = 24 * 3600
+_apple_jwks_cache: dict = {"keys": None, "fetched_at": 0.0}
+
+
+async def _get_apple_jwks() -> dict:
+    now = time.time()
+    if _apple_jwks_cache["keys"] is None or (now - _apple_jwks_cache["fetched_at"]) > _APPLE_JWKS_TTL:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(APPLE_JWKS_URL)
+        resp.raise_for_status()
+        _apple_jwks_cache["keys"] = resp.json()
+        _apple_jwks_cache["fetched_at"] = now
+    return _apple_jwks_cache["keys"]
 
 # Chrome Custom Tabs won't launch an app-scheme redirect (wealthdash://) from a
 # server redirect without a user gesture, so the mobile app can't reliably get
@@ -77,6 +99,82 @@ async def google_native(body: dict):
         raise HTTPException(403, "Access denied")
 
     session_token = serializer.dumps({"email": email, "name": info.get("name", "")})
+    return {"session_token": session_token, "ok": True}
+
+
+@router.post("/auth/apple/native")
+async def apple_native(body: dict):
+    """Verify an identityToken from the native Sign in with Apple SDK and
+    issue a session.
+
+    Unlike Google, Apple's native flow hands back a self-contained RS256 JWT
+    (no tokeninfo-style verification endpoint), so we verify it ourselves
+    against Apple's published JWKS: signature, `iss`, `aud`, and `exp`. The
+    accepted audience is either the native app's bundle id (APPLE_BUNDLE_ID)
+    or, if configured, a Services ID (APPLE_SERVICES_ID) for a future web
+    flow — empty APPLE_SERVICES_ID means only the bundle id is accepted.
+
+    Apple only includes the user's name in the *first* authorization ever
+    performed with this app, so the client passes it through as `fullName`
+    on that first call; every call after that has no name in the token or
+    from the client, so we fall back to the email's local-part.
+
+    Hide My Email caveat: when a user chooses to relay their email, Apple
+    issues a stable, per-app, *verified* @privaterelay.appleid.com address.
+    We treat that relay address as the identity exactly like any other
+    verified email — it satisfies `email_verified` and passes the
+    ALLOWED_EMAILS gate just like a real address would. This means a user
+    who signs in with Google using their real email and later signs in with
+    Apple using a relay address gets two distinct accounts/sessions; there
+    is no email-based account linking here, and building that is explicitly
+    out of scope for this change.
+    """
+    identity_token = body.get("identityToken")
+    if not identity_token:
+        raise HTTPException(400, "Missing identityToken")
+
+    try:
+        header = jwt.get_unverified_header(identity_token)
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid token")
+
+    jwks = await _get_apple_jwks()
+    key_data = next((k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid")), None)
+    if not key_data:
+        raise HTTPException(401, "Invalid token")
+
+    try:
+        public_key = RSAAlgorithm.from_jwk(key_data)
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+
+    audiences = [a for a in (APPLE_BUNDLE_ID, APPLE_SERVICES_ID) if a]
+
+    try:
+        claims = jwt.decode(
+            identity_token,
+            key=public_key,
+            algorithms=["RS256"],
+            audience=audiences or None,
+            issuer="https://appleid.apple.com",
+            options={"require": ["exp", "iss"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid token")
+
+    if str(claims.get("email_verified")).lower() != "true":
+        raise HTTPException(401, "Email not verified")
+
+    email = (claims.get("email") or "").lower()
+    if not email:
+        raise HTTPException(401, "Auth failed")
+    if email not in ALLOWED_EMAILS:
+        raise HTTPException(403, "Access denied")
+
+    name = body.get("fullName") or email.split("@")[0]
+    session_token = serializer.dumps({"email": email, "name": name})
     return {"session_token": session_token, "ok": True}
 
 

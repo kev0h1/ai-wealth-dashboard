@@ -13,11 +13,19 @@ function easeOutCubic(t: number): number {
  * Animates a number from its previous value to `target` on mount and
  * whenever `target` changes, using requestAnimationFrame. Returns the
  * currently-animated value (format it yourself at the call site).
+ *
+ * `startFromZero` (default false) opts a caller into tweening on the VERY
+ * first mount too, counting up from 0 → target instead of settling
+ * instantly. Off by default so existing callers (SafeToSpendCard's tiles,
+ * which must not animate on page load) are unaffected — Month Story's
+ * per-slide hero figures turn it on, since each slide is a fresh mount
+ * (keyed by slide index) and the whole point is a restart-on-mount tween.
  */
-export function useCountUp(target: number, opts?: { durationMs?: number }): number {
+export function useCountUp(target: number, opts?: { durationMs?: number; startFromZero?: boolean }): number {
   const duration = opts?.durationMs ?? 600;
-  const [value, setValue] = useState(target);
-  const fromRef = useRef(target);
+  const startFromZero = opts?.startFromZero ?? false;
+  const [value, setValue] = useState(startFromZero ? 0 : target);
+  const fromRef = useRef(startFromZero ? 0 : target);
   const rafRef = useRef<number | null>(null);
   const firstRunRef = useRef(true);
 
@@ -32,12 +40,16 @@ export function useCountUp(target: number, opts?: { durationMs?: number }): numb
       return;
     }
     // Skip animating on the very first mount — start settled at target,
-    // only tween on subsequent changes.
+    // only tween on subsequent changes. Unless `startFromZero`: the caller
+    // wants the first mount itself to tween (0 → target), so fall through
+    // to the shared tick loop below instead of short-circuiting here.
     if (firstRunRef.current) {
       firstRunRef.current = false;
-      fromRef.current = target;
-      setValue(target);
-      return;
+      if (!startFromZero) {
+        fromRef.current = target;
+        setValue(target);
+        return;
+      }
     }
 
     const from = fromRef.current;

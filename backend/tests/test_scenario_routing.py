@@ -6,18 +6,19 @@ dominated scenarios, which deliberately never touches the LLM).
 
 Also covers the wiring of `looks_like_scenario` into POST /can-i
 (app.routers.can_i.can_i): a scenario-shaped question must short-circuit to
-`parse_question` (shared with /scenario/parse) BEFORE any Can-I fact
-pack/LLM call, while a plain affordability question must still take the
-existing Can-I path untouched. These call `can_i_mod.can_i(...)` directly
-via `asyncio.run` (matching the direct-async-call convention used in
-test_notifications.py/test_scenario.py, rather than a real HTTP/DB round
-trip) and monkeypatch the LLM/DB boundaries the function touches:
-`check_ai_chat_limit`/`increment_ai_chat_usage` (subscription usage docs),
-`parse_question` (the scenario extraction LLM call), `compute_safe_to_spend`
-(the Can-I fact pack's own live-balance read) and `commitments_col` (the
-active-goals scope-signal read). Each fake either returns a fixed value or
-raises loudly if hit, so a routing regression that lets the wrong path run
-fails the test rather than silently making a live call.
+`parse_question` (shared with /scenario/parse) BEFORE the Penny tool loop
+ever runs, while a plain affordability question must still reach that loop
+(app.services.penny_agent.run_penny_agent) untouched. These call
+`can_i_mod.can_i(...)` directly via `asyncio.run` (matching the
+direct-async-call convention used in test_notifications.py/test_scenario.py,
+rather than a real HTTP/DB round trip) and monkeypatch the LLM/DB boundaries
+the function touches: `check_ai_chat_limit`/`increment_ai_chat_usage`
+(subscription usage docs), `parse_question` (the scenario extraction LLM
+call), `run_penny_agent` (the ground-up loop-first rebuild's own tool loop,
+see PENNY_TOOLS.md) and `compute_safe_to_spend` (the deterministic refusal
+fallback's own worked-example read). Each fake either returns a fixed value
+or raises loudly if hit, so a routing regression that lets the wrong path
+run fails the test rather than silently making a live call.
 """
 import asyncio
 from datetime import date
@@ -99,6 +100,25 @@ def test_bare_month_name_alone_is_not_scenario():
 def test_bare_commitment_verb_alone_is_not_scenario():
     # A commitment verb with no month/date reference is too weak alone.
     assert not looks_like_scenario("What if I switch to a cheaper energy tariff?")
+
+
+def test_hypothetical_single_account_move_arithmetic_is_not_scenario():
+    # Regression, 2026-08-31 (owner-reported bug, verbatim): "If we move
+    # 825£ from my Monzo account, how much will be left" got the generic
+    # out-of-scope refusal live. The scenario gate was the prime suspect
+    # (an "If we..." hypothetical), but this is a single, immediate balance
+    # question, not an ongoing or future-dated money CHANGE: no cadence word
+    # (no "a month"/"weekly"/...), no income-change or cancellation phrase,
+    # and "move ... from" is not the commitment-verb pattern ("move TO", a
+    # relocation) the two-signal branch looks for. Diagnosis found the real
+    # cause was the wall-clock budget, not this gate (see
+    # app.services.penny_agent's own dated comment on its timeout
+    # constants) - this test locks in that the gate itself was never the
+    # bug and must keep NOT catching this phrasing shape.
+    assert not looks_like_scenario(
+        "If we move 825£ from my Monzo account, how much will be left"
+    )
+    assert not looks_like_scenario("If I move £200 from my savings, what's left?")
 
 
 # ── resolve_relative_start ───────────────────────────────────────────────
@@ -242,16 +262,6 @@ class _RaisingFake:
         return _boom
 
 
-class _RaisingCommitmentsCol:
-    """`commitments_col.find(...)` stand-in: `_active_goals_summary` wraps
-    its whole body in a bare `except Exception: return []`, so a synchronous
-    raise here is swallowed exactly the way a real Mongo outage would be,
-    giving an empty active-goals list without ever touching real Mongo."""
-
-    def find(self, *args, **kwargs):
-        raise RuntimeError("no real Mongo access in this test")
-
-
 async def _noop_check_ai_chat_limit(email):
     return None
 
@@ -309,7 +319,6 @@ def test_scenario_question_short_circuits_before_fact_gathering(monkeypatch):
 
 def test_plain_affordability_question_still_takes_can_i_path(monkeypatch):
     _patch_common(monkeypatch)
-    monkeypatch.setattr(can_i_mod, "commitments_col", _RaisingCommitmentsCol())
 
     # Any call to parse_question at all proves the scenario short-circuit
     # wrongly hijacked a plain one-off spend question.
@@ -318,22 +327,22 @@ def test_plain_affordability_question_still_takes_can_i_path(monkeypatch):
 
     monkeypatch.setattr(can_i_mod, "parse_question", _boom_parse_question)
 
-    # Short-circuit the REAL Can-I fact pack at its first live-balance read
-    # (insufficient_data) rather than mocking every downstream collection —
-    # this still proves the question reached the Can-I path (not the
-    # scenario one) without a live DB/LLM call.
-    async def fake_compute_safe_to_spend(uid):
-        return {"status": "insufficient_data"}
+    # Ground-up rebuild, 2026-08-26: the plain (non-scenario) path is now the
+    # Penny tool loop, not an inline fact pack — proving the question reached
+    # it (not the scenario path) means stubbing run_penny_agent itself and
+    # asserting its well-formed answer comes back through unchanged.
+    async def fake_run_penny_agent(uid, question, history, screen, context):
+        return {"headline": "You have headroom", "reply": "You have £100 free until payday.", "tools_used": []}
 
-    monkeypatch.setattr(can_i_mod, "compute_safe_to_spend", fake_compute_safe_to_spend)
+    monkeypatch.setattr(can_i_mod, "run_penny_agent", fake_run_penny_agent)
 
     body = {"question": "can I spend £45 this weekend"}
     result = asyncio.run(can_i_mod.can_i(body, {"email": "test-plain@example.com"}))
 
     assert not result.get("scenario")  # absent or False on the normal Can-I path
     assert result["out_of_scope"] is False
-    assert result["reply"]
-    assert result["headline"]
+    assert result["reply"] == "You have £100 free until payday."
+    assert result["headline"] == "You have headroom"
 
 
 def test_scenario_clarify_case_reads_as_a_sensible_reply(monkeypatch):

@@ -6,6 +6,12 @@ import { getToken, setToken, clearToken } from "@/lib/auth";
 import { api, API_BASE } from "@/lib/api";
 import LoginScreen from "@/components/LoginScreen";
 import Onboarding from "@/components/Onboarding";
+import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { clearHomeCache } from "@/lib/homeCache";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateSignalsCache } from "@/lib/signalsCache";
+import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
+import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 
 interface AuthUser {
   email: string;
@@ -86,10 +92,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   function logout() {
     clearToken();
     setUser(null);
+
+    // Clear every module-scope cache that holds the previous user's
+    // financial data, so a different user signing in on the same tab never
+    // gets a moment of the old user's figures painting before the refetch
+    // lands. See each cache's own file for what it holds and why it exists.
+    invalidateTransactionsCache();
+    clearHomeCache();
+    invalidateVerdictCache();
+    invalidateSignalsCache();
+
+    // Same reasoning for user-scoped localStorage entries that aren't
+    // covered by an in-memory cache above. Left untouched: device-scoped
+    // preferences (theme, biometric lock, colour/icon customisation),
+    // one-shot self-clearing sessionStorage flags, and tutorial/tour
+    // "seen" flags — none of these carry financial figures. See the
+    // logout audit for the full list and reasoning.
+    try {
+      localStorage.removeItem("reconnect_expected"); // holds a real account number + sort code
+      localStorage.removeItem("wd_bracket"); // income tax bracket
+      localStorage.removeItem(PAYDAY_DOT_CACHE_KEY); // payday-window boolean derived from the user's pay period
+      localStorage.removeItem("wd_insight_badge"); // count derived from the user's insights
+      localStorage.removeItem("wd_spend_badge"); // count derived from the user's spend
+      localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
+    } catch {}
+    clearHomeDismissedAdvice();
   }
 
   // /design/* pages are static mockups with zero user data — always public.
-  if (pathname?.startsWith("/design")) {
+  // /terms and /privacy are the published legal documents — anonymous
+  // visitors and regulators need to read them without signing in.
+  if (pathname?.startsWith("/design") || pathname === "/terms" || pathname === "/privacy") {
     return <>{children}</>;
   }
 

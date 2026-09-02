@@ -15,6 +15,7 @@ from app.db.collections import (
 )
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
 from app.services.notifications import notify_after_sync
+from app.services.pending_transactions import replace_pending_for_account
 
 
 def _client() -> httpx.AsyncClient:
@@ -162,9 +163,18 @@ async def _upsert_finexer_transactions(
     account_id: str,
     user_id: str,
     identity: dict | None = None,
-) -> list:
-    """Upsert transactions into unified transactions_col. Returns list of new-txn summary dicts."""
+) -> tuple[list, list]:
+    """Upsert SETTLED transactions into unified transactions_col; a row whose
+    `status` field (UK Open Banking "Booked"/"Pending") reads "pending" is
+    routed to the sibling pending collection instead — see
+    app/services/pending_transactions.py's module docstring for why it must
+    never enter transactions_col (recurring detection/categorisation
+    learning/spend history would all treat a provisional debit as real).
+    Any other/absent status (e.g. "booked") takes the existing settled path
+    unchanged. Returns (new_txn_summaries, pending_rows) — `pending_rows` is
+    the normalised shape `replace_pending_for_account` expects."""
     new_txns = []
+    pending_rows = []
     for txn in txns:
         # Defensive field mapping — exact names TBD until first sandbox login
         txn_id = (
@@ -178,6 +188,18 @@ async def _upsert_finexer_transactions(
 
         description  = txn.get("description") or txn.get("reference") or txn.get("narrative") or ""
         merchant     = txn.get("merchant_name") or txn.get("merchant") or txn.get("counterparty_name") or ""
+
+        if (txn.get("status") or "").strip().lower() == "pending":
+            pending_rows.append({
+                "transaction_id":   txn_id,
+                "date":             _parse_date(txn),
+                "amount":           txn.get("amount", 0),
+                "description":      description,
+                "merchant_name":    merchant,
+                "transaction_type": _infer_transaction_type(txn),
+            })
+            continue
+
         raw_amount   = txn.get("amount", 0)
         try:
             amount = abs(float(raw_amount))
@@ -232,7 +254,7 @@ async def _upsert_finexer_transactions(
                 "amount":        amount,
                 "currency":      currency,
             })
-    return new_txns
+    return new_txns, pending_rows
 
 
 async def _mark_finexer_accounts_expired(consent_id: str) -> None:
@@ -442,10 +464,13 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             # Fetch transactions (paginated)
             txn_url = f"/bank_accounts/{account_id}/transactions"
             first_txn_logged = False
+            account_pending_rows: list = []
+            fetch_failed = False
             while txn_url:
                 tr = await client.get(txn_url)
                 if tr.status_code != 200:
                     logger.warning("Finexer transactions failed for %s: HTTP %s", account_id, tr.status_code)
+                    fetch_failed = True
                     break
                 txn_data = tr.json()
                 txns = txn_data.get("data") or txn_data.get("results") or []
@@ -455,8 +480,9 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                     logger.info("FINEXER raw first transaction JSON for account %s: %s", account_id, txns[0])
                     first_txn_logged = True
 
-                new = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
+                new, pending_rows = await _upsert_finexer_transactions(txns, account_id, user_id, identity=identity)
                 all_new_txns.extend(new)
+                account_pending_rows.extend(pending_rows)
 
                 paging = txn_data.get("paging") or {}
                 next_url = paging.get("next")
@@ -465,6 +491,18 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                     txn_url = next_url
                 else:
                     txn_url = None
+
+            # Bank-side PENDING transactions (see app/services/
+            # pending_transactions.py) — this fetch already walks the FULL
+            # transaction history every sync (no incremental cursor, unlike
+            # truelayer_sync.py), so its accumulated pending rows are the
+            # complete current pending set for this account. Only replaced
+            # on a fully successful walk: a failure partway through must
+            # never wipe a genuinely pending set already stored (same "never
+            # overwrite a known good value with a failure" rule as the
+            # balance fetch above).
+            if not fetch_failed:
+                await replace_pending_for_account(account_pending_rows, account_id, user_id, provider="Finexer")
 
     # A renewed consent should clear the "needs reconnecting" banner on the
     # accounts we just fetched. Unlike truelayer_sync.py, there is no inverse
@@ -505,6 +543,11 @@ async def finexer_sync_pipeline(consent_id: str, user_id: str) -> dict:
     if new_count > 0:
         from app.routers.analytics import compute_and_cache_cashflow
         await compute_and_cache_cashflow(user_id)
+        try:
+            from app.services.money_shape import compute_and_cache_money_shape
+            await compute_and_cache_money_shape(user_id)
+        except Exception:
+            logger.exception("money_shape compute failed for %s", user_id)
         asyncio.create_task(notify_after_sync(user_id, "UK", []))
 
     return {"ok": True, "accounts": len(fetched_ids), "new_transactions": new_count}

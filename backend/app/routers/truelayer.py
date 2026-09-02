@@ -1,5 +1,6 @@
 """TrueLayer auth + callback endpoints."""
 import asyncio
+import os
 import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
@@ -117,6 +118,11 @@ async def truelayer_callback(code: str, state: Optional[str] = None):
 """)
 
 
-@router.get("/auth/truelayer/test-callback")
-async def test_callback():
-    return {"message": "Callback routing works", "timestamp": datetime.now()}
+if os.getenv("ENABLE_API_DOCS"):
+    # Dev-only routing sanity check, not part of any real OAuth flow (the
+    # actual exchange happens in truelayer_callback above). Registered only
+    # when API introspection is explicitly enabled locally; absent otherwise
+    # so it 404s in UAT/prod instead of leaking a public unauthenticated route.
+    @router.get("/auth/truelayer/test-callback")
+    async def test_callback():
+        return {"message": "Callback routing works", "timestamp": datetime.now()}

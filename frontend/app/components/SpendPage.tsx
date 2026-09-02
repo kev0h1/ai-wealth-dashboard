@@ -3,8 +3,10 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Check, Undo2 } from "lucide-react";
-import { api, Account, Transaction, CategorySignal, SpendVerdict } from "@/lib/api";
+import { api, Account, Transaction, SpendVerdict } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
+import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
+import { cachedSignals, fetchSignals, invalidateSignalsCache, SignalMap } from "@/lib/signalsCache";
 import { useColours } from "@/components/ColourProvider";
 import { getToken, setToken } from "@/lib/auth";
 import {
@@ -12,6 +14,8 @@ import {
   prevPeriodWithConfig,
   nextPeriodWithConfig,
   filterPeriod,
+  findPeriodByStart,
+  DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
@@ -26,8 +30,16 @@ import Spinner from "@/components/Spinner";
 import SpendTrends from "@/components/SpendTrends";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import IntentConsentSheet from "@/components/IntentConsentSheet";
-import SpendHeader, { SpendPatternsToggle, RecentPeriodOption } from "@/components/SpendHeader";
+import SpendHeader, { SpendPatternsToggle, RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
+import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
+import { useTutorialReady } from "@/components/TutorialContext";
+
+// Re-exported for any external caller that still reaches invalidateVerdictCache
+// via this module's path, now that the cache itself lives in lib/verdictCache.ts.
+export { invalidateVerdictCache } from "@/lib/verdictCache";
+// Same re-export convention for the signals cache, now in lib/signalsCache.ts.
+export { invalidateSignalsCache } from "@/lib/signalsCache";
 
 async function ensureAuth() {}
 
@@ -94,101 +106,149 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-// ── Category-signal cache (module level, per period offset) ──────────────────
-// The tiles themselves render from `useAllTransactions`, which is memoised for
-// 60 s — so on a revisit or a period swipe the amounts paint instantly while a
-// freshly-fetched multiple lands a round trip later. That gap is the whole
-// "× usual appears late" symptom. Mirroring the transactions cache (same TTL,
-// same in-flight dedupe) closes it: a period we have already read is instant.
-// Any mutation that can move a multiple clears this cache explicitly.
-type SignalMap = Record<string, CategorySignal>;
-const SIGNALS_TTL_MS = 60_000;
-const signalsCache = new Map<number, { data: SignalMap; at: number }>();
-const signalsInflight = new Map<number, Promise<SignalMap>>();
-
-export function invalidateSignalsCache() {
-  signalsCache.clear();
-  signalsInflight.clear();
-}
-
-function cachedSignals(offset: number): SignalMap | null {
-  const hit = signalsCache.get(offset);
-  return hit && Date.now() - hit.at < SIGNALS_TTL_MS ? hit.data : null;
-}
-
-function fetchSignals(offset: number, force = false): Promise<SignalMap> {
-  if (!force) {
-    const hit = cachedSignals(offset);
-    if (hit) return Promise.resolve(hit);
-    const pending = signalsInflight.get(offset);
-    if (pending) return pending;
+// ── Initial period, restoration-aware ─────────────────────────────────────
+// The very first render's best guess for periodStart/periodEnd/periodOffset
+// (and the signals cache lookup that's keyed by the same offset — see the
+// `signals` useState below). Mirrors this page's pre-existing pattern of
+// guessing DEFAULT_PAY_PERIOD_CONFIG at mount and letting the "re-initialise
+// period when config loads" effect correct it once the account's real
+// payPeriodConfig has actually loaded (see usePreferences — it always
+// starts at the default synchronously, then resolves async).
+//
+// A restored periodStart (lib/spendUiState.ts) takes priority over "now"
+// when it resolves to a real period under that guessed config — this is
+// what makes the offset passed to fetchVerdict/fetchSignals/
+// fetchMiscategorisedCount on the very first effect pass already the
+// restored one, instead of always starting at the current period (offset 0)
+// and correcting to the restored period a moment later in a second fetch
+// (a visible flash of the wrong month's data, and a wasted current-period
+// request every single restored visit).
+function computeInitialPeriod(restoredUi: SpendUiState): { start: Date; end: Date; offset: number } {
+  if (restoredUi.periodStart) {
+    const found = findPeriodByStart(new Date(restoredUi.periodStart), DEFAULT_PAY_PERIOD_CONFIG);
+    if (found) return found;
   }
-  const p = api.categorySignals(offset)
-    .then(d => {
-      const data = d.signals ?? {};
-      signalsCache.set(offset, { data, at: Date.now() });
-      return data;
-    })
-    .finally(() => { signalsInflight.delete(offset); });
-  signalsInflight.set(offset, p);
-  return p;
+  const [s, e] = getPayPeriodWithConfig(new Date(), DEFAULT_PAY_PERIOD_CONFIG);
+  return { start: s, end: e, offset: 0 };
 }
 
-// ── Verdict cache (module level, per period offset) ──────────────────────────
-// Same shape as the signals cache above, for the same reason: a revisit (most
-// commonly BACK-navigation from /transactions, since every category tap and
-// the header search icon now push a real route instead of opening a sheet)
-// should paint the last-known verdict immediately instead of a spinner at
-// near-zero height — there's nothing to scroll-restore onto otherwise. Unlike
-// signals, every read here also kicks off a silent revalidation against the
-// server so a stale cached verdict never lingers past one paint.
-const VERDICT_TTL_MS = 90_000; // matches the server's own /spend/verdict cache window
-const verdictCache = new Map<number, { data: SpendVerdict; at: number }>();
-const verdictInflight = new Map<number, Promise<SpendVerdict>>();
+/** Full-page cold-load skeleton — see the `showFullSkeleton` hold inside
+ *  SpendPage below. Shape-matches the real header hero (period row, the
+ *  weighted Out/In/Moved instrument, the reading line), the Breakdown/
+ *  Charts toggle, a notable-card, and the majority-list rows, at the same
+ *  positions and approximate heights, so swapping in the real tree doesn't
+ *  itself shift anything. BottomNav renders for real (never a placeholder)
+ *  so navigation stays available while the page settles. No entrance
+ *  animation beyond the shared `animate-pulse` shimmer — this codebase's
+ *  rule against visibility-gating cascades. Never shown on a warm-cache
+ *  revisit (BACK-nav) — see `initialHadWarmVerdict` in SpendPage.
+ *
+ *  The hero block itself is SpendHeroSkeleton (SpendHeader.tsx) — the same
+ *  component SpendHeader renders as its own no-verdict placeholder — rather
+ *  than a second copy of the same markup, so this cold-load skeleton and
+ *  SpendHeader's warm-cache placeholder can never drift into two different
+ *  heights. */
+function SpendSkeleton() {
+  return (
+    <div
+      className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto"
+      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      aria-hidden="true"
+    >
+      <SpendHeroSkeleton />
 
-export function invalidateVerdictCache() {
-  verdictCache.clear();
-  verdictInflight.clear();
-}
+      <div className="px-4 pt-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-24 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
+          <div className="h-8 w-16 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse" />
+        </div>
 
-function cachedVerdict(offset: number): SpendVerdict | null {
-  const hit = verdictCache.get(offset);
-  return hit && Date.now() - hit.at < VERDICT_TTL_MS ? hit.data : null;
-}
+        {/* Notable-card shape */}
+        <div className="glass-card rounded-2xl p-4 animate-pulse space-y-3">
+          <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="h-9 rounded-xl bg-slate-200 dark:bg-slate-700" />
+        </div>
 
-function fetchVerdictData(offset: number): Promise<SpendVerdict> {
-  const pending = verdictInflight.get(offset);
-  if (pending) return pending;
-  const p = api.spendVerdict(offset)
-    .then(v => {
-      verdictCache.set(offset, { data: v, at: Date.now() });
-      return v;
-    })
-    .finally(() => { verdictInflight.delete(offset); });
-  verdictInflight.set(offset, p);
-  return p;
+        {/* Majority-list row shape */}
+        <div className="glass-card rounded-2xl overflow-hidden animate-pulse">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-3 px-4 min-h-[56px] ${i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}
+            >
+              <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="h-3.5 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-2.5 w-16 rounded bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <div className="h-3.5 w-12 rounded bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <BottomNav />
+    </div>
+  );
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs } = usePreferences();
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
+  // BACK-navigation restore (lib/spendUiState.ts) — read once at mount,
+  // before any of the state below that seeds from it. Empty on a fresh
+  // tab/session or a hard reload of /spend; otherwise whatever this page's
+  // last visit in this session left behind (tab, "Show all" expansion,
+  // "Money you moved" accordion). This is what fixes the reported bug: a
+  // drill-in to /transactions and BACK used to always land collapsed and
+  // re-truncated, which also meant there was nothing tall enough on the
+  // page for the app-wide scroll restore (ScrollReset.tsx) to land its
+  // saved offset onto — restoring this state first restores the page's
+  // real height too, so that height-gated scroll restore succeeds normally.
+  const [restoredUi] = useState<SpendUiState>(() => consumeSpendUiState());
   // The old three-way Categories/Transactions/Trends tabs are retired — the
-  // verdict hub replaces the first two; only the quiet "This period ·
-  // Patterns" split survives (approved spec, "NO Categories/Transactions/
-  // Trends tabs").
-  const [showPatterns, setShowPatterns] = useState<boolean>(() => searchParams.get("view") === "trends");
+  // verdict hub replaces the first two; only the quiet "Breakdown ·
+  // Charts" split survives (approved spec, "NO Categories/Transactions/
+  // Trends tabs"; labels renamed from "This period"/"Over time", 2026-09 —
+  // period nav already lives in the page header, and most chart widgets are
+  // themselves period-scoped, so the old pair misdescribed both sides).
+  // restoredUi.showPatterns wins over the URL's ?view= on a
+  // restored visit (this page never writes ?view= itself when the tab is
+  // switched — see the persist effect below — so a restored session takes
+  // priority when both are present).
+  const [showPatterns, setShowPatterns] = useState<boolean>(
+    () => restoredUi.showPatterns ?? searchParams.get("view") === "trends"
+  );
+  // Persist on every change — cheap (tab switches are rare, explicit taps).
+  useEffect(() => {
+    writeSpendUiState({ showPatterns });
+  }, [showPatterns]);
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions();
   const [loading, setLoading] = useState(true);
-  const [periodStart, setPeriodStart] = useState<Date>(() => {
-    const [s] = getPayPeriodWithConfig(new Date(), { type: "calendar_month" });
-    return s;
-  });
-  const [periodEnd, setPeriodEnd] = useState<Date>(() => {
-    const [, e] = getPayPeriodWithConfig(new Date(), { type: "calendar_month" });
-    return e;
-  });
+  // Computed exactly once (ref-memoized, not useMemo — this must never be
+  // silently recomputed) from restoredUi.periodStart, so periodStart,
+  // periodEnd, periodOffset AND the signals cache lookup below all agree on
+  // the very same restored period from their first render, rather than each
+  // independently guessing "now" and only converging later.
+  const initialPeriodRef = useRef<{ start: Date; end: Date; offset: number } | null>(null);
+  if (initialPeriodRef.current === null) {
+    initialPeriodRef.current = computeInitialPeriod(restoredUi);
+  }
+  const initialPeriod = initialPeriodRef.current;
+  // Set only when there's a saved period to restore; cleared the instant
+  // it's actually applied against a real (non-default-guess) config — see
+  // the "re-initialise period when config loads" effect below. Guards
+  // against re-applying a stale restore after the user has already
+  // manually navigated (handlePrev/handleNext/handleSelectOffset flip
+  // hasNavigatedRef first) — a live Settings pay-period edit after that
+  // point must always land back on the current period, same as today.
+  const pendingRestoreRef = useRef<string | null>(restoredUi.periodStart ?? null);
+  const hasNavigatedRef = useRef(false);
+  const [periodStart, setPeriodStart] = useState<Date>(() => initialPeriod.start);
+  const [periodEnd, setPeriodEnd] = useState<Date>(() => initialPeriod.end);
   const [oldestTxDate, setOldestTxDate] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -205,16 +265,23 @@ export default function SpendPage() {
   // (Task 3/5): every real-category tap now opens the global hub instead
   // (notable cards, majority rows, the RhythmCard deep-link above).
   const [openCategory, setOpenCategory] = useState<(CategoryData & { title?: string }) | null>(null);
-  const [periodOffset, setPeriodOffset] = useState(0);
-  const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(0) ?? {});
-  const signalsOffsetRef = useRef(0);
+  const [periodOffset, setPeriodOffset] = useState(() => initialPeriod.offset);
+  const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(initialPeriod.offset) ?? {});
+  // Settles (success or failure) once the current period's signals fetch has
+  // resolved — feeds the cold-load skeleton hold below. Needed because a
+  // notable card's AimBlock is entirely absent until `suggested_aim` is
+  // non-null (see SpendVerdictView's `eligible` gate), so a signals fetch
+  // that lands after the page has already revealed pops that block in and
+  // shoves the majority list down — exactly the jerk being fixed here.
+  const [signalsReady, setSignalsReady] = useState(() => cachedSignals(initialPeriod.offset) != null);
+  const signalsOffsetRef = useRef(initialPeriod.offset);
   // force = the Door or a category just changed, so the cached copy is dead.
   const refetchSignals = useCallback((force = true) => {
     const captured = signalsOffsetRef.current;
     if (force) invalidateSignalsCache();
     fetchSignals(captured, force)
-      .then(d => { if (signalsOffsetRef.current === captured) setSignals(d); })
-      .catch(() => { if (signalsOffsetRef.current === captured) setSignals({}); });
+      .then(d => { if (signalsOffsetRef.current === captured) { setSignals(d); setSignalsReady(true); } })
+      .catch(() => { if (signalsOffsetRef.current === captured) { setSignals({}); setSignalsReady(true); } });
   }, []);
   useEffect(() => {
     signalsOffsetRef.current = periodOffset;
@@ -222,6 +289,7 @@ export default function SpendPage() {
     // remembered period keeps its readings and never flashes empty.
     const hit = cachedSignals(periodOffset);
     setSignals(hit ?? {});
+    setSignalsReady(hit != null);
     if (!hit) refetchSignals(false);
     // Warm the period the user is one swipe away from, after this one settles.
     const warm = setTimeout(() => { fetchSignals(periodOffset - 1).catch(() => {}); }, 400);
@@ -234,9 +302,9 @@ export default function SpendPage() {
   // /transactions) paints instantly; every read still revalidates against
   // the server and updates in place — never a stale-data lie, just an
   // instant first paint while the fresh copy lands a round trip later.
-  const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(0));
-  const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(0) == null);
-  const verdictOffsetRef = useRef(0);
+  const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(initialPeriod.offset));
+  const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(initialPeriod.offset) == null);
+  const verdictOffsetRef = useRef(initialPeriod.offset);
   // `silent` = we already have something on screen for this offset (cache
   // or a previous fetch) — revalidate in the background without flipping
   // the spinner back on, and never blank a good verdict on a transient error.
@@ -475,34 +543,155 @@ export default function SpendPage() {
   // *this period's* pattern, so the redirect below carries the live period
   // as the hub's removable period chip rather than landing on all-time.
   // Task 3 — every category tap now opens the global hub, never the sheet.
+  //
+  // The category itself is consumed from sessionStorage ONCE, right on
+  // mount, and immediately removed — so a stale value can never leak into a
+  // later visit — but the actual redirect is deferred until usePreferences
+  // has resolved the account's REAL pay-period config. usePreferences
+  // starts synchronously at DEFAULT_PAY_PERIOD_CONFIG (calendar month,
+  // PreferencesContext.tsx) and only becomes the true config once
+  // api.getPreferences() lands, which is what flips `rawPrefs` from null to
+  // the preferences object. Firing this redirect before that landed a real
+  // last-Friday-of-month payer on a calendar-month /transactions filter
+  // that didn't even contain the transaction the rhythm insight was about
+  // (a 30 Aug payment, "1 Sept to 30 Sept" calendar-month chip, "No
+  // payments matching"). `payPeriodConfig` and `rawPrefs` are set from the
+  // same getPreferences().then callback, so by the render where rawPrefs is
+  // non-null, payPeriodConfig already holds the real value too — this
+  // effect recomputes the window itself from payPeriodConfig at fire time
+  // rather than reading the periodStart/periodEnd state (which is corrected
+  // by a separate effect a render later, and would still be stale here).
+  // Bounded by a short timeout so a getPreferences() network failure
+  // (rawPrefs stays null forever — see its .catch(() => {})) can't strand
+  // the user on Spend forever; a slightly-wrong range beats a dead link.
+  const pendingCategoryRef = useRef<{ cat: string; merchants: string | null } | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const cat = sessionStorage.getItem("wealth_open_category") ?? searchParams.get("category");
     if (cat) {
       sessionStorage.removeItem("wealth_open_category");
-      const merchants = searchParams.get("merchants");
-      const params = new URLSearchParams();
-      params.set("category", cat);
-      if (merchants) params.set("merchants", merchants);
-      params.set("from", isoDate(periodStart));
-      params.set("to", isoDate(periodEnd));
-      router.replace(`/transactions?${params.toString()}`);
+      pendingCategoryRef.current = { cat, merchants: searchParams.get("merchants") };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [categoryRedirectReady, setCategoryRedirectReady] = useState(false);
+  useEffect(() => {
+    if (categoryRedirectReady) return;
+    if (rawPrefs != null) { setCategoryRedirectReady(true); return; }
+    const timer = setTimeout(() => setCategoryRedirectReady(true), 4000);
+    return () => clearTimeout(timer);
+  }, [rawPrefs, categoryRedirectReady]);
+
+  useEffect(() => {
+    if (!categoryRedirectReady) return;
+    const pending = pendingCategoryRef.current;
+    if (!pending) return;
+    pendingCategoryRef.current = null;
+    const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+    const params = new URLSearchParams();
+    params.set("category", pending.cat);
+    if (pending.merchants) params.set("merchants", pending.merchants);
+    params.set("from", isoDate(s));
+    params.set("to", isoDate(e));
+    router.replace(`/transactions?${params.toString()}`);
+  }, [categoryRedirectReady, payPeriodConfig, router]);
+
   // Page is ready once both accounts and transactions are loaded.
   const pageLoading = loading || txLoading;
 
-  // Re-initialise period when config loads/changes
+  // ── Cold-load skeleton hold ────────────────────────────────────────────
+  // The owner's "stop this jerking loading of the screen" fix (mirrored on
+  // AccountsPage.tsx). Guards only the very FIRST paint of this page, never
+  // a period swipe — those already have their own in-place treatment (the
+  // remembered verdict for that offset paints instantly, or a small inline
+  // spinner shows; see the periodOffset effects above), so holding on every
+  // swipe would just reintroduce a different jerk.
+  //
+  // A warm verdict cache for the initial offset is the BACK-nav/restorable
+  // page case (see the `verdict`/`verdictLoading` seeds and the comment
+  // above them) — that MUST keep painting instantly, never held, so
+  // `initialHadWarmVerdict` bypasses the hold entirely when true.
+  //
+  // Cold-load readiness bundles every section that independently arrives on
+  // first mount and can shift layout: accounts+transactions (`pageLoading`
+  // — feeds the categories/trends tab), the verdict hero (`verdictLoading`),
+  // the miscategorised-transfers banner (`miscategorisedLoaded` —
+  // SpendVerdictView only renders that banner once a count > 0 has
+  // actually arrived) and a notable card's aim block (`signalsReady` — see
+  // its own comment above; the block is entirely absent until
+  // `suggested_aim` lands). None of these is safety-bounded on its own —
+  // several of the underlying requests fail silently — so the 5s
+  // `forceReveal` timeout is the non-negotiable backstop: whatever has
+  // arrived by then is shown as-is, so a single stuck endpoint can never
+  // strand the user on the skeleton.
+  const [initialHadWarmVerdict] = useState(() => cachedVerdict(initialPeriod.offset) != null);
+  const [initialSettled, setInitialSettled] = useState(initialHadWarmVerdict);
+  const [forceReveal, setForceReveal] = useState(false);
+  useEffect(() => {
+    if (initialHadWarmVerdict) return;
+    const t = setTimeout(() => setForceReveal(true), 5000);
+    return () => clearTimeout(t);
+  }, [initialHadWarmVerdict]);
+  useEffect(() => {
+    if (initialSettled) return;
+    if (!pageLoading && !verdictLoading && miscategorisedLoaded && signalsReady) {
+      setInitialSettled(true);
+    }
+  }, [initialSettled, pageLoading, verdictLoading, miscategorisedLoaded, signalsReady]);
+  // True only until the real tree has actually taken the skeleton's place.
+  const showFullSkeleton = !initialSettled && !forceReveal;
+
+  // Tour readiness — the verdict hero and category breakdown must both have
+  // real data before the tour can highlight them; a skeleton is not a valid
+  // tour target (see TutorialContext.tsx's useTutorialReady contract).
+  // Gating on `showFullSkeleton` (rather than the raw loading flags it's
+  // built from) guarantees this can never fire while the skeleton is still
+  // the thing actually painted.
+  useTutorialReady("spend", !showFullSkeleton && !!verdict);
+
+  // Re-initialise period when config loads/changes. usePreferences always
+  // starts at DEFAULT_PAY_PERIOD_CONFIG synchronously and resolves the
+  // account's real config a moment later (PreferencesContext.tsx), so this
+  // fires at least twice on a normal mount: once for the guess, once for
+  // the real value. A restored period (lib/spendUiState.ts) has to survive
+  // that resolution too — re-derive it against whatever config this run
+  // actually has, rather than only ever trusting the initial guess.
   const configKey = JSON.stringify(payPeriodConfig);
   useEffect(() => {
+    if (!hasNavigatedRef.current && pendingRestoreRef.current) {
+      const found = findPeriodByStart(new Date(pendingRestoreRef.current), payPeriodConfig);
+      if (found) {
+        // Applied — never retried again, even if this effect fires once
+        // more for an unrelated later config change.
+        pendingRestoreRef.current = null;
+        setPeriodStart(found.start);
+        setPeriodEnd(found.end);
+        setPeriodOffset(found.offset);
+        return;
+      }
+      // Not reachable under this config yet — leave pendingRestoreRef set
+      // so the next resolution (the real config, if this run was still the
+      // default guess) gets another attempt. Falls through to the current
+      // period below in the meantime, same as an unrestored visit.
+    } else {
+      pendingRestoreRef.current = null;
+    }
     const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
     setPeriodOffset(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configKey]);
+
+  // Persist the viewed period (lib/spendUiState.ts) on every change — same
+  // cheap on-every-change pattern as showPatterns above. Written as a plain
+  // YYYY-MM-DD string (not the offset) so a BACK-navigation restore lands on
+  // the same real period even if the calendar rolled in between (see
+  // spendUiState.ts's file header and payPeriod.ts's findPeriodByStart).
+  useEffect(() => {
+    writeSpendUiState({ periodStart: isoDate(periodStart) });
+  }, [periodStart]);
 
   // Period txns
   const periodTxns = useMemo(
@@ -594,6 +783,7 @@ export default function SpendPage() {
 
   function handlePrev() {
     if (!canGoPrev) return;
+    hasNavigatedRef.current = true;
     const [s, e] = prevPeriodWithConfig(periodStart, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
@@ -601,6 +791,7 @@ export default function SpendPage() {
   }
 
   function handleNext() {
+    hasNavigatedRef.current = true;
     const [s, e] = nextPeriodWithConfig(periodEnd, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
@@ -612,6 +803,7 @@ export default function SpendPage() {
   // by one, so this walks from "now" the same number of steps the sheet's
   // own recentPeriods list below was built with.
   function handleSelectOffset(offset: number) {
+    hasNavigatedRef.current = true;
     let [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
     if (offset < 0) {
       for (let i = 0; i > offset; i--) {
@@ -658,9 +850,9 @@ export default function SpendPage() {
 
   const periodSwipe = usePeriodSwipe({ onPrev: handlePrev, onNext: handleNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
-  // Sync the This period/Patterns split with ?view= when it changes (e.g. a
+  // Sync the Breakdown/Charts split with ?view= when it changes (e.g. a
   // deep-link from the home strip). "list" — the retired Transactions view —
-  // falls back to "This period", the hub that replaces it.
+  // falls back to "Breakdown", the hub that replaces it.
   useEffect(() => {
     const v = searchParams.get("view");
     if (v === "upcoming") { router.replace("/planning"); return; }
@@ -692,13 +884,23 @@ export default function SpendPage() {
 
   const sym = region === "Kenya" ? "KES " : "£";
 
+  // Cold-load hold — see `showFullSkeleton` above. Placed after every hook
+  // in the component (same pattern as AccountsPage.tsx's detail-view/list-
+  // view branches) so every effect above — including the category deep-link
+  // redirect and its `rawPrefs`-gated timer — keeps running exactly the
+  // same regardless of which tree actually renders; a pending redirect
+  // still fires router.replace("/transactions?…") while the skeleton (or
+  // the real page) is on screen, unaffected by this branch.
+  if (showFullSkeleton) {
+    return <SpendSkeleton />;
+  }
+
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — shared with /design/spend-live so the two can never draw
           different Spent/Income figures again (SpendHeader.tsx). */}
       <SpendHeader
         verdict={verdict}
-        loading={pageLoading}
         periodLabel={formatPeriodLocal(periodStart, periodEnd)}
         isCurrentPeriod={isCurrentPeriod}
         canGoPrev={canGoPrev}
@@ -716,10 +918,10 @@ export default function SpendPage() {
         onSelectOffset={handleSelectOffset}
       />
 
-      {/* This period — the verdict hub — or Patterns (SpendTrends, unchanged).
-          The This period/Over time tablist moves with the content it
-          switches: inside SpendVerdictView's aboveMajority slot when "This
-          period" is showing, above SpendTrends when "Over time" is. */}
+      {/* Breakdown — the verdict hub — or Charts (SpendTrends). The
+          Breakdown/Charts tablist moves with the content it switches: inside
+          SpendVerdictView's aboveMajority slot when "Breakdown" is showing,
+          above SpendTrends when "Charts" is. */}
       {!showPatterns ? (
         <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">
           {verdict ? (
@@ -779,6 +981,11 @@ export default function SpendPage() {
                 params.set("label", m.label);
                 router.push(`/transactions?${params.toString()}`);
               }}
+              // BACK-navigation restore — see the restoredUi comment above.
+              initialMajorityExpanded={restoredUi.majorityExpanded}
+              onMajorityExpandedChange={(expanded) => writeSpendUiState({ majorityExpanded: expanded })}
+              initialMovedOpen={restoredUi.movedOpen}
+              onMovedOpenChange={(open) => writeSpendUiState({ movedOpen: open })}
               signals={signals}
               sym={sym}
               onAimChanged={refetchSignals}
@@ -859,6 +1066,9 @@ export default function SpendPage() {
                 periodEnd={periodEnd}
                 payPeriodConfig={payPeriodConfig}
                 colours={colours}
+                // pace_curve widget's data — the same verdict state the
+                // header above already reads, never a second fetch/derivation.
+                paceSeries={verdict?.pace_series}
                 onReviewLarge={() => {
                   // No standalone Transactions/list view survives the redesign
                   // — reuse the existing CategorySheet as a synthetic, scoped

@@ -25,7 +25,11 @@ const nextConfig: NextConfig = {
     if (MOBILE_EXPORT) return [];
     return [
       { source: "/budget", destination: "/spend", permanent: false },
-      { source: "/debt", destination: "/debt-plan", permanent: false },
+      { source: "/debt", destination: "/cards", permanent: false },
+      // /debt-plan page retired 2026-08-30 (functionality moved to the Card
+      // plan surfaces), redirect old deep links (incl. historical
+      // notification links) straight to its successor rather than 404.
+      { source: "/debt-plan", destination: "/cards", permanent: false },
     ];
   },
 };

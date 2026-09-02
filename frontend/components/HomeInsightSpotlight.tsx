@@ -8,10 +8,25 @@ import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 
-export default function HomeInsightSpotlight() {
+interface HomeInsightSpotlightProps {
+  /** Called exactly once, when this card's own first fetch settles
+   *  (success or failure) — never again on the dismiss-then-load-next
+   *  cycle below. Lets HomePage's full-page loading hold know this
+   *  self-fetching card is done. */
+  onReady?: () => void;
+}
+
+export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
   const [insight, setInsight] = useState<SavingsInsight | null>(null);
   const [loaded, setLoaded] = useState(false);
+
+  // Latest onReady in a ref, and a fired-once guard — `load()` is also
+  // re-invoked after a dismiss to surface the next eligible insight, and
+  // that later settle must never re-fire onReady.
+  const onReadyRef = useRef(onReady);
+  useEffect(() => { onReadyRef.current = onReady; });
+  const readyFiredRef = useRef(false);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
@@ -62,7 +77,12 @@ export default function HomeInsightSpotlight() {
       .getSpotlightInsight()
       .then(setInsight)
       .catch(() => setInsight(null))
-      .finally(() => setLoaded(true));
+      .finally(() => {
+        setLoaded(true);
+        if (readyFiredRef.current) return;
+        readyFiredRef.current = true;
+        onReadyRef.current?.();
+      });
   }, []);
 
   useEffect(() => {
@@ -101,13 +121,19 @@ export default function HomeInsightSpotlight() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
+        {/* Dismiss × — V2 "Glass chip" (owner decision, Kevin 2026-08-27,
+            /design/dismiss-x), replacing the opaque disc this used to be.
+            Position/hit-area trick (absolute top-right, p-3 -m-3) is this
+            card's own and stays; only the visual treatment changed to the
+            translucent fill-only chip (no backdrop-filter), hairline
+            border, and hover-capable-gated hover deepen. */}
         <button
           onClick={dismiss}
           aria-label="Dismiss insight"
-          className="absolute top-3 right-3 z-10 p-3 -m-3 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform"
+          className="absolute top-3 right-3 z-10 p-3 -m-3 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150"
         >
-          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600">
-            <X size={14} className="text-slate-500 dark:text-slate-300" />
+          <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
+            <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
           </span>
         </button>
 

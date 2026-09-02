@@ -33,6 +33,14 @@ BOT_SECRET          = os.getenv("BOT_SECRET", "")
 GOOGLE_CLIENT_ID    = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
+# Sign in with Apple. APPLE_BUNDLE_ID is the native app's audience (native
+# ASAuthorization flow puts the bundle id in the identityToken's `aud`).
+# APPLE_SERVICES_ID is only needed for a future web/"Services ID" OAuth flow
+# (Sign in with Apple JS or server-side redirect); empty means that flow
+# isn't configured yet, so only the bundle id is accepted as audience.
+APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.wealth")
+APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
+
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):
     SESSION_SECRET = s
@@ -142,3 +150,27 @@ YAPILY_BASE_URL = os.getenv("YAPILY_BASE_URL", "https://api.yapily.com")
 FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
 FINEXER_API_URL    = "https://api.finexer.com"
 FINEXER_RETURN_URL = os.getenv("FINEXER_RETURN_URL", "https://wealth.auriqltd.co.uk/auth/finexer/callback")
+
+# URL secret embedded in the webhook path (same scheme as TRUELAYER_WEBHOOK_SECRET
+# above: env wins, else a persisted file, else generate one on first boot).
+_finexer_webhook_secret_file = _BACKEND_DIR / ".finexer_webhook_secret"
+if _fws := os.getenv("FINEXER_WEBHOOK_SECRET"):
+    FINEXER_WEBHOOK_SECRET = _fws
+elif _finexer_webhook_secret_file.exists():
+    FINEXER_WEBHOOK_SECRET = _finexer_webhook_secret_file.read_text().strip()
+else:
+    FINEXER_WEBHOOK_SECRET = secrets.token_urlsafe(32)
+    _finexer_webhook_secret_file.write_text(FINEXER_WEBHOOK_SECRET)
+
+# Signing secret Finexer issues after the webhook is registered in their
+# dashboard (used to verify the "fx-signature" header) — unlike the URL secret
+# above, this is NEVER auto-generated: it must come from Finexer. Empty string
+# means "not configured yet", which the receiver treats as pre-registration
+# deploy state and skips signature verification (logging a warning).
+_finexer_webhook_signing_secret_file = _BACKEND_DIR / ".finexer_webhook_signing_secret"
+if _fwss := os.getenv("FINEXER_WEBHOOK_SIGNING_SECRET"):
+    FINEXER_WEBHOOK_SIGNING_SECRET = _fwss
+elif _finexer_webhook_signing_secret_file.exists():
+    FINEXER_WEBHOOK_SIGNING_SECRET = _finexer_webhook_signing_secret_file.read_text().strip()
+else:
+    FINEXER_WEBHOOK_SIGNING_SECRET = ""

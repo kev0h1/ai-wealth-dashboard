@@ -10,6 +10,12 @@ import { Account } from "@/lib/api";
 export interface TermsPill {
   label: string;
   amber?: boolean;
+  /** True when this card is on its real, unrestricted APR right now — a
+   *  confirmed standard rate with no active 0% promo covering today — so
+   *  interest is genuinely accruing on the balance. Drives the "red is
+   *  earned" rule on credit rows (AccountLedgerRow): only an accruing,
+   *  owed balance renders rose, every 0%-covered balance stays ink. */
+  accruing?: boolean;
 }
 
 interface AccountMiniCardProps {
@@ -137,6 +143,12 @@ export const BANK_META: Record<string, BankMeta> = {
   STANCHART:    { label: "Std Chartered",bg: "linear-gradient(135deg,#00a0e3,#005b9f)",  initials: "SC" },
   FAMILY:       { label: "Family Bank",  bg: "linear-gradient(135deg,#ff6600,#cc3300)",  initials: "FB" },
   IMBANK:       { label: "I&M Bank",     bg: "linear-gradient(135deg,#b22222,#7b0000)",  initials: "I&M", initialsSize: "9px" },
+  // Manually tracked accounts (backend sets provider: "Offline", see
+  // companion.py) — deliberately no logoFile/domain, there is no bank brand
+  // to fetch. Flat Slate Voice tone (#64748b, DESIGN.md) rather than a
+  // gradient: this is a neutral system identity, not a provider brand, and
+  // white 13px initials on this fixed hex clear contrast in both themes.
+  OFFLINE:      { label: "Offline",      bg: "#64748b",                                   initials: "OF" },
 };
 
 /** Parse a hex colour like "#RRGGBB" or "#RGB" into [r, g, b] 0-255. Returns null on failure. */
@@ -329,13 +341,40 @@ export function BankBadge({
   const text = initials;
   const fontSize = initialsSize ?? (text.length >= 4 ? "8px" : text.length === 3 ? "10px" : "13px");
 
+  // Default fallback fill: most call sites sit on card/tile/sheet surfaces
+  // (glass-card, glass-tile, glass-sheet), including ones that pass
+  // brandBg from a lookup that can resolve to undefined for an unlisted
+  // provider (resolveBankChip's `meta?.bg`). White text on the old
+  // rgba(255,255,255,0.25) frost read as white-on-white there (invisible
+  // "OF" chip bug, 2026-08-27). #64748b (Slate Voice, DESIGN.md) keeps
+  // white initials legible on any neutral surface in both themes. The one
+  // genuine exception is AccountMiniCard's own provider-gradient hero
+  // variant below, which passes the frosted rgba explicitly so it keeps
+  // its glass look on a colourful background.
   return (
     <div
       className={`${sized ? "" : "w-9 h-9 rounded-xl"} flex items-center justify-center font-bold text-white ring-1 ring-black/[0.06] dark:ring-white/[0.12]`}
-      style={{ background: brandBg ?? "rgba(255,255,255,0.25)", fontSize, ...(sized ? { width: size, height: size, borderRadius: radius } : {}) }}
+      style={{ background: brandBg ?? "#64748b", fontSize, ...(sized ? { width: size, height: size, borderRadius: radius } : {}) }}
     >
       {text}
     </div>
+  );
+}
+
+/** Single-tap selection dot for in-sheet radiogroup rows (account pickers,
+ *  term toggles). Canonical home here alongside BankBadge/accountBrand so
+ *  shared account-row primitives live in one place; re-exported from
+ *  PlanOneOffSheet.tsx (its original home) for every existing import. */
+export function RadioDot({ selected }: { selected: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex-shrink-0 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-colors ${
+        selected ? "border-indigo-600" : "border-slate-300 dark:border-slate-600"
+      }`}
+    >
+      {selected && <span className="w-2 h-2 rounded-full bg-indigo-600" />}
+    </span>
   );
 }
 
@@ -447,14 +486,18 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           </button>
         )}
 
-        {/* Reconnect */}
+        {/* Reconnect — restrained amber tint chip, same "signifier not fill"
+            language as the Home reconnect banner (app/components/HomePage.tsx):
+            amber marks the warning, but as a ~15% tint with full-strength
+            icon/text, the same idiom the pin toggle beside it already uses
+            for its own indigo "active" state. */}
         {onReconnect && account.status === "expired" && (
           <button
             onClick={(e) => { e.stopPropagation(); onReconnect(); }}
             title="Reconnect this bank"
             className={`absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-transform active:scale-95 ${
               fullWidth || grid ? "bottom-3 right-3" : "top-2 right-2"
-            } bg-amber-500 hover:bg-amber-600 text-white`}
+            } bg-amber-500/15 dark:bg-amber-400/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 dark:hover:bg-amber-400/20`}
           >
             <RefreshCw size={10} />
             <span>Reconnect</span>
@@ -477,6 +520,11 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           logoSrc={brand.logoSrc}
           initials={brand.initials}
           altText={brand.label}
+          // This variant's own container is the colourful provider gradient
+          // (brand.background, set as the button's background above), so the
+          // frosted chip is deliberate here and must be passed explicitly
+          // now that BankBadge's default has changed to a card-safe slate.
+          brandBg="rgba(255,255,255,0.25)"
         />
         <span
           className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5"
@@ -534,7 +582,12 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
         </button>
       )}
 
-      {/* Reconnect — only when the connection actually needs it */}
+      {/* Reconnect — only when the connection actually needs it. Frosted
+          white chip (DESIGN.md's documented secondary-button treatment for
+          colourful hero headers, the same idiom the pin toggle above uses
+          for its own unpinned state), with amber carried only by the icon,
+          the restrained-signifier language shared with the calm variant's
+          Reconnect chip and the Home reconnect banner. */}
       {onReconnect && account.status === "expired" && (
         <button
           onClick={(e) => { e.stopPropagation(); onReconnect(); }}
@@ -542,10 +595,10 @@ export default function AccountMiniCard({ account, onClick, onReconnect, fullWid
           className={`
             absolute flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 transition-transform active:scale-95
             ${fullWidth || grid ? "bottom-3 right-3" : "top-2 right-2"}
-            ring-1 ring-amber-400/60 bg-amber-500/40 hover:bg-amber-500/60 text-white
+            bg-white/15 hover:bg-white/30 text-white
           `}
         >
-          <RefreshCw size={10} />
+          <RefreshCw size={10} className="text-amber-300" />
           <span>Reconnect</span>
         </button>
       )}

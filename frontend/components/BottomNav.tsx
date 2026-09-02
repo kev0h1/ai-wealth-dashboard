@@ -118,14 +118,18 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     case "/insights": return "insights";
     // Both added 2026-08-25 for lib/pennyScreenConfig.tsx — confirmed real,
     // separate routes on a route survey (find app -name page.tsx), not
-    // sub-views of Planning. DebtPlanPage.tsx (/debt-plan) renders this
-    // BottomNav itself, so this mapping is live there today. GrowVariant1
-    // (app/grow/GrowVariant1.tsx, the live variant behind /grow) does NOT
-    // currently render BottomNav at all — no Penny entry point exists on
-    // that screen yet, so this case is correct but inert until that file
-    // (outside this feature's file ownership) adds one.
+    // sub-views of Planning. GrowVariant1 (app/grow/GrowVariant1.tsx, the
+    // live variant behind /grow) does NOT currently render BottomNav at
+    // all — no Penny entry point exists on that screen yet, so this case
+    // is correct but inert until that file (outside this feature's file
+    // ownership) adds one.
     case "/grow": return "grow";
-    case "/debt-plan": return "debt";
+    // Was "/debt-plan" (DebtPlanPage.tsx rendered this BottomNav itself)
+    // until that page was retired 2026-08-30 — CardsPage.tsx (/cards) is
+    // its successor and renders this BottomNav too, so the "debt" screen
+    // context (lib/pennyScreenConfig.tsx's `debt` entry) now keys off it
+    // instead.
+    case "/cards": return "debt";
     // Added 2026-08-26, once PennySheetProvider.tsx's `PennyAskContext["screen"]`
     // union gained "accounts" — lib/pennyScreenConfig.tsx already had a real
     // `accounts` config entry (chips, header links) waiting on exactly this.
@@ -191,6 +195,7 @@ export default function BottomNav() {
           like it's navigating again: it isn't meant to, check
           PennySheetProvider.tsx first. */}
       <nav
+        data-tutorial-id="tutorial-bottom-nav"
         aria-label="Primary"
         className="lg:hidden fixed inset-x-0 z-50 flex justify-center"
         // Where the OS reports a real gesture-bar inset, that inset is

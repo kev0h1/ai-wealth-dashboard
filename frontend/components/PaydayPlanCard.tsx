@@ -34,8 +34,17 @@ interface PaydayPlanCardProps {
   maskAmounts: (text: string) => string;
   onRefresh?: () => void;
   onClose?: () => void;
-  /** Glow this card — true only when the attention resolver targets "payday". */
-  glow?: boolean;
+  /**
+   * Permanent dismiss (writes to the backend via api.dismissTodayItem and
+   * hides the plan locally until the server regenerates it). Home-only —
+   * Penny is the plan's permanent home (owner rule, 2026-08-29) and must
+   * never offer this. Ignored whenever `onClose` is provided: that case is
+   * always a plain, non-persisting collapse (used by the entry-row preview
+   * toggle and the executed-row expand on BOTH surfaces), never a dismiss.
+   * Defaults to false — a caller must opt in explicitly, so a forgotten
+   * prop fails closed (no X) rather than open.
+   */
+  dismissible?: boolean;
 }
 
 // Multi-destination fork of MoveCard — one payday_plan item can fan money out
@@ -45,7 +54,7 @@ interface PaydayPlanCardProps {
 // same indigo action-button styling. Dismiss mirrors CelebrationCard/CliffCard
 // (self-contained: local `hidden` state + a direct api.dismissTodayItem call —
 // HomeBrief does not thread an onDismiss prop through any companion card).
-export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose, glow }: PaydayPlanCardProps) {
+export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts, onClose, dismissible = false }: PaydayPlanCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -69,13 +78,53 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
     });
   }
 
+  // Bug fix (2026-08-29, owner report): this used to branch on `item.preview`
+  // to decide collapse-vs-dismiss, which was wrong — the executed-row expand
+  // (HomeBrief.tsx's ExecutedPaydayRow) passes `onClose` but `item.preview`
+  // is false there, so the X fell into `handleDismiss` instead of collapsing:
+  // clicking it looked like the whole "already split" report vanished
+  // (`setHidden(true)`), AND silently persisted a dismiss server-side, which
+  // is why it "cleared but came back on refresh" (a fresh /today re-fetch
+  // remounts this component with `hidden` back at its default `false`, while
+  // the persisted dismiss doesn't even suppress the executed item's
+  // regeneration path in companion.py). The fix: branch on whether `onClose`
+  // was passed, not on the item's own preview flag — `onClose` always means
+  // "this is a collapsible view, closing it just collapses", regardless of
+  // preview/live/executed state.
+  const showCloseButton = !!onClose || dismissible;
+
+  function handleCloseClick(e: React.MouseEvent) {
+    if (onClose) {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    handleDismiss(e);
+  }
+
+  // No glow/ring here (owner, 2026-08-29): the "payday" rung was removed
+  // outright from lib/attention.ts — this card is a large, full-bleed
+  // Penny-branded surface (gradient chip, hero £ figure) and is already
+  // its own attention; a halo on top of that reads as decoration, not
+  // signal. Plain glass-card in every state (live, preview, ask).
   return (
-    <div className={`glass-card rounded-2xl p-4${glow ? " needs-you" : ""}`}>
+    <div className="glass-card rounded-2xl p-4">
       {/* Penny gradient chip — marks this as a proactive advice surface, same
           treatment as MoveCard/AskPaydayCard/AskGenericCard. Close/dismiss
-          sits on the same row, matching the CelebrationCard/CliffCard
-          top-right X sizing (44px hit target) — shown in both real and
-          preview mode now (preview closes locally via onClose). */}
+          sits on the same row, gated by `showCloseButton` (see above): a
+          collapse-only × whenever `onClose` is passed (preview toggle,
+          executed-row expand — never persists, safe on both Home and
+          Penny), or a real dismiss × only when the caller opts in via
+          `dismissible` (Home's live, not-yet-executed full card — see
+          HomeBrief.tsx's PaydayPlanSection, `dismissible={!!gate}`). Penny
+          never sets `dismissible`, so its live card renders no × at all
+          (owner rule 2026-08-29: Penny is the plan's permanent home, only
+          Home may dismiss it). Dismiss × is the V2 "Glass chip" (owner
+          decision, Kevin 2026-08-27, /design/dismiss-x), the one dismiss-x
+          treatment for cards app-wide; see HomeBrief.tsx's DismissChip for
+          the canonical (factored) version — this card lives outside
+          HomeBrief.tsx so it carries its own copy of the same markup
+          rather than importing an unexported local component. */}
       <div className="flex items-start justify-between gap-2 mb-3">
         <span
           className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-white rounded-full px-2.5 py-1"
@@ -84,21 +133,35 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
           <PennyMark size={11} />
           Penny
         </span>
-        <button
-          type="button"
-          aria-label={item.preview ? "Close preview" : "Dismiss"}
-          onClick={item.preview ? () => onClose?.() : handleDismiss}
-          className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 active:scale-95 transition-[transform,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        >
-          <X size={16} aria-hidden="true" />
-        </button>
+        {showCloseButton && (
+          <button
+            type="button"
+            aria-label={onClose ? "Close" : "Dismiss"}
+            onClick={handleCloseClick}
+            className="flex-shrink-0 -mt-2 -mr-2 w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150"
+          >
+            <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
+              <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Preview framing — Penny-voice sentence stating this is hypothetical,
-          so the card can't be mistaken for a live instruction. */}
+          so the card can't be mistaken for a live instruction. Dated + hedged
+          to the REAL next payday (2026-08-29 FIX B) rather than the old "if
+          your pay landed today" framing, which priced a fictional same-day
+          credit. Falls back to the old copy only if `next_pay` is somehow
+          missing (should not happen once the plan is computed server-side). */}
       {item.preview && (
         <p className="text-[13px] text-slate-500 dark:text-slate-400 leading-snug mb-2">
-          If your pay landed today, here&apos;s how I&apos;d split it.
+          {item.next_pay
+            ? `Once your pay lands ~${new Date(item.next_pay).toLocaleDateString("en-GB", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              })}, here's how I'd split it.`
+            : "Once your pay lands, here's how I'd split it."}
         </p>
       )}
 
@@ -137,6 +200,42 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
         <p className="flex items-start gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
           <span>Buffers trimmed to fit this month.</span>
+        </p>
+      )}
+
+      {/* Payday split — quiet visibility line for items scheduled ON payday
+          itself (2026-08-28 decision): they no longer count in this
+          period's arithmetic anywhere, but stay visible here as a distinct
+          slice. Purely informational, not a verdict, so it gets the same
+          quiet ramp as the "Already set" summary line below rather than a
+          tile or a colour treatment — it must not compete with the hero
+          figure above, which is still this period's total. Incoming pay is
+          hedged with ~ since it hasn't landed yet; the outgoing split total
+          is a scheduled fact, not hedged. */}
+      {item.payday_split && (
+        <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug mb-3">
+          <MoneyText
+            text={maskAmounts(
+              `Payday split: £${Math.round(item.payday_split.total).toLocaleString("en-GB")} across ${item.payday_split.count} ${
+                item.payday_split.count === 1 ? "move" : "moves"
+              }, funded by your ~£${Math.round(item.payday_split.expected_in).toLocaleString("en-GB")} expected pay.`
+            )}
+          />
+        </p>
+      )}
+
+      {/* Payday split risk — restrained amber warning row, same signifier
+          language as the trimmed notice above (amber dot, normal ink text,
+          no red/amber-flooded background): this is a TIMING risk (salary
+          landing late), not a genuine loss, per DESIGN.md's Red Is Risk
+          Rule. `copy` arrives pre-written and hedged server-side; rendered
+          verbatim (through the same maskAmounts/MoneyText treatment every
+          other server-authored sentence on this card gets) rather than
+          re-derived here. */}
+      {item.payday_split_risk && (
+        <p className="flex items-start gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 leading-snug mb-3">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500" aria-hidden="true" />
+          <span><MoneyText text={maskAmounts(item.payday_split_risk.copy)} /></span>
         </p>
       )}
 
@@ -219,6 +318,19 @@ export default function PaydayPlanCard({ item, router, hideNetWorth, maskAmounts
                 {showUsual && (
                   <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
                     <MoneyText text={maskAmounts(`you usually send £${Math.round(dest.usual!).toLocaleString("en-GB")}`)} />
+                  </p>
+                )}
+                {/* Commitment sub-line — same quiet ramp as the "usual"
+                    line above, answering "why is this leg here" for a move
+                    that's floored by an active goal slice rather than the
+                    account's own bills/spend/buffer sizing (2026-08-29 FIX
+                    C: previously an unexplained leg, e.g. £500 to Saving
+                    Challenge with no stated reason). */}
+                {dest.commitment_names && dest.commitment_names.length > 0 && (
+                  <p className="mt-0.5 text-[12px] text-slate-400 dark:text-slate-500 leading-snug pl-[46px]">
+                    {`funds ${dest.commitment_names[0]}${
+                      dest.commitment_names.length > 1 ? ` +${dest.commitment_names.length - 1} more` : ""
+                    }`}
                   </p>
                 )}
               </div>

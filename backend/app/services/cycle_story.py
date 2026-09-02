@@ -44,6 +44,21 @@ log = logging.getLogger(__name__)
 
 CARDS_MATERIAL_THRESHOLD = 50.0
 
+# Bump this whenever compute_cycle_story's output shape changes (new/renamed
+# chapter fields etc). It's folded into every cycle_story_col cache key via
+# _story_cache_key below, so a closed period's frozen cache (served
+# indefinitely, see get_cycle_story) stops matching the old key and recomputes
+# once under the new key instead of serving a stale shape forever. Old
+# documents under the previous version are left in place, inert.
+CYCLE_STORY_SCHEMA_VERSION = 3
+
+
+def _story_cache_key(uid: str, period_end: date, suffix: str) -> str:
+    """Single source of truth for cycle_story_col cache keys — every read
+    and write path (live/final/preview) must build its key through this
+    helper so they cannot drift out of sync with CYCLE_STORY_SCHEMA_VERSION."""
+    return f"{uid}:{period_end.isoformat()}:{suffix}:v{CYCLE_STORY_SCHEMA_VERSION}"
+
 
 def _to_date_str(val: Any) -> str:
     if isinstance(val, datetime):
@@ -240,6 +255,47 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     cards_present = bool(cc_ids)
     cards_material = cards_present and abs(cc_delta) >= CARDS_MATERIAL_THRESHOLD
 
+    # Per-card breakdown — same debit/credit split as the aggregate above
+    # (cc_new_spend_txns / cc_payment_txns), bucketed by account_id so the
+    # frontend can render one row per card. Mirrors routers/cards.py's
+    # per_card block rather than reimplementing the split a third time.
+    acc_by_id = {str(a.get("account_id") or a.get("_id")): a for a in raw_accounts}
+    new_spend_by_acc: dict[str, float] = defaultdict(float)
+    payments_by_acc: dict[str, float] = defaultdict(float)
+    for t in cc_new_spend_txns:
+        new_spend_by_acc[t["account_id"]] += abs(t["amount"])
+    for t in cc_payment_txns:
+        payments_by_acc[t["account_id"]] += abs(t["amount"])
+
+    # Every credit card account the user has (cc_ids — the accounts_col +
+    # yapily_accounts_col union, see _credit_card_account_ids), not just the
+    # ones with new spend this cycle: a dormant card is still one of "all the
+    # cards a user has" (owner feedback on the Month in Review cards slide,
+    # 2026-08-28) and should show as a £0 row, ranked last by the sort below.
+    cards_breakdown: list[dict] = []
+    for aid in cc_ids:
+        raw_new_spend = new_spend_by_acc.get(aid, 0.0)
+        acc_new_spend = round(raw_new_spend, 2)
+        acc_payments = round(payments_by_acc.get(aid, 0.0), 2)
+        acc_delta = round(acc_new_spend - acc_payments, 2)
+        # acc_by_id is keyed off raw_accounts (accounts_col only), but aid can
+        # come from a card that only exists in yapily_accounts_col (cc_ids is
+        # the union of both — see _credit_card_account_ids). That leaves
+        # acc_doc {} for a Yapily-only card today (yapily_accounts_col is
+        # currently empty, so this is dormant, not dead). name/provider are
+        # typed non-null on both sides (shared/src/types.ts, frontend/lib/api.ts),
+        # so fall back the same way truelayer_sync.py does for an unresolved
+        # provider rather than emitting a null the contract forbids.
+        acc_doc = acc_by_id.get(aid, {})
+        cards_breakdown.append({
+            "account_id": aid,
+            "name": acc_doc.get("name") or "Credit card",
+            "provider": acc_doc.get("provider") or "Unknown",
+            "new_spend": acc_new_spend,
+            "delta": acc_delta,
+        })
+    cards_breakdown.sort(key=lambda c: c["new_spend"], reverse=True)
+
     cards_chapter = {
         "present": cards_present,
         "material": cards_material,
@@ -247,6 +303,7 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
         "payments": cc_payments,
         "delta": cc_delta,
         "share_of_spend": cc_share,
+        "breakdown": cards_breakdown,
     }
 
     # ── Chapter 4: Moves ──────────────────────────────────────────────────────
@@ -640,7 +697,7 @@ async def get_cycle_story(uid: str, which: str = "current", preview_close: bool 
 
     # ── Preview path ──────────────────────────────────────────────────────────
     if preview_close and not closed:
-        preview_key = f"{uid}:{period_end.isoformat()}:preview"
+        preview_key = _story_cache_key(uid, period_end, "preview")
         cached_preview = await cycle_story_col.find_one({"_id": preview_key})
         if cached_preview:
             computed_at_str = cached_preview.get("computed_at")
@@ -701,7 +758,7 @@ async def get_cycle_story(uid: str, which: str = "current", preview_close: bool 
         return result
 
     # ── Normal path ───────────────────────────────────────────────────────────
-    cache_key = f"{uid}:{period_end.isoformat()}:{'final' if closed else 'live'}"
+    cache_key = _story_cache_key(uid, period_end, "final" if closed else "live")
 
     # Cache lookup
     cached = await cycle_story_col.find_one({"_id": cache_key})

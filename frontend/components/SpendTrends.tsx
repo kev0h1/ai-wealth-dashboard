@@ -8,11 +8,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
+  PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
-  ChartPie, BarChart3, TrendingUp, AlignStartVertical, MoreVertical,
-  Pin, PinOff, Trash2, Plus, ChevronRight,
+  ChartPie, BarChart3, TrendingUp, TrendingDown, AlignStartVertical, MoreVertical,
+  Pin, PinOff, Trash2, Plus, ChevronRight, Activity,
   Car, Fuel, Train, Bus, CarTaxiFront, PlugZap, Wrench, SquareParking,
 } from "lucide-react";
 import {
@@ -23,7 +23,8 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { api, Transaction, TransportSummary } from "@/lib/api";
+import { api, Transaction, TransportSummary, SpendVerdictPaceEntry, DebtPlanSummary } from "@/lib/api";
+import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -45,7 +46,7 @@ function useIsDark() {
   return dark;
 }
 
-export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution" | "transport_modes";
+export type WidgetId = "category_pie" | "daily_bars" | "period_compare" | "size_distribution" | "transport_modes" | "pace_curve" | "debt_burndown";
 
 export const DEFAULT_WIDGETS: WidgetId[] = ["category_pie", "daily_bars"];
 
@@ -54,6 +55,16 @@ const WIDGET_META: Record<WidgetId, { title: string; description: string; Icon: 
     title: "Category breakdown",
     description: "Where this period's spend went, as a donut",
     Icon: ChartPie,
+  },
+  pace_curve: {
+    title: "Spending pace",
+    description: "This period's running total against your usual",
+    Icon: Activity,
+  },
+  debt_burndown: {
+    title: "Card balance ahead",
+    description: "Where your card balances land at the pace you're paying",
+    Icon: TrendingDown,
   },
   daily_bars: {
     title: "Daily spend",
@@ -83,7 +94,11 @@ function isWidgetId(v: unknown): v is WidgetId {
   return typeof v === "string" && v in WIDGET_META;
 }
 
-interface WidgetData {
+// Exported (in addition to the module's internal use) for the auth-exempt
+// design route at app/design/spend-charts, which renders PaceCurveWidget
+// against fixture data since /spend is authenticated and can't be
+// screenshotted directly. Not used by any other real caller.
+export interface WidgetData {
   periodTxns: Transaction[];
   allTxns: Transaction[];
   periodStart: Date;
@@ -91,6 +106,13 @@ interface WidgetData {
   payPeriodConfig: PayPeriodConfig;
   colours: Record<string, string>;
   onReviewLarge?: () => void;
+  // pace_curve's data — lives on the /spend/verdict payload, not on the
+  // loaded transactions, so it can't be derived client-side like the other
+  // widgets' data. Threaded in from SpendPage.tsx's verdict state; absent
+  // for PinnedWidgetCard (Home has no verdict in scope) and for any caller
+  // on an older cached verdict, in which case the widget degrades to a
+  // quiet empty state rather than fabricating a series.
+  paceSeries?: SpendVerdictPaceEntry[];
 }
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -101,6 +123,40 @@ function spendDebits(txns: Transaction[]): Transaction[] {
 
 const fmtGBP = (n: number) =>
   `£${n.toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+
+// Recharts' YAxis `width` is a fixed pixel box, not an auto-sizing one — a
+// box sized for a 3-4 character label clips the leading £ off anything
+// wider (found by screenshot review, 2026-09: a debt_burndown tick of
+// "£32,000" rendered as ":32,000", only the right sliver of the £ glyph
+// surviving). The first fix here padded the raw data max by 20% and sized
+// the box off that guess — wrong, because recharts' own "nice round
+// number" top tick can round up further than 20% (an actual max of 635
+// still drew a "£1,000" top tick, one digit wider than the padded guess).
+// So instead of guessing what recharts will pick, this computes the nice
+// ceiling ourselves (classic 1-2-5-10 progression) and FORCES the chart's
+// own `domain` to end there via the `domain` prop everywhere this is used
+// — the box width and the axis's actual top tick then both derive from the
+// exact same number and can never drift apart again.
+function niceAxisCeiling(maxValue: number): number {
+  const v = Math.max(0, maxValue);
+  if (v <= 0) return 0;
+  const exp = Math.floor(Math.log10(v));
+  const base = Math.pow(10, exp);
+  const frac = v / base;
+  const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+  return Math.round(niceFrac * base * 100) / 100;
+}
+
+// Width for a y-axis whose top tick will read `niceMax` (already run
+// through niceAxisCeiling above) — every currency y-axis in this file ticks
+// in the same 9px monospace (var(--font-jbmono)); ~5.6px/char is a rough
+// measure at that size with a little slack. 34 is the floor every widget
+// already used before this fix, kept so a small-value chart (e.g. "£0")
+// doesn't shrink below what was already comfortable.
+function currencyAxisWidth(niceMax: number): number {
+  const widest = fmtGBP(niceMax).length;
+  return Math.max(34, Math.ceil(widest * 5.6) + 10);
+}
 
 const TOOLTIP_STYLE = {
   backgroundColor: "rgba(15,23,42,0.92)",
@@ -279,6 +335,7 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
   }, [data.allTxns, data.periodStart, data.periodEnd, data.payPeriodConfig]);
 
   if (periods.every(p => p.spend === 0)) return <EmptyWidget compact={compact} />;
+  const yMax = niceAxisCeiling(Math.max(...periods.map(p => p.spend), 0));
 
   return (
     <>
@@ -316,7 +373,7 @@ function PeriodCompareWidget({ data, compact }: { data: WidgetData; compact?: bo
             <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 9, fill: tickFill }} />
           )}
           {!compact && (
-            <YAxis width={34} tickLine={false} axisLine={false}
+            <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
               tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
           )}
           <Tooltip trigger="click" contentStyle={TOOLTIP_STYLE} itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }} formatter={(v) => fmtGBP(Number(v ?? 0))} cursor={{ fill: "rgba(100,116,139,0.08)" }} />
@@ -367,6 +424,9 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
   const tooltipFormatter = mode === "spend"
     ? (v: unknown) => [fmtGBP(Number(v ?? 0)), ""]
     : (v: unknown) => [`${Number(v ?? 0)} payment${Number(v ?? 0) !== 1 ? "s" : ""}`, ""];
+  // Only "spend" ticks in currency — "count" stays the small plain integer
+  // it always was, no digit-boundary risk worth forcing a domain over.
+  const spendYMax = mode === "spend" ? niceAxisCeiling(Math.max(...bands.map(b => b.total), 0)) : 0;
 
   return (
     <>
@@ -435,7 +495,9 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
               <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 8.5, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} interval={0} />
             )}
             {!compact && (
-              <YAxis width={mode === "spend" ? 40 : 24} tickLine={false} axisLine={false}
+              <YAxis width={mode === "spend" ? currencyAxisWidth(spendYMax) : 24}
+                domain={mode === "spend" ? [0, spendYMax > 0 ? spendYMax : "auto"] : undefined}
+                tickLine={false} axisLine={false}
                 allowDecimals={false} tick={{ fontSize: 9, fill: tickFill, fontFamily: mode === "spend" ? "var(--font-jbmono), monospace" : undefined }}
                 tickFormatter={yFormatter} />
             )}
@@ -451,11 +513,266 @@ function SizeDistributionWidget({ data, compact }: { data: WidgetData; compact?:
   );
 }
 
-function EmptyWidget({ compact }: { compact?: boolean }) {
+function EmptyWidget({ compact, message }: { compact?: boolean; message?: string }) {
   return (
     <div className={`flex items-center justify-center ${compact ? "h-20" : "h-24"}`}>
-      <p className="text-xs text-slate-500 dark:text-slate-400">No spending in this period</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">{message ?? "No spending in this period"}</p>
     </div>
+  );
+}
+
+// pace_curve — the running-total pace curve, cut from SpendHeader's hero in
+// the weighted-instrument round (2026-08-27, see that file's comment) and
+// restored here as an opt-in Charts widget instead. Reads verdict.pace_series
+// verbatim (backend/app/services/spend_verdict.py:build_pace_series) — never
+// recomputed client-side, so this can never draw a different "usual" than
+// the reading/notables do. `usual` is null on every day while the baseline
+// is thin (see that function's docstring) — a fabricated flat ramp would be
+// a lie, so when the whole series has no usual we draw actual alone and say
+// plainly that we're still learning, rather than implying a comparison.
+// Exported for app/design/spend-charts (see WidgetData's comment above) —
+// the real widget renderer, not a redrawn mockup, so the design route and
+// production can never draw different pixels for the same data.
+export function PaceCurveWidget({ data, compact }: { data: WidgetData; compact?: boolean }) {
+  const isDark = useIsDark();
+  const tickFill = isDark ? "#94a3b8" : "#64748b";
+  const series = data.paceSeries;
+
+  if (!series || series.length === 0) {
+    return <EmptyWidget compact={compact} message="No pace data for this period yet." />;
+  }
+
+  const hasUsual = series.some(p => p.usual !== null);
+  const last = series[series.length - 1];
+  const lastUsual = hasUsual
+    ? series.slice().reverse().find(p => p.usual !== null)?.usual ?? null
+    : null;
+  const diff = lastUsual !== null ? last.actual - lastUsual : null;
+
+  const chartData = series.map(p => ({ day: p.day, actual: p.actual, usual: p.usual }));
+  const midIdx = Math.floor((series.length - 1) / 2);
+  const ticks = Array.from(new Set([series[0]?.day, series[midIdx]?.day, last.day].filter((d): d is number => d !== undefined)));
+  const yMax = niceAxisCeiling(Math.max(...chartData.flatMap(d => [d.actual, d.usual ?? 0]), 0));
+
+  return (
+    <>
+      {!compact && (
+        <p className="text-sm text-slate-600 dark:text-slate-400 leading-snug mb-3">
+          {hasUsual && diff !== null ? (
+            <>
+              {"Day "}<span className="font-bold text-slate-900 dark:text-slate-100">{last.day}</span>
+              {": "}<span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmtGBP(last.actual)}</span>
+              {" so far"}
+              {diff > 0 ? (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" ahead of usual"}
+                </span>
+              ) : diff < 0 ? (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {" · "}<span className="font-bold font-mono tabular-nums">{fmtGBP(Math.abs(diff))}</span>{" behind usual"}
+                </span>
+              ) : (
+                " · right on usual"
+              )}
+            </>
+          ) : (
+            "Still learning your usual pace."
+          )}
+        </p>
+      )}
+      <div className={compact ? "h-20" : "h-36"}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            {!compact && (
+              <XAxis dataKey="day" ticks={ticks} tickLine={false} axisLine={false}
+                tick={{ fontSize: 9, fill: tickFill }} tickFormatter={(d: number) => `Day ${d}`} interval="preserveStartEnd" />
+            )}
+            {!compact && (
+              <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
+                tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
+            )}
+            <Tooltip
+              trigger="click"
+              contentStyle={TOOLTIP_STYLE}
+              itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }}
+              labelFormatter={(d) => `Day ${d}`}
+              formatter={(v, name) => [fmtGBP(Number(v ?? 0)), name === "actual" ? "Actual" : "Usual"]}
+            />
+            {/* actual — the prominent, solid line: this period's real running
+                total, same indigo the rest of this file uses for "the thing
+                that happened". */}
+            <Line type="monotone" dataKey="actual" stroke="#6366f1" strokeWidth={2.5} dot={false} isAnimationActive={false} connectNulls />
+            {/* usual — a quieter dashed reference, only drawn when at least
+                one day has a real learned value; never a fabricated line for
+                a thin-history period (see the docstring above). Neutral grey
+                regardless of whether actual sits above or below it — colour
+                here is information, not a verdict (DESIGN.md), so running
+                hot is never rendered red. */}
+            {hasUsual && (
+              // No connectNulls here, unlike actual above. A null usual
+              // means the baseline had not learned that day, not a missing
+              // number to fill in. build_pace_series only ever emits a
+              // day's usual once it has one, so bridging a null run would
+              // draw a value the engine never asserted. If this line looks
+              // broken with a gap in it, that gap is the honest picture.
+              // Do not "fix" it by adding connectNulls back.
+              <Line type="monotone" dataKey="usual" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </>
+  );
+}
+
+// debt_burndown — card balance total projected forward month by month at
+// the demonstrated paydown pace. Format "YYYY-MM" (debt_plan.py's
+// _month_label) as "Mon 'YY", the same short-date convention DailyBars/
+// PeriodCompare use elsewhere in this file, no date library needed.
+const DEBT_MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function fmtProjectionMonth(m: string): string {
+  const [y, mo] = m.split("-");
+  const short = DEBT_MONTH_SHORT[Number(mo) - 1] ?? mo;
+  return `${short} '${(y ?? "").slice(2)}`;
+}
+
+// Why this exists: debt_plan.py sets N = min(HORIZON_MONTHS, max(months_to_
+// payoff) + PROJECTION_TAIL_MONTHS) ONLY when every card has a months_to_
+// payoff (the healthy, clears-eventually case) — that keeps the payload
+// short, ending shortly after the last card hits zero. The moment any card
+// never clears at the demonstrated pace, the backend falls back to the full
+// HORIZON_MONTHS (120-month) walk, and a carried-interest card compounding
+// faster than the paydown drags the total upward for a decade. Plotting all
+// 121 points then would be a "Card balance ahead" chart that climbs for ten
+// years off a median monthly-movement figure — an extrapolation nobody
+// should stand behind, and it would bury whatever's actually happening in
+// the next couple of years under nine years of noise. So: if the series
+// reaches zero, draw all of it (the backend has already kept that short);
+// if it never reaches zero, draw only the first 24 months and let the
+// caller say plainly why the chart stops there.
+function clipProjection(projection: { month: string; total: number }[]): {
+  points: { month: string; total: number }[];
+  clippedNonClearing: boolean;
+} {
+  const reachesZero = projection.some(p => p.total <= 0);
+  if (reachesZero) return { points: projection, clippedNonClearing: false };
+  const HORIZON_WINDOW_MONTHS = 24;
+  return {
+    points: projection.slice(0, HORIZON_WINDOW_MONTHS),
+    clippedNonClearing: projection.length > HORIZON_WINDOW_MONTHS,
+  };
+}
+
+// This widget is NOT period-scoped (a card balance projection has nothing
+// to do with the pay period the Charts tab happens to be viewing), so
+// unlike every other widget in this file it fetches its own data rather
+// than reading it off WidgetData.
+//
+// Exported, and takes an optional `previewState` prop, for app/design/
+// spend-charts (see WidgetData's comment above). /debt-plan/summary requires
+// auth, which the design route deliberately doesn't have, so there is no
+// real fetch to point it at. `previewState` is a PREVIEW SEAM: when set, the
+// effect below skips the network call entirely and the widget renders the
+// given status/projection instead. Production never passes this prop, so
+// the real path is untouched: fetch on mount, out-of-order guard, honest
+// states.
+export function DebtBurndownWidget({
+  compact,
+  previewState,
+}: {
+  compact?: boolean;
+  previewState?: { status: "loading" | "error" | "ok"; projection?: DebtPlanSummary["projection"] };
+}) {
+  const isDark = useIsDark();
+  const tickFill = isDark ? "#94a3b8" : "#64748b";
+  const [status, setStatus] = useState<"loading" | "error" | "ok">(previewState?.status ?? "loading");
+  const [projection, setProjection] = useState<DebtPlanSummary["projection"]>(previewState?.projection);
+  // Out-of-order guard — StrictMode/fast remounts can fire this effect
+  // twice; without this, a slow first response landing after a fast second
+  // one would clobber the newer state with stale data.
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    if (previewState) return; // preview seam — no fixture, no fetch
+    const seq = ++requestSeq.current;
+    setStatus("loading");
+    api.getDebtPlanSummary()
+      .then(summary => {
+        if (requestSeq.current !== seq) return;
+        setProjection(summary.projection);
+        setStatus("ok");
+      })
+      .catch(() => {
+        if (requestSeq.current !== seq) return;
+        setStatus("error");
+      });
+  }, [previewState]);
+
+  if (status === "loading") return <EmptyWidget compact={compact} message="Loading your card balances…" />;
+  if (status === "error") return <EmptyWidget compact={compact} message="Couldn't load your card balances just now." />;
+  // Older backend deployed ahead of the field going live — honest "not
+  // available", never a fabricated projection.
+  if (projection === undefined) return <EmptyWidget compact={compact} message="Card balance projection isn't available yet." />;
+  // Empty is good news here, not an error: no card carries a balance worth
+  // projecting.
+  if (projection.length === 0) return <EmptyWidget compact={compact} message="No card carries a balance worth projecting. Nothing to chart here." />;
+
+  const { points, clippedNonClearing } = clipProjection(projection);
+  const chartData = points.map(p => ({ total: p.total, label: fmtProjectionMonth(p.month) }));
+  const midIdx = Math.floor((chartData.length - 1) / 2);
+  const ticks = Array.from(new Set([chartData[0]?.label, chartData[midIdx]?.label, chartData[chartData.length - 1]?.label].filter((l): l is string => l !== undefined)));
+  const yMax = niceAxisCeiling(Math.max(...chartData.map(d => d.total), 0));
+
+  return (
+    <>
+      <div className={compact ? "h-20" : "h-36"}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            {!compact && (
+              <XAxis dataKey="label" ticks={ticks} tickLine={false} axisLine={false}
+                tick={{ fontSize: 9, fill: tickFill }} interval="preserveStartEnd" />
+            )}
+            {!compact && (
+              <YAxis width={currencyAxisWidth(yMax)} domain={[0, yMax > 0 ? yMax : "auto"]} tickLine={false} axisLine={false}
+                tick={{ fontSize: 9, fill: tickFill, fontFamily: "var(--font-jbmono), monospace" }} tickFormatter={(v: number) => fmtGBP(v)} />
+            )}
+            <Tooltip
+              trigger="click"
+              contentStyle={TOOLTIP_STYLE}
+              itemStyle={{ fontFamily: "var(--font-jbmono), monospace" }}
+              formatter={(v) => [fmtGBP(Number(v ?? 0)), "Balance"]}
+              cursor={{ fill: "rgba(100,116,139,0.08)" }}
+            />
+            {/* Same indigo the rest of this file uses for "the thing that's
+                actually happening" — this line is allowed to rise, DESIGN.md
+                colour-is-information doctrine means a climbing balance isn't
+                painted red just for being bad news; the caption below says
+                the honest thing in words instead. */}
+            <Area type="monotone" dataKey="total" stroke="#6366f1" fill="#6366f1" fillOpacity={0.15} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      {!compact && clippedNonClearing && (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 leading-snug">
+          At the pace you're paying, these balances aren't on track to clear. Showing the next two years rather than a longer projection we wouldn't stand behind.
+        </p>
+      )}
+      {/* Compact (pinned to Home) has no room for the full caption above,
+          but the chart's honesty lives entirely in that caption — a bare
+          rising sparkline with no words reads as a plain trend line, not
+          the "we cut this off, here's why" the full card says. So compact
+          gets a short version of the same fact, and ONLY the same fact: no
+          payoff date, no debt-free month, no figure, just the direction.
+          Shown only in the non-clearing case, matching the full caption's
+          own gate exactly — a series that reaches zero says nothing extra
+          here either. Neutral grey, not amber or red: this is a
+          projection, not a risk event (DESIGN.md, colour is information). */}
+      {compact && clippedNonClearing && (
+        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-snug">
+          Not on track to clear at this pace
+        </p>
+      )}
+    </>
   );
 }
 
@@ -578,6 +895,8 @@ function renderWidget(id: WidgetId, data: WidgetData, compact?: boolean) {
     case "period_compare":    return <PeriodCompareWidget data={data} compact={compact} />;
     case "size_distribution": return <SizeDistributionWidget data={data} compact={compact} />;
     case "transport_modes":   return <TransportModesWidget compact={compact} />;
+    case "pace_curve":        return <PaceCurveWidget data={data} compact={compact} />;
+    case "debt_burndown":     return <DebtBurndownWidget compact={compact} />;
   }
 }
 
@@ -685,6 +1004,9 @@ export default function SpendTrends(props: {
   payPeriodConfig: PayPeriodConfig;
   colours: Record<string, string>;
   onReviewLarge?: () => void;
+  // Threaded from SpendPage.tsx's verdict?.pace_series — see WidgetData's
+  // own comment for why this can't be derived from periodTxns/allTxns.
+  paceSeries?: SpendVerdictPaceEntry[];
 }) {
   const { spendWidgets: ctxWidgets, homePinnedWidget: ctxPinned, setSpendWidgets: setCtxWidgets, setHomePinnedWidget: setCtxPinned } = usePreferences();
   // prefsLoaded is true once the context has received the server response (non-null array).
@@ -745,6 +1067,7 @@ export default function SpendTrends(props: {
     payPeriodConfig: props.payPeriodConfig,
     colours: props.colours,
     onReviewLarge: props.onReviewLarge,
+    paceSeries: props.paceSeries,
   };
 
   const available = ALL_WIDGETS.filter(w => !widgets.includes(w));
@@ -816,7 +1139,7 @@ function AddWidgetGallery({ available, onAdd, onClose }: {
       >
         <p className="text-base font-bold text-slate-900 dark:text-slate-100 mb-1">Add a widget</p>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-          Charts use the pay period you're viewing.
+          Most charts use the pay period you're viewing.
         </p>
         <div className="space-y-2">
           {available.map(id => {
@@ -861,10 +1184,50 @@ export function PinnedWidgetCard({
     () => filterPeriod(transactions, periodStart, periodEnd),
     [transactions, periodStart, periodEnd],
   );
+  // pace_curve only: its data lives on the /spend/verdict payload, not on
+  // the transactions already loaded for Home, so unlike every other widget
+  // here it fetches its own slice on the side. Offset 0 is correct — Home
+  // always shows the CURRENT pay period (see periodStart/periodEnd above,
+  // derived from getPayPeriodWithConfig(new Date(), ...) at the HomePage
+  // callsite), and offset 0 is /spend/verdict's current-period request,
+  // the same convention SpendPage.tsx uses for its own current period.
+  const [paceStatus, setPaceStatus] = useState<"idle" | "loading" | "error" | "ok">(
+    id === "pace_curve" ? "loading" : "idle",
+  );
+  const [paceSeries, setPaceSeries] = useState<SpendVerdictPaceEntry[] | undefined>(undefined);
+  // Out-of-order guard, same idiom as DebtBurndownWidget's requestSeq above.
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    if (id !== "pace_curve") return; // no other widget needs this fetch
+    const hit = cachedVerdict(0);
+    if (hit) {
+      // Shared with SpendPage.tsx via lib/verdictCache.ts — a recent Spend
+      // visit means this paints with no fetch at all (TTL 90s, matches the
+      // server's own /spend/verdict cache window).
+      setPaceSeries(hit.pace_series);
+      setPaceStatus("ok");
+      return;
+    }
+    const seq = ++requestSeq.current;
+    setPaceStatus("loading");
+    fetchVerdictData(0)
+      .then(v => {
+        if (requestSeq.current !== seq) return;
+        setPaceSeries(v.pace_series);
+        setPaceStatus("ok");
+      })
+      .catch(() => {
+        if (requestSeq.current !== seq) return;
+        setPaceStatus("error");
+      });
+  }, [id]);
+
   if (!isWidgetId(id)) return null;
 
   const data: WidgetData = {
     periodTxns, allTxns: transactions, periodStart, periodEnd, payPeriodConfig, colours,
+    paceSeries: id === "pace_curve" ? paceSeries : undefined,
   };
 
   return (
@@ -881,7 +1244,13 @@ export function PinnedWidgetCard({
             Trends <ChevronRight size={12} />
           </span>
         </div>
-        {renderWidget(id, data, true)}
+        {id === "pace_curve" && paceStatus === "loading" && (
+          <EmptyWidget compact message="Loading your spending pace..." />
+        )}
+        {id === "pace_curve" && paceStatus === "error" && (
+          <EmptyWidget compact message="Couldn't load your spending pace just now." />
+        )}
+        {(id !== "pace_curve" || paceStatus === "ok") && renderWidget(id, data, true)}
       </button>
     </div>
   );

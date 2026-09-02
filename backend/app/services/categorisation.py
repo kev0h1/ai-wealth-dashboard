@@ -1195,6 +1195,49 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     return updated
 
 
+async def _rule_match_candidates(
+    user_id: str, compiled: re.Pattern, category: str, exclude_id=None,
+) -> list[dict]:
+    """The one matching definition shared by `apply_single_rule` (which
+    writes) and `count_rule_matches` (a read-only preview, added
+    2026-08-30 for Penny's `propose_recategorise_transaction` "always"
+    scope — see PENNY_TOOLS.md's 2026-08-30 recategorisation amendment).
+    Returns `{id, previous_category}` for every transaction the pattern
+    matches whose category would actually change — same candidate query
+    (`custom_category: None`, i.e. never manually corrected before) and
+    the same "already this category" skip, so a proposal's stated blast
+    radius can never disagree with what applying the rule for real does.
+
+    `exclude_id` (default None, `apply_single_rule` never passes it) lets
+    a caller drop one transaction id from the candidate set before
+    matching. Only `count_rule_matches` uses this, for exactly one reason:
+    Penny's "always" proposal PATCHes its own primary transaction FIRST at
+    execute time (setting `custom_category`), the same two-step sequence
+    the app's own TeachingSheet already follows (commit the category, THEN
+    offer "Always"), so that row's `custom_category` is no longer None by
+    the time the rule's bulk pass runs and it is naturally excluded from
+    THAT pass already — excluding it here too keeps the propose-time
+    preview count honestly matching what execute will really do, rather
+    than double-counting the primary transaction as one of the "past"
+    ones."""
+    candidates = await transactions_col.find(
+        {"user_id": user_id, "custom_category": None},
+        {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
+    ).to_list(None)
+    matched: list[dict] = []
+    for t in candidates:
+        if exclude_id is not None and t["_id"] == exclude_id:
+            continue
+        text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
+        if not compiled.search(text):
+            continue
+        prev = t.get("category")
+        if prev == category:
+            continue
+        matched.append({"id": t["_id"], "previous_category": prev})
+    return matched
+
+
 async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[dict]:
     """Apply ONE newly-created rule (mirrors apply_rules_bulk's Pass 3.5, but
     scoped to a single pattern) synchronously, and return {id,
@@ -1207,25 +1250,32 @@ async def apply_single_rule(user_id: str, pattern: str, category: str) -> list[d
     recategorised even after "Undo". Running it here, awaited, with a return
     value lets the caller revert every affected row precisely.
     """
-    affected: list[dict] = []
     try:
         compiled = re.compile(pattern, re.IGNORECASE)
     except re.error:
-        return affected
-    candidates = await transactions_col.find(
-        {"user_id": user_id, "custom_category": None},
-        {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
-    ).to_list(None)
-    for t in candidates:
-        text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
-        if not compiled.search(text):
-            continue
-        prev = t.get("category")
-        if prev == category:
-            continue
-        await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": category}})
-        affected.append({"id": t["_id"], "previous_category": prev})
-    return affected
+        return []
+    matched = await _rule_match_candidates(user_id, compiled, category)
+    for m in matched:
+        await transactions_col.update_one({"_id": m["id"]}, {"$set": {"category": category}})
+    return matched
+
+
+async def count_rule_matches(user_id: str, pattern: str, category: str, exclude_id=None) -> int:
+    """Read-only preview count for a rule NOT YET created — the exact same
+    matching definition `apply_single_rule` itself uses (`_rule_match_
+    candidates`), so it never writes and can never disagree with what
+    actually applying the rule would do. Added 2026-08-30 for Penny's
+    `propose_recategorise_transaction` "always" scope, so its proposal's
+    consequence line can state a real blast-radius count (ENGINE.md: rules
+    are engine-proposed with blast radius shown, never auto-applied)
+    before the user has confirmed anything. `exclude_id` — see
+    `_rule_match_candidates`'s own doctrine comment."""
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return 0
+    matched = await _rule_match_candidates(user_id, compiled, category, exclude_id=exclude_id)
+    return len(matched)
 
 
 async def categorise_others_bg(uid: str) -> int:

@@ -12,6 +12,69 @@ export function isNativePlatform(): boolean {
   }
 }
 
+// Sign in with Apple is only offered on iOS native builds — there's no
+// Google-style cross-platform web fallback worth building for a single-user
+// app, and Apple's own guidelines are for the native ASAuthorization flow
+// on iOS specifically.
+export function isIOSNative(): boolean {
+  try {
+    return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+  } catch {
+    return false;
+  }
+}
+
+// This app's Capacitor appId (see capacitor-spike/capacitor.config.json) —
+// on iOS native, Sign in with Apple uses ASAuthorizationAppleIDProvider
+// directly, so `clientId` here just needs to match the bundle id; it plays
+// no OAuth-redirect role the way a web "Services ID" flow would.
+const APPLE_CLIENT_ID = "co.uk.auriqltd.wealth";
+
+export async function nativeAppleLogin(): Promise<boolean> {
+  let identityToken: string | undefined;
+  let fullName: string | undefined;
+
+  try {
+    // Dynamic import so a web build (which never calls this function,
+    // gated by isIOSNative() at the call site) doesn't need the plugin's
+    // native-only code paths resolved eagerly.
+    const { SignInWithApple } = await import("@capacitor-community/apple-sign-in");
+    const { response } = await SignInWithApple.authorize({
+      clientId: APPLE_CLIENT_ID,
+      // Unused by the native iOS flow (no redirect happens), but required
+      // by the plugin's TypeScript signature.
+      redirectURI: `${API_BASE}/auth/apple/native`,
+      scopes: "email name",
+    });
+    identityToken = response.identityToken;
+    // Apple only ever sends the name on the very first authorization for
+    // this app + Apple ID pair — pass along whatever we got so the backend
+    // can use it, and it'll fall back to the email local-part after that.
+    fullName = [response.givenName, response.familyName].filter(Boolean).join(" ") || undefined;
+  } catch {
+    return false;
+  }
+
+  if (!identityToken) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/apple/native`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identityToken, fullName }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.ok && data.session_token) {
+      setToken(data.session_token);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function nativeGoogleLogin(): Promise<boolean> {
   const state = "m" + Math.random().toString(36).slice(2) + "_" + Date.now();
   await Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` });

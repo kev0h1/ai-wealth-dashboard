@@ -1,12 +1,15 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react";
 
 export interface TutorialStep {
   id: string;
-  route: string | null;
-  target: string | null;
+  route?: string; // pushed on entering the step when pathname differs
+  target?: string; // matches [data-tutorial-id="..."]
+  fallbackTarget?: string; // tried, same retry budget, if target never resolves; whichever id resolves is tracked for the rest of the step
+  action?: string; // tutorial action id awaited BEFORE measuring (e.g. opens a menu)
+  cleanup?: string; // action id run when leaving the step in either direction, and on end()
+  readyKey?: string; // defaults to the flow's readyKey
   tooltipSide: "above" | "below" | "center";
   iconName: string;
   color: string;
@@ -16,181 +19,603 @@ export interface TutorialStep {
   tip?: string;
 }
 
-export const TUTORIAL_STEPS: TutorialStep[] = [
+export interface TutorialFlow {
+  id: string;
+  label: string;
+  blurb: string;
+  route: string; // pathname that auto-offers this flow
+  readyKey: string;
+  steps: TutorialStep[];
+}
+
+export const TUTORIAL_FLOWS: TutorialFlow[] = [
   {
-    id: "welcome",
-    route: null,
-    target: null,
-    tooltipSide: "center",
-    iconName: "Sparkles",
-    color: "#4f46e5",
-    bg: "#ede9fe",
-    title: "Welcome to Sorted",
-    description: "Track all your money in one place. This short tour will walk you through the key features, tap Next to get started.",
-  },
-  {
-    id: "manage-accounts",
+    id: "first-run",
+    label: "Getting started",
+    blurb: "A one minute look around",
     route: "/",
-    target: "tutorial-manage-link",
-    tooltipSide: "below",
-    iconName: "Building2",
-    color: "#2563eb",
-    bg: "#dbeafe",
-    title: "Open Your Accounts",
-    description: "Tap Manage to go to the Accounts page, where you can connect a bank via open banking or upload a bank statement.",
+    readyKey: "home",
+    steps: [
+      {
+        id: "welcome",
+        tooltipSide: "center",
+        iconName: "Sparkles",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Welcome to Sorted",
+        description:
+          "Everything you own, owe and have coming up, in one place. This takes about a minute.",
+      },
+      {
+        id: "home-verdict",
+        target: "tutorial-safe-to-spend",
+        fallbackTarget: "tutorial-home-fresh",
+        tooltipSide: "below",
+        iconName: "Wallet",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "What is safe to spend",
+        description:
+          "Home leads with one number: what is genuinely yours to spend, after the bills still to leave and what is sitting on your cards.",
+      },
+      {
+        id: "home-connect",
+        target: "tutorial-manage-link",
+        fallbackTarget: "tutorial-home-fresh-cta",
+        tooltipSide: "below",
+        iconName: "Building2",
+        color: "#2563eb",
+        bg: "#dbeafe",
+        title: "Add your accounts",
+        description:
+          "Nothing here is real until your accounts are in. Manage opens Accounts, where banks, statements, investments and offline pots all get added.",
+      },
+      {
+        id: "home-nav",
+        target: "tutorial-bottom-nav",
+        tooltipSide: "above",
+        iconName: "Compass",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Getting around",
+        description:
+          "Spend is where money went. Planning is what is still to come. Insights is what to do about it. Penny, in the middle, answers questions about any of it.",
+      },
+      {
+        id: "home-done",
+        tooltipSide: "center",
+        iconName: "Sparkles",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "That is the tour",
+        description: "Each screen offers its own short tour the first time you open it.",
+        tip: "Replay any of them from Account, under How Sorted works.",
+      },
+    ],
   },
   {
-    id: "add-account",
+    id: "accounts",
+    label: "Accounts",
+    blurb: "Five ways money gets in here",
     route: "/accounts",
-    target: "tutorial-add-account",
-    tooltipSide: "below",
-    iconName: "Building2",
-    color: "#2563eb",
-    bg: "#dbeafe",
-    title: "Connect Open Banking",
-    description: "Tap + Add, then choose Add Bank to securely link your account. Your transactions will sync automatically from that point on.",
-    tip: "Supports most UK banks via secure open banking.",
+    readyKey: "accounts",
+    steps: [
+      {
+        id: "accounts-networth",
+        target: "tutorial-networth",
+        fallbackTarget: "tutorial-add-account",
+        tooltipSide: "below",
+        iconName: "Layers",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Everything in one total",
+        description:
+          "Net worth counts what is in your banks, investments and offline pots, minus what is on your cards.",
+      },
+      {
+        id: "accounts-add",
+        target: "tutorial-add-account",
+        tooltipSide: "below",
+        iconName: "Plus",
+        color: "#2563eb",
+        bg: "#dbeafe",
+        action: "accounts:add-menu:open",
+        cleanup: "accounts:add-menu:close",
+        title: "Every way to add",
+        description: "Add opens every route into the app. The next few steps walk through each one.",
+      },
+      {
+        id: "accounts-bank",
+        target: "tutorial-add-bank",
+        tooltipSide: "below",
+        iconName: "Building2",
+        color: "#2563eb",
+        bg: "#dbeafe",
+        action: "accounts:add-menu:open",
+        cleanup: "accounts:add-menu:close",
+        title: "Connect a bank",
+        description:
+          "Add Bank links a UK bank through open banking, then transactions and balances keep syncing on their own.",
+        tip: "Bank connections expire after a while. Sorted shows a reconnect prompt here when one does.",
+      },
+      {
+        id: "accounts-statement",
+        target: "tutorial-add-statement",
+        tooltipSide: "below",
+        iconName: "Upload",
+        color: "#0891b2",
+        bg: "#cffafe",
+        action: "accounts:add-menu:open",
+        cleanup: "accounts:add-menu:close",
+        title: "Upload a statement",
+        description:
+          "For anything that cannot connect live, upload a statement instead. Works with NatWest, Barclays, HSBC, Monzo and more.",
+      },
+      {
+        id: "accounts-investment",
+        target: "tutorial-add-investment",
+        fallbackTarget: "tutorial-add-account",
+        tooltipSide: "below",
+        iconName: "TrendingUp",
+        color: "#059669",
+        bg: "#d1fae5",
+        action: "accounts:add-menu:open",
+        cleanup: "accounts:add-menu:close",
+        title: "Add an investment or ISA",
+        description:
+          "Investment accounts come from a PDF statement. They are valued from the last statement you uploaded, so upload a newer one when you want the value refreshed.",
+      },
+      {
+        id: "accounts-offline",
+        target: "tutorial-add-offline",
+        tooltipSide: "below",
+        iconName: "PiggyBank",
+        color: "#7c3aed",
+        bg: "#f3e8ff",
+        action: "accounts:add-menu:open",
+        cleanup: "accounts:add-menu:close",
+        title: "Offline accounts and pots",
+        description:
+          "Cash, a pot at a bank that cannot connect, anything you track by hand. You set the balance and it counts toward your net worth.",
+      },
+      {
+        id: "accounts-rules",
+        target: "tutorial-offline-rules",
+        fallbackTarget: "tutorial-offline-empty",
+        tooltipSide: "above",
+        iconName: "ArrowLeftRight",
+        color: "#7c3aed",
+        bg: "#f3e8ff",
+        title: "Keep a pot updated on its own",
+        description:
+          "Cash pots do not have to be updated by hand. Add an offline account, then give it a rule, so every matching transfer out of your current account posts into it.",
+      },
+    ],
   },
   {
-    id: "upload-statement",
-    route: "/accounts",
-    target: "tutorial-add-account",
-    tooltipSide: "below",
-    iconName: "Upload",
-    color: "#0891b2",
-    bg: "#cffafe",
-    title: "Upload a Statement",
-    description: "No open banking? Tap + Add, then Statement to upload a CSV instead.",
-    tip: "Works with NatWest, Barclays, HSBC, Monzo and more.",
-  },
-  {
-    id: "view-spending",
+    id: "spend",
+    label: "Spend",
+    blurb: "How categories and corrections work",
     route: "/spend",
-    target: null,
-    tooltipSide: "center",
-    iconName: "PieChart",
-    color: "#0891b2",
-    bg: "#cffafe",
-    title: "View Your Spending",
-    description: "The Spend page breaks down your outgoings by category for the current pay period. Tap any category to see the individual transactions, and tap a transaction to change its category.",
-    tip: "Tap Manage, top right, to set rules that auto-categorise merchants in future.",
+    readyKey: "spend",
+    steps: [
+      {
+        id: "spend-verdict",
+        target: "tutorial-spend-verdict",
+        tooltipSide: "below",
+        iconName: "PieChart",
+        color: "#0891b2",
+        bg: "#cffafe",
+        title: "Where money went",
+        description:
+          "Spend covers the current pay period and compares it against your own usual pace, not a budget you had to set.",
+      },
+      {
+        id: "spend-categories",
+        target: "tutorial-spend-categories",
+        tooltipSide: "above",
+        iconName: "ListChecks",
+        color: "#0891b2",
+        bg: "#cffafe",
+        title: "Open any category",
+        description: "Tap a category to see the transactions inside it, and tap a transaction to see it in full.",
+      },
+      {
+        id: "spend-recategorise",
+        tooltipSide: "center",
+        iconName: "Tag",
+        color: "#7c3aed",
+        bg: "#f3e8ff",
+        title: "Correcting a category",
+        description:
+          "If something landed in the wrong category, open it and change it. Sorted learns from the correction and applies it to that merchant next time.",
+      },
+      {
+        id: "spend-manage",
+        target: "tutorial-spend-manage",
+        tooltipSide: "below",
+        iconName: "Settings",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Money moving between your accounts",
+        description:
+          "Transfers between your own accounts are not spending. This is where Sorted shows what it treated as a transfer, and where you can put it right.",
+      },
+      {
+        id: "spend-periods",
+        target: "tutorial-spend-periods",
+        tooltipSide: "below",
+        iconName: "CalendarClock",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Earlier pay periods",
+        description: "Step back through previous periods to see how this one compares.",
+      },
+    ],
   },
   {
     id: "planning",
+    label: "Planning",
+    blurb: "Goals, allocations and what is still to come",
     route: "/planning",
-    target: null,
-    tooltipSide: "center",
-    iconName: "CalendarClock",
-    color: "#4f46e5",
-    bg: "#e0e7ff",
-    title: "See What's Coming",
-    description: "The Planning tab shows what's left to last the pay period, with the bills still to leave and income still expected before your next one.",
-    tip: "Plan a one-off payment, save toward a big expense, or ask Penny Can I…? for a quick verdict.",
+    readyKey: "planning",
+    steps: [
+      {
+        id: "planning-left",
+        target: "tutorial-planning-left",
+        tooltipSide: "below",
+        iconName: "CalendarClock",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "What is left to last",
+        description:
+          "This is what remains for the rest of the pay period, after the bills still to leave and any income still expected.",
+      },
+      {
+        id: "planning-upcoming",
+        target: "tutorial-planning-upcoming",
+        fallbackTarget: "tutorial-planning-left",
+        tooltipSide: "above",
+        iconName: "Receipt",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "What is still coming",
+        description: "Every bill Sorted expects before your next payday, with the date it usually lands.",
+      },
+      {
+        id: "planning-goals",
+        target: "tutorial-planning-goals",
+        fallbackTarget: "tutorial-planning-plans",
+        tooltipSide: "above",
+        iconName: "Target",
+        color: "#059669",
+        bg: "#d1fae5",
+        title: "Saving toward something",
+        description:
+          "Set what you need and when. Sorted works out whether that pace is realistic and says so plainly when it is not.",
+      },
+      {
+        id: "planning-allocations",
+        target: "tutorial-planning-allocations",
+        fallbackTarget: "tutorial-planning-plans",
+        tooltipSide: "above",
+        iconName: "Coins",
+        color: "#7c3aed",
+        bg: "#f3e8ff",
+        title: "Allocations",
+        description:
+          "An allocation sets money aside each pay period for one category. Whatever you have not spent from it is held back from what is left to last.",
+      },
+      {
+        id: "planning-add",
+        target: "tutorial-planning-add",
+        tooltipSide: "above",
+        iconName: "Plus",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Add one",
+        description: "Goals, allocations and one off payments all start here.",
+      },
+    ],
   },
   {
-    id: "settings-income",
-    route: "/settings",
-    target: "tutorial-income",
-    tooltipSide: "below",
-    iconName: "Settings",
-    color: "#4f46e5",
-    bg: "#ede9fe",
-    title: "Tell Penny your income",
-    description: "Add your income and pension in Settings, Grow and your tax levers personalise from them.",
+    id: "insights",
+    label: "Insights",
+    blurb: "What Sorted noticed, and what to do",
+    route: "/insights",
+    readyKey: "insights",
+    steps: [
+      {
+        id: "insights-hero",
+        target: "tutorial-insights-hero",
+        tooltipSide: "below",
+        iconName: "Lightbulb",
+        color: "#d97706",
+        bg: "#fef3c7",
+        title: "What Sorted noticed",
+        description: "Insights come out of your own data. Each one is something worth acting on, not generic advice.",
+      },
+      {
+        id: "insights-list",
+        target: "tutorial-insights-list",
+        tooltipSide: "above",
+        iconName: "ListChecks",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Work through them",
+        description: "Each one says what it saw and what acting on it would take. Dismiss the ones that are not for you.",
+      },
+      {
+        id: "insights-penny",
+        tooltipSide: "center",
+        iconName: "Sparkles",
+        color: "#4f46e5",
+        bg: "#ede9fe",
+        title: "Ask about any of it",
+        description: "Penny can explain an insight in more detail, or tell you whether a particular spend is affordable.",
+      },
+    ],
   },
 ];
 
-interface TutorialContextType {
+type ActionHandler = () => void | Promise<void>;
+
+interface TutorialContextValue {
   isActive: boolean;
+  flow: TutorialFlow | null;
+  step: TutorialStep | null;
   currentStep: number;
   total: number;
-  step: TutorialStep;
-  start: () => void;
+  startFlow: (flowId: string) => void;
   next: () => void;
   prev: () => void;
   goTo: (n: number) => void;
   end: () => void;
+  // Internal — used by TutorialOverlay/TutorialOffer only, not part of the
+  // documented public useTutorial() contract other pages code against.
+  runAction: (id: string | undefined) => Promise<void>;
+  isReady: (key: string | undefined) => boolean;
+  isReadyNow: (key: string | undefined) => boolean;
+  registerAction: (id: string, fn: ActionHandler) => void;
+  unregisterAction: (id: string, fn: ActionHandler) => void;
+  setReady: (key: string, ready: boolean) => void;
 }
 
-const Ctx = createContext<TutorialContextType | null>(null);
+const Ctx = createContext<TutorialContextValue | null>(null);
+
+function persistSeen(flowId: string) {
+  try {
+    localStorage.setItem(`sorted_tour_seen_${flowId}`, "1");
+    // Legacy key, kept for anything still reading it (e.g. onboarding gate).
+    if (flowId === "first-run") localStorage.setItem("wealth_tutorial_seen", "1");
+  } catch {}
+}
 
 export function TutorialProvider({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
+  const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
-  const navigatingRef = useRef(false);
+  const [readyMap, setReadyMap] = useState<Record<string, boolean>>({});
+  const readyRef = useRef<Record<string, boolean>>({});
+  const actionsRef = useRef<Map<string, ActionHandler>>(new Map());
 
-  const navigateTo = useCallback((n: number) => {
-    const s = TUTORIAL_STEPS[n];
-    if (s?.route) {
-      navigatingRef.current = true;
-      router.push(s.route);
-    }
-    setCurrentStep(n);
-  }, [router]);
+  const flow = activeFlowId ? TUTORIAL_FLOWS.find((f) => f.id === activeFlowId) ?? null : null;
+  const step = flow ? flow.steps[currentStep] ?? null : null;
 
-  const start = useCallback(() => {
+  const registerAction = useCallback((id: string, fn: ActionHandler) => {
+    actionsRef.current.set(id, fn);
+  }, []);
+
+  const unregisterAction = useCallback((id: string, fn: ActionHandler) => {
+    if (actionsRef.current.get(id) === fn) actionsRef.current.delete(id);
+  }, []);
+
+  const runAction = useCallback(async (id: string | undefined) => {
+    if (!id) return;
+    const fn = actionsRef.current.get(id);
+    if (fn) await fn();
+  }, []);
+
+  const setReady = useCallback((key: string, ready: boolean) => {
+    readyRef.current = { ...readyRef.current, [key]: ready };
+    setReadyMap((prev) => (prev[key] === ready ? prev : { ...prev, [key]: ready }));
+  }, []);
+
+  const isReady = useCallback(
+    (key: string | undefined) => (key ? !!readyMap[key] : false),
+    [readyMap]
+  );
+
+  // Ref-backed, stable across renders — safe to read from inside a
+  // long-lived async closure (e.g. TutorialOverlay's polling loop) without
+  // being pulled from the render that captured it.
+  const isReadyNow = useCallback(
+    (key: string | undefined) => (key ? !!readyRef.current[key] : false),
+    []
+  );
+
+  const startFlow = useCallback((flowId: string) => {
+    const f = TUTORIAL_FLOWS.find((fl) => fl.id === flowId);
+    if (!f) return;
+    setActiveFlowId(flowId);
     setCurrentStep(0);
     setIsActive(true);
   }, []);
 
+  const finishFlow = useCallback((flowId: string) => {
+    setIsActive(false);
+    setActiveFlowId(null);
+    persistSeen(flowId);
+  }, []);
+
   const next = useCallback(() => {
-    setCurrentStep(prev => {
-      const n = prev + 1;
-      if (n >= TUTORIAL_STEPS.length) { setIsActive(false); return prev; }
-      const s = TUTORIAL_STEPS[n];
-      if (s?.route) router.push(s.route);
-      return n;
-    });
-  }, [router]);
+    if (!flow || !step) return;
+    const n = currentStep + 1;
+    const nextStep = flow.steps[n];
+    const skipCleanup = !!step.action && nextStep?.action === step.action;
+    if (step.cleanup && !skipCleanup) void runAction(step.cleanup);
+    if (n >= flow.steps.length) {
+      finishFlow(flow.id);
+    } else {
+      setCurrentStep(n);
+    }
+  }, [flow, step, currentStep, runAction, finishFlow]);
 
   const prev = useCallback(() => {
-    setCurrentStep(prev => {
-      const n = prev - 1;
-      if (n < 0) return prev;
-      const s = TUTORIAL_STEPS[n];
-      if (s?.route) router.push(s.route);
-      return n;
-    });
-  }, [router]);
-
-  const goTo = useCallback((n: number) => {
-    const s = TUTORIAL_STEPS[n];
-    if (s?.route) router.push(s.route);
+    if (!flow || !step) return;
+    const n = currentStep - 1;
+    if (n < 0) return;
+    const prevStep = flow.steps[n];
+    const skipCleanup = !!step.action && prevStep?.action === step.action;
+    if (step.cleanup && !skipCleanup) void runAction(step.cleanup);
     setCurrentStep(n);
-  }, [router]);
+  }, [flow, step, currentStep, runAction]);
+
+  const goTo = useCallback(
+    (n: number) => {
+      if (!flow || !step) return;
+      if (n === currentStep || n < 0 || n >= flow.steps.length) return;
+      const destStep = flow.steps[n];
+      const skipCleanup = !!step.action && destStep?.action === step.action;
+      if (step.cleanup && !skipCleanup) void runAction(step.cleanup);
+      setCurrentStep(n);
+    },
+    [flow, step, currentStep, runAction]
+  );
 
   const end = useCallback(() => {
-    setIsActive(false);
-    // Persist so we don't auto-start again on future logins.
-    try { localStorage.setItem("wealth_tutorial_seen", "1"); } catch {}
-  }, []);
+    if (step?.cleanup) void runAction(step.cleanup);
+    if (flow) {
+      finishFlow(flow.id);
+    } else {
+      setIsActive(false);
+      setActiveFlowId(null);
+    }
+  }, [flow, step, runAction, finishFlow]);
 
   // Auto-start the tour when the user just finished onboarding.
   useEffect(() => {
     try {
       if (localStorage.getItem("wealth_tutorial_pending") === "1") {
         localStorage.removeItem("wealth_tutorial_pending");
-        const t = setTimeout(() => { setCurrentStep(0); setIsActive(true); }, 800);
+        const t = setTimeout(() => {
+          setActiveFlowId("first-run");
+          setCurrentStep(0);
+          setIsActive(true);
+        }, 800);
         return () => clearTimeout(t);
       }
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <Ctx.Provider value={{
-      isActive, currentStep, total: TUTORIAL_STEPS.length,
-      step: TUTORIAL_STEPS[currentStep],
-      start, next, prev, goTo, end,
-    }}>
-      {children}
-    </Ctx.Provider>
+  const total = flow ? flow.steps.length : 0;
+
+  const value: TutorialContextValue = useMemo(
+    () => ({
+      isActive,
+      flow,
+      step,
+      currentStep,
+      total,
+      startFlow,
+      next,
+      prev,
+      goTo,
+      end,
+      runAction,
+      isReady,
+      isReadyNow,
+      registerAction,
+      unregisterAction,
+      setReady,
+    }),
+    [
+      isActive,
+      flow,
+      step,
+      currentStep,
+      total,
+      startFlow,
+      next,
+      prev,
+      goTo,
+      end,
+      runAction,
+      isReady,
+      isReadyNow,
+      registerAction,
+      unregisterAction,
+      setReady,
+    ]
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
+/** Public hook — the exact contract other screens code against. */
 export function useTutorial() {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error("useTutorial must be inside TutorialProvider");
+  const { isActive, flow, step, currentStep, total, startFlow, next, prev, goTo, end } = ctx;
+  return { isActive, flow, step, currentStep, total, startFlow, next, prev, goTo, end };
+}
+
+/**
+ * Internal — full context including the action registry and ready map.
+ * Used only by TutorialOverlay.tsx and TutorialOffer.tsx.
+ */
+export function useTutorialInternal(): TutorialContextValue {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("useTutorialInternal must be inside TutorialProvider");
   return ctx;
+}
+
+/**
+ * Registers an imperative handler for a step's `action`/`cleanup` while the
+ * calling component is mounted. Handlers are kept in a ref map keyed by id
+ * so re-registering on every render never leaves a stale closure behind —
+ * the wrapper always calls through to the latest `fn` passed in.
+ */
+export function useTutorialAction(id: string, fn: ActionHandler): void {
+  const ctx = useContext(Ctx);
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  const { registerAction, unregisterAction } = ctx ?? {};
+
+  useEffect(() => {
+    if (!registerAction || !unregisterAction) return;
+    const wrapper: ActionHandler = () => fnRef.current();
+    registerAction(id, wrapper);
+    return () => unregisterAction(id, wrapper);
+  }, [registerAction, unregisterAction, id]);
+}
+
+/**
+ * Page reports whether its own data has loaded. The overlay will not
+ * measure until this is true. Resets to false on unmount so a re-mount
+ * (e.g. after a route push) starts from "not ready" again.
+ */
+export function useTutorialReady(key: string, ready: boolean): void {
+  const ctx = useContext(Ctx);
+  const setReady = ctx?.setReady;
+
+  useEffect(() => {
+    if (!setReady) return;
+    setReady(key, ready);
+  }, [setReady, key, ready]);
+
+  // Unmount-only cleanup. Reads key/setReady through refs so this effect's
+  // own deps ([]) never change, and its cleanup fires exactly once, on
+  // actual unmount, rather than on every provider re-render.
+  const keyRef = useRef(key);
+  keyRef.current = key;
+  const setReadyRef = useRef(setReady);
+  setReadyRef.current = setReady;
+
+  useEffect(() => {
+    return () => {
+      setReadyRef.current?.(keyRef.current, false);
+    };
+  }, []);
 }

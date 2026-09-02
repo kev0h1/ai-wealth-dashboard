@@ -312,7 +312,7 @@ async def _cashflow_window(uid: str) -> dict | None:
 
     Returns None when there's nothing to assess (no cashflow cache yet, or
     no bill this user's balance data can price)."""
-    from app.routers.analytics import _build_cashflow_response, income_credit_ok
+    from app.routers.analytics import _build_cashflow_response, income_credit_ok, is_assessable_bill
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
     from app.services.pay_period import _next_payday as _calc_next_payday
 
@@ -332,19 +332,22 @@ async def _cashflow_window(uid: str) -> dict | None:
     confirmed_result = _get_confirmed_payday(prefs, today_d)
     next_pay = confirmed_result[0] if confirmed_result else _calc_next_payday(today_d, pay_cfg)
     days_to_pay = (next_pay - today_d).days
-    lookahead = 5 if days_to_pay <= 1 else 0  # mirrors companion.py's last-day lookahead
-    window_bills = [b for b in resp["upcoming_bills"] if b["days_away"] <= days_to_pay + lookahead]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= days_to_pay + lookahead]
+    # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
+    # decision — see app/services/pay_period.py's in_current_window
+    # docstring): a bill/income/inflow scheduled ON payday belongs to the
+    # NEXT pay period, not this bills-risk walk. Last-day lookahead
+    # (days_to_pay <= 1) is unchanged, encoded inside the helper.
+    from app.services.pay_period import in_current_window as _in_window
+    window_bills = [b for b in resp["upcoming_bills"] if _in_window(b["days_away"], days_to_pay)]
+    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], days_to_pay)]
+    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], days_to_pay)]
 
     # Same assessability filter as companion.py/analytics.py: no balance
     # data, or a credit card (credit limit, not available balance), must
-    # never enter the walk.
-    assessable_bills = [
-        b for b in window_bills
-        if b.get("account_balance") is not None
-        and b["account_balance"] >= 0
-        and not b.get("is_credit_card")
-    ]
+    # never enter the walk. A genuinely overdrawn current account's own
+    # bills stay assessable — see `is_assessable_bill`'s docstring
+    # (2026-09-01 fix) and its sims-lockstep note.
+    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
     if not assessable_bills:
         return None
 
@@ -363,6 +366,16 @@ async def _cashflow_window(uid: str) -> dict | None:
         acct = str(i.get("account_id") or "")
         if acct in balances and income_credit_ok(i, acct, confirmed_income_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
+    # Mirror internal transfers into their learned destination account, same
+    # as companion.py and analytics.at_risk_count (see
+    # analytics._learn_transfer_destinations). This walk must stay in
+    # lockstep with those two. Only credited to an account the walk already
+    # tracks (`acct in balances`): an inflow must never seed a brand-new
+    # account into the simulation.
+    for n in window_inflows:
+        acct = str(n.get("account_id") or "")
+        if acct in balances:
+            events.append((n["days_away"], acct, float(n["amount"]), True, n))
     events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income same-day, matching companion.py
 
     return {"events": events, "balances": balances, "today": today_d}

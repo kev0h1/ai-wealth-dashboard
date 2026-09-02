@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from calendar import monthrange
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime, timedelta
 from datetime import date as _date
 from typing import List
@@ -23,7 +23,7 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
-    confirmed_transfer_pairs_col,
+    confirmed_transfer_pairs_col, pending_transactions_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
@@ -35,7 +35,10 @@ from app.services.categorisation import (
     _CHANNEL_CODES,
 )
 from app.services.card_rates import is_credit_card_account
-from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT
+from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT
+from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
+from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
+from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
 _ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
@@ -74,7 +77,52 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # (discretionary/commitment/movement) to every `upcoming_bills` entry. All
 # three change which entries appear, what dates they carry, or what fields
 # they have — pre-v5 docs have none of this and must not be served as-is.
-PATTERNS_VERSION = 5
+# v6 widened the evidence window that debit-side recurring detection and
+# own-transfer destination learning read from 90 to 180 days, so a monthly
+# series keeps 5-6 occurrences in view instead of teetering on 3-4 and
+# flipping between detected/undetected or between payday-anchored and
+# naive-interval prediction as the calendar rolls forward one day at a time.
+# Bill series now carry a staleness cutoff (last real occurrence must be
+# recent relative to the series' own cadence) so a genuinely-stopped series
+# stops projecting a fresh next_date forever, and a bill's projected amount
+# now tracks its most recent occurrences instead of averaging across the
+# whole window, so a mid-window price change no longer drags the projection
+# away from the current price. Pre-v6 docs may show a wrong next_date, a
+# wrong avg_amount, or be missing a bill entirely — they must not be served
+# as-is either.
+# v7 added the recurring-judge LLM scrutiny pass (app/services/
+# recurring_judge.py): a trusted-category series that was only accepted
+# because its category is trusted, and would have FAILED the generic
+# interval/amount-stability gate on its own evidence, is now sent to an LLM
+# for a second opinion before it's allowed to project (real case: HSBC
+# "COMP BAL XFR" balance transfers, wildly irregular amounts and gaps,
+# waved through on Transfer being trusted). A vetoed series no longer
+# appears in `recurring_spend`/`upcoming_bills` at all, and the doc now
+# also carries `engine_vetoed_recurring`. Pre-v7 docs were computed without
+# this pass and may still contain a phantom bill it would have caught.
+# v8 taught destination-learning to link a recurring Debt/card-repayment
+# series to the credit-card account its payments land on
+# (`_learn_card_repayment_destinations` — every one of the six card
+# repayments on real data carried `dest_account_id: null` before this,
+# because the general `_learn_transfer_destinations` channel deliberately
+# EXCLUDES credit-card destinations, see its docstring), and uses that link
+# to cap a projected repayment at the card's own outstanding debt, suppress
+# it entirely once the card is in credit, and — for a card whose payment
+# history classifies as a confident full-statement payer, see
+# `_card_repayment_projection` — replace the trailing-mean projection with
+# an estimate of spend since the last observed payment. Pre-v8 docs carry
+# neither the card link nor the adjusted amount/`amount_basis` fields.
+# v9 (2026-08-29) added `bnpl_commitments`: BNPL (Klarna/Clearpay/PayPal
+# Pay-in-3/...) plans reconstructed from debits that `_detect_recurring` now
+# unconditionally excludes from its generic bucket-build (see
+# app/services/bnpl.py — a BNPL instalment's embedded purchase date used to
+# read as a statement date fragment, collapsing every plan into one bucket
+# and letting the 30%-tolerance amount clustering braid instalments from
+# different purchases into a phantom series). Pre-v9 docs carry no
+# `bnpl_commitments` key at all; `_build_cashflow_response` treats that as
+# "nothing to project" rather than misreading absence as an empty list of a
+# newer shape.
+PATTERNS_VERSION = 9
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -258,93 +306,12 @@ async def compute_insights(uid: str) -> List[Insight]:
     return insights[:10]
 
 
-@router.get("/budget/pace-profile")
-async def budget_pace_profile(user: dict = Depends(current_user)):
-    uid        = user["email"]
-    prefs      = await preferences_col.find_one({"user_id": uid}) or {}
-    pay_config = prefs.get("pay_period_config", {"type": "calendar_month"})
-    region     = prefs.get("region", "UK")
-
-    today         = _date.today()
-    kind_map      = await get_category_kinds(uid)  # ONE read per request
-    SAMPLE_POINTS = 20
-    MIN_PERIODS   = 2
-
-    cur_start, _ = get_pay_period_for_date(today, pay_config)
-
-    periods: list[tuple[_date, _date]] = []
-    ps, pe = cur_start, _date.today()
-    for _ in range(6):
-        ps, pe = prev_pay_period(ps, pay_config)
-        periods.append((ps, pe))
-        if ps < _date(2024, 1, 1):
-            break
-
-    if not periods:
-        return {"curves": {}, "sample_points": SAMPLE_POINTS, "periods_analysed": 0}
-
-    earliest_dt = datetime(min(p[0] for p in periods).year, min(p[0] for p in periods).month, min(p[0] for p in periods).day)
-    cutoff_dt   = datetime(cur_start.year, cur_start.month, cur_start.day)
-    proj        = {"date": 1, "amount": 1, "category": 1, "custom_category": 1, "planned": 1, "transaction_type": 1}
-    base_q      = {"user_id": uid, "transaction_type": "debit", "date": {"$gte": earliest_dt, "$lt": cutoff_dt}}
-
-    raw: list[dict] = []
-    if region == "Kenya":
-        for col in [mono_transactions_col, mpesa_transactions_col, statement_transactions_col]:
-            raw.extend(await col.find(base_q, proj).to_list(None))
-    else:
-        raw.extend(await transactions_col.find(base_q, proj).to_list(None))
-        raw.extend(await yapily_transactions_col.find(base_q, proj).to_list(None))
-
-    cat_data: dict[str, list[list[tuple[float, float]]]] = defaultdict(
-        lambda: [[] for _ in range(len(periods))]
-    )
-
-    for tx in raw:
-        if tx.get("planned"):
-            continue
-        cat    = tx.get("custom_category") or tx.get("category") or "Other"
-        if is_non_spend(kind_map, cat):
-            continue
-        amount = abs(float(tx.get("amount", 0) or 0))
-        if amount <= 0:
-            continue
-        try:
-            d       = tx["date"]
-            tx_date = d.date() if isinstance(d, datetime) else _date.fromisoformat(str(d)[:10])
-        except Exception:
-            continue
-        for i, (ps, pe) in enumerate(periods):
-            if ps <= tx_date <= pe:
-                span = max(1, (pe - ps).days)
-                frac = (tx_date - ps).days / span
-                cat_data[cat][i].append((frac, amount))
-                break
-
-    sample_fracs = [i / SAMPLE_POINTS for i in range(SAMPLE_POINTS + 1)]
-    curves: dict[str, list[float]] = {}
-
-    for cat, period_lists in cat_data.items():
-        per_period_curves: list[list[float]] = []
-        for period_txns in period_lists:
-            if not period_txns:
-                continue
-            total = sum(a for _, a in period_txns)
-            if total <= 0:
-                continue
-            per_period_curves.append([
-                sum(a for f, a in period_txns if f <= sf) / total
-                for sf in sample_fracs
-            ])
-        if len(per_period_curves) < MIN_PERIODS:
-            continue
-        n = len(per_period_curves)
-        curves[cat] = [
-            sum(pc[i] for pc in per_period_curves) / n
-            for i in range(len(sample_fracs))
-        ]
-
-    return {"curves": curves, "sample_points": SAMPLE_POINTS, "periods_analysed": len(periods)}
+# "/budget/pace-profile" removed 2026-08-30 (owner decision, option C) — its
+# only caller was frontend/app/budget/BudgetPage.tsx's spend-pacing curve,
+# deleted along with the rest of the zombie /budget page. It never read
+# budgets_col itself (pure transaction-derived pace curves), so nothing was
+# wiped here; it was removed only because its one consumer is gone and an
+# authenticated endpoint with zero callers is a dead API surface.
 
 
 async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[dict]:
@@ -449,7 +416,26 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
     return clusters
 
 
-DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt"]
+# "Transfer" belongs here alongside the other bill-like categories, not as a
+# late add-on: `debits` above is deliberately built WITHOUT a category filter
+# (see the comment there) specifically so a standing order to the user's own
+# savings/another own account counts as a bill that consumes balance. But
+# leaving "Transfer" out of the TRUSTED set meant that inclusion was hollow —
+# a genuinely monthly own-transfer still needed 3 occurrences in the 90-day
+# window to be believed, same bar as an unproven merchant. That bit Kevin for
+# real on 2026-08-27: five monthly standing orders (HSBC/Monzo/NatWest
+# Main/Revolut/Chase, £1,758/£1,106/£910/£20/£50) had exactly 3 occurrences
+# on 2026-08-26 (Apr 24 aged out already, May 29/Jun 26/Jul 31 in view) and
+# vanished from the projection on 2026-08-27 the instant the May 29 midnight
+# occurrence aged past the 90-day cutoff overnight, dropping them to 2 —
+# ONE DAY before their real Aug 28 payday occurrence. Two same-account,
+# same-day-window sibling series (Rainy Day Saver, Foris/Freetrade) survived
+# the exact same overnight cliff untouched only because "Savings" and
+# "Investment" were already trusted at 2 occurrences; "Transfer" was the one
+# category that fell through. Verified empirically (see the reversal-netting
+# check first — it was NOT the cause; all 5 series had zero same-account
+# candidate credits within 5 days at any point).
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
 
 
 def _net_reversals(items: list, credits: list) -> list:
@@ -671,6 +657,22 @@ def _advance_month_to_anchor(d, anchor):
 
 def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: set | None = None, today: _date | None = None, is_income: bool = False, pay_period_config: dict | None = None, confirmed_income: dict | None = None, reversal_credits: list | None = None) -> list[dict]:
     """Group transactions by merchant key and detect those with a regular interval (7–35 days)."""
+    # BNPL guard (unconditional): a Klarna/Clearpay/PayPal-Pay-in-3/etc.
+    # instalment descriptor defeats `series_key` exactly the way a
+    # date-stamped statement line is SUPPOSED to collapse (see
+    # app/services/bnpl.py's module docstring) — its embedded purchase date
+    # reads as a date fragment, so every plan from every purchase collapses
+    # into one bucket, and `_amount_clusters`'s 30% tolerance then braids
+    # instalments from DIFFERENT purchases into fake series. BNPL debits are
+    # excluded from the generic bucket-build entirely, unconditionally, on
+    # every caller of this function, so that braiding can never fire here —
+    # BNPL plans are contractual schedules with a known instalment count,
+    # not a cadence to detect, and get their own reconstruction in
+    # `_compute_cashflow_patterns` (see `build_bnpl_projections`). This is
+    # also what keeps BNPL series out of `recurring_judge` entirely: the
+    # judge only ever sees this function's output.
+    if not is_income:
+        txns = [t for t in txns if not is_bnpl_txn(t)]
     buckets: dict[str, list] = defaultdict(list)
     date_merged_keys: set[str] = set()
     for t in txns:
@@ -710,51 +712,135 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             series.append((key, deduped))
 
     results = []
-    for key, items in series:
-        if len(items) < min_occurrences:
-            continue
-        dates = sorted(t["date"] for t in items)
-        intervals = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
-        avg_interval = sum(intervals) / len(intervals)
-        if avg_interval < 6 or avg_interval > 35:
+    for key, all_items in series:
+        if len(all_items) < min_occurrences:
             continue
 
-        # A two-occurrence series with sub-monthly spacing is exactly the
-        # signature of a bounced direct debit + its retry (or an ingestion
-        # duplicate) — reject before either acceptance tier (trusted-category
-        # or generic) can wave it through as a weekly/biweekly pattern.
-        # Genuine weekly/biweekly cadences must prove themselves with >= 3
-        # occurrences; a genuine monthly 2-occurrence trusted series (interval
-        # >= 21) is unaffected.
-        if len(items) == 2 and avg_interval < 21:
+        # Try the full occurrence set first; if it fails an acceptance gate
+        # below, retry on the trailing subset with the OLDEST occurrence
+        # dropped, repeating down to min_occurrences. WHY (2026-08-27): with
+        # the debit-detection window now 180 days wide (see
+        # `_compute_cashflow_patterns`), an old transaction that merely
+        # shares a merchant key with a genuinely-recurring series -- a
+        # one-off purchase, a different card product under the same
+        # statement text -- can drag the whole-window mean interval, or the
+        # tolerance check below, outside the acceptance gate even though the
+        # RECENT occurrences are cleanly regular. Real case: Kevin's
+        # "PLAYSTATION LONDON" reads as an 80-day gap from an unrelated
+        # March purchase into its actual clean monthly run from June
+        # onward -- on the full 4-point set that drags avg_interval to 47
+        # (over the 35-day ceiling) and silently delists a subscription
+        # that is still charging monthly today. Retrying on the trailing
+        # subset recovers exactly what the OLD 90-day window already saw
+        # for a series like this (the stale outlier was never inside a
+        # 90-day load in the first place), so this only ever rescues a
+        # series the previous window's narrower load already trusted; it
+        # is a no-op for the overwhelming majority, whose full point set
+        # already passes on the first try.
+        items = sorted(all_items, key=lambda t: t["date"])
+        gate = None
+        while len(items) >= min_occurrences:
+            dates = sorted(t["date"] for t in items)
+            intervals = [(dates[i + 1] - dates[i]).days for i in range(len(dates) - 1)]
+            avg_interval = sum(intervals) / len(intervals)
+            if avg_interval < 6 or avg_interval > 35:
+                items = items[1:]
+                continue
+
+            # A two-occurrence series with sub-monthly spacing is exactly the
+            # signature of a bounced direct debit + its retry (or an ingestion
+            # duplicate) — reject before either acceptance tier (trusted-category
+            # or generic) can wave it through as a weekly/biweekly pattern.
+            # Genuine weekly/biweekly cadences must prove themselves with >= 3
+            # occurrences; a genuine monthly 2-occurrence trusted series (interval
+            # >= 21) is unaffected.
+            if len(items) == 2 and avg_interval < 21:
+                items = items[1:]
+                continue
+
+            # Majority category for the bucket — carried through so the UI can
+            # show the real category icon instead of a generic dot.
+            cats = [(t.get("custom_category") or t.get("category") or "Other") for t in items]
+            bucket_cat = max(set(cats), key=cats.count)
+
+            # Two-tier evidence: bill-like categories are trusted at 2 occurrences;
+            # everything else must prove a cadence — 3+ hits, regular intervals,
+            # stable amounts. (trusted_categories=None disables tiers, e.g. income.)
+            # `gate_failure_reason` is the ONE copy of these thresholds — shared
+            # with app/services/recurring_judge.py's suspect-selection so the two
+            # can never drift into different bars (see that module's docstring).
+            is_trusted_tier = trusted_categories is not None and bucket_cat in trusted_categories
+            if trusted_categories is not None and not is_trusted_tier:
+                if gate_failure_reason(items, intervals, avg_interval):
+                    items = items[1:]
+                    continue
+                trusted_bypass_reason = None
+            elif is_trusted_tier:
+                # Accepted on category trust alone — record whether it would
+                # ALSO have cleared the generic gate on its own evidence. A
+                # non-None reason here is exactly what makes a series SUSPECT
+                # (see recurring_judge.is_suspect): trusted enough to detect,
+                # not proven enough to skip a second, LLM opinion.
+                trusted_bypass_reason = gate_failure_reason(items, intervals, avg_interval)
+            else:
+                trusted_bypass_reason = None  # trusted_categories=None (income): tiers disabled
+
+            gate = (items, dates, intervals, avg_interval, bucket_cat, trusted_bypass_reason)
+            break
+        if gate is None:
             continue
+        items, dates, intervals, avg_interval, bucket_cat, trusted_bypass_reason = gate
 
-        # Majority category for the bucket — carried through so the UI can
-        # show the real category icon instead of a generic dot.
-        cats = [(t.get("custom_category") or t.get("category") or "Other") for t in items]
-        bucket_cat = max(set(cats), key=cats.count)
-
-        # Two-tier evidence: bill-like categories are trusted at 2 occurrences;
-        # everything else must prove a cadence — 3+ hits, regular intervals,
-        # stable amounts. (trusted_categories=None disables tiers, e.g. income.)
-        if trusted_categories is not None:
-            if bucket_cat not in trusted_categories:
-                if len(items) < 3:
-                    continue
-                tolerance = max(3.0, avg_interval * 0.2)
-                if any(abs(iv - avg_interval) > tolerance for iv in intervals):
-                    continue
-                amounts = sorted(abs(float(t.get("amount", 0))) for t in items)
-                median = amounts[len(amounts) // 2]
-                if median <= 0 or any(abs(a - median) > median * 0.3 for a in amounts):
-                    continue
-
-        avg_amount = sum(abs(float(t.get("amount", 0))) for t in items) / len(items)
         # Normalise to date objects — MongoDB stores dates as datetime, which
         # breaks comparisons against _today (a date) and .replace() calls below.
         _d2date = lambda d: d.date() if isinstance(d, datetime) else d
         last_date  = _d2date(dates[-1])
         _today = today or _date.today()
+
+        # A genuinely-stopped series (e.g. a cancelled gym membership last
+        # paid four months ago) would otherwise keep getting a fresh
+        # next_date projected forward forever now that the debit window is
+        # 180 days wide, because the occurrences that prove it once existed
+        # are still inside the load even though the real-world activity
+        # ended months ago. This is a different mechanism from
+        # PENDING_GIVE_UP_DAYS: that machinery only retires a single late
+        # OCCURRENCE inside the forward-looking window once nothing gets
+        # observed for it (see `_occurrences`'s include_past_due check and
+        # the give-up line in `_build_cashflow_response`); it never stops
+        # THIS function from generating a brand-new future next_date for a
+        # series whose most recent real occurrence is long gone. The guard
+        # below only lets a series keep projecting when its most recent
+        # occurrence is recent relative to its own cadence: two cycles, or
+        # 45 days, whichever is larger. The 45-day floor gives a monthly
+        # bill enough grace that one late or skipped cycle isn't misread as
+        # "stopped". Income is exempt because its window stays 90 days, so a
+        # dead income stream simply has no occurrences left in view to ever
+        # reach this function.
+        if not is_income and (_today - last_date).days > max(2 * avg_interval, 45):
+            continue
+
+        # Amounts of the most recent (up to) 3 occurrences. Used below to
+        # keep a bill's projected amount tracking what it costs now rather
+        # than a full-window average (cadence and anchor still benefit from
+        # every point the wider 180-day window provides, but a price change
+        # partway through that window shouldn't drag the projected amount
+        # away from the current price), and also by income_credit_ok to
+        # judge whether a prediction is stable enough for per-account
+        # planning arithmetic.
+        amounts_recent = [
+            round(abs(float(_t.get("amount", 0))), 2)
+            for _t in sorted(items, key=lambda t: t["date"])[-3:]
+        ]
+        # Income keeps the full-window mean (its window stays 90 days, at
+        # most 3-4 points, deliberately unperturbed by this change). Bills
+        # use the recent-occurrence mean instead; this is a no-op for any
+        # series with 3 or fewer occurrences (amounts_recent is just all of
+        # them) and only changes behaviour for series with 4+ occurrences.
+        avg_amount = (
+            sum(abs(float(t.get("amount", 0))) for t in items) / len(items)
+            if is_income
+            else sum(amounts_recent) / len(amounts_recent)
+        )
         _grace = timedelta(days=0 if is_income else PENDING_GIVE_UP_DAYS)
         _config = pay_period_config or {"type": "calendar_month"}
 
@@ -799,8 +885,32 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                 # Ensure it's strictly after today (minus grace for bills)
                 while next_date <= _today - _grace:
                     next_date += timedelta(days=14)
-            elif 26 <= avg_interval <= 33:
-                # Monthly — anchor to day-of-month (existing logic)
+            elif 26 <= avg_interval <= 35:
+                # Monthly — anchor to day-of-month (existing logic).
+                #
+                # Upper bound raised from 33 to 35 on 2026-08-27. A weekday-
+                # anchored monthly bill (e.g. "last Friday of the month",
+                # see `_monthly_anchor`) genuinely spans up to 35 calendar
+                # days between consecutive occurrences, not just the
+                # ~28-31 days a fixed-day-of-month bill sees. With 3+
+                # occurrences in view that variance averages out comfortably
+                # inside the old 26-33 band (Kevin's own last-Friday STOs
+                # averaged 31.5 over Jun/Jul), but the day BEFORE a payday,
+                # the 90-day window can hold only the newest 2 occurrences,
+                # and 2 points give a single raw interval with nothing to
+                # average against — for these series that single interval is
+                # exactly 35, one day outside the old band. Missing this
+                # branch didn't just blur the projected date, it pushed the
+                # mirrored internal-inflow credit (see `internal_inflows`)
+                # a further week out than the naive `else` branch below
+                # would predict, past the at-risk walk's payday-window
+                # cutoff, so HSBC/NatWest/Monzo read as short again even
+                # after the trusted-category fix restored detection. 35 is
+                # not an arbitrary widening: it already IS this function's
+                # own outer acceptance ceiling (see the `avg_interval > 35`
+                # rejection above), so nothing that reaches this branch was
+                # ever excluded from being "monthly" in the first place,
+                # it was just being routed to the dumber fallback below.
                 if is_income and _config.get("type", "calendar_month") != "calendar_month":
                     # Income with a determinate payday: use pay period config
                     from app.services.pay_period import _next_payday
@@ -842,13 +952,6 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             max(_acct_counts, key=lambda a: (_acct_counts[a], 1 if a == _recent_acct else 0))
             if _acct_counts else None
         )
-        # Amounts of the most recent (up to) 3 occurrences — used by
-        # income_credit_ok to judge whether a prediction is stable enough
-        # for per-account planning arithmetic.
-        amounts_recent = [
-            round(abs(float(_t.get("amount", 0))), 2)
-            for _t in sorted(items, key=lambda t: t["date"])[-3:]
-        ]
         results.append({
             "key":          key,
             "avg_interval": round(avg_interval, 1),
@@ -860,6 +963,16 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             "account_id":   attributed_acct,
             "amounts_recent": amounts_recent,
             "category":     bucket_cat,
+            # Non-serialised extras consumed only by app.services.recurring_judge
+            # — `_serialise_pattern` never copies these into the cached doc, so
+            # they add no persisted shape. `trusted_bypass_reason` is what makes
+            # a series SUSPECT (see recurring_judge.is_suspect); occurrences_detail
+            # is the raw per-occurrence evidence a judge (or a human) would want.
+            "trusted_bypass_reason": trusted_bypass_reason,
+            "occurrences_detail": [
+                {"date": _d2date(_t["date"]).isoformat(), "amount": round(abs(float(_t.get("amount", 0))), 2)}
+                for _t in sorted(items, key=lambda t: t["date"])
+            ],
         })
     return results
 
@@ -895,57 +1008,697 @@ def income_credit_ok(item: dict, account_id: str, confirmed_keys: set | frozense
     return max(amts) / min(amts) <= 1.5
 
 
+def is_assessable_bill(b: dict) -> bool:
+    """True when `b` (an `upcoming_bills` entry from `_build_cashflow_
+    response`) carries enough real balance data to enter a running-balance
+    shortfall walk.
+
+    Excludes exactly two shapes, and no others:
+      - no balance data at all (`account_balance is None` — the bill's
+        account isn't in this user's own linked-account map, e.g. removed
+        or currency-filtered).
+      - a credit card (`is_credit_card`, computed fresh per request via
+        `is_credit_card_account` inside `_build_cashflow_response`'s
+        `account_map` — never a stale stored flag) — a credit limit is not
+        an available balance to walk.
+
+    Deliberately does NOT exclude a genuinely NEGATIVE `account_balance` on
+    a real current/savings (debit) account. Bug fix, 2026-09-01 (owner,
+    verbatim: "the Barclays account is short and it still has bills to
+    cover, I thought that when the account is in a deficit penny would make
+    a suggestion to cover the deficit and also the bills"): the previous
+    filter also required `account_balance >= 0`, which silently dropped
+    EVERY bill on an already-overdrawn current account from the shortfall
+    walk. That starved step 1 of `compute_today_items` of the bill-backed
+    route entirely, leaving only the narrow overdraft-only fallback
+    (`_overdraft_deficits` / `_shortfall_for_destination`'s "clear to £0 +
+    next bill in-window" branch, per the 2026-08-24 doctrine) — which sizes
+    off the live deficit ALONE and has no way to see the bills days away.
+    An overdrawn debit account's own bills must stay assessable so the walk
+    can size a move that covers the deficit AND the bills together, the
+    same needs arithmetic any short account gets (the negative starting
+    balance simply enters `_walk_events` as the seed — no special-cased sum
+    required, see that function's docstring).
+
+    SIMS-LOCKSTEP: this predicate is the single source of truth for three
+    independent `assessable_bills` filters that must agree byte-for-byte —
+    `companion.compute_today_items`, this module's `at_risk_count`, and
+    `spend_impact._cashflow_window` (mirrors `_walk_events` sharing the same
+    discipline: one shared implementation, not three hand-copies that can
+    drift). Edit assessability rules HERE, never at a call site.
+    """
+    return b.get("account_balance") is not None and not b.get("is_credit_card")
+
+
+def _account_pool_kind(acc: dict) -> str | None:
+    """Which pool `acc` structurally belongs to, by currency/type/subtype
+    alone, independent of its current balance:
+      - GBP-only (currency in {"GBP", ""}); anything else -> None (excluded)
+      - type or subtype contains "credit" (case-insensitive) -> None
+        (a credit card is a limit, not cash, and belongs to neither pool)
+      - subtype contains "saving" (case-insensitive) -> "savings"
+      - everything else -> "spendable" (accounts with no subtype and no
+        credit marker fall back to spendable, so the figure is never
+        silently zero -- covers e.g. Mono accounts, which don't populate
+        subtype today)
+
+    Pulled out of `_split_balances` so `_learn_transfer_destinations` can
+    classify an inflow's DESTINATION account against the exact same rule
+    without copy-pasting it into a second place where the two could drift.
+    Balance sign is deliberately NOT part of this predicate -- whether an
+    account counts as "spendable" right now (bal >= 0) is a balance-figure
+    concern specific to `_split_balances`'s totals, not a question of which
+    pool the account is structurally a member of.
+    """
+    if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
+        return None
+    subtype = (acc.get("subtype") or "").lower()
+    acc_type = (acc.get("type") or "").lower()
+    if "credit" in acc_type or "credit" in subtype:
+        return None
+    if "saving" in subtype:
+        return "savings"
+    return "spendable"
+
+
 def _split_balances(accs: list[dict]) -> tuple[float, float]:
     """Split live account balances into (spendable_cash, savings_total).
 
     Mirrors compute_safe_to_spend's (the Home Safe-to-Spend hero) account
     classification rules exactly, so every surface that shows "spendable
-    cash" agrees with every other and can never silently diverge:
-      - GBP-only (currency in {"GBP", ""})
-      - subtype contains "saving" (case-insensitive) -> savings account,
-        summed into savings_total (only positive balances)
-      - type or subtype contains "credit" (case-insensitive) -> credit
-        card, excluded from both buckets
-      - negative balances excluded from both buckets (the hero tracks these
-        separately as card/overdraft debt; see compute_safe_to_spend)
-      - accounts with no subtype and no credit marker fall back to
-        spendable, so the figure is never silently zero (covers e.g. Mono
-        accounts, which don't populate subtype today)
+    cash" agrees with every other and can never silently diverge. Pool
+    membership itself (GBP-only, not a credit card, savings-subtype or not)
+    is `_account_pool_kind`, above; this function adds the one rule that is
+    specific to a balance TOTAL rather than pool membership: negative
+    balances are excluded from both buckets (the hero tracks these
+    separately as card/overdraft debt; see compute_safe_to_spend).
     """
     spendable = 0.0
     savings = 0.0
     for acc in accs:
-        if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
+        pool = _account_pool_kind(acc)
+        if pool is None:
             continue
         bal = float(acc.get("balance") or 0)
         if bal < 0:
             continue
-        subtype = (acc.get("subtype") or "").lower()
-        acc_type = (acc.get("type") or "").lower()
-        if "credit" in acc_type or "credit" in subtype:
-            continue
-        if "saving" in subtype:
+        if pool == "savings":
             savings += bal
-            continue
-        spendable += bal
+        else:
+            spendable += bal
     return round(spendable, 2), round(savings, 2)
+
+
+# Tokens generic enough to appear in almost any UK current or savings
+# account label ("HSBC Current Account", "Barclays Everyday Saver", "Chase
+# Personal Account") and so would confer false name-affinity with nearly
+# every debit description if left in `_affinity_tokens`' token set. A named
+# module-level constant, not inline literals, so the exclusion list is
+# auditable in one place and easy to extend when a new generic word turns
+# up. "savings"/"saving"/"saver" are excluded together because a debit
+# description naming ANY savings pot would otherwise look like it has
+# affinity with EVERY savings pot; "premier"/"classic"/"everyday" are
+# marketing tiers that show up across unrelated providers; "banking"/
+# "limited" show up in provider legal names generically.
+_GENERIC_ACCOUNT_AFFINITY_TOKENS: frozenset = frozenset({
+    "account", "accounts", "current", "savings", "saving", "saver",
+    "personal", "premier", "classic", "everyday", "banking", "limited",
+})
+
+
+def _normalise_for_affinity(text: str) -> str:
+    """Lowercase and blank out punctuation so e.g. "Chase UK" and "KEVIN
+    MAINGI CHASEACCOUNT STO" tokenise and substring-match the same way
+    regardless of how either side happens to be punctuated."""
+    return re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+
+
+def _affinity_tokens(acct: dict) -> set[str]:
+    """Distinctive tokens (5+ chars, not in the generic exclusion list)
+    drawn from a destination account's `provider` and `name`. The 5-char
+    floor exists to keep short incidental fragments (e.g. "isa", "acc")
+    from conferring affinity by coincidence; real bank/provider names clear
+    it comfortably ("chase", "hsbc" is the one common exception this rule
+    accepts missing -- see `_has_affinity`'s docstring).
+    """
+    blob = f"{acct.get('provider') or ''} {acct.get('name') or ''}"
+    words = _normalise_for_affinity(blob).split()
+    return {w for w in words if len(w) >= 5 and w not in _GENERIC_ACCOUNT_AFFINITY_TOKENS}
+
+
+def _has_affinity(debit_description: str, dest_acct: dict) -> bool:
+    """Whether `dest_acct` (the account a CONTENDED credit landed on) is
+    plausibly the account a debit with this description was actually headed
+    for: true when one of the account's distinctive provider/name tokens
+    appears as a SUBSTRING of the normalised description (e.g. "chase"
+    inside "kevin maingi chaseaccount sto"). Substring rather than an
+    exact-token match on purpose: real bank feeds glue words together with
+    no separator ("chaseaccount", "hsbcmain"), so an exact-token match would
+    silently miss the exact descriptions this rule exists to catch.
+
+    Only called when a credit is CONTENDED by more than one series (see
+    `_learn_transfer_destinations`); uncontended matches never reach this
+    function; a real destination like "KEVIN MAINGI HSBC STO" that happens
+    to share no token with "HSBC" ever gets here at all unless something
+    else is also trying to claim the same credit.
+    """
+    desc = _normalise_for_affinity(debit_description)
+    return any(tok in desc for tok in _affinity_tokens(dest_acct))
+
+
+def _tx_day(t: dict):
+    d = t.get("date")
+    return d.date() if hasattr(d, "date") else d
+
+
+def _tx_amt(t: dict) -> float:
+    return abs(float(t.get("amount") or 0))
+
+
+def _tx_sort_key(t: dict):
+    # Deterministic across runs: date, then largest amount first, then
+    # account/_id as a final tiebreak, so two candidates tied on date+amount
+    # always resolve to the same match rather than whatever order Mongo
+    # happened to hand documents back in this time. Shared by both
+    # `_learn_transfer_destinations` and `_learn_card_repayment_destinations`
+    # so their candidate pools sort identically.
+    return (_tx_day(t), -_tx_amt(t), str(t.get("account_id") or ""), str(t.get("_id") or ""))
+
+
+def _match_transfer_votes(candidate_debits: list[dict], candidate_credits: list[dict], account_map: dict) -> dict[str, list]:
+    """Three-pass, collision-aware matcher shared by `_learn_transfer_destinations`
+    (own-account transfer legs) and `_learn_card_repayment_destinations` (card
+    repayment debits -> the credit landing on the card being paid off). Both
+    callers build their own DIRECTION-SPECIFIC candidate pools (which
+    destinations are even eligible differs: one excludes credit-card
+    destinations entirely, the other requires one), already sorted with
+    `_tx_sort_key`, then hand them here so the actual pairing logic — byte-
+    identical description, same-day same-amount, and the loosened +/-1 day /
+    1% tolerance pass, plus the name-affinity collision resolution — exists
+    in exactly one place rather than risking a second, subtly different,
+    implementation. See `_learn_transfer_destinations`'s docstring for the
+    full rationale (collision handling, why a single loose match is never
+    trusted alone); this function only implements it. Callers, and the
+    evidence gate below (`_gate_destination_votes`), decide who is even
+    eligible and how many matches are enough.
+
+    Returns `{series_key(debit): [dest_account_id, ...]}` — one vote per
+    matched debit occurrence.
+    """
+    consumed_debits: set = set()
+    consumed_credits: set = set()
+    votes: dict[str, list] = defaultdict(list)
+
+    def _contending_series(c: dict, predicate) -> dict:
+        """Every series (by `series_key`, mapped to one representative
+        unconsumed debit) that could legitimately claim credit `c` under
+        THIS pass's predicate right now. Used to detect collisions before a
+        credit is consumed -- see the collision-handling paragraph in
+        `_learn_transfer_destinations`'s docstring. Recomputed fresh per
+        credit per call (not cached across the pass) because consumption
+        shrinks the unconsumed pool as the pass proceeds, so what counted
+        as a collision earlier in the pass may no longer be one later.
+        """
+        reps: dict = {}
+        for cd in candidate_debits:
+            if id(cd) in consumed_debits:
+                continue
+            if str(cd.get("account_id")) == str(c.get("account_id")):
+                continue
+            if not predicate(cd, c):
+                continue
+            key = series_key(cd)
+            if key not in reps:
+                reps[key] = cd
+        return reps
+
+    def _run_pass(predicate) -> None:
+        for d in candidate_debits:
+            d_id = id(d)
+            if d_id in consumed_debits:
+                continue
+            for c in candidate_credits:
+                c_id = id(c)
+                if c_id in consumed_credits:
+                    continue
+                if str(c.get("account_id")) == str(d.get("account_id")):
+                    continue  # a transfer must land on a DIFFERENT own account
+                if not predicate(d, c):
+                    continue
+                contenders = _contending_series(c, predicate)
+                if len(contenders) > 1:
+                    # More than one unrelated series could legitimately claim
+                    # this credit. Resolve by name affinity to the credit's
+                    # own destination account rather than by whichever debit
+                    # happens to sort first (see docstring above for why an
+                    # arbitrary tiebreak is not acceptable here).
+                    dest_acct = account_map.get(str(c.get("account_id"))) or {}
+                    affine = [k for k, rep in contenders.items()
+                              if _has_affinity(rep.get("description") or "", dest_acct)]
+                    if len(affine) != 1:
+                        # Nobody has a legible claim, or more than one does:
+                        # fail closed. No series consumes this credit this
+                        # pass, so nothing is learned from it -- a missed
+                        # match is the acceptable failure mode here, a wrong
+                        # one is not.
+                        continue
+                    if series_key(d) != affine[0]:
+                        # This credit belongs to a different contending
+                        # series; leave it for that series' own occurrence
+                        # to claim (later in this same pass), don't let `d`
+                        # take it just because it got here first.
+                        continue
+                consumed_debits.add(d_id)
+                consumed_credits.add(c_id)
+                key = series_key(d)
+                if key:
+                    votes[key].append(str(c.get("account_id")))
+                break  # this debit occurrence is spoken for, move to the next debit
+    # Pass 0 (highest confidence): byte-identical description, mirroring
+    # categorisation.py Pass 2's own sync-time rule. Anything that matcher
+    # would already have caught is caught here too, so this channel is a
+    # strict superset of it, never a regression.
+    _run_pass(lambda d, c: _byte_desc_key(d) == _byte_desc_key(c)
+              and abs(_tx_amt(d) - _tx_amt(c)) < 0.02
+              and abs((_tx_day(c) - _tx_day(d)).days) <= 5)
+    # Pass 1: same amount, same calendar date. The common real-world case
+    # (e.g. "KEVIN MAINGI HSBC STO" vs "MAINGI K M HSBC") where the two legs
+    # simply read differently but post on the same day for the same amount.
+    _run_pass(lambda d, c: abs(_tx_amt(d) - _tx_amt(c)) <= 0.02 and _tx_day(c) == _tx_day(d))
+    # Pass 2: loosen the date to +/-1 day and the amount tolerance to 1% of
+    # the debit (a flat 2p tolerance is too strict against rounding on
+    # larger transfers). This is the weakest pass, which is exactly why the
+    # evidence gate below never trusts a single loose match alone.
+    _run_pass(lambda d, c: abs(_tx_amt(d) - _tx_amt(c)) <= max(0.02, 0.01 * _tx_amt(d))
+              and abs((_tx_day(c) - _tx_day(d)).days) <= 1)
+    return votes
+
+
+def _gate_destination_votes(votes: dict[str, list], account_map: dict) -> dict[str, dict]:
+    """Evidence gate shared by both destination-learning channels: a single
+    unrepeated match is exactly as likely to be a coincidence (two unrelated
+    transfers of the same round amount landing the same day) as a real
+    recurring destination, so require the series to have matched at least
+    twice, AND for the destination it lands on to be consistent — the modal
+    destination must cover at least two thirds of the series' matches.
+    Mirrors the conservatism of this file's other evidence gate for
+    cross-account pairing (`_has_pair_evidence`, used by
+    `_transfer_pair_suggestions`).
+    """
+    dest_by_key: dict[str, dict] = {}
+    for key, matched_accounts in votes.items():
+        if len(matched_accounts) < 2:
+            continue
+        counts = Counter(matched_accounts)
+        modal_acct, modal_count = counts.most_common(1)[0]
+        if modal_count / len(matched_accounts) < (2 / 3):
+            continue
+        acct = account_map.get(modal_acct)
+        if not acct:
+            continue
+        dest_by_key[key] = {
+            "dest_account_id":   modal_acct,
+            "dest_account_name": acct["name"],
+            "dest_account_bank": acct.get("provider"),
+            # Whether the destination is inside the SPENDABLE pool (see
+            # `_account_pool_kind`). A savings-subtype destination is still
+            # learned and still mirrored below -- the per-account walk
+            # genuinely receives that money and needs to know it -- but a
+            # POOLED consumer (spendable_balance) must not net the inflow
+            # against a pool that structurally never contained that account.
+            "dest_account_spendable": bool(acct.get("is_spendable")),
+            # Live balance at compute time. Unused by `_learn_transfer_destinations`'s
+            # own callers, but `_learn_card_repayment_destinations` needs it
+            # for the projection cap (`_card_repayment_projection`) and
+            # carrying it here means neither channel needs a second
+            # account_map lookup later for it.
+            "dest_account_balance": acct.get("balance"),
+        }
+    return dest_by_key
+
+
+def _learn_transfer_destinations(raw: list[dict], account_map: dict, kind_map) -> dict[str, dict]:
+    """Learn each recurring MOVEMENT debit series' destination account, by
+    greedily pairing it against MOVEMENT credits landing on the user's other
+    own accounts.
+
+    This exists because the cashflow projection would otherwise be
+    asymmetric about the user's own internal transfers: an outbound
+    standing order to the user's own savings account is projected as a bill
+    (it consumes balance on the source account, so it belongs in the walk,
+    see the `debits` comment in `_compute_cashflow_patterns`), but nothing
+    mirrors the matching inbound credit on the DESTINATION account, so that
+    account's own simulation never sees the money it is actually about to
+    receive and can be falsely reported short. Description matching alone
+    (categorisation.py Pass 2's byte-identical rule) misses most real
+    pairs, since the two legs of one transfer routinely read differently
+    ("KEVIN MAINGI HSBC STO" debit vs "MAINGI K M HSBC" credit, same day,
+    same amount), so this runs its own, more permissive three-pass match
+    and then demands repeat evidence before trusting the result (see the
+    evidence gate below). `confirmed_transfer_pairs_col` (the sync-time
+    learned-pair table) is not consulted here on purpose: that table
+    relabels a single transaction's CATEGORY by description match, so it
+    would miss exactly the pairs this function exists for.
+
+    Collision handling: two unrelated recurring transfers can be the same
+    amount on the same date (e.g. two different standing orders that both
+    move a round £50 on payday) and so both become candidates for the SAME
+    credit within one pass. Picking whichever one happens to sort first
+    would be an arbitrary guess dressed up as a match, and a wrong guess
+    here is worse than no match at all: it would mean mirroring money into
+    an account it never actually reached. So before a credit is consumed,
+    `_run_pass` checks whether more than one series could legitimately
+    claim it and, if so, resolves the collision by name affinity
+    (`_has_affinity`) between each contending series' description and the
+    credit's own destination account. If affinity picks out exactly one
+    series, that series wins the credit. If it picks out none, or more than
+    one, the credit is left unconsumed by everyone this pass, failing
+    closed rather than guessing. Uncontended credits (the overwhelming
+    majority) are entirely unaffected by any of this.
+
+    Returns `{series_key(debit): {"dest_account_id", "dest_account_name",
+    "dest_account_bank", "dest_account_spendable"}}`. A series absent from
+    the result has no learned destination, either it never matched with
+    enough repeat evidence, or
+    every candidate credit it could have matched was already claimed by a
+    more confident pass or an earlier debit occurrence.
+    """
+    def _kind(t: dict) -> str:
+        return kind_of(kind_map, t.get("custom_category") or t.get("category"))
+
+    candidate_debits = sorted(
+        (t for t in raw
+         if t.get("transaction_type") == "debit"
+         and _kind(t) == MOVEMENT
+         and str(t.get("account_id") or "") in account_map),
+        key=_tx_sort_key,
+    )
+    # Credit-card destinations are excluded up front. The simulations this
+    # feeds never treat a credit card's balance as spendable cash (it's a
+    # credit limit, not cash on hand; same exclusion as every other walk in
+    # this file), so learning one as a destination would only be dead
+    # weight nothing downstream would ever use. Card-repayment destinations
+    # are learned separately, by the mirror-image sibling below.
+    candidate_credits = sorted(
+        (t for t in raw
+         if t.get("transaction_type") == "credit"
+         and _kind(t) == MOVEMENT
+         and str(t.get("account_id") or "") in account_map
+         and not account_map[str(t.get("account_id"))]["is_credit_card"]),
+        key=_tx_sort_key,
+    )
+    votes = _match_transfer_votes(candidate_debits, candidate_credits, account_map)
+    return _gate_destination_votes(votes, account_map)
+
+
+def _learn_card_repayment_destinations(raw: list[dict], account_map: dict, kind_map) -> dict[str, dict]:
+    """Learn each recurring Debt/card-repayment debit series' destination
+    CREDIT CARD account — the mirror image of `_learn_transfer_destinations`
+    just above, which deliberately EXCLUDES credit-card destinations because
+    a card balance isn't spendable cash. Nothing today links a card
+    repayment to the card it pays off at all: on real data every one of six
+    recurring card-repayment series carries `dest_account_id: null`, purely
+    because the matching credit lands on a credit-card account and the
+    general channel throws exactly that kind of credit away by design.
+    Manual amount+date inspection resolves all six cleanly (each payment
+    debit has a same-date, same-amount credit on exactly one credit-card
+    account) — this function automates that.
+
+    Reuses `_learn_transfer_destinations`'s own matching engine
+    (`_match_transfer_votes`) and evidence gate (`_gate_destination_votes`)
+    verbatim; only the CANDIDATE POOLS differ. Candidate debits are the same
+    MOVEMENT-kind pool `_learn_transfer_destinations` uses (the "Debt"
+    category is itself MOVEMENT-kind, see categories.py's
+    BUILTIN_CATEGORY_KINDS, so no separate category filter is needed here).
+    Candidate credits are restricted to landing on a credit-card account
+    instead of excluded from doing so. Two consequences worth being
+    explicit about:
+
+    1. A current-account destination (e.g. "KEVIN MAINGI CREDIT VIA MOBILE
+       - PY", which matches a same-day same-amount credit into the user's
+       own Premier CURRENT account, not a card) is NEVER linked here — the
+       credit pool structurally excludes it, so that series stays unlinked
+       exactly as before this function existed.
+    2. This result is intentionally NEVER merged into
+       `_learn_transfer_destinations`'s own `dest_account_id` field. That
+       field feeds `internal_inflows` (see the two read sites in
+       `_build_cashflow_response`, both gated on `r.get("dest_account_id")`
+       plus a MOVEMENT-kind check), which mirrors an outbound bill as an
+       INBOUND credit on its destination account for the per-account
+       balance walks. A card is not a spendable destination and must never
+       receive a mirrored inflow — so this function's result is carried on
+       separate `card_dest_*` fields (see `_serialise_pattern`) that
+       `internal_inflows` never reads, checked directly: neither of its two
+       call sites references `card_dest_account_id` at all.
+
+    Same evidence gate, same collision handling, same return shape as
+    `_learn_transfer_destinations` (plus `dest_account_balance`, the card's
+    live balance at compute time — used by the projection cap, see
+    `_card_repayment_projection`).
+    """
+    def _kind(t: dict) -> str:
+        return kind_of(kind_map, t.get("custom_category") or t.get("category"))
+
+    candidate_debits = sorted(
+        (t for t in raw
+         if t.get("transaction_type") == "debit"
+         and _kind(t) == MOVEMENT
+         and str(t.get("account_id") or "") in account_map),
+        key=_tx_sort_key,
+    )
+    candidate_credits = sorted(
+        (t for t in raw
+         if t.get("transaction_type") == "credit"
+         and _kind(t) == MOVEMENT
+         and str(t.get("account_id") or "") in account_map
+         and account_map[str(t.get("account_id"))]["is_credit_card"]),
+        key=_tx_sort_key,
+    )
+    votes = _match_transfer_votes(candidate_debits, candidate_credits, account_map)
+    return _gate_destination_votes(votes, account_map)
+
+
+# ── Balance-aware card-repayment projection (steps 2+3) ─────────────────────
+#
+# Step 2, the cap: a series linked to a credit card by
+# `_learn_card_repayment_destinations` never needs to project more than that
+# card's own outstanding debt -- the payment can't exceed the balance. If the
+# card is currently in credit, no payment is coming at all.
+#
+# Step 3, the classifier: distinguishes a card that pays a fixed/minimum
+# amount regardless of spend (trailing mean stays correct) from one that
+# tracks its own spend closely enough (a "full-statement-ish" payer) that the
+# trailing MEAN of just 2-3 historical payments is a worse estimate than
+# spend observed since the last payment. Deliberately conservative: anything
+# that doesn't clearly land in one camp or the other is "ambiguous" and keeps
+# the trailing mean untouched.
+CARD_CLASSIFY_MIN_CYCLES = 3             # fewer valid ratio cycles than this => ambiguous, not enough evidence either way
+CARD_CLASSIFY_TRAILING_WINDOW_DAYS = 32  # spend window for a series' EARLIEST in-view occurrence (no prior payment to anchor to) -- midpoint of a 30-35d statement cycle
+CARD_FIXED_PAYER_RATIO_CEILING = 0.35    # payment/spend at or below this reads as "not tracking spend" (a minimum/fixed payment)
+CARD_FULL_PAYER_RATIO_FLOOR = 0.5        # payment/spend at or above this reads as "tracking spend" (task's own steer: "say >= 0.5")
+CARD_FULL_PAYER_RATIO_CEILING = 1.5      # paying more than 1.5x a cycle's own spend is a catch-up/lump-sum payment, not ordinary evidence of full-statement behaviour
+CARD_CLASSIFY_CONSISTENCY_SHARE = 0.6    # share of valid cycles that must land in a verdict's band to trust it -- matches Amex BA's real ratios (3 of 5 cycles = 0.6)
+CARD_MIN_SPEND_FOR_RATIO = 1.0           # a cycle with less spend than this produces a meaningless ratio (near-divide-by-zero); excluded from both bands rather than counted as "fixed"
+
+# Balance-transfer-shaped debit on a CREDIT CARD's own transaction stream --
+# NOT spend, and a non-negotiable carve-out (see `_card_repayment_projection`
+# docstring). Matches the BT principal itself ("BALANCE TRANSFER BT000254
+# 1432", the prompt example "COMP BAL XFR") and its fee line ("BALANCE
+# TRANSFER FEE 1432"), which is categorised like any other fee (Bills) and so
+# needs its own description match rather than relying on category alone.
+_BT_SHAPED_DESC_RE = re.compile(r"bal(?:ance)?\s*(?:xfr|transfer)|transfer\s*fee", re.IGNORECASE)
+
+
+def _is_bt_shaped_card_debit(t: dict) -> bool:
+    """Whether a DEBIT on a credit-card account's own transaction stream is
+    balance-transfer-shaped rather than real spend: matched by description
+    (`_BT_SHAPED_DESC_RE`, covers the fee lines too) OR by category ==
+    "Transfer" (the BT principal itself; an ordinary card purchase is never
+    categorised Transfer, so this is a safe signal scoped to a card's own
+    debit stream specifically -- it is NOT applied to payer-side debits
+    anywhere in this file).
+    """
+    desc = t.get("description") or ""
+    if _BT_SHAPED_DESC_RE.search(desc):
+        return True
+    return (t.get("custom_category") or t.get("category") or "") == "Transfer"
+
+
+def _card_repayment_projection(
+    recurring_spend: list[dict], raw: list[dict], account_map: dict,
+    card_dest_by_key: dict[str, dict], today: _date,
+) -> dict[str, dict]:
+    """Steps 2 (the cap) and 3 (the deterministic payer classifier and
+    balance-derived amount for confident full-payers) of the balance-aware
+    card-repayment projection.
+
+    For every series in `card_dest_by_key` (a Debt series linked to the card
+    it pays off, see `_learn_card_repayment_destinations`):
+
+    1. Classify the card from its OWN spend history: for each historical
+       payment, the card's own non-BT debits in the window since the
+       previous payment (or a trailing ~32-day fallback for the earliest
+       in-view payment) give a payment/spend ratio. >= `CARD_CLASSIFY_MIN_CYCLES`
+       valid ratios, consistently (>= `CARD_CLASSIFY_CONSISTENCY_SHARE`) at
+       or below `CARD_FIXED_PAYER_RATIO_CEILING` => "fixed"; consistently
+       inside [`CARD_FULL_PAYER_RATIO_FLOOR`, `CARD_FULL_PAYER_RATIO_CEILING`]
+       => "full_payer"; anything else, including too little history, =>
+       "ambiguous". A BT-shaped debit ANYWHERE examined (any historical
+       window, or the projection window below) forces "ambiguous"
+       unconditionally, overriding whatever the ratios alone would have
+       said -- this is the non-negotiable carve-out: NatWest MC#2 took a
+       ~£994 balance transfer on 2026-08-07 while its DD stayed ~£62, and
+       without this carve-out a naive spend-since-last-payment estimate
+       for its NEXT projection (last payment 2026-07-31 -> today) would
+       read that £994 BT as if it were spend and blow the projection up to
+       roughly its size instead of ~£62.
+    2. For a CONFIDENT full-payer only, the projected amount becomes spend
+       on the card since the last observed payment (same BT exclusions) --
+       replacing the trailing mean, not averaging with it.
+    3. Independently of classification, cap whatever amount step 1/2 landed
+       on at the card's own outstanding debt (abs(balance) when balance <
+       0, else 0). A card currently in credit takes no payment at all --
+       `suppressed=True` for that series rather than a misleading £0 bill.
+
+    Returns `{series_key: {"final_amount", "amount_basis", "suppressed",
+    "verdict", "ratios"}}` for exactly the series `card_dest_by_key` links;
+    every other series (everything without a learned card destination) is
+    simply absent from the result, and `_serialise_pattern` treats absence
+    as "nothing changed" for it.
+    """
+    # Card account_id -> its own debit transactions. `raw` holds every
+    # account's transactions for this user; this classifier only ever cares
+    # about the CARD's own spend, never the payer's.
+    card_debits: dict[str, list[dict]] = defaultdict(list)
+    for t in raw:
+        if t.get("transaction_type") != "debit":
+            continue
+        aid = str(t.get("account_id") or "")
+        if aid and account_map.get(aid, {}).get("is_credit_card"):
+            card_debits[aid].append(t)
+
+    def _spend_in_window(card_id: str, start_exclusive, end_inclusive) -> tuple[float, bool]:
+        """(non-BT spend total, whether any BT-shaped debit fell in this
+        window) for `card_id` over (start_exclusive, end_inclusive]."""
+        total = 0.0
+        bt_seen = False
+        for t in card_debits.get(card_id, []):
+            d = _tx_day(t)
+            if not (start_exclusive < d <= end_inclusive):
+                continue
+            if _is_bt_shaped_card_debit(t):
+                bt_seen = True
+                continue
+            total += _tx_amt(t)
+        return total, bt_seen
+
+    result: dict[str, dict] = {}
+    for r in recurring_spend:
+        key = r["key"]
+        card_dest = card_dest_by_key.get(key)
+        if not card_dest:
+            continue
+        card_id = card_dest["dest_account_id"]
+        card_balance = card_dest.get("dest_account_balance")
+        outstanding = abs(card_balance) if isinstance(card_balance, (int, float)) and card_balance < 0 else 0.0
+
+        occ = sorted(r.get("occurrences_detail") or [], key=lambda o: o["date"])
+        ratios: list[float] = []
+        bt_seen_anywhere = False
+        prev_date = None
+        for o in occ:
+            this_date = _date.fromisoformat(o["date"])
+            start = prev_date if prev_date is not None else this_date - timedelta(days=CARD_CLASSIFY_TRAILING_WINDOW_DAYS)
+            spend, bt_seen = _spend_in_window(card_id, start, this_date)
+            bt_seen_anywhere = bt_seen_anywhere or bt_seen
+            if spend >= CARD_MIN_SPEND_FOR_RATIO:
+                ratios.append(o["amount"] / spend)
+            prev_date = this_date
+
+        # The upcoming projection's own window: last observed payment to
+        # today. Checked for BT shape unconditionally (even if it never
+        # feeds a ratio) so a BT landing AFTER the last historical payment
+        # still trips the carve-out -- NatWest MC#2's real case: its last
+        # observed payment (31 Jul) predates its BT (7 Aug) by a week, so
+        # the BT never appears in any historical ratio window above, only
+        # in this one.
+        last_payment_date = _date.fromisoformat(occ[-1]["date"]) if occ else None
+        spend_since_last, bt_seen_since_last = (
+            _spend_in_window(card_id, last_payment_date, today) if last_payment_date else (0.0, False)
+        )
+        bt_seen_anywhere = bt_seen_anywhere or bt_seen_since_last
+
+        # ── Classify ─────────────────────────────────────────────────────
+        verdict = "ambiguous"
+        if not bt_seen_anywhere and len(ratios) >= CARD_CLASSIFY_MIN_CYCLES:
+            full_share  = sum(1 for x in ratios if CARD_FULL_PAYER_RATIO_FLOOR <= x <= CARD_FULL_PAYER_RATIO_CEILING) / len(ratios)
+            fixed_share = sum(1 for x in ratios if x <= CARD_FIXED_PAYER_RATIO_CEILING) / len(ratios)
+            if full_share >= CARD_CLASSIFY_CONSISTENCY_SHARE:
+                verdict = "full_payer"
+            elif fixed_share >= CARD_CLASSIFY_CONSISTENCY_SHARE:
+                verdict = "fixed"
+            # else stays "ambiguous" -- neither band is consistent enough
+
+        # ── Amount: estimator (confident full-payers only), then the cap ──
+        final_amount = r["avg_amount"]
+        amount_basis = None
+        if verdict == "full_payer":
+            final_amount = round(spend_since_last, 2)
+            amount_basis = "balance_estimate"
+        if final_amount > outstanding:
+            final_amount = round(outstanding, 2)
+            amount_basis = "balance_estimate"
+
+        result[key] = {
+            "final_amount": final_amount,
+            "amount_basis": amount_basis,
+            # A card in credit (outstanding <= 0) takes no payment; suppress
+            # the projected occurrence rather than emit a misleading £0 bill
+            # (see this function's docstring, step 3).
+            "suppressed": outstanding <= 0,
+            "verdict": verdict,
+            "ratios": [round(x, 3) for x in ratios],
+        }
+    return result
 
 
 async def _compute_cashflow_patterns(uid: str) -> dict:
     """
-    Full cashflow computation — scans 90 days of transactions, runs AI prediction,
-    returns the recurring patterns and account snapshot needed to serve the cashflow view.
-    Stored in cashflow_cache_col after every sync; never called on page load.
+    Full cashflow computation — scans 180 days of transactions for recurring
+    debit-side detection and own-transfer destination learning (90 days for
+    everything else), runs AI prediction, returns the recurring patterns and
+    account snapshot needed to serve the cashflow view. Stored in
+    cashflow_cache_col after every sync; never called on page load.
     """
-    cutoff = datetime.now() - timedelta(days=90)
+    # A monthly series only ever has 3-4 occurrences inside a flat 90-day
+    # window, so the calendar rolling forward one day at a time flips that
+    # series between detected/undetected, and between payday-anchored and
+    # naive-interval prediction, purely because an occurrence fell out of the
+    # window. This bit twice in the same 24 hours on live data: a payday
+    # standing-order series with occurrences on 24 Apr, 29 May, 26 Jun and
+    # 31 Jul 2026 dropped from 3 to 2 in-window occurrences and vanished from
+    # recurring_spend entirely, and after a same-day partial fix it detected
+    # again from 2 points but the weekday-anchor logic needs 3+ points to
+    # engage, so it mispredicted Wed 26 Aug instead of the true Fri 28 Aug and
+    # rendered as a wrongly-rolled "pending, hasn't left yet" bill on screen.
+    # The same 90-day cliff also cost `_learn_transfer_destinations` its
+    # Chase evidence, dropping it to 1 in-window vote, below its 2-vote gate.
+    # The fix is a wider evidence window on the inputs that actually need
+    # more points to stay stable (debit-side recurring detection, transfer
+    # destination learning), not another patch on a symptom. This flat
+    # 90-day cutoff on detection inputs must not come back.
+    now = datetime.now()
+    cutoff90 = now - timedelta(days=90)
+    cutoff180 = now - timedelta(days=180)
+    cutoff120 = now - timedelta(days=120)  # BNPL plan-reconstruction window (see build_bnpl_projections below)
 
     proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
             "transaction_type": 1, "category": 1, "custom_category": 1, "account_id": 1}
     raw: list[dict] = await transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff}}, proj
+        {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
     raw += await yapily_transactions_col.find(
-        {"user_id": uid, "date": {"$gte": cutoff}}, proj
+        {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
 
     # accounts_col/yapily_accounts_col docs today only ever populate "type"/
@@ -965,10 +1718,31 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "balance": round(float(a.get("balance", 0)), 2),
             "provider": a.get("provider"),
             "is_credit_card": is_credit_card_account(a),
+            # Pool membership by `_split_balances`'s own rule (see
+            # `_account_pool_kind`), NOT `is_credit_card_account` above --
+            # this flag exists so `_learn_transfer_destinations` can tell a
+            # POOLED consumer (spendable_balance) whether a learned
+            # destination is actually inside that pool, and must answer with
+            # the same rule `_split_balances` uses or the two would drift.
+            "is_spendable": _account_pool_kind(a) == "spendable",
         }
         for a in acct_docs
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
     }
+
+    # Learn each own-transfer bill's destination account (see
+    # `_learn_transfer_destinations`'s docstring for why this channel exists
+    # and how it stays conservative) so `_serialise_pattern` below can carry
+    # it through into the cached pattern, and `_build_cashflow_response` can
+    # later mirror the matching inbound credit into `internal_inflows`.
+    kind_map = await get_category_kinds(uid)
+    dest_by_key = _learn_transfer_destinations(raw, account_map, kind_map)
+    # Card-repayment destinations (see `_learn_card_repayment_destinations`'s
+    # docstring for why this is a SEPARATE map from `dest_by_key` above, and
+    # for the internal_inflows non-interference guarantee). Consumed below by
+    # `_card_repayment_projection` (the balance-aware cap and classifier) and
+    # carried through `_serialise_pattern` on `card_dest_*` fields.
+    card_dest_by_key = _learn_card_repayment_destinations(raw, account_map, kind_map)
 
     # Debits are NOT filtered by category (Transfer included): anything that
     # regularly leaves the account on a date belongs in the projection
@@ -978,14 +1752,37 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # Transfer exclusion — this is about outflows that consume balance, not
     # inflows, and widening it would risk double-reading a self-transfer as
     # recurring "income" as well as a recurring "bill" on the source side.
-    debits  = [t for t in raw if t.get("transaction_type") == "debit"]
-    credits = [t for t in raw if t.get("transaction_type") == "credit"
-               and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
-    income_credits = [t for t in credits if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
+    #
+    # Recurring-BILL detection reads the full 180-day `raw` (debits_180,
+    # netted against reversal_credits=credits_180 from the same window) so a
+    # monthly series keeps 5-6 points in view instead of teetering on 3-4.
+    # Everything else that doesn't need extra points to stay stable keeps
+    # reading the narrower 90-day slice (raw_90): the single-occurrence AI
+    # candidate heuristic, non_recurring_debits/avg_daily_spend, and
+    # recurring-INCOME detection (income_credits) all stay on debits_90/
+    # credits_90 exactly as before, deliberately unperturbed.
+    raw_90 = [t for t in raw if t["date"] >= cutoff90]
+
+    debits_180  = [t for t in raw if t.get("transaction_type") == "debit"]
+    credits_180 = [t for t in raw if t.get("transaction_type") == "credit"
+                   and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
+    # BNPL debits, gathered independently of `debits_180` above (which never
+    # contains them once `_detect_recurring`'s guard runs — see
+    # app/services/bnpl.py). A pay-in-3 plan completes inside ~60 days, so
+    # 120 is generous headroom without dragging in an unrelated older plan.
+    bnpl_debits = [t for t in debits_180 if t["date"] >= cutoff120 and is_bnpl_txn(t)]
+    debits_90  = [t for t in raw_90 if t.get("transaction_type") == "debit"]
+    credits_90 = [t for t in raw_90 if t.get("transaction_type") == "credit"
+                  and (t.get("custom_category") or t.get("category") or "Other") not in {"Transfer"}]
+    income_credits = [t for t in credits_90 if (t.get("custom_category") or t.get("category") or "Other") == "Income"]
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
     dismissed = set(prefs.get("dismissed_recurring") or [])
+    # Keys the user has explicitly told the undo-log "this IS recurring"
+    # (POST /dismissed-series/override) — outranks the engine judge by
+    # design, see apply_verdicts' docstring in recurring_judge.py.
+    judge_overrides = set(prefs.get("judge_overrides") or [])
     pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
     _today = _date.today()
 
@@ -995,14 +1792,33 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         if _s.get("status") == "confirmed" and _s.get("schedule"):
             _confirmed_income_map[_s["key"]] = _s
 
-    recurring_spend  = _detect_recurring(debits, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits)
+    recurring_spend  = _detect_recurring(debits_180, trusted_categories=trusted, today=_today, is_income=False, pay_period_config=pay_period_config, reversal_credits=credits_180)
     recurring_spend  = [r for r in recurring_spend if r["key"] not in dismissed]
+    # Engine scrutiny pass (app/services/recurring_judge.py): a series only
+    # ever gets here via `dismissed_recurring`'s choke point above, so the
+    # veto is applied right next to it — every consumer that reads
+    # `recurring_spend` from here on (this function's own return, the
+    # cashflow_cache_col doc it becomes, /cashflow, /planning, companion,
+    # penny tools) inherits the same, single decision. Only SUSPECT series
+    # (trusted-category bypass that would fail the generic gate — see
+    # `is_suspect`) ever reach the LLM; everyone else is a no-op pass
+    # through. Vetoed series are tracked separately from the user's own
+    # `dismissed_recurring` list, not merged into it (see `apply_verdicts`).
+    _judge_verdicts = await judge_suspect_series(uid, recurring_spend, account_map)
+    recurring_spend, engine_vetoed_recurring = apply_verdicts(recurring_spend, _judge_verdicts, judge_overrides)
+    # Balance-aware card-repayment projection (steps 2+3): for every series
+    # `_learn_card_repayment_destinations` linked to a card, cap/override its
+    # projected amount from the card's own history and live balance. Reads
+    # `r["occurrences_detail"]` off the still-unserialised `recurring_spend`
+    # dicts (see `_detect_recurring`) and the full 180-day `raw`, so it must
+    # run before `_serialise_pattern` strips both away.
+    card_repayment_projection = _card_repayment_projection(recurring_spend, raw, account_map, card_dest_by_key, _today)
     recurring_income = _detect_recurring(income_credits, today=_today, is_income=True, pay_period_config=pay_period_config, confirmed_income=_confirmed_income_map)
     recurring_income = [r for r in recurring_income if r["key"] not in dismissed]
 
     heuristic_keys = {r["key"] for r in recurring_spend}
     single_debits: dict[str, dict] = {}
-    for t in debits:
+    for t in debits_90:
         # First-occurrence AI guessing is only allowed in trusted categories —
         # a one-off restaurant or car park should never reach the model
         cat = t.get("custom_category") or t.get("category") or "Other"
@@ -1062,7 +1878,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
 
     recurring_keys = {r["key"] for r in recurring_spend}
     non_recurring_debits = [
-        t for t in debits
+        t for t in debits_90
         if series_key(t) not in recurring_keys
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
@@ -1088,9 +1904,30 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
 
     def _serialise_pattern(r: dict) -> dict:
         acct = account_map.get(r.get("account_id") or "") if r.get("account_id") else None
+        # dest_* is only ever populated for a MOVEMENT-kind spend series with
+        # enough repeat evidence (see `_learn_transfer_destinations`). Every
+        # other pattern (ordinary bills, all of `recurring_income`) carries
+        # None here, which `_build_cashflow_response` reads as "nothing to
+        # mirror".
+        dest = dest_by_key.get(r["key"])
+        # Card-repayment link + balance-aware amount (see
+        # `_learn_card_repayment_destinations` and
+        # `_card_repayment_projection`). `card_proj` is only ever non-None
+        # for a series in `card_dest_by_key` -- i.e. never for
+        # `recurring_income`, which shares this function but has no card
+        # repayments in it.
+        card_dest = card_dest_by_key.get(r["key"])
+        card_proj = card_repayment_projection.get(r["key"])
+        avg_amount = r["avg_amount"]
+        amount_basis = None
+        suppressed = False
+        if card_proj:
+            avg_amount = card_proj["final_amount"]
+            amount_basis = card_proj["amount_basis"]
+            suppressed = card_proj["suppressed"]
         return {
             "key":             r["key"],
-            "avg_amount":      r["avg_amount"],
+            "avg_amount":      round(avg_amount, 2),
             "avg_interval":    r.get("avg_interval"),
             "next_date":       r["next_date"].isoformat(),
             "account_id":      r.get("account_id"),
@@ -1100,14 +1937,85 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "is_credit_card":  acct.get("is_credit_card", False) if acct else False,
             "category":        r.get("category"),
             "monthly_anchor":  r.get("monthly_anchor"),
+            "dest_account_id":   dest["dest_account_id"] if dest else None,
+            "dest_account_name": dest["dest_account_name"] if dest else None,
+            "dest_account_bank": dest["dest_account_bank"] if dest else None,
+            "dest_account_spendable": dest["dest_account_spendable"] if dest else None,
+            # Card-repayment destination (Step 1) -- DELIBERATELY separate
+            # fields from dest_account_id/spendable above: those feed
+            # `internal_inflows` (see `_build_cashflow_response`), and a
+            # credit card must never receive a mirrored inflow. These fields
+            # are read only by the amount_basis/suppressed handling above
+            # and by any future UI wanting to show which card a repayment
+            # series pays off; `internal_inflows`'s two read sites both key
+            # off `dest_account_id`, never `card_dest_account_id`.
+            "card_dest_account_id":   card_dest["dest_account_id"] if card_dest else None,
+            "card_dest_account_name": card_dest["dest_account_name"] if card_dest else None,
+            "card_dest_account_bank": card_dest["dest_account_bank"] if card_dest else None,
+            # Present (non-None) exactly when the estimator (step 3) or the
+            # cap (step 2) changed this series' projected amount away from
+            # its plain trailing mean. The frontend renders these with a
+            # leading "~" (agreed field name/contract, do not rename).
+            "amount_basis":    amount_basis,
+            # True when the linked card is currently in credit (no
+            # outstanding debt): the occurrence-generation loop in
+            # `_build_cashflow_response` skips emitting any bill for a
+            # suppressed series rather than showing a misleading £0 payment.
+            "suppressed":      suppressed,
         }
+
+    # BNPL plan reconstruction (Part 2 of the fix — see app/services/bnpl.py).
+    # Deliberately NOT part of `recurring_spend`: these are finite, contractual
+    # schedules with a known instalment count, never a cadence for
+    # `recurring_judge` to weigh in on (the Part 1 guard already keeps them
+    # out of `_detect_recurring`'s input; this is the second reason they
+    # never reach the judge — they're never even offered to it).
+    # `_build_cashflow_response` turns each of these into a bill entry
+    # directly (see its bnpl merge block), the same way it already merges
+    # planned one-off expenses, rather than through `_occurrences`'s
+    # cadence-stepping — a BNPL projection is a fixed date computed here
+    # once, not a pattern to keep re-deriving future occurrences from.
+    def _serialise_bnpl(p: dict) -> dict:
+        acct = account_map.get(p.get("account_id") or "") if p.get("account_id") else None
+        return {
+            "provider":        p["provider"],
+            "account_id":      p.get("account_id"),
+            "account_name":    acct["name"] if acct else None,
+            "account_bank":    acct.get("provider") if acct else None,
+            "account_balance": acct["balance"] if acct else None,
+            "is_credit_card":  acct.get("is_credit_card", False) if acct else False,
+            "amount":          round(p["amount"], 2),
+            "date":            p["date"].isoformat(),
+            "instalment":      p["instalment"],
+            "of":              p["of"],
+            "plan_anchor":     p["plan_anchor"].isoformat(),
+            # True only for the FINAL instalment of a plan reconstructed from
+            # fewer than 3 observed instalments — a refund cancels remaining
+            # instalments with no bank-feed signal, so this amount must never
+            # read as promised. `_build_cashflow_response` reuses the same
+            # `amount_basis: "balance_estimate"` contract the frontend
+            # already renders with a leading "~" for every other uncertain
+            # projected amount (see `_serialise_pattern` above) — this is
+            # not a balance estimate, but it is the codebase's one existing
+            # per-item "don't treat this figure as fact" marker, and reusing
+            # it means the hedge renders correctly without a frontend change.
+            "hedged":          p["hedged"],
+        }
+
+    bnpl_commitments = [_serialise_bnpl(p) for p in build_bnpl_projections(bnpl_debits)]
 
     return {
         "recurring_spend":  [_serialise_pattern(r) for r in recurring_spend],
+        "bnpl_commitments": bnpl_commitments,
         "recurring_income": [
             {**_serialise_pattern(r), "occurrences": r.get("occurrences"), "amounts_recent": r.get("amounts_recent")}
             for r in recurring_income
         ],
+        # The engine's own vetoes (app/services/recurring_judge.py) — kept
+        # distinct from the user's `dismissed_recurring` preference, with the
+        # reason and timestamp, so a future UI can surface "Sorted set this
+        # aside: <reason>" without conflating the two.
+        "engine_vetoed_recurring": engine_vetoed_recurring,
         "avg_daily_spend":  round(avg_daily_spend, 2),
         "available_balance": available_balance,
         "spendable_balance": spendable_balance,
@@ -1185,19 +2093,24 @@ async def at_risk_count(user: dict = Depends(current_user)):
     else:
         _next_pay = _calc_next_payday(_today_d, _pay_cfg)
     _days_to_pay = (_next_pay - _today_d).days
-    _lookahead = 5 if _days_to_pay <= 1 else 0  # last-day lookahead: assess the next period's first 5 days once the current one is ending
-    window_bills  = [b for b in resp["upcoming_bills"]  if b["days_away"] <= _days_to_pay + _lookahead]
-    window_income = [i for i in resp["upcoming_income"] if i["days_away"] <= _days_to_pay + _lookahead]
+    # Current-window boundary is EXCLUSIVE of payday day itself (2026-08-28
+    # decision — see app/services/pay_period.py's in_current_window
+    # docstring): a bill/income/inflow scheduled ON payday belongs to the
+    # NEXT pay period's arithmetic, not this badge's. Last-day lookahead
+    # (days_to_pay <= 1) is unchanged, encoded inside the helper.
+    from app.services.pay_period import in_current_window as _in_window
+    window_bills  = [b for b in resp["upcoming_bills"]  if _in_window(b["days_away"], _days_to_pay)]
+    window_income = [i for i in resp["upcoming_income"] if _in_window(i["days_away"], _days_to_pay)]
+    window_inflows = [n for n in resp["internal_inflows"] if _in_window(n["days_away"], _days_to_pay)]
 
-    # Skip bills where we have no balance data, or the bill is on a credit card
-    # (credit cards have a credit limit, not an available balance, so a bill
-    # against one must never count toward at-risk/shortfall).
-    assessable_bills = [
-        b for b in window_bills
-        if b.get("account_balance") is not None
-        and b["account_balance"] >= 0
-        and not b.get("is_credit_card")
-    ]
+    # Skip bills where we have no balance data, or the bill is on a credit
+    # card (credit cards have a credit limit, not an available balance, so a
+    # bill against one must never count toward at-risk/shortfall). A
+    # genuinely overdrawn CURRENT account's own bills stay assessable — see
+    # `is_assessable_bill`'s docstring (2026-09-01 fix) and the sims-lockstep
+    # note there; this must match companion.py's `assessable_bills` and
+    # spend_impact._cashflow_window byte-for-byte.
+    assessable_bills = [b for b in window_bills if is_assessable_bill(b)]
     if not assessable_bills:
         return {"count": 0}
 
@@ -1246,6 +2159,20 @@ async def at_risk_count(user: dict = Depends(current_user)):
         acct = str(i.get("account_id") or "")
         if acct in running and income_credit_ok(i, acct, _confirmed_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, None))
+    # Mirror internal transfers: an outbound movement bill above already
+    # consumed balance on its SOURCE account; the matching inbound credit on
+    # its learned DESTINATION account (see `_learn_transfer_destinations`)
+    # must be credited here too, or that destination is walked as if it
+    # never receives money it is actually about to receive. This is the
+    # exact bug this pairing exists to fix (HSBC/NatWest/Monzo falsely "at risk" from
+    # Barclays's own outbound standing order). Only credited to an account
+    # the walk already tracks (`acct in running`): an inflow must never seed
+    # a brand-new account into the simulation, since an account with no
+    # assessable bill of its own can never be "at risk" in the first place.
+    for n in window_inflows:
+        acct = str(n.get("account_id") or "")
+        if acct in running:
+            events.append((n["days_away"], acct, float(n["amount"]), True, None))
 
     events.sort(key=lambda e: (e[0], 1 if e[3] else 0))  # bills before income on the same day (conservative)
 
@@ -1277,14 +2204,27 @@ async def at_risk_count(user: dict = Depends(current_user)):
 @router.post("/cashflow/dismiss-recurring")
 async def dismiss_recurring(body: dict, user: dict = Depends(current_user)):
     """'Not a bill': permanently exclude a merchant from upcoming-payment
-    prediction and rebuild the cashflow cache."""
+    prediction and rebuild the cashflow cache.
+
+    Also stamps `dismissed_recurring_meta[key]` = {dismissed_at: now,
+    hidden: false} — the undo-log's own record of *when* this happened,
+    kept alongside (never instead of) `dismissed_recurring`, which stays
+    the bare list of excluded keys and the sole source of truth for
+    exclusion itself. See GET /dismissed-series for how the two combine.
+    """
     uid = user["email"]
     key = (body.get("key") or "").strip()
     if not key:
         raise HTTPException(400, "key required")
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    meta = dict(prefs.get("dismissed_recurring_meta") or {})
+    meta[key] = {"dismissed_at": datetime.now(), "hidden": False}
     await preferences_col.update_one(
         {"user_id": uid},
-        {"$addToSet": {"dismissed_recurring": key}, "$set": {"user_id": uid}},
+        {
+            "$addToSet": {"dismissed_recurring": key},
+            "$set": {"user_id": uid, "dismissed_recurring_meta": meta},
+        },
         upsert=True,
     )
     await compute_and_cache_cashflow(uid, clear_ai_cache=False)
@@ -1293,14 +2233,310 @@ async def dismiss_recurring(body: dict, user: dict = Depends(current_user)):
 
 @router.post("/cashflow/restore-recurring")
 async def restore_recurring(body: dict, user: dict = Depends(current_user)):
-    """Undo a dismiss: allow the merchant back into predictions and rebuild."""
+    """Undo a dismiss: allow the merchant back into predictions and rebuild.
+
+    Removes both the key (from `dismissed_recurring`) and its meta entry
+    (from `dismissed_recurring_meta`) — a restored series has nothing left
+    for the undo-log to track, so no meta should linger for it.
+    """
     uid = user["email"]
     key = (body.get("key") or "").strip()
     if not key:
         raise HTTPException(400, "key required")
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    meta = dict(prefs.get("dismissed_recurring_meta") or {})
+    meta.pop(key, None)
     await preferences_col.update_one(
-        {"user_id": uid}, {"$pull": {"dismissed_recurring": key}}
+        {"user_id": uid},
+        {"$pull": {"dismissed_recurring": key}, "$set": {"dismissed_recurring_meta": meta}},
     )
+    await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+    return {"ok": True}
+
+
+# ── Undo-log: /dismissed-series ─────────────────────────────────────────
+#
+# Owner decision, 2026-08-28 (verbatim intent): entries older than 60 days
+# are hidden from the user's view (the exclusion itself continues
+# regardless); a "delete" completely hides the entry from view "but we
+# still know never to include it" — the key is retained forever. This is a
+# pure VISIBILITY layer over two existing exclusion mechanisms
+# (dismissed_recurring, engine_vetoed_recurring) — nothing here ever makes
+# a key start projecting again except the explicit override endpoint.
+
+DISMISSED_SERIES_WINDOW_DAYS = 60
+# How far back to scan the user's own transaction history for display
+# enrichment (display_name/bank/typical_amount/cadence_label/last_seen) —
+# matches the 180-day window `_compute_cashflow_patterns` already reads for
+# recurring-BILL detection, so a series enrichment sees the same evidence
+# the detector itself would have.
+_ENRICH_LOOKBACK_DAYS = 180
+
+
+def _within_window(ts, now: datetime, days: int = DISMISSED_SERIES_WINDOW_DAYS) -> bool:
+    """True when `ts` is within `days` of `now`. Takes `now` explicitly
+    (never calls datetime.now() itself) so callers — and tests — can pin
+    the reference instant precisely rather than racing the wall clock
+    around a day boundary. `ts` may be a real datetime (the normal case,
+    both storage sites below use datetime.now()/judged_at) or, defensively,
+    an ISO string."""
+    if ts is None:
+        return False
+    if isinstance(ts, str):
+        try:
+            ts = datetime.fromisoformat(ts)
+        except ValueError:
+            return False
+    if not isinstance(ts, datetime):
+        return False
+    delta = now - ts
+    return timedelta(0) <= delta <= timedelta(days=days)
+
+
+def _stamp_missing_meta(dismissed: list, meta: dict, now: datetime) -> tuple[dict, bool]:
+    """Lazy migration for `dismissed_recurring` keys that predate
+    `dismissed_recurring_meta`: stamp dismissed_at=now, hidden=false the
+    first time this runs for a given key. Deliberately NOT backdated to the
+    (unknown) original dismissal — the 60-day undo-log clock starts at
+    migration, so the owner gets one full review window on legacy
+    dismissals rather than every pre-existing dismissal instantly aging out
+    of view the moment this feature ships. Returns (possibly-unchanged
+    meta, whether anything changed) so the caller only writes when needed.
+    """
+    updated = dict(meta)
+    changed = False
+    for key in dismissed:
+        if key not in updated:
+            updated[key] = {"dismissed_at": now, "hidden": False}
+            changed = True
+    return updated, changed
+
+
+def _cadence_label_for_dates(dates: list) -> str | None:
+    """Plain-English cadence phrase for /dismissed-series display only —
+    NOT used by the detector (_detect_recurring keeps its own, stricter,
+    interval-tolerance gates). Returns None whenever the pattern isn't
+    clean enough to name with confidence, rather than guessing."""
+    if len(dates) < 2:
+        return None
+    days = sorted(d.date() if hasattr(d, "date") else d for d in dates)
+    intervals = [(days[i] - days[i - 1]).days for i in range(1, len(days))]
+    avg = sum(intervals) / len(intervals)
+    spread = max(intervals) - min(intervals)
+    if 25 <= avg <= 35:
+        return "monthly" if spread <= 4 else "roughly monthly"
+    if 20 <= avg <= 45:
+        return "roughly monthly"
+    if 5 <= avg <= 9:
+        return "weekly"
+    return None
+
+
+async def _enrich_dismissed_keys(uid: str, keys: set) -> dict:
+    """Best-effort display fields for each series `key`, derived from the
+    user's own recent transaction history via the SAME `series_key`
+    bucketing `_detect_recurring` uses (not reinvented). A key with no
+    matching transactions in `_ENRICH_LOOKBACK_DAYS` — a very old
+    dismissal, or an engine veto whose evidence has since rolled off —
+    falls back to the raw key as display_name and None for the rest,
+    rather than failing the whole listing.
+    """
+    empty = {"display_name": None, "bank": None, "typical_amount": None,
+              "cadence_label": None, "last_seen": None}
+    if not keys:
+        return {}
+
+    cutoff = datetime.now() - timedelta(days=_ENRICH_LOOKBACK_DAYS)
+    proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1}
+    raw: list = await transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
+    raw += await yapily_transactions_col.find({"user_id": uid, "date": {"$gte": cutoff}}, proj).to_list(None)
+
+    buckets: dict = defaultdict(list)
+    for t in raw:
+        k = series_key(t)
+        if k in keys:
+            buckets[k].append(t)
+
+    bank_by_account: dict = {}
+    if any(buckets.values()):
+        acct_proj = {"provider": 1}
+        for col in (accounts_col, yapily_accounts_col):
+            async for a in col.find({"user_id": uid}, acct_proj):
+                bank_by_account[str(a["_id"])] = a.get("provider")
+
+    result: dict = {}
+    for key in keys:
+        items = sorted(buckets.get(key, []), key=lambda t: t["date"])
+        if not items:
+            result[key] = {**empty, "display_name": key}
+            continue
+        latest = items[-1]
+        display_name = (latest.get("merchant_name") or latest.get("description") or key).strip() or key
+        amounts = sorted(abs(float(t.get("amount", 0))) for t in items)
+        typical_amount = round(amounts[len(amounts) // 2], 2)
+        last_seen_dt = latest["date"]
+        last_seen = (last_seen_dt.date() if hasattr(last_seen_dt, "date") else last_seen_dt).isoformat()
+        acct_id = latest.get("account_id")
+        bank = bank_by_account.get(str(acct_id)) if acct_id else None
+        result[key] = {
+            "display_name": display_name,
+            "bank": bank,
+            "typical_amount": typical_amount,
+            "cadence_label": _cadence_label_for_dates([t["date"] for t in items]),
+            "last_seen": last_seen,
+        }
+    return result
+
+
+def _iso(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+@router.get("/dismissed-series")
+async def dismissed_series(user: dict = Depends(current_user)):
+    """The undo-log: every user dismissal and engine veto still within the
+    60-day review window and not individually hidden. Filtering happens
+    entirely server-side — a hidden or stale row never reaches the client.
+    """
+    uid = user["email"]
+    now = datetime.now()
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    dismissed = list(prefs.get("dismissed_recurring") or [])
+    vetoed_hidden = set(prefs.get("vetoed_hidden") or [])
+
+    meta, migrated = _stamp_missing_meta(dismissed, dict(prefs.get("dismissed_recurring_meta") or {}), now)
+    if migrated:
+        await preferences_col.update_one(
+            {"user_id": uid},
+            {"$set": {"dismissed_recurring_meta": meta, "user_id": uid}},
+            upsert=True,
+        )
+
+    user_keys = [
+        k for k in dismissed
+        if not (meta.get(k) or {}).get("hidden")
+        and _within_window((meta.get(k) or {}).get("dismissed_at"), now)
+    ]
+
+    cached = await cashflow_cache_col.find_one({"_id": uid}) or {}
+    engine_entries = [
+        e for e in (cached.get("engine_vetoed_recurring") or [])
+        if e.get("key") not in vetoed_hidden and _within_window(e.get("vetoed_at"), now)
+    ]
+
+    enrichment = await _enrich_dismissed_keys(uid, set(user_keys) | {e["key"] for e in engine_entries})
+
+    user_rows = [
+        {**enrichment[k], "key": k, "dismissed_at": _iso((meta.get(k) or {}).get("dismissed_at"))}
+        for k in user_keys
+    ]
+    engine_rows = [
+        {
+            **enrichment[e["key"]], "key": e["key"],
+            "reason": e.get("reason"), "confidence": e.get("confidence"),
+            "vetoed_at": _iso(e.get("vetoed_at")),
+        }
+        for e in engine_entries
+    ]
+    return {"user": user_rows, "engine": engine_rows}
+
+
+@router.post("/dismissed-series/hide")
+async def hide_dismissed_series(body: dict, user: dict = Depends(current_user)):
+    """Hide (or, hidden=false, un-hide) one undo-log row from GET
+    /dismissed-series without touching the exclusion it represents — a
+    "delete" in the owner's language. For provenance="user" this flips
+    `dismissed_recurring_meta[key].hidden`; for "engine" it adds/removes
+    `key` from `vetoed_hidden`. `hidden=false` exists specifically so the
+    client's undo toast can reverse a hide through this same endpoint,
+    without a second mechanism.
+
+    Both provenances 404 on a `key` that doesn't refer to a real row,
+    matching shape — otherwise an arbitrary string could grow
+    `vetoed_hidden` unboundedly with nothing to ever unhide. Engine
+    UNHIDE is the one asymmetric case: it validates against
+    `vetoed_hidden` membership instead of the live veto list, because the
+    veto entry may legitimately have rolled off `engine_vetoed_recurring`
+    (a re-judge, a dismiss, a recompute) by the time the user's undo toast
+    fires — an unhide for a key you previously hid must still succeed.
+    """
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    provenance = body.get("provenance")
+    hidden = bool(body.get("hidden"))
+    if not key or provenance not in ("user", "engine"):
+        raise HTTPException(400, "key and provenance ('user'|'engine') required")
+
+    if provenance == "user":
+        prefs = await preferences_col.find_one({"user_id": uid}) or {}
+        dismissed = list(prefs.get("dismissed_recurring") or [])
+        if key not in dismissed:
+            raise HTTPException(404, "not a dismissed key")
+        meta, _ = _stamp_missing_meta(dismissed, dict(prefs.get("dismissed_recurring_meta") or {}), datetime.now())
+        entry = dict(meta.get(key) or {"dismissed_at": datetime.now()})
+        entry["hidden"] = hidden
+        meta[key] = entry
+        await preferences_col.update_one(
+            {"user_id": uid},
+            {"$set": {"dismissed_recurring_meta": meta, "user_id": uid}},
+            upsert=True,
+        )
+    else:
+        prefs = await preferences_col.find_one({"user_id": uid}) or {}
+        cached = await cashflow_cache_col.find_one({"_id": uid}) or {}
+        vetoed_keys = {e.get("key") for e in (cached.get("engine_vetoed_recurring") or [])}
+        if hidden:
+            if key not in vetoed_keys:
+                raise HTTPException(404, "not a vetoed key")
+        else:
+            vetoed_hidden = set(prefs.get("vetoed_hidden") or [])
+            if key not in vetoed_keys and key not in vetoed_hidden:
+                raise HTTPException(404, "not a vetoed key")
+        op = {"$addToSet": {"vetoed_hidden": key}} if hidden else {"$pull": {"vetoed_hidden": key}}
+        await preferences_col.update_one(
+            {"user_id": uid}, {**op, "$set": {"user_id": uid}}, upsert=True
+        )
+    return {"ok": True}
+
+
+@router.post("/dismissed-series/override")
+async def override_engine_veto(body: dict, user: dict = Depends(current_user)):
+    """User says "this IS recurring": permanently exempt `key` from the
+    engine's veto (recurring_judge.apply_verdicts skips it for good, even
+    across re-judges — see that function's docstring) and let it back into
+    the live projection immediately via the same cache rebuild dismiss/
+    restore already trigger.
+
+    404s when `key` is neither a live veto nor an existing override —
+    same "don't let an arbitrary string grow this list" guard as the hide
+    endpoint. A repeat override of a key already in `judge_overrides` is
+    treated as idempotent success, not an error, since re-submitting an
+    override you already hold is a legitimate no-op for a client, not a
+    mistaken key.
+    """
+    uid = user["email"]
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "key required")
+
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    judge_overrides = set(prefs.get("judge_overrides") or [])
+    if key not in judge_overrides:
+        cached = await cashflow_cache_col.find_one({"_id": uid}) or {}
+        vetoed_keys = {e.get("key") for e in (cached.get("engine_vetoed_recurring") or [])}
+        if key not in vetoed_keys:
+            raise HTTPException(404, "not a vetoed key")
+
+    await preferences_col.update_one(
+        {"user_id": uid},
+        {"$addToSet": {"judge_overrides": key}, "$set": {"user_id": uid}},
+        upsert=True,
+    )
+    # Belt-and-braces: drop the now-stale cached veto entry immediately,
+    # in addition to the full recompute below (which would also drop it
+    # via apply_verdicts, but a recompute failure must not leave a
+    # contradictory cached entry sitting alongside the fresh override).
+    await cashflow_cache_col.update_one({"_id": uid}, {"$pull": {"engine_vetoed_recurring": {"key": key}}})
     await compute_and_cache_cashflow(uid, clear_ai_cache=False)
     return {"ok": True}
 
@@ -1663,6 +2899,37 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "used": False,
             })
 
+    # --- pending observation index: bank-side PENDING debits (see
+    # app/services/pending_transactions.py) -- same shape as `observed`
+    # above, sourced from the sibling pending collection instead of
+    # `transactions_col`. `_match_observed` (settled) is always checked
+    # FIRST at every call site below; this index is only ever consulted as
+    # a fallback, so a settled debit always takes priority over a pending
+    # one for the same occurrence and nothing double-counts. The age filter
+    # is the query-time half of the sweep backstop the module docstring
+    # describes (the sync-time half runs inside `replace_pending_for_account`).
+    pending_observed: dict = {}
+    if uid:
+        _pending_cutoff = datetime.utcnow() - timedelta(days=PENDING_TXN_MAX_AGE_DAYS)
+        try:
+            async for _pt in pending_transactions_col.find(
+                {"user_id": uid, "first_seen": {"$gte": _pending_cutoff}},
+                {"merchant_name": 1, "description": 1, "amount": 1, "date": 1, "account_id": 1},
+            ):
+                _pkey = series_key(_pt)
+                if not _pkey:
+                    continue
+                _praw_d = _pt.get("date")
+                _pd_obj = _praw_d.date() if hasattr(_praw_d, "date") else _praw_d
+                pending_observed.setdefault(_pkey, []).append({
+                    "date": _pd_obj,
+                    "amount": abs(float(_pt.get("amount", 0))),
+                    "account_id": str(_pt.get("account_id") or ""),
+                    "used": False,
+                })
+        except Exception:
+            pass
+
     # Load overrides for this user (empty list if no uid provided)
     overrides: list[dict] = []
     if uid:
@@ -1698,6 +2965,25 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if abs(tx["amount"] - abs(expected_amount)) > tol:
                 continue
             tx["used"] = True   # one debit closes at most one occurrence
+            return True
+        return False
+
+    def _match_pending_observed(key, account_id, expected_amount, expected_d):
+        """Same tolerances/contention rule as `_match_observed`, sourced from
+        `pending_observed` instead. Only ever consulted after `_match_observed`
+        returns False at every call site -- a settled debit always wins."""
+        tol = max(2.0, abs(expected_amount) * 0.15)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        for tx in pending_observed.get(key, []):
+            if tx["used"]:
+                continue
+            if not (lo <= tx["date"] <= today_d):
+                continue
+            if account_id and tx["account_id"] and tx["account_id"] != str(account_id):
+                continue
+            if abs(tx["amount"] - abs(expected_amount)) > tol:
+                continue
+            tx["used"] = True   # one pending debit closes at most one occurrence
             return True
         return False
 
@@ -1804,7 +3090,30 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
 
     raw_bills = []
     _bill_occ_dates: list = []  # (date_obj, amount) tuples for weekly projection
+    # Mirrored inbound events for own-transfer bills with a learned
+    # destination (see `_learn_transfer_destinations`). A balance-walk
+    # input only, built alongside `raw_bills` so every mirror inherits
+    # exactly the gates its source occurrence passed. Never merged into
+    # `upcoming_income`/balances/totals below; see the doctrine comment on
+    # the returned `internal_inflows` key.
+    raw_internal_inflows: list = []
+    # Occurrences matched to a bank-side PENDING debit (`_match_pending_observed`
+    # above) -- the account balance already reflects them, so unlike every
+    # other entry in `raw_bills` they must NEVER enter a walk-facing list.
+    # Kept wholly separate so at_risk_count, companion.py, spend_impact.py,
+    # the payday plan, and the frontend Planning walk all inherit the
+    # exclusion for free (none of them read this key) without needing to
+    # know pending transactions exist at all -- the "do NOT patch sims
+    # individually" requirement this satisfies. Surfaced only for DISPLAY
+    # via the response's `observed_pending_bills` key.
+    raw_observed_pending_bills: list = []
     for r in spend_patterns:
+        if r.get("suppressed"):
+            # Card-repayment series whose linked card is currently in credit
+            # (see `_card_repayment_projection`, step 2): no payment is
+            # coming, so no bill is emitted for it at all rather than a
+            # misleading £0 entry.
+            continue
         entries = []
         for occ in _occurrences(r, include_past_due=True):
             occ_date_str = occ.date().isoformat()
@@ -1816,12 +3125,26 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             if uid and _match_observed(r["key"], r.get("account_id"), final_amount, D):
                 continue          # CLOSED by an observed debit (early payments included)
-            if D < today_d and (today_d - D).days >= PENDING_GIVE_UP_DAYS:
+            # Bank-side PENDING debit (see app/services/pending_transactions.py):
+            # the account balance already reflects this occurrence even
+            # though our settled feed hasn't caught up yet. Checked only
+            # as a fallback -- `_match_observed` above always wins when
+            # both would match, so a settled debit is never shadowed by a
+            # stale pending row. Bypasses the give-up horizon below (a
+            # pending row is, for every practical purpose, already
+            # resolved) so it can never lapse while still genuinely
+            # pending; if the pending row later vanishes without settling,
+            # this simply evaluates to False again next call and the
+            # occurrence falls straight back into the ordinary give-up
+            # check -- no persisted state, no double-firing.
+            observed_pending = bool(uid) and _match_pending_observed(r["key"], r.get("account_id"), final_amount, D)
+            if not observed_pending and D < today_d and (today_d - D).days >= PENDING_GIVE_UP_DAYS:
                 continue          # give-up horizon: skipped this cycle
-            pending = D <= today_d            # due date arrived/passed, nothing observed
+            pending = (D <= today_d) and not observed_pending  # due date arrived/passed, nothing (settled or pending) observed yet
             display_d = _next_working_day(max(D, today_d)) if pending else _next_working_day(D)
             if display_d > window_end.date():
                 continue
+            _occ_kind = kind_of(kind_map, r.get("category"))
             entries.append({
                 "name":            r["key"],
                 "amount":          final_amount,
@@ -1833,12 +3156,34 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "account_balance": r.get("account_balance"),
                 "is_credit_card":  r.get("is_credit_card", False),
                 "category":        r.get("category"),
-                "kind":            kind_of(kind_map, r.get("category")),
+                "kind":            _occ_kind,
+                # Present (non-None) exactly when `_card_repayment_projection`
+                # (steps 2+3) replaced or reduced this amount away from the
+                # plain trailing mean -- see `_serialise_pattern`. Frontend
+                # renders these amounts with a leading "~".
+                "amount_basis":    r.get("amount_basis"),
                 "edited":          edited,
                 "rule_label":      rules.get(r["key"], {}).get("label"),
                 "pending":         pending,
+                "observed_pending": observed_pending,
                 "days_past_due":   (today_d - D).days if pending else 0,
                 "original_date":   final_date if display_d.isoformat() != final_date else None,
+                # Stamped so the frontend's POOLED "£X left" runway (the
+                # Planning list) can skip BOTH legs of a traced internal
+                # transfer between two of the user's own spendable accounts:
+                # for that pooled total the transfer is a no-op, but the
+                # existing per-account walks (at_risk_count, companion.py,
+                # spend_impact.py) still need the debit + the mirrored
+                # `internal_inflows` credit exactly as before, so this only
+                # ever ADDS a hint to the bill row, never removes the debit
+                # itself. Only ever non-None for a MOVEMENT-kind occurrence
+                # whose source pattern cleared `_learn_transfer_destinations`'s
+                # evidence gate (same values `_serialise_pattern` already put
+                # on the cached pattern); every other bill, and the planned
+                # one-off branch below (never carries a learned destination),
+                # leaves both fields None.
+                "dest_account_id":        r.get("dest_account_id") if _occ_kind == MOVEMENT else None,
+                "dest_account_spendable": r.get("dest_account_spendable") if _occ_kind == MOVEMENT else None,
             })
         # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
         kept = []
@@ -1847,10 +3192,56 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             if e["pending"] and nxt is not None and e["expected_date"] >= nxt["expected_date"]:
                 continue
             kept.append(e)
-        raw_bills.extend(kept)
-        for e in kept:
+        # Split AFTER the collision guard (which must see the full picture,
+        # same as before) -- an observed-pending occurrence never joins the
+        # walk-facing `raw_bills` list (see `raw_observed_pending_bills`
+        # above), only the display-only one, and is excluded from the
+        # weekly-projection/mirrored-inflow bookkeeping below exactly the
+        # same way a CLOSED (settled-match) occurrence already is (it never
+        # reaches `entries` at all).
+        walk_kept = [e for e in kept if not e["observed_pending"]]
+        raw_observed_pending_bills.extend(e for e in kept if e["observed_pending"])
+        raw_bills.extend(walk_kept)
+        for e in walk_kept:
             if not e.get("planned"):
                 _bill_occ_dates.append((_date.fromisoformat(e["expected_date"]), e["amount"]))
+            # Mirror this occurrence into an inbound event on its learned
+            # destination account. Every gate the outbound occurrence itself
+            # just passed (per-occurrence overrides, `_match_observed`
+            # closure, the give-up horizon, the working-day roll, the
+            # collision guard above) is inherited for free, because this
+            # only ever looks at what actually survived into `kept`. If the
+            # outbound occurrence gets dropped, its mirror is never built at
+            # all. `dest_account_id` is only ever populated for a MOVEMENT-
+            # kind series (see `_learn_transfer_destinations`), so the kind
+            # check here is belt-and-braces against a future caller
+            # attaching a destination to something else. Planned one-off
+            # expenses (merged in below from `planned_docs`) never carry a
+            # learned destination and so are never mirrored.
+            if (r.get("dest_account_id") and e["kind"] == MOVEMENT
+                    and r["dest_account_id"] != e.get("account_id")):
+                raw_internal_inflows.append({
+                    "name":                e["name"],
+                    "amount":              e["amount"],
+                    "expected_date":       e["expected_date"],
+                    "days_away":           e["days_away"],
+                    "account_id":          r["dest_account_id"],
+                    "account_name":        r.get("dest_account_name"),
+                    "account_bank":        _bank_label(r.get("dest_account_bank")),
+                    "source_account_id":   e["account_id"],
+                    "source_account_name": e["account_name"],
+                    # True only when the destination is inside the
+                    # SPENDABLE pool (`_split_balances`'s own rule, via
+                    # `_account_pool_kind` -- see `_learn_transfer_destinations`).
+                    # A savings destination is still mirrored here (the
+                    # per-account walks below genuinely need it), but a
+                    # POOLED consumer must use this flag to skip crediting
+                    # an inflow against a pool that structurally never
+                    # contained the destination account -- e.g. a standing
+                    # order into a savings pot must not be netted against
+                    # spendable_balance, only against the savings figure.
+                    "destination_spendable": bool(r.get("dest_account_spendable")),
+                })
     # ── Merge planned one-off expenses ─────────────────────────────────────────
     if uid:
         from bson import ObjectId as _ObjId
@@ -1922,7 +3313,67 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "original_date":   pdate_d.isoformat() if display_d != pdate_d else None,
             })
 
+    # ── Merge BNPL projected instalments ────────────────────────────────────
+    # Turned directly into bill entries here (mirroring the planned-expense
+    # merge above) rather than through `_occurrences`: each cached entry is
+    # already a single fixed future date computed once in
+    # `_compute_cashflow_patterns` (see `build_bnpl_projections`), not a
+    # cadence to keep re-deriving occurrences from. `bnpl_commitments` is
+    # recomputed from the latest observed instalments on every sync (see
+    # `compute_and_cache_cashflow`'s docstring), so once a real instalment
+    # posts, the next computed cache simply stops projecting it — a plan
+    # reconstructed with 3 observed instalments yields no projection at all.
+    # That recomputation IS this plan's closure mechanism; it is
+    # deliberately not routed through `_match_observed` below (that index is
+    # keyed by `series_key`, which is exactly the field a BNPL descriptor
+    # defeats — see app/services/bnpl.py's module docstring).
+    for bp in cached.get("bnpl_commitments", []):
+        D = _date.fromisoformat(bp["date"])
+        if D > window_end.date():
+            continue
+        if D < today_d and (today_d - D).days >= PENDING_GIVE_UP_DAYS:
+            continue          # give-up horizon: same grace every other bill gets
+        pending = D <= today_d
+        display_d = _next_working_day(max(D, today_d)) if pending else _next_working_day(D)
+        if display_d > window_end.date():
+            continue
+        provider, n, of = bp["provider"], bp["instalment"], bp["of"]
+        raw_bills.append({
+            "name":            f"{provider} instalment {n} of {of}",
+            "amount":          bp["amount"],
+            "expected_date":   display_d.isoformat(),
+            "days_away":       (display_d - today_d).days,
+            "account_id":      bp.get("account_id"),
+            "account_name":    bp.get("account_name"),
+            "account_bank":    _bank_label(bp.get("account_bank")),
+            "account_balance": bp.get("account_balance"),
+            "is_credit_card":  bp.get("is_credit_card", False),
+            "category":        "BNPL",
+            "kind":            COMMITMENT,
+            # Reuses the existing "~"-render contract (see `_serialise_bnpl`'s
+            # comment) for the FINAL projected instalment of a plan
+            # reconstructed from fewer than 3 observed instalments — a
+            # refund can cancel it silently, so it must never read as a
+            # promised charge.
+            "amount_basis":    "balance_estimate" if bp.get("hedged") else None,
+            "edited":          False,
+            "rule_label":      None,
+            "pending":         pending,
+            "days_past_due":   (today_d - D).days if pending else 0,
+            "original_date":   bp["date"] if display_d.isoformat() != bp["date"] else None,
+            "dest_account_id":        None,
+            "dest_account_spendable": None,
+            "bnpl": {
+                "provider":    provider,
+                "instalment":  n,
+                "of":          of,
+                "plan_anchor": bp["plan_anchor"],
+            },
+        })
+
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
+    internal_inflows = sorted(raw_internal_inflows, key=lambda x: x["days_away"])
+    observed_pending_bills = sorted(raw_observed_pending_bills, key=lambda x: (x["days_away"], -x["amount"]))
 
     raw_income = []
     for r in income_patterns:
@@ -1972,6 +3423,26 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         "weekly_projection": weeks,
         "upcoming_bills":    upcoming_bills,
         "upcoming_income":   upcoming_income,
+        # Mirrored inbound legs of the user's own outbound movement bills
+        # (see the `raw_internal_inflows` comment above and
+        # `_learn_transfer_destinations`). Deliberately a SEPARATE key from
+        # `upcoming_income`, not merged into it, not summed into
+        # `available_balance`/`spendable_balance`/`savings_balance`,
+        # `weekly_projection`, or any income total below. A self-transfer is
+        # not income, and stock/flow never mix in this codebase (see the
+        # net-position doctrine). This is a balance-walk INPUT only; callers
+        # (analytics.at_risk_count, companion.compute_today_items,
+        # spend_impact._bills_risk) credit it to its destination account
+        # inside their own running-balance simulations and nowhere else.
+        "internal_inflows":  internal_inflows,
+        # Occurrences matched to a bank-side PENDING debit (see
+        # app/services/pending_transactions.py and `_match_pending_observed`
+        # above) -- DISPLAY ONLY. The account balance already reflects
+        # these, so they are deliberately absent from `upcoming_bills` (and
+        # therefore from every at-risk/shortfall/payday-plan/runway walk
+        # that consumes it); consumers wanting to show "left earlier today,
+        # still settling" copy read this list separately.
+        "observed_pending_bills": observed_pending_bills,
         "avg_daily_spend":   round(avg_daily, 2),
         "available_balance": cached.get("available_balance", 0),
         # Spendable-cash pool, parity with the Home Safe-to-Spend hero. May be
@@ -2083,6 +3554,21 @@ async def get_cashflow(user: dict = Depends(current_user)):
         }
     else:
         resp["income_suggestion"] = None
+
+    # Allocations — read live (cheap queries), never baked into
+    # cashflow_cache_col: a mid-period fill or a newly created/edited
+    # allocation must show up on the very next request, not after the next
+    # cache recompute. Attached here at response-build time regardless of
+    # whether `resp` came from the cache or a live compute above. Planning
+    # subtracts `remaining` from its "to last" figure client-side using this
+    # same enriched shape (see app/routers/allocations.py). Failure-tolerant
+    # so a broken allocation never breaks the whole cashflow response.
+    try:
+        from app.routers.allocations import list_active_allocations
+        resp["allocations"] = await list_active_allocations(uid)
+    except Exception:
+        logger.exception("allocations attach failed for %s — omitting", uid)
+        resp["allocations"] = []
 
     return resp
 
@@ -2286,6 +3772,24 @@ async def compute_safe_to_spend(uid: str) -> dict:
         logger.exception("commitments reserve failed for %s — using zero", uid)
         commitments_reserved, commitments_count = 0, 0
 
+    # ── 6b-2. Allocations reserve ─────────────────────────────────────────────
+    # Simple per-pay-period envelopes (owner decision, 2026-08-29): only the
+    # UNFILLED remainder of each active allocation is ever subtracted here —
+    # filled money has already left the balance pool (it's sitting, spent, in
+    # the fill account), so subtracting the full amount on top would
+    # double-count it. See app/routers/allocations.py's module docstring.
+    # Failure-tolerant: any error → zero reserve, matching the pattern above.
+    allocations_reserved = 0.0
+    allocations_count = 0
+    try:
+        from app.routers.allocations import total_reserved_remaining
+        allocations_reserved, allocations_count = await total_reserved_remaining(uid)
+        if allocations_reserved:
+            safe_to_spend = round(safe_to_spend - allocations_reserved, 2)
+    except Exception:
+        logger.exception("allocations reserve failed for %s — using zero", uid)
+        allocations_reserved, allocations_count = 0.0, 0
+
     # ── 6c. Card growth reserve ────────────────────────────────────────────────
     # See app/services/net_position.py's module docstring: the figure above is
     # a forward-looking cash STOCK that never sees credit-card balance growth,
@@ -2369,6 +3873,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "commitments_reserved_period_label": (
             _period_rhythm_label(_pay_cfg) if commitments_reserved else None
         ),
+        "allocations_reserved": allocations_reserved,
+        "allocations_count":   allocations_count,
         "last_synced":         _sync_ts.isoformat() if _sync_ts else None,
     }
 
@@ -3193,8 +4699,25 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
 async def get_value_delivered(user: dict = Depends(current_user)):
     """Return how much monthly saving the user has unlocked by acting on insights."""
     uid = user["email"]
+    # Evidence-gone retirement (savings_insights.py's `retired_at`) must
+    # exclude a card from this total too — it reads the same collection
+    # directly, not through GET /savings-insights, so it needs its own
+    # exclusion. Functionally matters here: a non-verified but "engaged"
+    # insight (user_context set, a stale savings_estimate still on the doc)
+    # would otherwise keep counting toward total_monthly_saving after its
+    # evidence vanished and the card itself stopped rendering anywhere else.
+    # `substituted_at` exclusion (Insights honesty review, incoherence A —
+    # owner phone report 2026-09-01): a doc can carry `verified_savings`
+    # even though the same category was subsequently (correctly) resolved
+    # as `substituted` — see the tri-state repair in
+    # `_refresh_savings_insights_for_user` and `_derive_insight_state` in
+    # savings_insights.py, which is the source of truth for this precedence
+    # everywhere else. This endpoint reads the collection directly, not
+    # through `_serialize_insight`, so it needs its own guard: a substituted
+    # doc must never count toward `verified_monthly_saving` here, whatever
+    # residual `verified_savings` figure an unrepaired doc still carries.
     docs = await savings_insights_col.find(
-        {"user_id": uid},
+        {"user_id": uid, "retired_at": {"$exists": False}, "substituted_at": {"$exists": False}},
         {"savings_estimate": 1, "title": 1, "user_context": 1,
          "verified_savings": 1, "verified_merchant": 1},
     ).to_list(None)
@@ -3219,6 +4742,7 @@ async def get_value_delivered(user: dict = Depends(current_user)):
                 "estimate_label": "verified",
             })
             continue
+
         if not doc.get("user_context"):
             continue
         engaged += 1

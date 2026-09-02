@@ -1,0 +1,60 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Flat adaptive-icon FOREGROUND layer — Kevin's 2026-08-27 call from a real
+    launcher screenshot of the shipped V3 "Ember" icon: "It looks worse,
+    maybe the glow makes it worse". Decision: NO glow anywhere on the
+    launcher icon, not V3, not the old faint wash. Flat glyph, full stop.
+
+    Geometry: identical bar shapes to settle-glyph-master.svg (which was
+    itself measured off icon.png, the COMPOSITE framing), but here the
+    whole glyph group is scaled 0.85x about the canvas centre (512,512).
+
+    WHY the 0.85 scale: the previously-shipped (pre-V3) icon-foreground.png
+    (git HEAD) has its glyph inset to ~85% of the composite's glyph size —
+    that's the adaptive-icon safe zone. settle-glyph-master.svg was measured
+    directly off icon.png (the composite, a different, larger framing) and
+    the V3 foreground SVG used those composite-scale coordinates directly
+    with NO additional inset, which is why the V3 launcher render clipped
+    the bottom bar's corners against the circular mask. Measured fix:
+      original icon-foreground.png solid-bar bbox  ≈ 475x454px (46.4% x
+        44.3% of the 1024 canvas), centred at (512,501).
+      unscaled master/composite glyph bbox         ≈ 558x534px (54.5% x
+        52.1% of the 1024 canvas), centred at (511,499).
+      ratio ≈ 0.850 in both axes — a uniform scale about canvas centre,
+      not a re-crop, which is exactly what the transform below reproduces.
+
+    Transparent canvas — no background rect, no glow ellipses, no rim light.
+  -->
+  <defs>
+    <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(512,512) scale(0.85) translate(-512,-512)">
+    <!-- Top slate bar — tilts clockwise, "unsettled" -->
+    <rect
+      x="292" y="257"
+      width="475" height="119"
+      rx="28.6"
+      fill="#475569"
+      transform="rotate(6.86 529.5 316.5)"
+    />
+    <!-- Middle slate bar — tilts counter-clockwise, opposing lean -->
+    <rect
+      x="241" y="447"
+      width="505" height="119"
+      rx="28.5"
+      fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)"
+    />
+    <!-- Bottom gradient bar — flat, widest, the "settled" state -->
+    <rect
+      x="232" y="637"
+      width="559" height="129"
+      rx="31.5"
+      fill="url(#brandGradient)"
+    />
+  </g>
+</svg>

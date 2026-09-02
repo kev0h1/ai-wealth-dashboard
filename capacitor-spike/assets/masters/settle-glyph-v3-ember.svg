@@ -1,0 +1,85 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    V3 "Ember" — the most crafted variant. The gradient bar reads as the
+    glowing ember of the stack: a hot, tightly-contained glow concentrated
+    under and around it, plus a barely-there violet rim light catching the
+    bottom edge of each slate bar (as if lit from below by the ember), and
+    the faintest vertical background gradient so the canvas itself is a
+    hair lighter near the bar than at the top.
+
+    Everything below is stacked radial/linear gradients — no SVG filters
+    (cairosvg's feGaussianBlur does not blur, verified separately).
+
+    Geometry is identical to settle-glyph-master.svg.
+  -->
+  <defs>
+    <linearGradient id="v3-brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <!-- background-wash: faintest vertical gradient, lighter toward the bar -->
+    <linearGradient id="v3-bgWash" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="55%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#161d36" />
+    </linearGradient>
+
+    <!-- ember-core: hot, tight, sits right at the bar's centre.
+         Opacity/size tuned up from the first pass once a launcher-scale (72/48px,
+         circle-masked) simulation showed the original values reading as almost
+         nothing once downscaled — concentrated still means visible. -->
+    <radialGradient id="v3-ember-core">
+      <stop offset="0%" stop-color="#c4b5fd" stop-opacity="0.74" />
+      <stop offset="45%" stop-color="#8b5cf6" stop-opacity="0.46" />
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- ember-under: wider underglow, the bar "resting" in its own light -->
+    <radialGradient id="v3-ember-under">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.40" />
+      <stop offset="60%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- ember-spill: faint climb toward the middle bar's underside only -->
+    <radialGradient id="v3-ember-spill">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- rim-light: thin horizontal fade used on both slate bars' bottom edges -->
+    <linearGradient id="v3-rimLight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0" />
+      <stop offset="18%" stop-color="#a78bfa" stop-opacity="0.32" />
+      <stop offset="82%" stop-color="#a78bfa" stop-opacity="0.32" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background — faintest vertical wash, lighter toward the bar -->
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#v3-bgWash)" />
+
+  <!-- Ember glow stack — drawn before the bars -->
+  <ellipse cx="500" cy="565" rx="340" ry="175" fill="url(#v3-ember-spill)" />
+  <ellipse cx="511" cy="655" rx="400" ry="180" fill="url(#v3-ember-under)" />
+  <ellipse cx="511" cy="701" rx="260" ry="120" fill="url(#v3-ember-core)" />
+
+  <!-- Glyph group — identical geometry to settle-glyph-master.svg -->
+  <g>
+    <rect x="292" y="257" width="475" height="119" rx="28.6" fill="#475569"
+      transform="rotate(6.86 529.5 316.5)" />
+    <rect x="241" y="447" width="505" height="119" rx="28.5" fill="#475569"
+      transform="rotate(-6.84 493.5 506.5)" />
+    <rect x="232" y="637" width="559" height="129" rx="31.5" fill="url(#v3-brandGradient)" />
+  </g>
+
+  <!-- Rim light — barely-there violet catching the bottom edge of each
+       slate bar, as if lit from below by the ember bar. Drawn AFTER the
+       bars (on top), inset from each bar's own rounded ends so the fade
+       reads as an edge highlight rather than a second bar. -->
+  <rect x="304" y="369" width="451" height="14" rx="7" fill="url(#v3-rimLight)"
+    transform="rotate(6.86 529.5 316.5)" />
+  <rect x="253" y="559" width="481" height="14" rx="7" fill="url(#v3-rimLight)"
+    transform="rotate(-6.84 493.5 506.5)" />
+</svg>

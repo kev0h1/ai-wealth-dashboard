@@ -18,26 +18,33 @@ from app.db.collections import (
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
-    teaching_events_col,
+    teaching_events_col, allocations_col, penny_proposals_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 
 from app.routers import (
     auth, truelayer, yapily, mono, accounts as accounts_router,
     transactions as transactions_router, preferences, push, categories,
-    analytics, budget, chat, statements, investments, challenges,
+    analytics, chat, statements, investments, challenges,
     savings_insights, savings, admin, manual_accounts, profile, money_basics,
     fuel, baskets, subscription as subscription_router, transport, webhooks,
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
-    commitments, spend_verdict, tax, scenario,
+    commitments, spend_verdict, tax, scenario, allocations, money_shape,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
     import sentry_sdk
     sentry_sdk.init(dsn=_dsn, traces_sample_rate=0.1, environment=os.getenv("SENTRY_ENV", "vps"))
 
-app = FastAPI(title="Wealth Dashboard API")
+# Public API introspection (Swagger UI, ReDoc, raw OpenAPI schema) is off by
+# default in every deployed environment (UAT and prod) — it leaks route/schema
+# details to unauthenticated callers. Set ENABLE_API_DOCS=1 locally to browse
+# them during development; never set it on the VPS or Railway.
+if os.getenv("ENABLE_API_DOCS"):
+    app = FastAPI(title="Wealth Dashboard API")
+else:
+    app = FastAPI(title="Wealth Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
 
 _cors_origins = [APP_URL]
 # Capacitor mobile WebView origins (Android WebView with androidScheme "https"
@@ -60,7 +67,7 @@ app.middleware("http")(auth_middleware)
 for router in [
     auth.router, truelayer.router, yapily.router, mono.router,
     accounts_router.router, transactions_router.router, preferences.router,
-    push.router, categories.router, analytics.router, budget.router,
+    push.router, categories.router, analytics.router,
     chat.router, statements.router, investments.router,
     challenges.router, savings_insights.router, savings.router, admin.router,
     manual_accounts.router, profile.router, money_basics.router,
@@ -81,6 +88,8 @@ for router in [
     spend_verdict.router,
     tax.router,
     scenario.router,
+    allocations.router,
+    money_shape.router,
 ]:
     app.include_router(router)
 
@@ -149,6 +158,13 @@ async def _create_indexes():
         [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
     await commitments_col.create_index([("user_id", 1), ("status", 1)])
+    await allocations_col.create_index([("user_id", 1), ("active", 1)])
+    # Penny Agent Mode v1 — 15-minute proposal TTL (owner decision,
+    # 2026-08-30, see PENNY_TOOLS.md). expires_at is set at creation time
+    # (app.services.penny_tools._create_proposal); Mongo reaps the doc
+    # itself once it's past that instant, no separate sweep job needed.
+    await penny_proposals_col.create_index([("user_id", 1), ("_id", 1)])
+    await penny_proposals_col.create_index("expires_at", expireAfterSeconds=0)
     # ENGINE.md "The One Stream Rule" — the uniform teaching-event feed.
     await teaching_events_col.create_index([("user_id", 1), ("created_at", -1)])
     # Append-only event log with no consumer/rollup yet — TTL bounds growth

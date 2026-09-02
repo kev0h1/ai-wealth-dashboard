@@ -5,7 +5,7 @@
 // the past 7 days, otherwise a live in-period summary (Variant B).
 // Taps through to /cards — the cards-story reading.
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, NeedleSummary } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -22,9 +22,14 @@ interface ThisMonthStripProps {
   // own duplicate request and render from these instead.
   summary?: NeedleSummary | null;
   summaryStatus?: Status;
+  /** Called exactly once, when this strip's effective status (own fetch or
+   *  the externally-controlled `summaryStatus` prop) first leaves
+   *  "loading" — never again on a later revalidation. Lets HomePage's
+   *  full-page loading hold know this strip is done. */
+  onReady?: () => void;
 }
 
-export default function ThisMonthStrip({ summary, summaryStatus }: ThisMonthStripProps = {}) {
+export default function ThisMonthStrip({ summary, summaryStatus, onReady }: ThisMonthStripProps = {}) {
   const router = useRouter();
   const { hideNetWorth } = usePreferences();
   const externallyControlled = summaryStatus !== undefined;
@@ -49,6 +54,20 @@ export default function ThisMonthStrip({ summary, summaryStatus }: ThisMonthStri
 
   const data = externallyControlled ? (summary ?? null) : ownData;
   const status = externallyControlled ? summaryStatus! : ownStatus;
+
+  // Fires once this strip's effective status first settles, regardless of
+  // which mode (own fetch or externally-controlled) is driving it. Guarded
+  // by a ref rather than deriving from state so a later status flip (a
+  // resync putting `summaryStatus` back to "loading", or a manual retry)
+  // can never re-trigger it.
+  const onReadyRef = useRef(onReady);
+  useEffect(() => { onReadyRef.current = onReady; });
+  const readyFiredRef = useRef(false);
+  useEffect(() => {
+    if (status === "loading" || readyFiredRef.current) return;
+    readyFiredRef.current = true;
+    onReadyRef.current?.();
+  }, [status]);
 
   // Loading skeleton
   if (status === "loading") {

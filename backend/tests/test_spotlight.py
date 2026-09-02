@@ -8,13 +8,51 @@ NOW = datetime.utcnow()
 
 
 def doc(**kw):
-    base = {"category": "gym", "refreshed_at": NOW, "pinned": False}
+    # STRUCTURAL FIX (owner phone report 2026-09-01, "should we render a
+    # card if there is no content" — the invariant applies to the Home
+    # spotlight too, see `_spotlight_candidates`'s content-presence gate):
+    # these fixtures are about dismiss/cooldown/return-reason logic, not
+    # content presence, so they default to a normal researched (state:
+    # "fresh") shape — title/body/researched_at all populated — same as
+    # every real candidate the spotlight would actually rank. A test that
+    # wants to exercise the content gate itself overrides these explicitly.
+    base = {
+        "category": "gym", "refreshed_at": NOW, "pinned": False,
+        "title": "Your gym membership looks pricier than average",
+        "body": "A few chains nearby run cheaper no-contract plans.",
+        "researched_at": NOW,
+        # OWNER DECISION (2026-09-01): freshness is content_valid_until-gated
+        # now, not derived from researched_at recency alone — see
+        # test_content_ttl.py. Comfortably inside the 7-day default TTL.
+        "content_valid_until": NOW + timedelta(days=6),
+    }
     base.update(kw)
     return base
 
 
 def test_fresh_insight_is_candidate():
     assert _spotlight_candidates([doc()]) != []
+
+
+def test_contentless_quiet_insight_is_never_a_spotlight_candidate():
+    """The same invariant that fixed InsightsPage's compact/full decision
+    (owner phone report 2026-09-01: "no content -> no full card, ever, no
+    override") applies here too — HomeInsightSpotlight has no compact
+    fallback, so a quiet doc winning this ranking would render the exact
+    hollow card the owner reported, just on the Home screen instead."""
+    quiet = doc(title="", body="", researched_at=None)
+    assert _spotlight_candidates([quiet]) == []
+
+
+def test_verified_insight_is_never_a_spotlight_candidate_even_if_not_yet_stamped_retired():
+    """Belt-and-braces alongside the `spotlight_retired` stamp
+    `_check_verified_saving`'s caller sets: a doc that resolved to
+    `verified_at` renders no title/body either (Zone 2 retires once
+    resolved), so it must never win the spotlight even in the hypothetical
+    case a doc reaches here before `spotlight_retired` was set."""
+    verified = doc(title="", body="", researched_at=None,
+                    verified_at=NOW, verified_savings=11.99, verified_merchant="Now Tv")
+    assert _spotlight_candidates([verified]) == []
 
 
 def test_dismissed_stays_gone_despite_new_content():

@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, CircleDashed } from "lucide-react";
-import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
+import { X } from "lucide-react";
+import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, PlannedImpact } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
@@ -15,18 +15,11 @@ interface PlanOneOffSheetProps {
   onSaved: () => void;
 }
 
-export function RadioDot({ selected }: { selected: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={`flex-shrink-0 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition-colors ${
-        selected ? "border-indigo-600" : "border-slate-300 dark:border-slate-600"
-      }`}
-    >
-      {selected && <span className="w-2 h-2 rounded-full bg-indigo-600" />}
-    </span>
-  );
-}
+// RadioDot's canonical home is now AccountMiniCard.tsx; re-exported here so
+// every existing `from "@/components/PlanOneOffSheet"` import keeps working
+// unchanged (PlannedEditSheet.tsx, CardTermsSheet.tsx, AllocationFields.tsx,
+// AccountsPage.tsx, the /design/account-picker variants).
+export { RadioDot } from "@/components/AccountMiniCard";
 
 function todayIso() {
   const d = new Date();
@@ -242,62 +235,15 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
                 </div>
 
                 {/* Account (optional) */}
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
-                    Which account will it leave from?
-                  </label>
-                  <div
-                    role="radiogroup"
-                    aria-label="Which account will it leave from?"
-                    className="rounded-xl border border-slate-200/70 dark:border-white/[0.08] divide-y divide-slate-100 dark:divide-white/[0.06] overflow-hidden"
-                  >
-                    {/* "Not sure yet" — first row */}
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={accountId === ""}
-                      onClick={() => setAccountId("")}
-                      className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
-                    >
-                      <span className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-white/[0.06] ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex-shrink-0">
-                        <CircleDashed size={16} className="text-slate-400 dark:text-slate-500" />
-                      </span>
-                      <span className="flex-1 min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">Not sure yet</span>
-                      <RadioDot selected={accountId === ""} />
-                    </button>
-
-                    {spendableAccounts.map(acc => {
-                      const brand = accountBrand(acc);
-                      return (
-                        <button
-                          key={acc.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={accountId === acc.id}
-                          onClick={() => setAccountId(acc.id)}
-                          className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
-                        >
-                          <BankBadge
-                            logoSrc={brand.logoSrc}
-                            initials={brand.initials}
-                            altText={brand.label}
-                            brandBg={brand.background}
-                          />
-                          <span className="flex-1 min-w-0">
-                            <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{acc.name}</span>
-                            {acc.provider && (
-                              <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{acc.provider}</span>
-                            )}
-                          </span>
-                          <RadioDot selected={accountId === acc.id} />
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                    Pick one so I can plan the cover if it&apos;s short.
-                  </p>
-                </div>
+                <AccountRadioPicker
+                  accounts={spendableAccounts}
+                  value={accountId}
+                  onChange={setAccountId}
+                  label="Which account will it leave from?"
+                  allowUnset
+                  unsetLabel="Not sure yet"
+                  helperText="Pick one so I can plan the cover if it's short."
+                />
 
                 {/* Error */}
                 {error && (

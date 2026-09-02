@@ -113,7 +113,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Send, Loader2, X, ChevronRight } from "lucide-react";
-import { api, CanIOffer, CanISuggestionChip, ScenarioItem } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, PennyProposal, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import CommitmentSheet from "@/components/CommitmentSheet";
@@ -197,7 +197,36 @@ type ExplainerMsg = {
    * field. `msg.topic && (...)` in ExplainerBubble treats both the same. */
   topic?: string | null;
 };
-type AssistantMsg = VerdictMsg | ScenarioMsg | ExplainerMsg;
+/** Agent mode v1's confirm card (owner decisions locked: confirm-as-is, no
+ * inline edits, one-time consent, origin badges, 15-min TTL) — Penny
+ * drafted a concrete action and needs an explicit yes. `status` lives on
+ * the MESSAGE, not local component state, deliberately: this card's own
+ * React instance unmounts/remounts across a screen-bucket switch (`messages`
+ * swaps to a different bucket's array entirely — see this file's header
+ * comment, "PER-SCREEN THREADS"), so a plain `useState` inside
+ * ProposalConfirmCard would forget a successful confirm the moment the user
+ * navigated away and back to this screen's Penny thread. */
+type ProposalMsg = {
+  id: number;
+  role: "assistant";
+  kind: "proposal";
+  proposal: PennyProposal;
+  status: "pending" | "executing" | "done" | "cancelled" | "error";
+  /** Set only on `status === "error"` — the backend's own human `detail`
+   * string (expired/cancelled/etc, see api.executePennyProposal), rendered
+   * verbatim rather than a generic "something went wrong". */
+  errorDetail?: string;
+};
+/** The one-time gate before Penny can act on the user's behalf at all (set
+ * up envelopes/goals/one-offs), as opposed to only answering. Same
+ * status-on-the-message reasoning as ProposalMsg above. */
+type ConsentMsg = {
+  id: number;
+  role: "assistant";
+  kind: "consent";
+  status: "pending" | "accepted" | "declined";
+};
+type AssistantMsg = VerdictMsg | ScenarioMsg | ExplainerMsg | ProposalMsg | ConsentMsg;
 // MarkerMsg — a page-seam divider inserted between turns from different
 // screens — died with the one-thread model it belonged to (see this file's
 // header comment, "PER-SCREEN THREADS", 2026-08-26). A per-screen bucket
@@ -613,6 +642,219 @@ function ScenarioConfirmCard({
   );
 }
 
+// ── AGENT MODE v1 — ProposalConfirmCard / ConsentCard (owner decisions
+// locked: confirm-as-is cards with NO inline edits, a one-time consent
+// moment, origin badges on created artefacts, a 15-min server-enforced
+// proposal TTL). Both are full-width `glass-card`s, deliberately NOT
+// bubbles — the same CARVE-OUT as ScenarioConfirmCard above: a card with
+// real buttons and a real side effect (creating something, granting an
+// ongoing permission) doesn't belong squeezed into an 85-90%-wide speech
+// bubble with a tail pointing at nothing. Siblings of ScenarioConfirmCard
+// in every other sense: rendered full-width in the thread, keyed on the
+// message's own stable `id`, holding no state ScenarioConfirmCard already
+// solved a different way. ─────────────────────────────────────────────────
+
+/** Confirm-as-is card for a single Penny-drafted action. Anatomy reuses
+ * VerdictBubble's own two-tier hierarchy rather than inventing a new one:
+ * `summary` is the headline (bold, heaviest, first), `consequence` is the
+ * muted second line underneath it — exactly the verdict-then-reasoning
+ * shape this file already uses everywhere else, just on a card instead of
+ * a bubble. NO INLINE EDITING anywhere on this card (owner decision,
+ * locked): there is no field here to change. If the user wants it
+ * different, they say so in chat and Penny drafts a fresh proposal —
+ * that's the entire correction mechanism, on purpose.
+ *
+ * Confirm is the app's single PRIMARY INDIGO treatment (`bg-indigo-600`
+ * solid fill, DESIGN.md's Buttons section) — deliberately NOT the Penny
+ * gradient ScenarioConfirmCard's "Run it" uses: that gradient marks "this
+ * surface gives advice" (DESIGN.md's Penny Gradient Rule), where this
+ * button's job is "commit a specific, already-drafted action", the same
+ * job every other primary-indigo button in the app does. Cancel is quiet
+ * text, no fill, no border — there is nothing to warn about (cancelling
+ * changes nothing), so it doesn't earn Risk Red or even a Secondary/Ghost
+ * button's border.
+ *
+ * `onConfirm`/`onCancel` fire exactly once per tap; the double-tap guard
+ * itself lives in the caller (PennyConversation's confirmProposal/
+ * cancelProposal, which check-and-flip `status` synchronously via
+ * `bucketsRef` before the network call even starts), not here — this
+ * component only reflects `status`, it never owns it. */
+function ProposalConfirmCard({
+  msg,
+  onConfirm,
+  onCancel,
+  onOpenDone,
+}: {
+  msg: ProposalMsg;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** Fired when the user taps a resolved "Done ..." row. Every v1 artefact
+   * type (envelope/allocation, goal/commitment, one-off/planned) surfaces
+   * on Planning, so the caller navigates there and closes the sheet — same
+   * navigate-and-close behaviour as this file's own LinkChip. */
+  onOpenDone: () => void;
+}) {
+  const { proposal, status } = msg;
+
+  // Resolved states collapse into a quiet, bubble-shaped line — same
+  // PENNY_BUBBLE shell every other Penny turn ends up in, so a resolved
+  // proposal reads as an ordinary part of the conversation again rather
+  // than a permanently full-width card. "Done" links through to the
+  // surface that now shows the real thing; the honesty is in the copy
+  // ("is set up", past tense, only reachable after a genuine 200), never a
+  // silent disappearance.
+  if (status === "done") {
+    return (
+      <div className="flex justify-start">
+        <button
+          type="button"
+          onClick={onOpenDone}
+          className="max-w-[90%] min-h-[44px] flex items-center gap-1 text-left bg-slate-100 dark:bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300 break-words">
+            Done. <MoneyText text={proposal.summary} /> is set up
+          </span>
+          <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+        </button>
+      </div>
+    );
+  }
+  if (status === "cancelled") {
+    return (
+      <div className="flex justify-start">
+        <div className={PENNY_BUBBLE}>
+          <p className="text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">Cancelled, nothing changed.</p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="flex justify-start">
+        <div className={PENNY_BUBBLE}>
+          {/* The server's own detail string, rendered honestly rather than
+              a generic failure message — an expired (15-min TTL) or
+              already-actioned proposal has a real, specific reason. */}
+          <p className="text-[14px] leading-relaxed text-slate-500 dark:text-slate-400">
+            {msg.errorDetail || "Couldn't do that just now."}
+          </p>
+          <p className="mt-1 text-[12px] text-slate-400 dark:text-slate-500">Ask me again if you&apos;d still like this done.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const busy = status === "executing";
+  return (
+    <div className="glass-card rounded-2xl p-4 w-full">
+      <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100 break-words">
+        <MoneyText text={proposal.summary} />
+      </p>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400 break-words">
+        <MoneyText text={proposal.consequence} />
+      </p>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={busy}
+          className="min-h-[44px] flex-1 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-60 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          {busy ? "Setting up…" : "Confirm"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="min-h-[44px] px-4 text-sm font-semibold text-slate-500 dark:text-slate-400 disabled:opacity-60 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The one-time consent moment gating Penny's ability to act at all (as
+ * opposed to only answer). Copy is Penny's own honest register: what it
+ * would let her do, and the standing promise that every action still gets
+ * a confirm card first — this card is the reason that promise is credible.
+ * Same CARVE-OUT as ProposalConfirmCard above (real buttons, a real
+ * ongoing-permission decision, not conversation).
+ *
+ * Accept uses the Penny GRADIENT (`BG`, same token ScenarioConfirmCard's
+ * "Run it" uses) rather than plain indigo — deliberately the opposite
+ * choice from ProposalConfirmCard's Confirm button just above: this button
+ * isn't committing one drafted action, it's the literal gate to Penny's
+ * advice-plus-action capability turning on at all, inside Penny's own
+ * conversation surface (DESIGN.md's Penny Gradient Rule: "any surface
+ * wearing it must be a place the user can get advice" — this is that
+ * surface). Decline is quiet text, same weight as Cancel above; declining
+ * costs nothing and risks nothing. */
+function ConsentCard({
+  msg,
+  onAccept,
+  onDecline,
+}: {
+  msg: ConsentMsg;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  if (msg.status === "declined") {
+    return (
+      <div className="flex justify-start">
+        <div className={PENNY_BUBBLE}>
+          <p className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300">Okay, I&apos;ll just answer for now.</p>
+        </div>
+      </div>
+    );
+  }
+  if (msg.status === "accepted") {
+    return (
+      <div className="flex justify-start">
+        <div className={PENNY_BUBBLE}>
+          <p className="text-[14px] leading-relaxed text-slate-600 dark:text-slate-300">You can change your mind in Settings.</p>
+          {/* The auto-resend indicator — the actual resend fires the moment
+              `onAccept` resolves (see PennyConversation's acceptConsent /
+              resendAfterConsent), this caption is what makes that
+              invisible re-submission legible rather than a silent jump
+              straight to a new answer. BouncingDots (this file, below)
+              takes over as the visible "in flight" state the instant the
+              resend's own `ask()` call sets `loading`. */}
+          <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">Asking again…</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="glass-card rounded-2xl p-4 w-full">
+      <p className="text-[16px] font-bold leading-snug text-slate-900 dark:text-slate-100">
+        Want me to be able to set things up for you?
+      </p>
+      <p className="mt-1.5 text-[14px] leading-relaxed text-slate-600 dark:text-slate-300">
+        Things like envelopes, goals and one-offs. You&apos;ll always see exactly what would change and confirm before anything happens.
+      </p>
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onAccept}
+          className="min-h-[44px] flex-1 rounded-xl text-white text-sm font-semibold active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          style={{ background: BG }}
+        >
+          Yes, set things up
+        </button>
+        <button
+          type="button"
+          onClick={onDecline}
+          className="min-h-[44px] px-4 text-sm font-semibold text-slate-500 dark:text-slate-400 active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl"
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Now that the surface is explicitly a chat (bubbles conversion, see this
 // file's header comment), a conventional three-dot typing indicator reads
 // correctly again — same PENNY_BUBBLE shell every other Penny turn uses, so
@@ -654,8 +896,30 @@ function ErrorRetry({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** Dismissible suggestion pill — 44px target, solid fill (floats over
- * scrolling content so it can't rely on the page background for contrast).
+/** Dismissible suggestion pill — 44px target. Light indigo wash, not a
+ * solid fill (2026-08-28, presentation fix — Kevin: "the chip on penny
+ * looks like it's part of the conversation"). Root cause: this used to sit
+ * on the same `bg-slate-50 dark:bg-slate-700` as any other quiet neutral
+ * control, which in dark mode was PIXEL-IDENTICAL to PENNY_BUBBLE's own
+ * `dark:bg-slate-700` fill (this file, above) — a chip and Penny's own
+ * message bubble were, literally, the same colour, which is exactly why a
+ * chip read as another turn in the thread instead of an offer floating
+ * over it. `bg-indigo-50/70 dark:bg-indigo-500/10` can't collide with
+ * either message fill: not PENNY_BUBBLE's neutral slate-100/700, not
+ * UserBubble's solid indigo-600, and it's a flat tint, never
+ * BRAND_GRADIENT (DESIGN.md's Penny Gradient Rule reserves that gradient
+ * for the AI adviser itself, not for an offer to go ask it something).
+ * Still a real fill, not fully transparent like LinkChip below, on
+ * purpose: some fill is what lets this pill keep reading over scrolling
+ * content without borrowing the page behind it for contrast (LinkChip
+ * never scrolls independently of its neighbour, so it can afford to be
+ * pure outline), and fill-vs-transparent is the signal that keeps the two
+ * chip kinds visually distinct at a glance — see LinkChip's own comment
+ * for the full "why they differ" case. Kept deliberately quieter than
+ * OfferChip's own indigo CTA (`border-indigo-200 text-indigo-600
+ * font-semibold`, this file above): OfferChip proposes a financial action;
+ * this is only a question you could ask, so its indigo stays a whisper in
+ * the frame, never in the text.
  * `onDismiss` stops propagation so the X never also fires the ask.
  *
  * `onDismiss` is now OPTIONAL (2026-08-25, chip-row redesign): the sheet's
@@ -682,7 +946,7 @@ function SuggestionChip({
 }) {
   return (
     <span
-      className={`inline-flex items-center flex-shrink-0 whitespace-nowrap min-h-[44px] rounded-full border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 gap-1 ${
+      className={`inline-flex items-center flex-shrink-0 whitespace-nowrap min-h-[44px] rounded-full border border-indigo-100 dark:border-indigo-800/50 bg-indigo-50/70 dark:bg-indigo-500/10 gap-1 ${
         onDismiss ? "pl-4 pr-1.5" : "px-4"
       }`}
     >
@@ -702,7 +966,7 @@ function SuggestionChip({
             onDismiss();
           }}
           aria-label={`Dismiss suggestion: ${label}`}
-          className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-slate-200 dark:active:bg-slate-600 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          className="relative w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 active:bg-indigo-100 dark:active:bg-indigo-500/20 transition-colors before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
           <X size={12} />
         </button>
@@ -968,6 +1232,10 @@ export default function PennyConversation({
           ? `Here's what I understood: ${m.items.map((it) => it.label).join(", ")}.`
           : m.kind === "explainer"
           ? m.reply
+          : m.kind === "proposal"
+          ? `I proposed: ${m.proposal.summary} (${m.status}).`
+          : m.kind === "consent"
+          ? "I asked whether I could set things up automatically on your behalf."
           : m.reply ?? m.headline;
         return { role: "assistant" as const, content };
       });
@@ -1012,6 +1280,16 @@ export default function PennyConversation({
         // `clarify` non-null (or no usable items extracted) — nothing to
         // confirm, render `reply` as an ordinary plain-text message.
         assistantMsg = { id, role: "assistant", kind: "verdict", headline: res.reply, degraded: true };
+      } else if (res.consent_required) {
+        // Agent mode v1's one-time gate — checked BEFORE `res.proposal`
+        // (the two are mutually exclusive on the wire, but consent takes
+        // priority if a backend ever somehow set both): nothing has been
+        // drafted yet, there's only a permission question to answer.
+        assistantMsg = { id, role: "assistant", kind: "consent", status: "pending" };
+      } else if (res.proposal) {
+        // Agent mode v1's confirm-as-is card — see ProposalMsg's own doc
+        // comment. Never auto-actioned: nothing happens until Confirm.
+        assistantMsg = { id, role: "assistant", kind: "proposal", proposal: res.proposal, status: "pending" };
       } else if (res.explainer) {
         // General-knowledge answer (tax) — checked BEFORE `res.headline`
         // since it's a different message kind entirely, not a verdict
@@ -1119,6 +1397,139 @@ export default function PennyConversation({
     if (!last || last.role !== "user") return;
     const history = buildHistory(current.slice(0, -1));
     ask(last.content, history);
+  }
+
+  // ── AGENT MODE v1 — proposal Confirm/Cancel and the consent gate's
+  // Accept/Decline. All four mutate ONE message in place (by `id`), never
+  // append or remove — the message itself is the thread's permanent record
+  // of what was asked and how it was resolved (a resolved card collapses
+  // its own presentation, see ProposalConfirmCard/ConsentCard, it never
+  // vanishes). Every mutation goes through `setBucket` (this file's own
+  // `bucketsRef`-backed updater — see that function's comment above) so a
+  // background TTL expiry or a screen switch mid-flight can never silently
+  // undo one of these. ──────────────────────────────────────────────────
+
+  /** Confirm — fires POST /penny/proposals/{id}/execute exactly once, even
+   * on a double-tap: `status` flips to "executing" SYNCHRONOUSLY (via
+   * `setBucket`, which writes `bucketsRef.current` immediately, not on
+   * React's next commit — see that function's own comment) before the
+   * network call starts, and the guard below reads that same ref, so a
+   * second tap in the same event loop turn as the first already sees
+   * "executing" and no-ops. The button itself is also `disabled` while
+   * busy (ProposalConfirmCard), belt-and-braces on top of this. */
+  function confirmProposal(screen: PennyAskContext["screen"], msgId: number, proposalId: string) {
+    const current = bucketsRef.current[screen].messages.find(
+      (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
+    );
+    if (!current || current.status !== "pending") return;
+    setBucket(screen, (prev) => ({
+      ...prev,
+      messages: prev.messages.map((m) =>
+        m.role === "assistant" && m.kind === "proposal" && m.id === msgId ? { ...m, status: "executing" as const } : m
+      ),
+    }));
+    api.executePennyProposal(proposalId)
+      .then(() => {
+        setBucket(screen, (prev) => ({
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.role === "assistant" && m.kind === "proposal" && m.id === msgId ? { ...m, status: "done" as const } : m
+          ),
+        }));
+      })
+      .catch((e: unknown) => {
+        // The backend's own detail string (expired/cancelled/already-
+        // actioned) — see api.executePennyProposal's `toJson` routing.
+        // Never a silent failure: this always lands as a visible, honest
+        // error line with an "ask me again" hint (ProposalConfirmCard).
+        setBucket(screen, (prev) => ({
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.role === "assistant" && m.kind === "proposal" && m.id === msgId
+              ? { ...m, status: "error" as const, errorDetail: e instanceof Error ? e.message : undefined }
+              : m
+          ),
+        }));
+      });
+  }
+
+  /** Cancel — same "pending only" guard as confirmProposal, fire-and-forget
+   * on the network call: the card already reflects "cancelled" the instant
+   * the user taps it (nothing to wait on, cancelling can't meaningfully
+   * fail from the user's point of view), so a failed DELETE-equivalent on
+   * the server is swallowed rather than surfaced — same treatment
+   * CommitmentSheet's own offer hand-off gives a fire-and-forget follow-up. */
+  function cancelProposal(screen: PennyAskContext["screen"], msgId: number, proposalId: string) {
+    const current = bucketsRef.current[screen].messages.find(
+      (m): m is ProposalMsg => m.role === "assistant" && m.kind === "proposal" && m.id === msgId
+    );
+    if (!current || current.status !== "pending") return;
+    setBucket(screen, (prev) => ({
+      ...prev,
+      messages: prev.messages.map((m) =>
+        m.role === "assistant" && m.kind === "proposal" && m.id === msgId ? { ...m, status: "cancelled" as const } : m
+      ),
+    }));
+    api.cancelPennyProposal(proposalId).catch(() => {});
+  }
+
+  /** Accept the one-time consent gate: grant, flip the card to "accepted",
+   * then auto-resend the question that triggered the gate (see
+   * resendAfterConsent below). Left pending (not flipped) on a failed
+   * grant so the same tap can be retried — there's no separate error copy
+   * for this path, the card just stays exactly as it was. */
+  function acceptConsent(msgId: number) {
+    const screen = currentScreen;
+    api.grantPennyAgentConsent()
+      .then(() => {
+        setBucket(screen, (prev) => ({
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.role === "assistant" && m.kind === "consent" && m.id === msgId ? { ...m, status: "accepted" as const } : m
+          ),
+        }));
+        resendAfterConsent(msgId);
+      })
+      .catch(() => {});
+  }
+
+  function declineConsent(msgId: number) {
+    const screen = currentScreen;
+    setBucket(screen, (prev) => ({
+      ...prev,
+      messages: prev.messages.map((m) =>
+        m.role === "assistant" && m.kind === "consent" && m.id === msgId ? { ...m, status: "declined" as const } : m
+      ),
+    }));
+    // No resend on decline (contrast with acceptConsent below): the user's
+    // original action-shaped ask simply goes unanswered — Penny never had
+    // permission to act on it, and there is nothing read-only left to
+    // answer from the same question. Ordinary informational questions keep
+    // working exactly as before; this gate never touched those.
+  }
+
+  /** Re-submits the question that triggered a consent gate, once the user
+   * accepts. Deliberately NOT a call to `retry()` above: `retry()` only
+   * ever resends the LAST message in the bucket when it happens to be the
+   * user's own turn, but by the time Accept is tapped the consent card
+   * itself is the last message (it was appended as Penny's reply to that
+   * question) — `retry()`'s tail check would see an assistant turn and
+   * silently no-op. This walks backward from the consent card's own
+   * position instead, finds the nearest preceding user turn, and resends
+   * it with the history that came before IT — otherwise identical to
+   * `retry()` (same `buildHistory`/`ask()` primitives, same "read
+   * `bucketsRef.current`, not the `buckets` state variable" reasoning). */
+  function resendAfterConsent(consentMsgId: number) {
+    const current = bucketsRef.current[currentScreen].messages;
+    const consentIdx = current.findIndex((m) => m.role === "assistant" && m.kind === "consent" && m.id === consentMsgId);
+    const before = consentIdx >= 0 ? current.slice(0, consentIdx) : current;
+    for (let i = before.length - 1; i >= 0; i--) {
+      const m = before[i];
+      if (m.role === "user") {
+        ask(m.content, buildHistory(before.slice(0, i)));
+        return;
+      }
+    }
   }
 
   // ?ask=<question> — submit exactly once on mount.
@@ -1517,7 +1928,23 @@ export default function PennyConversation({
           same as the bottom row. No `onDismiss` is ever passed here — see
           `SuggestionChip`'s own comment on why the X is gone from this row
           specifically (population makes a chip zero-commitment, nothing
-          to dismiss). */}
+          to dismiss).
+
+          OWN SURFACE, hairline-bounded (2026-08-28, presentation fix —
+          Kevin: "the chip on penny looks like it's part of the
+          conversation"). This row already sat structurally apart from
+          `messages` (it's a sibling of the scroll container, not inside
+          it), but nothing marked that boundary to the eye: PennySheet.tsx's
+          header divider closes off the top of this strip, yet the BOTTOM
+          of it fed straight into the thread with no line between a chip and
+          the first bubble below it, so a glance could still read the row as
+          the start of the conversation rather than a control sitting above
+          it. `border-b` below (same hairline token as the header's own
+          divider, PennySheet.tsx) closes the strip on both edges, the same
+          bordered-inset idiom the rest of this app uses for a distinct
+          band (see DESIGN.md's Instrument Header, `glass-tile` inset). See
+          `SuggestionChip`'s own comment for the matching fill fix (the
+          other half of this same complaint). */}
       {inSheet && allChips.length > 0 && (
         // `pt-1` -> `pt-0.5` (design review, 2026-08-25): paired with
         // PennySheet.tsx's header divider `mt-1.5` -> `mt-1` change, tightens
@@ -1525,8 +1952,13 @@ export default function PennyConversation({
         // so the two read as one utility cluster above the thread rather
         // than two separated bands of tap targets. 44px chip/link targets
         // are untouched, only the padding around them shrank.
-        <div className="shrink-0 relative px-5 pt-0.5">
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
+        //
+        // `pb-1 border-b` (2026-08-28) moved down from the scrollable row
+        // below onto this outer wrapper, same 4px of breathing room, now
+        // followed by a hairline rather than falling straight into the
+        // thread — see this block's own header comment above.
+        <div className="shrink-0 relative px-5 pt-0.5 pb-1 border-b border-slate-200/70 dark:border-slate-700">
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide">
             {allChips.map((c) => {
               if (c.source === "personalised") {
                 const full = c.label;
@@ -1618,6 +2050,33 @@ export default function PennyConversation({
           if (m.kind === "explainer") {
             return <ExplainerBubble key={m.id} msg={m} />;
           }
+          if (m.kind === "proposal") {
+            // Full-width card, deliberately NOT a bubble — same CARVE-OUT
+            // as ScenarioConfirmCard/ConsentCard (real buttons, a real
+            // side effect). `screen`/`msgId` captured here from the
+            // CURRENTLY VIEWED bucket (`currentScreen`) — only that
+            // bucket's messages ever render, so this is always the right
+            // bucket for the mutation.
+            return (
+              <ProposalConfirmCard
+                key={m.id}
+                msg={m}
+                onConfirm={() => confirmProposal(currentScreen, m.id, m.proposal.proposal_id)}
+                onCancel={() => cancelProposal(currentScreen, m.id, m.proposal.proposal_id)}
+                onOpenDone={() => { closePennySheet(); router.push("/planning"); }}
+              />
+            );
+          }
+          if (m.kind === "consent") {
+            return (
+              <ConsentCard
+                key={m.id}
+                msg={m}
+                onAccept={() => acceptConsent(m.id)}
+                onDecline={() => declineConsent(m.id)}
+              />
+            );
+          }
           return <VerdictBubble key={m.id} msg={m} onOfferTap={openOfferSheet} />;
         })}
         {loading && <BouncingDots />}
@@ -1634,13 +2093,21 @@ export default function PennyConversation({
           Nothing mounts this component full-page any more (see this file's
           header comment: only app/penny/PennyPage.tsx used to, and it now
           only renders `PennyPromptBar`, not this), so this block is
-          unreachable in production today — kept, unchanged, only so the
-          full-page path stays behaviourally intact rather than being ripped
-          out, per instruction. Survives an answer instead of disappearing
-          (removed only once asked or explicitly dismissed); scrolls with
-          the thread, composer below stays docked. */}
+          unreachable in production today — kept, unchanged (bar the same
+          hairline/fill fix the sheet row above got, 2026-08-28, so the two
+          modes stay presentationally in step even though only one of them
+          ships) only so the full-page path stays behaviourally intact
+          rather than being ripped out, per instruction. Survives an answer
+          instead of disappearing (removed only once asked or explicitly
+          dismissed); scrolls with the thread, composer below stays docked.
+
+          `border-t` (2026-08-28, presentation fix, same complaint as the
+          sheet row above): this row sits AFTER the thread in flow, so its
+          own hairline goes on top rather than the bottom, closing the gap
+          between the last bubble and this row the same way the sheet row's
+          `border-b` closes the gap before ITS thread. */}
       {!inSheet && allChips.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-3">
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-200/70 dark:border-slate-700">
           {allChips.map((c) => {
             if (c.source === "personalised") {
               return (

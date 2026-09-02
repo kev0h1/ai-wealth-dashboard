@@ -76,6 +76,12 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     if new_count > 0:
         from app.routers.analytics import compute_and_cache_cashflow
         await compute_and_cache_cashflow(user_id)
+        try:
+            from app.services.money_shape import compute_and_cache_money_shape
+            await compute_and_cache_money_shape(user_id)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("money_shape compute failed for %s", user_id)
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     return {"synced": len(ids), "new_transactions": new_count}
 

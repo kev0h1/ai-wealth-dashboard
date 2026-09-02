@@ -45,7 +45,6 @@ const MOCK_ACCOUNTS: Account[] = [
 
 const NOTIFY_ROWS: { key: keyof NotificationPrefs; title: string; desc: string }[] = [
   { key: "insights", title: "Tips & insights", desc: "Ways to save money we spot for you" },
-  { key: "budget_alerts", title: "Budget alerts", desc: "When you go over a budget category" },
   { key: "bill_alerts", title: "Bill alerts", desc: "When an upcoming bill may not clear" },
   { key: "goal_milestones", title: "Goal milestones", desc: "When you reach a savings goal" },
   { key: "period_digest", title: "Pay-period digest", desc: "A fresh-start goals summary each new pay period" },
@@ -125,7 +124,6 @@ export default function Page() {
   const [pushOn, setPushOn] = useState(true);
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>({
     transactions: true,
-    budget_alerts: true,
     goal_milestones: true,
     insights: true,
     period_digest: true,

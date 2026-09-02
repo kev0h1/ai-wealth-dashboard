@@ -17,7 +17,7 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "profile" | "payday" | "bank" | "secure";
+type Step = "welcome" | "profile" | "payday" | "income" | "bank" | "secure";
 
 const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "Last Friday of month",  sub: "Typical UK monthly salary",         value: { type: "last_friday" } },
@@ -29,7 +29,7 @@ const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "I'll set this later",   sub: "",                                   value: null },
 ];
 
-const STEP_DOTS: Step[] = ["profile", "payday", "bank", "secure"];
+const STEP_DOTS: Step[] = ["profile", "payday", "income", "bank", "secure"];
 
 // Defined outside Onboarding so its identity is stable across renders —
 // an inner component would remount on every state change and steal focus.
@@ -63,6 +63,9 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [lastName, setLastName]   = useState(() => defaultName.split(" ").slice(1).join(" ") ?? "");
   const [postcode, setPostcode]   = useState("");
   const [payIdx, setPayIdx]       = useState(0);
+  const [incomeInput, setIncomeInput]     = useState("");
+  const [incomeFocused, setIncomeFocused] = useState(false);
+  const [incomeSaving, setIncomeSaving]   = useState(false);
   const [showSheet, setShowSheet] = useState(false);
   const [bankAdded, setBankAdded] = useState(false);
   const [saving, setSaving]       = useState(false);
@@ -161,6 +164,25 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     if (chosen) {
       try { await api.updatePreferences({ pay_period_config: chosen }); } catch {}
     }
+    setStep("income");
+  }
+
+  // Show 107,000 not 107000 while not focused — mirrors SettingsPage's fmtDigits.
+  const fmtDigits = (v: string) => (v ? Number(v).toLocaleString("en-GB") : "");
+
+  // Optional data: never blocks progression, even on a save error.
+  async function saveIncome() {
+    const n = parseInt(incomeInput.replace(/[^0-9]/g, ""), 10);
+    const value = isNaN(n) ? 0 : n;
+    if (value > 0) {
+      setIncomeSaving(true);
+      try { await api.updatePreferences({ income_value: value }); } catch {}
+      setIncomeSaving(false);
+    }
+    setStep("bank");
+  }
+
+  function skipIncome() {
     setStep("bank");
   }
 
@@ -321,6 +343,61 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
           className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.97] text-sm font-semibold text-white transition"
         >
           Continue
+        </button>
+      </Shell>
+    );
+  }
+
+  // ── income ─────────────────────────────────────────────────────────────────
+  if (step === "income") {
+    return (
+      <Shell dotIndex={dotIndex}>
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">What do you earn?</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Optional, this just helps Penny personalise your insights.
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-6 space-y-4">
+          <div>
+            <label htmlFor="onboarding-income" className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+              Approximate income (£/yr)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">£</span>
+              <input
+                id="onboarding-income"
+                type="text"
+                inputMode="numeric"
+                value={incomeFocused ? incomeInput : fmtDigits(incomeInput)}
+                onChange={e => setIncomeInput(e.target.value.replace(/[^0-9]/g, ""))}
+                onFocus={() => setIncomeFocused(true)}
+                onBlur={() => setIncomeFocused(false)}
+                onKeyDown={e => { if (e.key === "Enter") saveIncome(); }}
+                placeholder="e.g. 45000"
+                className="w-full pl-7 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1.5">
+              Used to personalise your tax insights and what Sorted suggests you do with spare money. You can change it later in Account.
+            </p>
+          </div>
+
+          <button
+            onClick={saveIncome}
+            disabled={incomeSaving}
+            className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-sm font-semibold text-white disabled:opacity-50 transition-all"
+          >
+            {incomeSaving ? "Saving…" : "Continue"}
+          </button>
+        </div>
+
+        <button
+          onClick={skipIncome}
+          className="w-full py-2.5 mt-3 text-sm text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+        >
+          I&apos;ll set this later
         </button>
       </Shell>
     );
