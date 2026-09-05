@@ -3,6 +3,25 @@ import { useCallback, useEffect, useState } from "react";
 import { api, Transaction } from "@/lib/api";
 
 // Module-level cache: one fetch per TTL across all consumers, in-flight dedupe.
+//
+// Window audit (both consumers checked): api.allTransactions() defaults to
+// 365 days (lib/api.ts). The two callers of this shared cache are
+// SpendPage.tsx's `useAllTransactions` (feeding SpendTrends' allTxns prop)
+// and AccountsPage.tsx's `getAllTransactionsCached` (the rule-builder's
+// match-preview pool). Within SpendTrends, only PeriodCompareWidget reads
+// allTxns at all (every other widget reads the current period only), and it
+// walks back just 6 pay periods (~180 days worst case, since every pay
+// period here runs payday-to-payday, roughly a calendar month) — nowhere
+// near a year. The 365-day window is kept anyway for AccountsPage's rule
+// builder: its live match-preview count needs to see as much of the
+// account's real history as possible, since a rule's `backfill` applies
+// server-side against the FULL history regardless of what this cache
+// fetched — a shorter window here would just make the preview undercount
+// against what actually gets backfilled. 365 is generous headroom for the
+// chart (roughly double its real need) and the better number for the rule
+// builder, so it stays; this comment exists so a future reader doesn't
+// "fix" it down to ~180 days on the chart's account alone and quietly
+// break the rule builder's preview accuracy.
 let cache: { data: Transaction[]; at: number } | null = null;
 let inflight: Promise<Transaction[]> | null = null;
 const TTL_MS = 300_000;

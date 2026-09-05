@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, EyeOff, Wallet, X } from "lucide-react";
 import { api, Account, Allocation, CashflowData } from "@/lib/api";
+import { getAccountsCached } from "@/lib/accountsCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -290,7 +291,7 @@ export default function PlanningPage() {
       cancelIdleCallback?: (handle: number) => void;
     };
     const loadSecondary = () => {
-      api.accounts().catch(() => [] as Account[]).then(setAccounts);
+      getAccountsCached().catch(() => [] as Account[]).then(setAccounts);
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
       api.dismissedSeries()

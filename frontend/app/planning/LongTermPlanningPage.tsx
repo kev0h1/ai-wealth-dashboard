@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
+import { getAccountsCached } from "@/lib/accountsCache";
 import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -170,7 +171,7 @@ export default function LongTermPlanningPage() {
     // changing behaviour — see GrowPanel.tsx's own mount effect for the
     // same fix and fuller rationale.
     queueMicrotask(loadGoals);
-    api.accounts().then(setAccounts).catch(() => setAccounts([]));
+    getAccountsCached().then(setAccounts).catch(() => setAccounts([]));
     api.getDebtPlanSummary().then(setDebt).catch(() => setDebt(null));
   }, [loadGoals]);
 

@@ -27,6 +27,8 @@ import { usePreferences } from "@/components/PreferencesContext";
 import CustomSelect from "@/components/CustomSelect";
 import { createPortal } from "react-dom";
 import { getAllTransactionsCached } from "@/lib/useAllTransactions";
+import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 
@@ -577,7 +579,7 @@ export default function AccountsPage() {
   const loadAccounts = useCallback(async () => {
     try {
       const [accs, invAccs, manuals, mrules, kpiResult] = await Promise.all([
-        api.accounts().catch(() => [] as Account[]),
+        getAccountsCached().catch(() => [] as Account[]),
         api.getInvestmentAccounts().catch(() => [] as InvestmentAccount[]),
         api.manualAccounts().catch(() => [] as ManualAccount[]),
         api.manualAccountRules().catch(() => [] as ManualAccountRule[]),
@@ -679,11 +681,17 @@ export default function AccountsPage() {
     }
   }, [pathname, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When redirected back from TrueLayer, poll until accounts appear then clear the flag
+  // When redirected back from TrueLayer, poll until accounts appear then clear the flag.
+  // force=true on every poll: we're specifically waiting for the list to
+  // change, so a stale cached read (possibly still the pre-connect empty
+  // list) would spin here for up to the rest of the cache's TTL instead of
+  // seeing the new account land within one 3s tick. A forced fetch also
+  // rewrites the shared cache itself, so every other page sees the fresh
+  // list immediately too, without a separate invalidateAccounts() call.
   useEffect(() => {
     if (!isSyncing) return;
     const interval = setInterval(async () => {
-      const accs = await api.accounts().catch(() => [] as Account[]);
+      const accs = await getAccountsCached(true).catch(() => [] as Account[]);
       if (accs.length > 0) {
         setAccounts(accs);
         clearInterval(interval);
@@ -724,7 +732,15 @@ export default function AccountsPage() {
   const noteFileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     api.getPreferences()
-      .then(p => setPinnedIds(p.home_pinned_accounts ?? []))
+      .then(p => {
+        const ids = p.home_pinned_accounts ?? [];
+        setPinnedIds(ids);
+        // Seed the shared store (lib/homePinnedAccounts.ts) from this
+        // page's own fetch too, so a reader mounted first (e.g. Home,
+        // still on its own idle-warm request) doesn't win the race and
+        // seed the shared store from a slightly earlier snapshot.
+        writeHomePinnedAccounts(ids);
+      })
       .catch(() => {})
       .finally(() => setPrefsReady(true));
   }, []);
@@ -738,6 +754,9 @@ export default function AccountsPage() {
     setPinnedIds(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
       api.updatePreferences({ home_pinned_accounts: next }).catch(() => {});
+      // Write-through so Home's useHomePinnedAccounts() reflects this pin
+      // toggle immediately, without re-fetching preferences itself.
+      writeHomePinnedAccounts(next);
       return next;
     });
   }
@@ -858,10 +877,12 @@ export default function AccountsPage() {
   }
 
   function handleMonoSuccess() {
+    invalidateAccounts();
     loadAccounts();
   }
 
   function handleStatementSuccess() {
+    invalidateAccounts();
     loadAccounts();
     if (selectedAccountId) loadAccountTxns(selectedAccountId, true);
     setShowMpesaUpload(false);
@@ -891,6 +912,7 @@ export default function AccountsPage() {
     setDeletingAccount(true);
     try {
       await api.deleteAccount(selectedAccountId);
+      invalidateAccounts();
       setAccounts(prev => prev.filter(a => a.id !== selectedAccountId));
       setTxnMap(prev => { const n = { ...prev }; delete n[selectedAccountId]; return n; });
       handleBack();
@@ -935,6 +957,7 @@ export default function AccountsPage() {
         setManualAccounts(prev => [...prev, created]);
       }
       setManualModalOpen(false);
+      invalidateAccounts();
       loadAccounts();
     } catch {
       setManualError("Couldn't save. Please try again.");
@@ -947,6 +970,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Remove this offline account?")) return;
     try {
       await api.deleteManualAccount(id);
+      invalidateAccounts();
       setManualAccounts(prev => prev.filter(a => a.id !== id));
       loadAccounts();
     } catch {
@@ -1009,6 +1033,7 @@ export default function AccountsPage() {
         await api.addManualTransaction(selectedAccountId, body);
       }
       setManualTxModalOpen(false);
+      invalidateAccounts();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1023,6 +1048,7 @@ export default function AccountsPage() {
     if (!await showConfirm("Delete this entry?")) return;
     try {
       await api.deleteManualTransaction(selectedAccountId, txId);
+      invalidateAccounts();
       await loadAccountTxns(selectedAccountId, true);
       loadAccounts();
     } catch {
@@ -1088,7 +1114,8 @@ export default function AccountsPage() {
       setRuleSearchOpen(false);
       setRuleSearchResults([]);
       setRuleCounts(null);
-      loadAccounts(); // balances changed via backfill / reverse+reapply
+      invalidateAccounts(); // balances changed via backfill / reverse+reapply
+      loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
       setRuleError("Couldn't save. Please try again.");
@@ -1101,6 +1128,7 @@ export default function AccountsPage() {
     try {
       const updated = await api.updateManualAccountRule(rule.id, { active: !rule.active });
       setRules(prev => prev.map(r => r.id === rule.id ? updated : r));
+      invalidateAccounts();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -1113,6 +1141,7 @@ export default function AccountsPage() {
     try {
       await api.deleteManualAccountRule(id);
       setRules(prev => prev.filter(r => r.id !== id));
+      invalidateAccounts();
       loadAccounts();
       if (selectedAccountId) await loadAccountTxns(selectedAccountId, true);
     } catch {
@@ -2021,6 +2050,7 @@ export default function AccountsPage() {
                   if (isManual) {
                     if (!await showConfirm("Remove this offline account?")) return;
                     await api.deleteManualAccount(selectedAccount.id);
+                    invalidateAccounts();
                     setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
                     loadAccounts();
                     handleBack();

@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Check, Undo2 } from "lucide-react";
-import { api, Account, Transaction, SpendVerdict, type SavingsInsight } from "@/lib/api";
+import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
+import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
+import SpendShapeCard from "@/components/SpendShapeCard";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
 import { cachedSignals, fetchSignals, invalidateSignalsCache, SignalMap } from "@/lib/signalsCache";
@@ -19,6 +21,7 @@ import {
   DEFAULT_PAY_PERIOD_CONFIG,
 } from "@/lib/payPeriod";
 import { usePreferences } from "@/components/PreferencesContext";
+import { getAccountsCached } from "@/lib/accountsCache";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { isHomeCurrency } from "@/lib/currency";
 import { CategoryData } from "@/components/CategoryRow";
@@ -33,7 +36,6 @@ import { useTutorialReady } from "@/components/TutorialContext";
 // These surfaces are absent from the initial This period view. Keeping them
 // outside its client graph avoids paying for charts, portals, and form logic
 // until the user explicitly opens that branch.
-const SpendPatternsSummary = dynamic(() => import("@/components/SpendPatternsSummary"));
 const SpendTrends = dynamic(() => import("@/components/SpendTrends"), {
   loading: () => <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>,
 });
@@ -224,7 +226,7 @@ function SpendSkeleton() {
 }
 
 export default function SpendPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig, region, rawPrefs, hideNetWorth } = usePreferences();
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -332,6 +334,13 @@ export default function SpendPage() {
   const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(initialPeriod.offset));
   const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(initialPeriod.offset) == null);
   const verdictOffsetRef = useRef(initialPeriod.offset);
+  // The period view's closing SpendShapeCard — undefined while its own idle
+  // fetch hasn't settled yet (skeleton), null once a fetch resolves with
+  // nothing to show (card renders nothing). Seeded from any value already
+  // warm from a previous visit (lib/moneyShape.ts) so a fast revisit paints
+  // immediately instead of skeletoning again.
+  const [moneyShape, setMoneyShape] = useState<MoneyShape | null | undefined>(() => peekMoneyShape() ?? undefined);
+  const moneyShapeRequestedRef = useRef(false);
   // `silent` = we already have something on screen for this offset (cache
   // or a previous fetch) — revalidate in the background without flipping
   // the spinner back on, and never blank a good verdict on a transient error.
@@ -355,6 +364,39 @@ export default function SpendPage() {
       fetchVerdict(periodOffset);
     }
   }, [periodOffset, fetchVerdict]);
+
+  // The closing SpendShapeCard's own GET /money-shape — independent of the
+  // period fetch above (the shape is the user's own recent-period pattern,
+  // not this specific period's verdict), so it loads once, on idle, after
+  // the verdict has painted, rather than blocking or racing it. Fires once
+  // per mount (moneyShapeRequestedRef), not once per verdict/period change.
+  useEffect(() => {
+    if (!verdict || moneyShapeRequestedRef.current) return;
+    moneyShapeRequestedRef.current = true;
+    let cancelled = false;
+    const load = () => {
+      if (cancelled) return;
+      loadMoneyShape()
+        .then((shape) => { if (!cancelled) setMoneyShape(shape); })
+        .catch(() => {
+          // A failed fetch never clobbers a warm value already on screen
+          // (peekMoneyShape() seeded `moneyShape` above, or a previous
+          // successful load this same session) — null only when there is
+          // genuinely nothing cached to fall back to.
+          if (!cancelled) setMoneyShape((current) => current ?? null);
+        });
+    };
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleApi.requestIdleCallback === "function") {
+      const idleId = idleApi.requestIdleCallback(load, { timeout: 300 });
+      return () => { cancelled = true; idleApi.cancelIdleCallback?.(idleId); };
+    }
+    const timerId = window.setTimeout(load, 300);
+    return () => { cancelled = true; window.clearTimeout(timerId); };
+  }, [verdict]);
 
   // "Out" tap's Show Your Working destination — force the majority list
   // open and scroll to it, the exact reconciled transactions behind the
@@ -499,7 +541,7 @@ export default function SpendPage() {
   const loadData = useCallback(async () => {
     try {
       await ensureAuth();
-      const accs = await api.accounts().catch(() => [] as Account[]);
+      const accs = await getAccountsCached().catch(() => [] as Account[]);
       setAccounts(accs);
     } catch {}
   }, []);
@@ -940,8 +982,9 @@ export default function SpendPage() {
         <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setSpendView} />
       </div>
 
-      {/* This period is the reconciled verdict hub. Patterns starts with the
-          former Insights money-shape summary, then keeps the useful charts. */}
+      {/* This period is the reconciled verdict hub, closing on the money-shape
+          instrument card (owner decisions 2026-09-05); Patterns keeps the
+          charts only, the shape itself now lives at /spend/shape. */}
       {!showPatterns ? (
         <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">
           {verdict ? (
@@ -951,113 +994,122 @@ export default function SpendPage() {
             // flight; this is what makes the page restorable on BACK-nav —
             // there's no spinner-at-near-zero-height for ScrollReset's
             // gated restore to land on.
-            <SpendVerdictView
-              verdict={verdict}
-              colours={colours}
-              hideReading
-              categoryInsights={categoryInsights}
-              expandMajoritySignal={expandSignal}
-              miscategorisedCount={miscategorisedCount}
-              pairCount={pairCount}
-              reviewTotal={reviewTotal}
-              onMiscategorisedTap={handleMiscategorisedTap}
-              // Task 3 — every category tap (notable card's "See the N
-              // payments", every majority row) opens the global hub with
-              // both the category and this period pre-applied as removable
-              // chips, instead of CategorySheet.
-              onOpenCategory={(name) => {
-                const params = new URLSearchParams();
-                params.set("category", name);
-                params.set("from", isoDate(periodStart));
-                params.set("to", isoDate(periodEnd));
-                router.push(`/transactions?${params.toString()}`);
-              }}
-              // The ask card's account line (Change 3) — resolved here off
-              // `accounts` state since SpendVerdictView has no accounts list
-              // of its own; undefined (never a blank separator) when the
-              // account can't be resolved, matching UnresolvedAskCard's own
-              // fallback.
-              unresolvedAccountName={accounts.find(a => a.id === verdict.unresolved.largest?.account_id)?.name}
-              // "Money you moved" rows (Change 6) — same route-construction
-              // pattern as onOpenCategory above (category/from/to), plus
-              // `txn_type=debit` (a moved-money row is never a refund/credit)
-              // and `label` so the removable chip on /transactions shows the
-              // row's own label ("To your pots") instead of a raw joined
-              // category list. SpendVerdictView only ever calls this for a
-              // row it has already gated on `m.categories` being non-empty.
-              onOpenMoved={(m) => {
-                if (!m.categories || m.categories.length === 0) return;
-                const params = new URLSearchParams();
-                // One `categories` param per name (not a comma-joined
-                // `category` string) — a custom movement category name can
-                // legally contain a comma, which a delimiter can't represent
-                // unambiguously. URLSearchParams handles the encoding, and
-                // the backend's `_search_query` reads the repeated param
-                // as an exact-match list (see transactions.py).
-                m.categories.forEach((c) => params.append("categories", c));
-                params.set("txn_type", "debit");
-                params.set("from", isoDate(periodStart));
-                params.set("to", isoDate(periodEnd));
-                params.set("label", m.label);
-                router.push(`/transactions?${params.toString()}`);
-              }}
-              // BACK-navigation restore — see the restoredUi comment above.
-              initialMajorityExpanded={restoredUi.majorityExpanded}
-              onMajorityExpandedChange={(expanded) => writeSpendUiState({ majorityExpanded: expanded })}
-              initialMovedOpen={restoredUi.movedOpen}
-              onMovedOpenChange={(open) => writeSpendUiState({ movedOpen: open })}
-              signals={signals}
-              sym={sym}
-              onAimChanged={refetchSignals}
-              onIntent={(category, answer) => {
-                // Returns the request promise (no swallowed .catch()) so the
-                // card can await the real result and only claim success once
-                // the write has actually landed — see SpendVerdictView. Only
-                // ever called for "one_off" now — "new_normal" always routes
-                // through onNewNormalRequest below instead.
-                return api.recordTrendIntent(category, answer)
-                  .then(() => { refetchSignals(); fetchVerdict(periodOffset); });
-              }}
-              resolved={resolved}
-              onResolved={handleResolved}
-              onNewNormalRequest={(category) => { setFileError(false); setConsentFor(category); }}
-              onAskCorrect={() => {
-                // "Tell me what this was" opens the teaching sheet directly
-                // on the unresolved transaction — no detour through a
-                // synthetic "Other" category sheet first. category stays
-                // "Other" (honest — that's what the row really is); the
-                // sheet is told separately (forceMovementRoot below) to
-                // open on "Is this account yours?" rather than the spend
-                // picker, matching /design/spend-live's preview of this
-                // handoff (fix-round Blocker 4 — the Destination Rule's
-                // movement question is the better first question for a
-                // payment the engine explicitly couldn't place).
-                const largest = verdict.unresolved.largest;
-                if (!largest) return;
-                setAskHandoffTxId(largest.id);
-                setSelectedTx({
-                  id: largest.id,
-                  // account_id is now on the unresolved payload's largest
-                  // (Change 3) — fall back to "" only for a cached payload
-                  // fetched before the backend started sending it, same as
-                  // before this field existed.
-                  account_id: largest.account_id ?? "",
-                  date: largest.date,
-                  amount: largest.amount,
-                  currency: region === "Kenya" ? "KES" : "GBP",
-                  // description carries the raw provider string (the sheet's
-                  // evidence line); merchant_name only carries a display_name
-                  // when one actually survived the cleanup — never launder
-                  // the raw string into the field that means "cleaned
-                  // merchant" (TeachingSheet's `name` falls back to
-                  // `description` automatically when this is undefined).
-                  description: largest.raw_description,
-                  merchant_name: largest.display_name || undefined,
-                  category: "Other",
-                  transaction_type: "debit",
-                });
-              }}
-            />
+            <>
+              <SpendVerdictView
+                verdict={verdict}
+                colours={colours}
+                hideReading
+                categoryInsights={categoryInsights}
+                expandMajoritySignal={expandSignal}
+                miscategorisedCount={miscategorisedCount}
+                pairCount={pairCount}
+                reviewTotal={reviewTotal}
+                onMiscategorisedTap={handleMiscategorisedTap}
+                // Task 3 — every category tap (notable card's "See the N
+                // payments", every majority row) opens the global hub with
+                // both the category and this period pre-applied as removable
+                // chips, instead of CategorySheet.
+                onOpenCategory={(name) => {
+                  const params = new URLSearchParams();
+                  params.set("category", name);
+                  params.set("from", isoDate(periodStart));
+                  params.set("to", isoDate(periodEnd));
+                  router.push(`/transactions?${params.toString()}`);
+                }}
+                // The ask card's account line (Change 3) — resolved here off
+                // `accounts` state since SpendVerdictView has no accounts list
+                // of its own; undefined (never a blank separator) when the
+                // account can't be resolved, matching UnresolvedAskCard's own
+                // fallback.
+                unresolvedAccountName={accounts.find(a => a.id === verdict.unresolved.largest?.account_id)?.name}
+                // "Money you moved" rows (Change 6) — same route-construction
+                // pattern as onOpenCategory above (category/from/to), plus
+                // `txn_type=debit` (a moved-money row is never a refund/credit)
+                // and `label` so the removable chip on /transactions shows the
+                // row's own label ("To your pots") instead of a raw joined
+                // category list. SpendVerdictView only ever calls this for a
+                // row it has already gated on `m.categories` being non-empty.
+                onOpenMoved={(m) => {
+                  if (!m.categories || m.categories.length === 0) return;
+                  const params = new URLSearchParams();
+                  // One `categories` param per name (not a comma-joined
+                  // `category` string) — a custom movement category name can
+                  // legally contain a comma, which a delimiter can't represent
+                  // unambiguously. URLSearchParams handles the encoding, and
+                  // the backend's `_search_query` reads the repeated param
+                  // as an exact-match list (see transactions.py).
+                  m.categories.forEach((c) => params.append("categories", c));
+                  params.set("txn_type", "debit");
+                  params.set("from", isoDate(periodStart));
+                  params.set("to", isoDate(periodEnd));
+                  params.set("label", m.label);
+                  router.push(`/transactions?${params.toString()}`);
+                }}
+                // BACK-navigation restore — see the restoredUi comment above.
+                initialMajorityExpanded={restoredUi.majorityExpanded}
+                onMajorityExpandedChange={(expanded) => writeSpendUiState({ majorityExpanded: expanded })}
+                initialMovedOpen={restoredUi.movedOpen}
+                onMovedOpenChange={(open) => writeSpendUiState({ movedOpen: open })}
+                signals={signals}
+                sym={sym}
+                onAimChanged={refetchSignals}
+                onIntent={(category, answer) => {
+                  // Returns the request promise (no swallowed .catch()) so the
+                  // card can await the real result and only claim success once
+                  // the write has actually landed — see SpendVerdictView. Only
+                  // ever called for "one_off" now — "new_normal" always routes
+                  // through onNewNormalRequest below instead.
+                  return api.recordTrendIntent(category, answer)
+                    .then(() => { refetchSignals(); fetchVerdict(periodOffset); });
+                }}
+                resolved={resolved}
+                onResolved={handleResolved}
+                onNewNormalRequest={(category) => { setFileError(false); setConsentFor(category); }}
+                onAskCorrect={() => {
+                  // "Tell me what this was" opens the teaching sheet directly
+                  // on the unresolved transaction — no detour through a
+                  // synthetic "Other" category sheet first. category stays
+                  // "Other" (honest — that's what the row really is); the
+                  // sheet is told separately (forceMovementRoot below) to
+                  // open on "Is this account yours?" rather than the spend
+                  // picker, matching /design/spend-live's preview of this
+                  // handoff (fix-round Blocker 4 — the Destination Rule's
+                  // movement question is the better first question for a
+                  // payment the engine explicitly couldn't place).
+                  const largest = verdict.unresolved.largest;
+                  if (!largest) return;
+                  setAskHandoffTxId(largest.id);
+                  setSelectedTx({
+                    id: largest.id,
+                    // account_id is now on the unresolved payload's largest
+                    // (Change 3) — fall back to "" only for a cached payload
+                    // fetched before the backend started sending it, same as
+                    // before this field existed.
+                    account_id: largest.account_id ?? "",
+                    date: largest.date,
+                    amount: largest.amount,
+                    currency: region === "Kenya" ? "KES" : "GBP",
+                    // description carries the raw provider string (the sheet's
+                    // evidence line); merchant_name only carries a display_name
+                    // when one actually survived the cleanup — never launder
+                    // the raw string into the field that means "cleaned
+                    // merchant" (TeachingSheet's `name` falls back to
+                    // `description` automatically when this is undefined).
+                    description: largest.raw_description,
+                    merchant_name: largest.display_name || undefined,
+                    category: "Other",
+                    transaction_type: "debit",
+                  });
+                }}
+              />
+              <div className="mt-4">
+                <SpendShapeCard
+                  shape={moneyShape}
+                  hideValues={hideNetWorth}
+                  onOpen={() => router.push("/spend/shape")}
+                />
+              </div>
+            </>
           ) : pageLoading || verdictLoading ? (
             <div className="flex items-center justify-center py-16">
               <Spinner size={32} />
@@ -1070,24 +1122,15 @@ export default function SpendPage() {
         </div>
       ) : (
         <>
-          <div className="px-4 pt-5">
-            <SpendPatternsSummary
-              selectedPeriod={{
-                start: isoDate(periodStart),
-                end: isoDate(periodEnd),
-                label: formatPeriodLocal(periodStart, periodEnd),
-              }}
-            />
-          </div>
           {pageLoading ? (
             <div className="flex items-center justify-center py-16">
               <Spinner size={32} />
             </div>
           ) : (
             <>
-              <div className="px-4 pt-6">
+              <div className="px-4 pt-5">
                 <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Charts</h2>
-                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Explore the detail behind those patterns.</p>
+                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Explore the detail behind your spending.</p>
               </div>
               <SpendTrends
                 periodTxns={homeTxns}

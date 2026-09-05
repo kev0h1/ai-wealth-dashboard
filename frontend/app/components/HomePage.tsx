@@ -31,6 +31,8 @@ import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { fetchVerdictData } from "@/lib/verdictCache";
+import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
+import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -187,7 +189,13 @@ export default function HomePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  // Shared store (lib/homePinnedAccounts.ts) — replaces this page's own
+  // dedicated api.getPreferences() re-fetch (see that file's doc comment
+  // for why a plain `usePreferences().rawPrefs` read isn't enough: it only
+  // seeds once and never picks up a pin toggled by AccountsPage in the same
+  // tab). Written-through by AccountsPage.togglePin, so a pin toggled there
+  // shows up here without this page fetching anything itself.
+  const pinnedIds = useHomePinnedAccounts();
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>(homeCache?.companionItems ?? []);
   // Fed by HomeBrief's onClearedChange (see BriefBodyProps.onClearedChange
@@ -284,7 +292,7 @@ export default function HomePage() {
       // siblings, and Recent Transactions gets its own small search-endpoint
       // request here instead of reading off the heavy 90-day bulk fetch
       // (that one is now lazy — see the homePinnedWidget effect below).
-      const accsP = api.accounts();
+      const accsP = getAccountsCached();
       const invP = api.getInvestmentAccounts();
       const safeP = api.safeToSpend();
       const todayP = api.getToday();
@@ -437,22 +445,6 @@ export default function HomePage() {
     return () => { cancelled = true; };
   }, [homePinnedWidget, bulkNonce]);
 
-  // Cross-page pin staleness (F3 review correction): PreferencesContext
-  // fetches /preferences exactly once per full page load and never
-  // refreshes on client-side navigation, so deriving pinnedIds from rawPrefs
-  // alone would miss pins toggled elsewhere — e.g. AccountsPage.togglePin
-  // writes preferences directly, bypassing this context — until a hard
-  // reload. PreferencesContext.tsx and AccountsPage.tsx are outside this
-  // fix's touched-files, so re-fetch preferences directly on every Home
-  // mount instead of trusting the (possibly stale) context snapshot.
-  useEffect(() => {
-    let cancelled = false;
-    api.getPreferences()
-      .then((p) => { if (!cancelled) setPinnedIds(p.home_pinned_accounts ?? []); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
   const [stickyHeaderVisible, setStickyHeaderVisible] = useState(false);
   const greetingRef = useRef<HTMLDivElement>(null);
   const syncErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -464,6 +456,11 @@ export default function HomePage() {
     try {
       await api.syncAll();
       invalidateTransactionsCache();
+      // A sync can change account balances/status (not just transactions),
+      // so the shared accounts cache (lib/accountsCache.ts) must be forced
+      // fresh too — otherwise loadData()'s accsP could still serve the
+      // pre-sync snapshot for up to the rest of its 60s TTL.
+      invalidateAccounts();
       await loadData();
     } catch {
       setSyncError(true);
