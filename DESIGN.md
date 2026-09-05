@@ -237,6 +237,12 @@ Resolving fires a single toast with one Undo action, live for 5 seconds, matchin
 
 New normal is never filed directly from the card. It always opens the Intent Consent Sheet first, which prices the change in plain language before saving, "here's what that changes" narration fetched fresh per category, with filing gated behind an explicit second confirmation ("File it"). The sheet follows the standard solid-surface sheet contract: bottom sheet with a top hairline on mobile, centred modal at the `lg:` breakpoint (the app's standard sheet breakpoint, not `sm:`), never backdrop-filter on the sheet itself.
 
+### The folded ladder and the jump strip (Planning, 2026-09-04)
+Planning's priority ladder folds to what is live: completed rungs collapse into one "N done · names" row and locked rungs into one "N more after this · names" row, each expandable in place with the grid-template-rows convention; only the active rung renders in full. The hero is the only place the current pay period's shortfall is spoken, so the ladder carries no period rung. Directly under the hero a three-chip jump strip (Buffer, Debt, Goals) shows one small figure each and scrolls to its section on tap. A chip wears a 6px Watch Amber dot only when its section needs a look: a 0% offer ending this month or within 30 days on a balance of at least £250, or a goal that is behind its pace. Buffer never dots. The dot says look, the section says why. The buffer and the cash-versus-invested split share one card, Cash and investments, directly after the ladder, so Planning carries its position figures in exactly one place.
+
+### Tips on Spend and the transactions page (2026-09-05)
+Savings tips never add rows to the Spend category list. A category that has open tips says so in its own subline, count first and a figure only for the tips that carry one ("2 tips · ~£52/mo from 1"), muted like the rest of the subline. The tip itself waits on the transactions page: when a single category filter is active, one collapsed line sits under the filter chips, above the payments, and unfolds in place to the tip detail, fact line first, then the researched body, the estimate and the research age. Single-tip categories unfold straight to the detail. Nothing about tips is attributed to Penny; they are research, labelled as tips, with their age visible.
+
 ## 6. Do's and Don'ts
 
 ### Do:

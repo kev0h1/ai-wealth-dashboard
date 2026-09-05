@@ -7,6 +7,22 @@ anti-references) and `DESIGN.md` (visual system: tokens, named rules, do's/don't
 North Star: "The Calm Cockpit" — verdicts lead, colour is information, red means
 genuine risk only, the indigo→violet gradient belongs to Penny alone.
 
+## Surface map (reindexed 2026-09-04 after the Codex design round)
+
+Working tree on `docs/mobile-porting-checkpoint` carries this round uncommitted. `AGENTS.md` is Codex's own workflow file; it coexists with this file. UAT frontend listens on `http://127.0.0.1:3030`, API on `:8000`.
+
+**Primary nav** (`frontend/components/BottomNav.tsx`, `Sidebar.tsx`): Home `/` · Spend `/spend?view=period` · Penny centre button → `/penny` · Upcoming `/upcoming` · Planning `/planning`. Sidebar adds Settings. **Insights has no nav tab any more.** `/insights` is reached only from the Home insight spotlight deep-link, Settings → tax, and its tutorial flow.
+
+- **Home** (`app/components/HomePage.tsx`): `SafeToSpendCard.tsx` is one hero figure + status word + a collapsible "Full calculation" ledger (cash forecast → set-asides → card position). It renders explicit error / degraded / unsupported states with a retry, never `null`. Balances default to hidden until server preferences resolve (`PreferencesContext.preferencesReady`, seeded from `localStorage` key `wd_hide_balances`). Home prefetches `/spend` and warms the verdict cache on idle.
+- **Spend** (`app/components/SpendPage.tsx`, `SpendHeader.tsx`): segmented "This period | Patterns" control; Patterns lazy-loads `components/SpendPatternsSummary.tsx` (MoneyShapeHero + WhatWorksCard over `GET /money-shape`). This is where the money-shape work from Insights now lives. Notable cards collapse behind "Review this spending". Savings insights annotate category cards as a "Penny noticed" callout keyed by the new `SavingsInsight.app_category`; tapping opens a read-only `InsightDetailCard` in the Penny sheet (no model call). The Out-vs-In gap line under the instrument header was removed.
+- **Upcoming** (`/upcoming` renders `app/planning/PlanningPage.tsx`): this pay period only. Runway hero "Projected at payday / month end" with income folded in and its own "Full calculation" ledger, bills list, allocations as envelope rows, one-offs. `SetAsideSheet scope="upcoming"` hides the goal option. Hidden predictions live at `/upcoming/dismissed`. The amber bills-at-risk dot sits on this tab. Backend Penny action links (`services/companion.py`) now point at `/upcoming`; `HomeBrief.tsx` rewrites persisted `/planning` routes.
+- **Planning** (`/planning` renders `app/planning/LongTermPlanningPage.tsx`): long horizon only: `PriorityPlan` ladder from `GET /grow` (with a "Cover this pay period" rung when the period gate is short), `DebtPosition` buckets linking to `/cards`, and long-term goals (commitments). `/grow` and `/cards` still exist as separate routes.
+- **Penny**: screen keys now include `upcoming`; `lib/pennyScreenConfig.tsx` has separate `planning` and `upcoming` configs. Tutorial flows split the same way (`TutorialContext.tsx`).
+- **Backend Safe-to-Spend hardening** (`routers/analytics.py`): Kenya region returns `insufficient_data` with `calculation_status: "unsupported"`; Yapily accounts are consent-filtered (`AUTHORIZED` only); same-day events walk debit-before-income; own-account moves whose destination is already in the pool are excluded (`pooled_transfers_excluded`); if any reserve lookup fails the result is `calculation_status: "degraded"` and `safe_to_spend` is clamped to ≤ 0 (fail closed). New fields: `lowest_projected_balance`, `allocations_reserved`, `allocations_count`, `unavailable_components`. `PATCH /preferences` wipes the user's whole response cache. `spend_impact.py` reads the cached Safe-to-Spend rather than recomputing, and only computes headroom on the under-usual branch. Tests: `tests/test_safe_to_spend_hardening.py`, `tests/test_spend_performance_guards.py`.
+- **Design previews** added this round but NOT yet listed in `app/design/page.tsx`: `planning-plans`, `spend-penny-flow`, `upcoming-plan`.
+
+Open after this round (see session notes, not doctrine): dead `PlansDock` / `CommitmentCards` / `computeDebtRow` / `computeGrowRow` still defined in `PlanningPage.tsx`; duplicated fetch path in `lib/useAllTransactions.ts`; DESIGN.md still describes the retired gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card.
+
 ## Scope restriction — CRITICAL
 
 **Only run commands within `/root/ai-wealth-dashboard/`.**

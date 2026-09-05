@@ -15,6 +15,23 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-tips",
+    name: "spend-tips",
+    description:
+      "Spend tips integration round (owner brief 2026-09-04: 'Penny noticed' rows wedged under category rows break the list grammar, truncate the fact and contradict 'Looking normal'; corrected 2026-09-05: a category tap routes to the transactions page, not a sheet) · A tip count + estimate folded into the category subline, tip waits behind a one-line row under the filter chips on the transactions page, above the payments / B one 'Ways to save' card under the list with a reconciled total and a door to Patterns / C both · real InsightCard over the owner's live tips · ?variant=a|b|c&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "planning-ladder",
+    name: "planning-ladder",
+    description:
+      "Planning tab ladder-vs-immediate round (owner brief 2026-09-04: locked rungs push the 0% cliff and off-pace goal below the fold) · A collapsed ladder + jump strip (owner pick 2026-09-04) / B \"Needs you this month\" card above a collapsed ladder / C immediate sections first, full ladder last · real GrowHero/LadderRung/DebtPosition/GoalRow over the owner's live figures · ?variant=a|b|c&state=short|calm&mode=light|dark",
+    states: [
+      { label: "Short period", value: "short" },
+      { label: "Calm period", value: "calm" },
+    ],
+  },
+  {
     slug: "insights-full",
     name: "insights-full",
     description:
