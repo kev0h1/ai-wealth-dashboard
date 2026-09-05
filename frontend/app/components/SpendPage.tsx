@@ -367,36 +367,27 @@ export default function SpendPage() {
 
   // The closing SpendShapeCard's own GET /money-shape — independent of the
   // period fetch above (the shape is the user's own recent-period pattern,
-  // not this specific period's verdict), so it loads once, on idle, after
-  // the verdict has painted, rather than blocking or racing it. Fires once
+  // not this specific period's verdict), so it fires once on mount, in
+  // parallel with the verdict fetch, rather than being chained behind it.
+  // Measured 2026-09-05: the endpoint itself is cheap (15-30ms, Mongo-
+  // cached) — the long cold-load skeleton was the serialisation behind
+  // verdict plus a 300ms idle-callback defer, not the request. Fires once
   // per mount (moneyShapeRequestedRef), not once per verdict/period change.
   useEffect(() => {
-    if (!verdict || moneyShapeRequestedRef.current) return;
+    if (moneyShapeRequestedRef.current) return;
     moneyShapeRequestedRef.current = true;
     let cancelled = false;
-    const load = () => {
-      if (cancelled) return;
-      loadMoneyShape()
-        .then((shape) => { if (!cancelled) setMoneyShape(shape); })
-        .catch(() => {
-          // A failed fetch never clobbers a warm value already on screen
-          // (peekMoneyShape() seeded `moneyShape` above, or a previous
-          // successful load this same session) — null only when there is
-          // genuinely nothing cached to fall back to.
-          if (!cancelled) setMoneyShape((current) => current ?? null);
-        });
-    };
-    const idleApi = window as unknown as {
-      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    if (typeof idleApi.requestIdleCallback === "function") {
-      const idleId = idleApi.requestIdleCallback(load, { timeout: 300 });
-      return () => { cancelled = true; idleApi.cancelIdleCallback?.(idleId); };
-    }
-    const timerId = window.setTimeout(load, 300);
-    return () => { cancelled = true; window.clearTimeout(timerId); };
-  }, [verdict]);
+    loadMoneyShape()
+      .then((shape) => { if (!cancelled) setMoneyShape(shape); })
+      .catch(() => {
+        // A failed fetch never clobbers a warm value already on screen
+        // (peekMoneyShape() seeded `moneyShape` above, or a previous
+        // successful load this same session) — null only when there is
+        // genuinely nothing cached to fall back to.
+        if (!cancelled) setMoneyShape((current) => current ?? null);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // "Out" tap's Show Your Working destination — force the majority list
   // open and scroll to it, the exact reconciled transactions behind the
