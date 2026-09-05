@@ -59,6 +59,15 @@ def resolve_allowed_email(email: str) -> str | None:
     if e in ALLOWED_EMAILS:
         return e
     return _ALLOWED_BY_KEY.get(_gmail_key(e))
+
+
+def mask_email(email: str) -> str:
+    """'kevin.maingi12@gmail.com' -> 'ke***@gmail.com'; never raises."""
+    try:
+        local, _, domain = (email or "").partition("@")
+        return f"{local[:2]}***@{domain or '?'}"
+    except Exception:
+        return "***"
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────

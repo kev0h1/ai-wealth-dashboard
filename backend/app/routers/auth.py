@@ -1,4 +1,5 @@
 """Auth endpoints: PIN login, Google OAuth, Sign in with Apple, session validation."""
+import logging
 import time
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Request
@@ -11,7 +12,7 @@ from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
-    resolve_allowed_email,
+    resolve_allowed_email, mask_email,
 )
 from itsdangerous import SignatureExpired, BadSignature
 
@@ -98,6 +99,7 @@ async def google_native(body: dict):
         raise HTTPException(401, "Auth failed")
     allowed = resolve_allowed_email(email)
     if not allowed:
+        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-native", mask_email(email))
         raise HTTPException(403, "Access denied")
     email = allowed
 
@@ -175,6 +177,10 @@ async def apple_native(body: dict):
         raise HTTPException(401, "Auth failed")
     allowed = resolve_allowed_email(email)
     if not allowed:
+        logging.warning(
+            "Sign-in refused by allow list: provider=%s email=%s relay=%s",
+            "apple-native", mask_email(email), claims.get("is_private_email"),
+        )
         raise HTTPException(403, "Access denied")
     email = allowed
 
@@ -300,6 +306,7 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
         return finish("error:auth_failed")
     allowed = resolve_allowed_email(email)
     if not allowed:
+        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-mobile", mask_email(email))
         return finish("error:access_denied")
     email = allowed
 
@@ -342,6 +349,7 @@ async def google_callback(code: str = None, error: str = None):
         return RedirectResponse(f"{APP_URL}/?error=auth_failed")
     allowed = resolve_allowed_email(email)
     if not allowed:
+        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-web", mask_email(email))
         return RedirectResponse(f"{APP_URL}/?error=access_denied")
     email = allowed
 

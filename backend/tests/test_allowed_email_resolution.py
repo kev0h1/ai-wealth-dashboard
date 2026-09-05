@@ -80,3 +80,11 @@ def test_first_allow_list_entry_wins_on_gmail_key_collision(monkeypatch):
     assert config.resolve_allowed_email("kevinjmaingi12@gmail.com") == "kevin.j.maingi12@gmail.com"
     assert config.resolve_allowed_email("kevin.j.maingi12@gmail.com") == "kevin.j.maingi12@gmail.com"
     assert config.resolve_allowed_email("kevinj.maingi12@gmail.com") == "kevinj.maingi12@gmail.com"
+
+
+def test_mask_email_normal_address():
+    assert config.mask_email("kevin.maingi12@gmail.com") == "ke***@gmail.com"
+
+
+def test_mask_email_empty_string():
+    assert config.mask_email("") == "***@?"
