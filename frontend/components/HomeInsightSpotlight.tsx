@@ -8,6 +8,35 @@ import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 
+// Where tapping the spotlight card body lands — the transactions hub, with
+// the tip already open, rather than the retired Insights page. A bare
+// `category=` alone lands on EVERY payment in that category, not just the
+// evidence behind this tip, so merchant evidence is layered on top whenever
+// it exists: `app_category` + merchant evidence together scope to both
+// (category AND those merchants); category alone only when there's no
+// merchant evidence; merchants alone when there's no `app_category` (e.g. a
+// mortgage identified by merchant rather than category); plain Spend when
+// neither is available (Patterns holds only charts now, 2026-09-05, so this
+// fallback can no longer land there and still show anything about the
+// tip). Up to 3 merchant names (matching TransactionsPage's own
+// `merchants=` cap), each falling back to `merchant_key` if a `display_name`
+// is somehow missing.
+function spotlightHref(insight: SavingsInsight): string {
+  const names = (insight.triggered_by ?? [])
+    .slice(0, 3)
+    .map((t) => t.display_name || t.merchant_key)
+    .filter((n): n is string => Boolean(n));
+
+  const categoryParam = insight.app_category ? `category=${encodeURIComponent(insight.app_category)}` : null;
+  const merchantsParam = names.length > 0 ? `merchants=${encodeURIComponent(names.join(","))}` : null;
+  const tipParam = `tip=${encodeURIComponent(insight.id)}`;
+
+  if (categoryParam && merchantsParam) return `/transactions?${categoryParam}&${merchantsParam}&${tipParam}`;
+  if (categoryParam) return `/transactions?${categoryParam}&${tipParam}`;
+  if (merchantsParam) return `/transactions?${merchantsParam}&${tipParam}`;
+  return "/spend";
+}
+
 interface HomeInsightSpotlightProps {
   /** Called exactly once, when this card's own first fetch settles
    *  (success or failure) — never again on the dismiss-then-load-next
@@ -138,7 +167,7 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
         </button>
 
         <button
-          onClick={() => router.push(`/insights?tab=save&insight=${encodeURIComponent(insight.id)}`)}
+          onClick={() => router.push(spotlightHref(insight))}
           className="w-full text-left p-4 active:scale-[0.98] transition-transform duration-150"
         >
           {/* Topic chip + new badge — tasteful icon-chip + tint, matching
@@ -181,15 +210,16 @@ export default function HomeInsightSpotlight({ onReady }: HomeInsightSpotlightPr
             <MoneyText text={insight.body} />
           </p>
 
-          {/* No savings_estimate badge here: the canonical InsightCard on
-              the Insights page (InsightsPage.tsx) never surfaces the raw
-              LLM-projected estimate as a callout, only verified_savings
-              (genuine, emerald) and the user's own transaction figure
-              (plain ink). Matching that, the spotlight drops the estimate
-              badge too, the body copy already carries the value story. */}
+          {/* No savings_estimate badge here: the canonical InsightCard
+              (components/InsightCard.tsx, rendered via TipsLine.tsx on
+              /transactions now) never surfaces the raw LLM-projected
+              estimate as a callout, only verified_savings (genuine,
+              emerald) and the user's own transaction figure (plain ink).
+              Matching that, the spotlight drops the estimate badge too,
+              the body copy already carries the value story. */}
 
           <div className="flex items-center gap-1 mt-3.5 text-sm font-semibold text-violet-600 dark:text-violet-400">
-            See all insights
+            See the payments
             <ChevronRight size={15} />
           </div>
         </button>

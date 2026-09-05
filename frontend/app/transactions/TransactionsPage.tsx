@@ -18,7 +18,7 @@ import TeachingSheet from "@/components/TeachingSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
-import { openTipsFor } from "@/lib/spendTips";
+import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
 
 const PAGE_SIZE = 20;
 
@@ -70,8 +70,10 @@ export default function TransactionsPage() {
   const [periodFrom, setPeriodFrom] = useState<string | null>(() => searchParams.get("from"));
   const [periodTo, setPeriodTo] = useState<string | null>(() => searchParams.get("to"));
   // Deep link for an already-open tip (e.g. from the Insights hero or Home
-  // spotlight) — read once at mount, same convention as the filters above.
-  const [tipParam] = useState<string | null>(() => searchParams.get("tip"));
+  // spotlight) — re-seeded from searchParams below (same convention as the
+  // filters above), so a second tip deep-link landing on a live page
+  // instance pairs with its OWN tip rather than the previous one.
+  const [tipParam, setTipParam] = useState<string | null>(() => searchParams.get("tip"));
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -98,14 +100,19 @@ export default function TransactionsPage() {
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (!categoryFilter) return;
+    // Also fetches for a merchants-only deep link (no category filter) that
+    // carries a `?tip=` — the merchant-scoped tips line below needs the same
+    // insights list `openTipsFor` draws on, `tipsForMerchants` just filters
+    // it down to the one matching insight instead of a whole category.
+    const merchantsOnly = Boolean(merchantsFilter && merchantsFilter.length > 0 && tipParam);
+    if (!categoryFilter && !merchantsOnly) return;
     if (insightsLoadedRef.current) return;
     let active = true;
     api.getSavingsInsights()
       .then((r) => { if (active) { insightsLoadedRef.current = true; setInsights(r); } })
       .catch(() => {});
     return () => { active = false; };
-  }, [categoryFilter]);
+  }, [categoryFilter, merchantsFilter, tipParam]);
 
   // Re-seed every URL-driven filter whenever `searchParams` itself changes
   // (a fresh deep link from Spend's "money you moved" rows, or any other
@@ -130,6 +137,7 @@ export default function TransactionsPage() {
     setMerchantsFilter(names.length > 0 ? names : null);
     setPeriodFrom(searchParams.get("from"));
     setPeriodTo(searchParams.get("to"));
+    setTipParam(searchParams.get("tip"));
   }, [searchParams]);
 
   useEffect(() => {
@@ -263,20 +271,48 @@ export default function TransactionsPage() {
     : "Searching everything · all accounts, all time";
 
   // The collapsed tips line's own data — computed here (not inline in the
-  // JSX) so `!loading` and a `key={categoryFilter}` remount can both gate
-  // on the same `tips` value. Only when a single category filter is active
-  // with nothing else narrowing the scope (no multi-category deep link, no
-  // merchant filter, no free-text search), matching the owner brief's "a
-  // category tap from Spend" case exactly. `insights` starts empty and
-  // resolves after mount (see the fetch effect above); computing `tips`
-  // fresh on every render (rather than once at mount) is what makes it
-  // reflect that resolution instead of freezing on the empty initial state.
-  const tips: SavingsInsight[] = (() => {
-    if (!categoryFilter) return [];
-    if (categoriesFilter && categoriesFilter.length > 0) return [];
-    if (merchantsFilter && merchantsFilter.length > 0) return [];
-    if (searchQuery) return [];
-    return openTipsFor(categoryFilter, insights);
+  // JSX) so `!loading` and a `key={tipsLineCategory}` remount can both gate
+  // on the same `tips` value. Three mutually exclusive paths:
+  //   - a single category filter active with nothing else narrowing the
+  //     scope (no multi-category deep link, no merchant filter, no
+  //     free-text search) — the original "category tap from Spend" case,
+  //     UNCHANGED from before: every open tip in the category.
+  //   - category AND merchants both active (HomeInsightSpotlight's
+  //     category+merchant-evidence deep link, e.g. `?category=Bills&
+  //     merchants=Ee Ltd&tip=…`) — the merchants narrow the payment LIST,
+  //     but the tips line still keys off the category; `?tip=` must match
+  //     one of that category's own open tips, and when it does, `tips` is
+  //     just that one insight (not every category tip — the merchants scope
+  //     signals "this one tip's evidence", not "browse the whole category").
+  //     No `tip` match (or no `tip` at all) suppresses the line entirely
+  //     rather than guessing.
+  //   - no category filter but a merchants filter IS active and `?tip=`
+  //     names an insight whose own merchant evidence matches one of those
+  //     merchants (HomeInsightSpotlight's merchants-only deep link) —
+  //     `tips` is just that one insight, so TipsLine's single-tip path
+  //     unfolds straight to its detail.
+  // `insights` starts empty and resolves after mount (see the fetch effect
+  // above); computing `tips`/`tipsLineCategory` fresh on every render
+  // (rather than once at mount) is what makes them reflect that resolution
+  // instead of freezing on the empty initial state.
+  const { tips, tipsLineCategory } = ((): { tips: SavingsInsight[]; tipsLineCategory: string | null } => {
+    if (categoriesFilter && categoriesFilter.length > 0) return { tips: [], tipsLineCategory: null };
+    if (searchQuery) return { tips: [], tipsLineCategory: null };
+    if (categoryFilter) {
+      if (merchantsFilter && merchantsFilter.length > 0) {
+        if (!tipParam) return { tips: [], tipsLineCategory: null };
+        const matched = openTipsFor(categoryFilter, insights).filter((t) => t.id === tipParam);
+        if (matched.length === 0) return { tips: [], tipsLineCategory: null };
+        return { tips: matched, tipsLineCategory: categoryFilter };
+      }
+      return { tips: openTipsFor(categoryFilter, insights), tipsLineCategory: categoryFilter };
+    }
+    if (merchantsFilter && merchantsFilter.length > 0) {
+      const matched = tipsForMerchants(merchantsFilter, insights, tipParam);
+      if (matched.length === 0) return { tips: [], tipsLineCategory: null };
+      return { tips: matched, tipsLineCategory: matched[0].triggered_by?.[0]?.display_name ?? merchantsFilter[0] };
+    }
+    return { tips: [], tipsLineCategory: null };
   })();
 
   return (
@@ -381,8 +417,8 @@ export default function TransactionsPage() {
         {tips.length > 0 && !loading && (
           <div className="mt-1">
             <TipsLine
-              key={categoryFilter}
-              category={categoryFilter!}
+              key={tipsLineCategory}
+              category={tipsLineCategory!}
               tips={tips}
               initialOpenTipId={tipParam ?? undefined}
               onTipOpened={(id) => api.markInsightOpened(id).catch(() => {})}
