@@ -19,6 +19,7 @@ from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
 from app.core.models import KPIResponse, Insight
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
+    yapily_consents_col,
     statement_accounts_col, investment_accounts_col, mono_accounts_col, mpesa_accounts_col,
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
@@ -1107,6 +1108,70 @@ def _split_balances(accs: list[dict]) -> tuple[float, float]:
         else:
             spendable += bal
     return round(spendable, 2), round(savings, 2)
+
+
+def _safe_to_spend_lowest_projected_balance(
+    spendable_cash: float, bills: list[dict], income: list[dict],
+) -> float:
+    """Return the lowest pooled cash balance in the Safe-to-Spend window.
+
+    Forecast occurrences carry calendar dates, not a reliable settlement time.
+    For events on the same date, debit before income is therefore the only
+    defensible default for a spending-permission calculation: an incoming
+    payment must not be assumed to clear before a direct debit. This helper is
+    intentionally pure so the conservative ordering and the low-point fact
+    can be tested without the endpoint's database fan-out.
+    """
+    events: list[tuple[int, float]] = []  # (days_away, delta); debit is negative
+    for bill in bills:
+        if _is_pooled_spendable_transfer(bill):
+            continue
+        events.append((int(bill["days_away"]), -float(bill["amount"])))
+    for item in income:
+        events.append((int(item["days_away"]), float(item["amount"])))
+
+    # Same day: debits first. A zero-valued event has no effect and may follow
+    # either side without changing the result.
+    events.sort(key=lambda event: (event[0], 0 if event[1] < 0 else 1))
+
+    running = float(spendable_cash)
+    minimum = running
+    for _days_away, delta in events:
+        running += delta
+        minimum = min(minimum, running)
+    return minimum
+
+
+def _is_pooled_spendable_transfer(item: dict) -> bool:
+    """Return true when an item only moves money inside the cash pool.
+
+    Safe-to-Spend starts from the sum of every spendable account. A traced
+    movement into another account already represented in that sum is a no-op
+    for the pool: one balance falls by exactly the amount another rises.
+    Savings destinations and untraced movements remain real outflows.
+    """
+    return item.get("kind") == MOVEMENT and item.get("dest_account_spendable") is True
+
+
+async def _safe_to_spend_accounts(uid: str) -> list[dict]:
+    """Live UK account pool source for Safe-to-Spend.
+
+    Yapily account documents are retained after a consent is removed. An
+    account belongs in a balance calculation only when its own consent is
+    still AUTHORIZED; a different active consent must not revive stale cash.
+    """
+    projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
+    native_task = accounts_col.find({"user_id": uid}, projection).to_list(None)
+    active_consents_task = yapily_consents_col.find(
+        {"user_id": uid, "status": "AUTHORIZED"}, {"_id": 1}
+    ).to_list(None)
+    accounts, active_consents = await asyncio.gather(native_task, active_consents_task)
+    active_consent_ids = [consent["_id"] for consent in active_consents if consent.get("_id")]
+    if active_consent_ids:
+        accounts += await yapily_accounts_col.find(
+            {"user_id": uid, "consent": {"$in": active_consent_ids}}, projection
+        ).to_list(None)
+    return accounts
 
 
 # Tokens generic enough to appear in almost any UK current or savings
@@ -2869,17 +2934,27 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     observed: dict = {}
     if uid:
         _obs_since = today - timedelta(days=PENDING_GIVE_UP_DAYS + OBSERVATION_LOOKBACK_DAYS + 1)
-        _obs_pipeline_results = []
-        for _col in [transactions_col, yapily_transactions_col]:
+        async def _load_recent_observations(_col):
+            rows = []
             try:
                 async for _t in _col.find(
                     {"user_id": uid, "date": {"$gte": _obs_since}, "transaction_type": "debit"},
                     {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
                      "category": 1, "custom_category": 1, "account_id": 1}
                 ):
-                    _obs_pipeline_results.append(_t)
+                    rows.append(_t)
             except Exception:
-                pass
+                return []
+            return rows
+
+        # These collections are independent and both have a user/date index.
+        # Reading them concurrently keeps a warm cashflow response from paying
+        # the sum of two database round trips before Planning can render.
+        _obs_batches = await asyncio.gather(*(
+            _load_recent_observations(_col)
+            for _col in [transactions_col, yapily_transactions_col]
+        ))
+        _obs_pipeline_results = [row for batch in _obs_batches for row in batch]
         for _t in _obs_pipeline_results:
             # No category filter here (Transfer included): the projected
             # bill list itself can now contain Transfer-category outflows
@@ -3616,7 +3691,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
     Algorithm (pooled):
     1. Compute next_payday from pay_period_config / confirmed income schedule.
     2. Load cashflow cache; if absent → insufficient_data.
-    3. Sum LIVE balances of spendable current accounts only.
+    3. Sum LIVE balances of spendable current accounts only. Yapily accounts
+       are eligible only while their consent remains AUTHORIZED, matching
+       GET /accounts; stale records from a revoked consent must never become
+       phantom cash here.
        Exclusion rules (mirrors HomePage.tsx isSavings / isCredit heuristics):
          - subtype contains "SAVING" (case-insensitive) → savings account
          - type contains "credit" OR subtype contains "CREDIT" → credit card
@@ -3637,6 +3715,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
     7. Compute state: comfortable / tight / short (on the NET figure), plus
        short_reason ("bills" vs "cards" — see net_position.short_reason_for).
     8. estimated = True when history is thin (n_months < 2).
+
+    Kenya note: this pooled cash runway currently has UK-provider and GBP
+    semantics. It must return insufficient_data for Kenya rather than claim
+    a zero-cash UK result from an unsupported account universe.
 
     NOTE — `net_position` (period_net's period-to-date income/outflow/
     card-growth flow frame) is deliberately NOT computed here, unlike
@@ -3662,6 +3744,16 @@ async def compute_safe_to_spend(uid: str) -> dict:
 
     # ── 1. Payday ──────────────────────────────────────────────────────────────
     _prefs    = await preferences_col.find_one({"user_id": uid}) or {}
+    _region   = await _get_region(uid)
+    if _region == "Kenya":
+        # This endpoint's balance pool deliberately understands only UK GBP
+        # connected accounts. Returning an ordinary `ok` response seeded at
+        # £0 for a Kenya user is materially worse than withholding a verdict.
+        return {
+            "status": "insufficient_data",
+            "calculation_status": "unsupported",
+            "unavailable_components": ["kenya_spendable_cash"],
+        }
     _pay_cfg  = _prefs.get("pay_period_config", {"type": "calendar_month"})
     _today_d  = _date_cls.today()
 
@@ -3691,13 +3783,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         except Exception:
             return v
 
-    # Fetch live accounts from both providers
-    all_accs_raw = await accounts_col.find(
-        {"user_id": uid}, {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
-    ).to_list(None)
-    all_accs_raw += await yapily_accounts_col.find(
-        {"user_id": uid}, {"balance": 1, "type": 1, "subtype": 1, "currency": 1}
-    ).to_list(None)
+    all_accs_raw = await _safe_to_spend_accounts(uid)
 
     # Shared with the Planning runway (_split_balances) so the two surfaces
     # can never diverge; savings_total is unused here — the hero shows a
@@ -3718,10 +3804,18 @@ async def compute_safe_to_spend(uid: str) -> dict:
     card_debt = round(card_debt_total, 2)
 
     # ── 4. Build chronological event timeline today → next_payday ─────────────
-    window_bills = [
+    raw_window_bills = [
         b for b in upcoming_bills
         if 0 <= b["days_away"] < days_until_payday
     ]
+    # The seed is the pooled balance of every spendable account, so a traced
+    # transfer between two accounts in that same pool must remove neither leg.
+    # This is the backend equivalent of Planning's isPooledNoOp rule.
+    window_bills = [b for b in raw_window_bills if not _is_pooled_spendable_transfer(b)]
+    pooled_transfers_excluded = round(sum(
+        float(b["amount"]) for b in raw_window_bills
+        if _is_pooled_spendable_transfer(b)
+    ), 2)
     # Pre-payday income: exclude items that look like the salary itself
     # (we identify the payday salary as income arriving ON or AFTER next_payday;
     # any income strictly before that day can legitimately boost the balance)
@@ -3738,20 +3832,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
     ), 2)
 
     # ── 5. Walk timeline; track minimum running balance ────────────────────────
-    events: list[tuple[int, float]] = []   # (days_away, delta)  — positive = income
-    for b in window_bills:
-        events.append((b["days_away"], -float(b["amount"])))
-    for i in window_income:
-        events.append((i["days_away"], float(i["amount"])))
-    # Income before bills on the same day (same as at_risk_count logic)
-    events.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
-
-    running = spendable_cash
-    min_running = running
-    for _days, delta in events:
-        running += delta
-        if running < min_running:
-            min_running = running
+    min_running = _safe_to_spend_lowest_projected_balance(
+        spendable_cash, window_bills, window_income
+    )
 
     # ── 6. safe_to_spend = min_running − buffer ────────────────────────────────
     buffer = float(_prefs.get("safe_to_spend_buffer", 0.0))
@@ -3763,13 +3846,18 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # already spoken for. Failure-tolerant: any error → zero reserve.
     commitments_reserved = 0
     commitments_count = 0
+    unavailable_components: list[str] = []
     try:
         from app.routers.commitments import total_reserved_slices
         commitments_reserved, commitments_count = await total_reserved_slices(uid)
         if commitments_reserved:
             safe_to_spend = round(safe_to_spend - commitments_reserved, 2)
     except Exception:
-        logger.exception("commitments reserve failed for %s — using zero", uid)
+        logger.exception("commitments reserve failed for %s", uid)
+        # Keep a backwards-compatible numeric verdict, but make the missing
+        # reserve explicit. Callers must not treat this degraded result as an
+        # unconditional spending permission.
+        unavailable_components.append("commitments_reserve")
         commitments_reserved, commitments_count = 0, 0
 
     # ── 6b-2. Allocations reserve ─────────────────────────────────────────────
@@ -3787,7 +3875,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
         if allocations_reserved:
             safe_to_spend = round(safe_to_spend - allocations_reserved, 2)
     except Exception:
-        logger.exception("allocations reserve failed for %s — using zero", uid)
+        logger.exception("allocations reserve failed for %s", uid)
+        unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
 
     # ── 6c. Card growth reserve ────────────────────────────────────────────────
@@ -3806,8 +3895,17 @@ async def compute_safe_to_spend(uid: str) -> dict:
         if card_growth_reserved:
             safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
     except Exception:
-        logger.exception("card growth reserve failed for %s — using zero", uid)
+        logger.exception("card growth reserve failed for %s", uid)
+        unavailable_components.append("card_growth_reserve")
         card_growth_reserved = 0.0
+
+    # A spending-permission calculation must fail closed. Retain the result
+    # shape for direct callers, but never grant positive headroom when a known
+    # reserve could not be loaded. The API health fields let presentation
+    # layers explain the outage instead of presenting this sentinel as a real
+    # shortfall.
+    if unavailable_components:
+        safe_to_spend = min(safe_to_spend, 0.0)
 
     # ── 7. State: comfortable / tight / short ─────────────────────────────────
     # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
@@ -3815,7 +3913,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # Derived on the NET figure (post card-growth-reserve), so every
     # downstream engine (pace, spend_impact, can_i) inherits the conservative
     # number.
-    _region = await _get_region(uid)
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
     _cf = await _monthly_cashflow(uid, _region, _cutoff)
@@ -3834,7 +3931,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # purely card-funded spending (bills ARE covered). Pure derivation lives in
     # net_position.short_reason_for so it's unit-testable in isolation.
     from app.services.net_position import short_reason_for
-    short_reason = short_reason_for(state, safe_to_spend_cash)
+    short_reason = None if unavailable_components else short_reason_for(state, safe_to_spend_cash)
 
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
@@ -3854,17 +3951,24 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # for it, once per 90s per user.
     return {
         "status":              "ok",
+        "calculation_status":  "degraded" if unavailable_components else "complete",
+        "unavailable_components": unavailable_components,
         "safe_to_spend":       safe_to_spend,
         "safe_to_spend_cash":  safe_to_spend_cash,
         "next_payday":         next_payday.isoformat(),
         "days_until_payday":   days_until_payday,
         "bills_total":         bills_total,
+        "pooled_transfers_excluded": pooled_transfers_excluded,
         "income_before_payday": income_before,
         "buffer":              buffer,
         "state":               state,
         "short_reason":        short_reason,
         "estimated":           estimated,
         "spendable_now":       round(spendable_cash, 2),
+        # The actual floor reached by the date-ordered bill/income walk.
+        # This (rather than aggregate bills/income totals) is the missing
+        # reconciling bridge from spendable_now to safe_to_spend_cash.
+        "lowest_projected_balance": round(min_running, 2),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
         "card_growth_reserved": card_growth_reserved,

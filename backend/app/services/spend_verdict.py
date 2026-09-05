@@ -20,21 +20,23 @@ Reuses rather than recomputes:
   - `pace.compute_category_signals` for `multiple` / `usual_rate_per_day` /
     the thin-history and early-period flags (`thin_history`,
     `suppress_multiple`) — this module never re-derives a baseline.
-  - `commitments.compute_pot_ledger` (which itself reuses `_doc_pots`) for the
-    active goal names behind "money you moved to your pots" — read-only, no
-    second commitments query.
+  - the commitments collection's stored pot links for the optional goal names
+    behind "money you moved to your pots". This deliberately avoids the live
+    balance allocation ledger: names are display metadata, not a balance fact.
 
-Per-request I/O budget: ONE category-kind fetch, ONE pot-ledger computation,
-ONE transaction fetch for the current period (compute_category_signals's own
-baseline fetch is separately cached and out of this module's control).
+Per-request I/O budget: ONE category-kind fetch, one small projected goal-name
+query, and ONE transaction fetch for the current period
+(compute_category_signals's own baseline fetch is separately cached and out of
+this module's control).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta
 
-from app.db.collections import category_intent_col, preferences_col, transactions_col, yapily_transactions_col
+from app.db.collections import category_intent_col, commitments_col, preferences_col, transactions_col, yapily_transactions_col
 from app.services.categories import (
     INCOME,
     MOVEMENT,
@@ -262,7 +264,10 @@ def _top_causes(debit_txns: list[dict], cap: int = 3) -> list[dict]:
     groups: dict[str, dict] = {}
     for t in debit_txns:
         key = _merchant_identity(t)
-        display = t["merchant_name"] or t["description"] or "Unknown"
+        # Keep provider/reference plumbing for evidence views, never for the
+        # category summary. The same display-only cleaner used by unresolved
+        # asks turns AMZNMKTPLACE*NJ0X… into a recognisable merchant label.
+        display = _unresolved_display_name(t["merchant_name"], t["description"]) or "Unknown merchant"
         g = groups.setdefault(key, {"name": display, "amount": 0.0})
         g["amount"] += t["amount"]
     ranked = sorted(groups.values(), key=lambda g: g["amount"], reverse=True)
@@ -283,6 +288,10 @@ _PAYMENT_RAIL_TOKENS = {
     "bacs", "chaps", "dd", "so", "ft", "fp", "transfer",
 }
 _DISPLAY_ACRONYMS = {"edf", "hmrc", "nhs", "tfl", "bt", "ee"}
+_DISPLAY_ALIASES = {
+    "amznmktplace": "Amazon",
+    "amazon marketplace": "Amazon",
+}
 _DISPLAY_NAME_MAX_LEN = 22
 _TRAILING_PUNCT_RE = re.compile(r'[.,;:!?]+$')
 
@@ -306,6 +315,8 @@ def _unresolved_display_name(merchant_name: str, description: str) -> str | None
     key = canonical_merchant_key(base)
     if not key:
         return None
+    if key in _DISPLAY_ALIASES:
+        return _DISPLAY_ALIASES[key]
     tokens = [
         tok for tok in key.split()
         if tok not in _LEGAL_ENTITY_TOKENS and tok not in _PAYMENT_RAIL_TOKENS
@@ -396,6 +407,11 @@ def build_notables_and_majority(
         sig = signals.get(cat) or {}
         multiple = sig.get("multiple")
         usual_by_now = sig.get("usual_by_now")
+        # Rolling-cache compatibility: older category-signal payloads stored
+        # only the daily baseline. Do not blank every notable during a deploy;
+        # reconstruct the same period-to-date baseline until that cache turns.
+        if usual_by_now is None and sig.get("usual_rate_per_day") is not None:
+            usual_by_now = float(sig["usual_rate_per_day"]) * max(1, days_elapsed)
         if multiple is None or usual_by_now is None:
             continue
         excess = row["spent"] - usual_by_now
@@ -947,24 +963,35 @@ async def _prior_one_off_categories(uid: str, categories: set[str], current_peri
 
 
 async def _active_goal_names(uid: str) -> list[str]:
-    """Distinct active-goal names, oldest-goal-first, via a read-only reuse of
-    `compute_pot_ledger` (itself built on `_doc_pots`) — never a second,
-    bespoke commitments query. Failure-tolerant: a commitments hiccup must
-    never take down the whole verdict."""
+    """Distinct active goal names with a linked pot, oldest-goal-first.
+
+    The Spend row only uses these as optional display metadata. Calling
+    ``compute_pot_ledger`` here used to fetch live balances for every pot and
+    allocate every claim before the page could render; that is necessary for
+    financial calculations, but not for reading names already stored on the
+    commitments. Keep this projected query intentionally balance-free.
+    """
     try:
-        from app.routers.commitments import compute_pot_ledger
-        ledger = await compute_pot_ledger(uid)
+        docs = await commitments_col.find(
+            {"user_id": uid, "status": "active"},
+            {"name": 1, "funding_pots": 1, "funding_account_id": 1, "created_at": 1},
+        ).sort([("created_at", 1), ("_id", 1)]).to_list(None)
         names: list[str] = []
         seen: set[str] = set()
-        for acc in ledger.get("accounts", {}).values():
-            for claim in acc.get("claimed_by", []):
-                name = claim.get("name")
-                if name and name not in seen:
-                    seen.add(name)
-                    names.append(name)
+        for doc in docs:
+            pots = doc.get("funding_pots")
+            has_linked_pot = (
+                any(isinstance(p, dict) and p.get("account_id") for p in pots)
+                if isinstance(pots, list)
+                else False
+            ) or bool(doc.get("funding_account_id"))
+            name = str(doc.get("name") or "").strip()
+            if has_linked_pot and name and name not in seen:
+                seen.add(name)
+                names.append(name)
         return names
     except Exception:
-        logger.exception("spend_verdict: pot-ledger goal-name lookup failed for %s", uid)
+        logger.exception("spend_verdict: goal-name lookup failed for %s", uid)
         return []
 
 
@@ -983,9 +1010,12 @@ async def _dismissed_unresolved_ids(uid: str) -> set[str]:
 
 
 async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
-    """The GET /spend/verdict payload. ONE kind-map fetch, ONE pot-ledger
-    computation, ONE period transaction fetch."""
-    kind_map = await get_category_kinds(uid)
+    """The GET /spend/verdict payload with independent metadata reads grouped."""
+    kind_map, goal_names, dismissed_unresolved_ids = await asyncio.gather(
+        get_category_kinds(uid),
+        _active_goal_names(uid),
+        _dismissed_unresolved_ids(uid),
+    )
 
     signals_result = await compute_category_signals(uid, offset=offset, kind_map=kind_map)
     period = signals_result["period"]
@@ -996,9 +1026,6 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
 
     txns = await _load_period_txns(uid, start, end)
     cat_agg, moved_groups, income_total = bucket_transactions(txns, kind_map)
-
-    goal_names = await _active_goal_names(uid)
-    dismissed_unresolved_ids = await _dismissed_unresolved_ids(uid)
 
     result = assemble_verdict(
         cat_agg=cat_agg,
@@ -1059,12 +1086,6 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         # docstring for why the decision lives there rather than here.
         "unresolved_total": unresolved_total,
     }
-    try:
-        impact = await compute_spend_impact(uid, verdict_ctx)
-    except Exception:
-        logger.exception("spend_verdict: impact engine failed for %s", uid)
-        impact = {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
-
     # Per-notable prior_intent + consequence_line — attached to the matching
     # notable object (NOT a top-level field): frontend contract is
     # notable.prior_intent = {"question": str, ...} | None and
@@ -1072,9 +1093,21 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
     # on only the single loudest notable (notables[0] — already excess-desc
     # sorted by build_notables_and_majority).
     notables = result["notables"]
+    prior_one_off: set[str] = set()
+    try:
+        if notables:
+            categories = {n["category"] for n in notables}
+            impact, prior_one_off = await asyncio.gather(
+                compute_spend_impact(uid, verdict_ctx),
+                _prior_one_off_categories(uid, categories, end),
+            )
+        else:
+            impact = await compute_spend_impact(uid, verdict_ctx)
+    except Exception:
+        logger.exception("spend_verdict: impact metadata failed for %s", uid)
+        impact = {"consequence": None, "move": None, "horizon": None, "bills_risk": None, "unresolved_hedge": False}
+
     if notables:
-        categories = {n["category"] for n in notables}
-        prior_one_off = await _prior_one_off_categories(uid, categories, end)
         for n in notables:
             cat = n["category"]
             if cat in prior_one_off:

@@ -1278,7 +1278,7 @@ def _executed_payday_plan_item(doc: dict) -> dict:
         "dests": dests,
         "estimated": False,
         "executed": True,
-        "action": doc.get("action") or {"label": "See what's due ›", "route": "/planning"},
+        "action": doc.get("action") or {"label": "See what's due ›", "route": "/upcoming"},
     }
 
 
@@ -2552,7 +2552,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     },
                     "dests": dests,
                     "estimated": False,
-                    "action": {"label": "See what's due ›", "route": "/planning"},
+                    "action": {"label": "See what's due ›", "route": "/upcoming"},
                 }
                 if payday_split is not None:
                     payday_plan_item["payday_split"] = payday_split
@@ -2580,7 +2580,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                             "status": "active",
                             "headline": headline,
                             "body": body,
-                            "action": {"label": "See what's due ›", "route": "/planning"},
+                            "action": {"label": "See what's due ›", "route": "/upcoming"},
                             "estimated": False,
                             "created_at": datetime.utcnow(),
                             "_window_end": window_end.isoformat(),
@@ -2696,9 +2696,9 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
 
             _um_first = _um_moves[0]
             if _um_first["expected_date"]:
-                _um_route = f"/planning?day={_um_first['expected_date']}&bill={quote(_um_first['key'], safe='')}"
+                _um_route = f"/upcoming?day={_um_first['expected_date']}&bill={quote(_um_first['key'], safe='')}"
             else:
-                _um_route = "/planning"
+                _um_route = "/upcoming"
 
             if _um_item_id not in dismissed:
                 _um_action = {"label": "Review in Planning ›", "route": _um_route}
@@ -2971,7 +2971,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             "status": "active",
             "headline": headline,
             "body": body,
-            "action": {"label": "See what's due ›", "route": "/planning"},
+            "action": {"label": "See what's due ›", "route": "/upcoming"},
             "estimated": False,
             "created_at": datetime.utcnow(),
             "_dest_acct": dest_acct,
@@ -3007,7 +3007,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             "type": "move",
             "headline": headline,
             "body": body,
-            "action": {"label": "See what's due ›", "route": "/planning"},
+            "action": {"label": "See what's due ›", "route": "/upcoming"},
             "estimated": False,
             "moves": [
                 {"headline": r["headline"], "amount": r["amount"], "move_map": r["move_map"]}

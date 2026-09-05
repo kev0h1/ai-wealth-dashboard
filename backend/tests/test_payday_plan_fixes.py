@@ -153,7 +153,7 @@ def _make_done_doc(pstart: date, dests):
         "status": "done",
         "headline": f"Payday plan: split £{total:,} across {len(dests)} accounts",
         "body": f"£{total:,} distributed, £0 stays in Salary Account.",
-        "action": {"label": "See what's due ›", "route": "/planning"},
+        "action": {"label": "See what's due ›", "route": "/upcoming"},
         "estimated": False,
         "_window_end": (pstart + timedelta(days=30)).isoformat(),
         "_dest_accts": [d["account_id"] for d in dests],

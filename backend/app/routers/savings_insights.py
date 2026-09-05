@@ -2450,6 +2450,11 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
     return {
         "id":              d.get("insight_id", str(d["_id"])),
         "category":        cat,
+        # The exact visible Spend category this opportunity can annotate.
+        # Derived from the already-authoritative transaction route mapping;
+        # null for merchant-only opportunities where guessing a category
+        # would attach the insight to the wrong financial evidence.
+        "app_category":    _category_for_net_check(cat),
         # "fixed" (a committed bill) | "free" (discretionary) | None — see
         # `_job_for_category`; resolved through the same category-kind
         # single source of truth as the rest of the app.

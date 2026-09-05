@@ -68,7 +68,7 @@ def test_get_today_brief_shapes_a_move_item(monkeypatch):
             "type": "move",
             "headline": "Move £150 to Halifax",
             "body": "It's £150 short.",
-            "action": {"label": "See what's due ›", "route": "/planning"},
+            "action": {"label": "See what's due ›", "route": "/upcoming"},
             "estimated": False,
             "moves": [{
                 "headline": "Move £150 from Monzo",
@@ -137,7 +137,7 @@ def test_get_today_brief_falls_back_to_payday_preview_when_not_live(monkeypatch)
                             "spend_typical": 500, "buffer": 300, "target": 1600,
                             "move": 1600, "usual": 1500}],
                 "estimated": False,
-                "action": {"label": "See what's due ›", "route": "/planning"},
+                "action": {"label": "See what's due ›", "route": "/upcoming"},
             }]
         return []  # nothing live on Home right now
 

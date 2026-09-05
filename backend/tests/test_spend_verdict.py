@@ -6,6 +6,7 @@ from datetime import date
 from app.services.categories import BUILTIN_CATEGORY_KINDS
 from app.services.spend_verdict import (
     _movement_fallback_sentence,
+    _top_causes,
     _unresolved_display_name,
     assemble_verdict,
     bucket_transactions,
@@ -279,6 +280,7 @@ def test_unresolved_display_name_strips_provider_plumbing():
     assert _unresolved_display_name("FINEXER LTD OPENBANKINGPAYMENT FT.", "") == "Finexer"
     assert _unresolved_display_name("", "PLAYTOMIC* PI-F0D6 ON 11 JUL BCC") == "Playtomic"
     assert _unresolved_display_name("WISE *8827 TRANSFER", "") == "Wise"
+    assert _unresolved_display_name("", "AMZNMKTPLACE*NJ0X14124") == "Amazon"
     # Acronym allowlist survives upper-cased.
     assert _unresolved_display_name("EDF ENERGY LTD DD", "") == "EDF Energy"
     # Nothing clean survives -> None, never bank plumbing shown as a name.
@@ -330,6 +332,13 @@ def test_notable_cause_ranks_top_three_merchants():
     bills = next(n for n in result["notables"] if n["category"] == "Bills")
     assert [c["name"] for c in bills["cause"]] == ["British Gas", "EDF", "Council Tax"]
     assert len(bills["cause"]) == 3  # capped, "Small One" excluded
+
+
+def test_notable_cause_uses_clean_display_name_not_provider_reference():
+    causes = _top_causes([
+        txn("Shopping", 169, merchant="AMZNMKTPLACE*NJ0X14124")
+    ])
+    assert causes == [{"name": "Amazon", "amount": 169.0}]
 
 
 def test_moved_omits_empty_groups_and_carries_goal_names():

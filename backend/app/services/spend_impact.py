@@ -99,6 +99,7 @@ or a pushed-out horizon.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from datetime import date, datetime, timedelta
@@ -111,6 +112,7 @@ from app.db.collections import (
     transactions_col,
 )
 from app.services.categories import get_category_kinds, is_income
+from app.services import response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -479,28 +481,47 @@ async def _usual_move_total(uid: str, pay_cfg: dict) -> tuple[float, str | None,
     if salary_acct is None:
         return 0.0, None, 0
 
-    try:
-        from app.services.companion import _active_commitment_slices, _usual_payday_moves_with_counts
+    from app.services.companion import _active_commitment_slices, _usual_payday_moves_with_counts
 
-        usual_moves, usual_counts = await _usual_payday_moves_with_counts(uid, salary_acct, pay_cfg)
-        live_balances = await _live_balances_map(uid)
-        commitment_slices = await _active_commitment_slices(uid, pay_cfg, live_balances)
-    except Exception:
-        logger.exception("spend_impact: usual-move lookup failed for %s", uid)
-        usual_moves, usual_counts, commitment_slices = {}, {}, {}
+    async def _usual_moves():
+        try:
+            return await _usual_payday_moves_with_counts(uid, salary_acct, pay_cfg)
+        except Exception:
+            logger.exception("spend_impact: usual-move lookup failed for %s", uid)
+            return {}, {}
 
-    try:
-        from app.services.debt_plan import get_debt_plan_cached
+    async def _debt_transfer() -> float:
+        try:
+            from app.services.debt_plan import get_debt_plan_cached
+            plan = await get_debt_plan_cached(uid)
+            return float(sum(
+                (c.get("movement") or {}).get("monthly") or 0.0
+                for c in plan.get("cards", [])
+                if c.get("debt", 0) > 0 and ((c.get("movement") or {}).get("monthly") or 0) > 0
+            ))
+        except Exception:
+            logger.exception("spend_impact: debt-transfer lookup failed for %s", uid)
+            return 0.0
 
-        plan = await get_debt_plan_cached(uid)
-        debt_transfer = sum(
-            (c.get("movement") or {}).get("monthly") or 0.0
-            for c in plan.get("cards", [])
-            if c.get("debt", 0) > 0 and ((c.get("movement") or {}).get("monthly") or 0) > 0
-        )
-    except Exception:
-        logger.exception("spend_impact: debt-transfer lookup failed for %s", uid)
-        debt_transfer = 0.0
+    # Historical moves, live balances and the cached debt plan are
+    # independent. Start all three together; as soon as balances land, start
+    # the commitment-slice calculation while the other reads continue.
+    usual_task = asyncio.create_task(_usual_moves())
+    balances_task = asyncio.create_task(_live_balances_map(uid))
+    debt_task = asyncio.create_task(_debt_transfer())
+    live_balances = await balances_task
+
+    async def _commitment_slices():
+        try:
+            return await _active_commitment_slices(uid, pay_cfg, live_balances)
+        except Exception:
+            logger.exception("spend_impact: commitment-slice lookup failed for %s", uid)
+            return {}
+
+    commitment_task = asyncio.create_task(_commitment_slices())
+    (usual_moves, usual_counts), commitment_slices, debt_transfer = await asyncio.gather(
+        usual_task, commitment_task, debt_task,
+    )
 
     dest_ids = set(usual_moves.keys()) | set(commitment_slices.keys())
     dests_total = 0.0
@@ -736,28 +757,51 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
 
     pay_cfg = await _pay_cfg(uid)
 
+    async def _headroom() -> float:
+        try:
+            # A Spend visit commonly follows Home, whose 90-second response
+            # cache already contains this exact Safe-to-Spend fact. Reuse it
+            # instead of replaying the full cash/bills/card calculation. Do
+            # not populate the cache here: the Home endpoint also attaches a
+            # pace block, so only that endpoint owns writes to this key.
+            sts = (
+                response_cache.get("safe_to_spend", uid)
+                or response_cache.get("safe_to_spend_series", uid)
+            )
+            if sts is None:
+                from app.routers.analytics import compute_safe_to_spend
+                sts = await compute_safe_to_spend(uid)
+            if sts.get("status") == "ok":
+                return max(0.0, float(sts.get("safe_to_spend") or 0.0))
+        except Exception:
+            logger.exception("spend_impact: headroom lookup failed for %s — treating as 0", uid)
+        return 0.0
+
+    async def _net_position():
+        try:
+            from app.services.net_position import period_net
+            return await period_net(uid)
+        except Exception:
+            logger.exception("spend_impact: period_net lookup failed for %s", uid)
+            return None
+
+    # Headroom and the net-negative guard can only change a permission result,
+    # which exists when spending is UNDER usual (negative excess). An
+    # over-usual warning never reads either value, so replaying the full
+    # Safe-to-Spend calculation and period transaction scan in that branch was
+    # pure critical-path work. When permission is possible the two independent
+    # reads still run together.
     headroom = 0.0
-    try:
-        from app.routers.analytics import compute_safe_to_spend
-
-        sts = await compute_safe_to_spend(uid)
-        if sts.get("status") == "ok":
-            headroom = max(0.0, float(sts.get("safe_to_spend") or 0.0))
-    except Exception:
-        logger.exception("spend_impact: headroom lookup failed for %s — treating as 0", uid)
-        headroom = 0.0
-
     net_pos = None
-    try:
-        from app.services.net_position import period_net
+    if total_excess < 0:
+        headroom, net_pos = await asyncio.gather(_headroom(), _net_position())
 
-        net_pos = await period_net(uid)
-    except Exception:
-        logger.exception("spend_impact: period_net lookup failed for %s", uid)
-        net_pos = None
-
-    move_out, horizon_out = await _compute_move_and_horizon(uid, total_excess, pay_cfg, headroom=headroom)
-    bills_risk_out = await _bills_risk(uid, total_excess, period)
+    # The move/horizon projection and bills-risk walk consume the same inputs
+    # but do not depend on each other; resolve them concurrently.
+    (move_out, horizon_out), bills_risk_out = await asyncio.gather(
+        _compute_move_and_horizon(uid, total_excess, pay_cfg, headroom=headroom),
+        _bills_risk(uid, total_excess, period),
+    )
 
     if bills_risk_out is not None:
         consequence = "bills_risk"

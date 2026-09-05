@@ -43,7 +43,7 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
         goals.append({
             "pillar": "debt", "label": label,
             "detail": "Done 🎉" if current <= 0 else f"{sym}{current:,.0f} to go",
-            "pct": pct, "done": current <= 0, "url": "/debt-plan",
+            "pct": pct, "done": current <= 0, "url": "/cards",
         })
 
     # Savings — safety net funded
@@ -59,7 +59,7 @@ async def goals_summary(uid: str, region: str) -> list[dict]:
                 "pillar": "savings", "label": "Safety net",
                 "detail": f"{sym}{current:,.0f} of {sym}{target:,.0f}",
                 "pct": round(max(0.0, min(1.0, current / target)) * 100),
-                "done": current >= target, "url": "/grow",
+                "done": current >= target, "url": "/planning",
             })
 
     # 2026-08-30 (owner decision, option C): the "Budget — inside the

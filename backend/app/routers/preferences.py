@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.db.collections import preferences_col, cashflow_cache_col
 from app.services.notifications import NOTIF_DEFAULTS
+from app.services import response_cache
 
 router = APIRouter(tags=["preferences"])
 
@@ -110,19 +111,19 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
     )
     doc = await preferences_col.find_one({"user_id": uid})
 
+    # Preferences include Safe-to-Spend inputs (notably region, pay-period
+    # configuration and the user buffer). A successful patch must never leave
+    # a 90-second cached spending permission on screen. Full invalidation is
+    # deliberately the safe default: some less-obvious preference fields feed
+    # dependent Home/Penny summaries too, and cache entries are per-user.
+    response_cache.invalidate(uid)
+
     if pay_period_changed:
         # Best-effort: recompute cashflow so the new pay period takes effect
         # immediately. Don't let a compute failure block the pref save.
         try:
             from app.routers.analytics import compute_and_cache_cashflow
             asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
-        except Exception:
-            pass
-
-    if "cover_plan_excluded_accounts" in body:
-        try:
-            from app.services import response_cache
-            response_cache.invalidate(uid, "today")
         except Exception:
             pass
 

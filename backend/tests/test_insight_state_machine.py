@@ -628,3 +628,15 @@ def test_serialize_insight_includes_job_field():
     doc_kinds_passed = {**doc, "category": "mobile"}
     custom_kinds = {**BUILTIN_CATEGORY_KINDS, "Bills": DISCRETIONARY}
     assert _serialize_insight(doc_kinds_passed, kinds=custom_kinds)["job"] == "free"
+
+
+def test_serialize_insight_exposes_only_a_reliable_spend_category():
+    doc = {
+        "_id": "ins_1", "insight_id": "ins_1", "category": "eating_out", "state": "quiet",
+        "refreshed_at": NOW,
+    }
+    assert _serialize_insight(doc)["app_category"] == "Eating Out"
+
+    # Mortgage insights are merchant-scoped because the bank category is not
+    # reliable; they must not be guessed onto the Bills row.
+    assert _serialize_insight({**doc, "category": "mortgage"})["app_category"] is None
