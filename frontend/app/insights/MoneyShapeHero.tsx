@@ -278,7 +278,16 @@ function PeriodPickerSheet({
   );
 }
 
-export default function MoneyShapeHero({ shape }: { shape: MoneyShape }) {
+export default function MoneyShapeHero({
+  shape,
+  selectedPeriod,
+}: {
+  shape: MoneyShape;
+  /** When embedded in Spend, the page header owns period navigation. A
+   * matching completed period is rendered directly and this card's duplicate
+   * picker is removed. Insights' standalone use remains self-controlled. */
+  selectedPeriod?: { start: string; end: string; label: string };
+}) {
   const [scope, setScope] = useState<Scope>({ kind: "period", index: 0 });
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -299,9 +308,20 @@ export default function MoneyShapeHero({ shape }: { shape: MoneyShape }) {
   // this specific fetch predating the reshape) — render exactly as today,
   // no control, sourced straight off shape's own top-level fields.
   const hasControl = periods.length > 0;
+  const selectedIndex = selectedPeriod
+    ? periods.findIndex((period) => period.start === selectedPeriod.start && period.end === selectedPeriod.end)
+    : -1;
+  const selectedPeriodAvailable = !!selectedPeriod && selectedIndex >= 0;
+  // The backend intentionally computes money shape from completed periods.
+  // While the selected Spend period is still in progress, fall back visibly
+  // to the latest completed one instead of silently presenting it as current.
+  const displayedScope: Scope = selectedPeriodAvailable
+    ? { kind: "period", index: selectedIndex }
+    : scope;
+  const showingLatestComplete = !!selectedPeriod && !selectedPeriodAvailable;
 
-  const entry = currentEntry(shape, periods, averages, scope, hasControl);
-  const showTrendLine = hasControl ? scope.kind === "period" && scope.index === 0 : true;
+  const entry = currentEntry(shape, periods, averages, displayedScope, hasControl);
+  const showTrendLine = hasControl ? displayedScope.kind === "period" && displayedScope.index === 0 : true;
   const atOldest = scope.kind === "period" && scope.index >= periods.length - 1;
   const atNewest = scope.kind === "period" && scope.index <= 0;
 
@@ -324,7 +344,20 @@ export default function MoneyShapeHero({ shape }: { shape: MoneyShape }) {
 
   return (
     <section className="glass-hero rounded-3xl p-4" data-tutorial-id="tutorial-insights-hero">
-      {hasControl ? (
+      {hasControl && selectedPeriod ? (
+        <div>
+          <SectionLabel>
+            {showingLatestComplete
+              ? `LATEST COMPLETE PAY PERIOD · ${periods[0]?.label ?? ""}`
+              : `SELECTED PAY PERIOD · ${selectedPeriod.label}`}
+          </SectionLabel>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            {showingLatestComplete
+              ? "The selected pay period is still in progress, so this uses the latest complete one."
+              : "From your transactions"}
+          </p>
+        </div>
+      ) : hasControl ? (
         <>
           <div className="flex items-center justify-between gap-1">
             {scope.kind === "period" ? (

@@ -108,6 +108,10 @@ export interface Insight {
 export interface SavingsInsight {
   id: string;
   category: string;
+  /** Visible transaction category this insight can safely annotate in the
+   * Spend breakdown. null when there is no reliable one-to-one category
+   * (for example, a mortgage identified by merchant rather than category). */
+  app_category?: string | null;
   icon: string;
   label: string;
   title: string;

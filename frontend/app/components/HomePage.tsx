@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
-import { getToken, setToken } from "@/lib/auth";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
@@ -31,6 +30,7 @@ import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { resolveAttention } from "@/lib/attention";
 import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
+import { fetchVerdictData } from "@/lib/verdictCache";
 
 // Recharts-backed pinned widget (~448KB) is rare on Home (opt-in pin) — keep
 // it out of the initial route chunk.
@@ -42,9 +42,6 @@ const PinnedWidgetCard = dynamic(
   }
 );
 // kept-for-future: import CompanionStack from "@/components/CompanionStack";
-
-// Token is guaranteed by AuthProvider before this component mounts
-async function ensureAuth() {}
 
 // Module-level warm-paint cache now lives in lib/homeCache.ts (getHomeCache/
 // setHomeCache/clearHomeCache) so AuthProvider's logout() can clear it
@@ -83,7 +80,7 @@ function HomeSkeleton({ firstName }: { firstName?: string }) {
         </div>
 
         <div className="px-4 lg:px-0 mt-8">
-          <SafeToSpendCard data={null} loading cardDeltaSoFar={null} />
+          <SafeToSpendCard data={null} loading />
         </div>
 
         <div className="mt-8">
@@ -154,7 +151,7 @@ export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0]?.trim();
-  const { hideNetWorth, payPeriodConfig, region, homePinnedWidget } = usePreferences();
+  const { hideNetWorth, preferencesReady, payPeriodConfig, region, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
   // snapshot — see lib/homeCache.ts for what this cache is and why it's
@@ -184,6 +181,7 @@ export default function HomePage() {
   // list each clear as soon as their OWN request settles — nothing waits on
   // the heavy 90-day transactions call (which no longer feeds this list at all).
   const [stsLoading, setStsLoading] = useState(!homeCache);
+  const [stsError, setStsError] = useState(false);
   const [txLoading, setTxLoading] = useState(!homeCache);
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -205,6 +203,10 @@ export default function HomePage() {
   const [insightWinVisible, setInsightWinVisible] = useState(false);
   const [needle, setNeedle] = useState<NeedleSummary | null>(homeCache?.needle ?? null);
   const [needleStatus, setNeedleStatus] = useState<"loading" | "ready" | "failed">(homeCache?.needleStatus ?? "loading");
+  // A manual sync can overlap the mount fetch. Only the most recently started
+  // request may commit values, so an older calculation can never overwrite a
+  // newer post-sync verdict.
+  const loadRequestRef = useRef(0);
 
   // ── Full-page loading hold ───────────────────────────────────────────
   // The owner's call: hold the whole page until Home has settled, then
@@ -270,12 +272,13 @@ export default function HomePage() {
   useEffect(() => {
     if (!revealedRef.current) return;
     setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, recentTxns, needle, needleStatus });
-  });
+  }, [accounts, investmentAccounts, safeToSpend, companionItems, recentTxns, needle, needleStatus]);
 
   const loadData = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoadError(false);
+    setStsError(false);
     try {
-      await ensureAuth();
       // Fire the fast calls all in parallel and set each state as its own
       // promise resolves. The Safe-to-Spend tile and brief never wait for
       // siblings, and Recent Transactions gets its own small search-endpoint
@@ -297,22 +300,36 @@ export default function HomePage() {
       // that effect is keyed on instead of awaiting the fetch here.
       setBulkNonce((n) => n + 1);
 
-      invP.then((v) => setInvestmentAccounts(v)).catch(() => {});
+      invP.then((v) => {
+        if (requestId === loadRequestRef.current) setInvestmentAccounts(v);
+      }).catch(() => {});
       safeP
-        .then((v) => setSafeToSpend(v))
-        .catch(() => {})
-        .finally(() => setStsLoading(false));
-      todayP.then((v) => setCompanionItems(v.items)).catch(() => {});
+        .then((v) => {
+          if (requestId === loadRequestRef.current) {
+            setSafeToSpend(v);
+            setStsError(false);
+          }
+        })
+        .catch(() => {
+          if (requestId === loadRequestRef.current) setStsError(true);
+        })
+        .finally(() => {
+          if (requestId === loadRequestRef.current) setStsLoading(false);
+        });
+      todayP.then((v) => {
+        if (requestId === loadRequestRef.current) setCompanionItems(v.items);
+      }).catch(() => {});
       recentTxP
-        .then((r) => setRecentTxns(r.items))
-        .catch(() => setRecentTxns([]))
-        .finally(() => setTxLoading(false));
+        .then((r) => { if (requestId === loadRequestRef.current) setRecentTxns(r.items); })
+        .catch(() => { if (requestId === loadRequestRef.current) setRecentTxns([]); })
+        .finally(() => { if (requestId === loadRequestRef.current) setTxLoading(false); });
       // Write-through for BottomNav's Penny dot (see lib/paydayWindow.ts) —
       // Home already fetches both of these for its own brief, so once they
       // resolve, hand the same boolean to the nav's cache instead of letting
       // its hook fire a redundant copy of the same two requests.
       Promise.all([todayP, safeP])
         .then(([today, sts]) => {
+          if (requestId !== loadRequestRef.current) return;
           const hasLivePlan = today.items.some((i) => i.type === "payday_plan");
           writePaydayDotCache(isPaydayWindowActive({
             hasLivePlan,
@@ -321,14 +338,16 @@ export default function HomePage() {
         })
         .catch(() => {});
       needleP
-        .then((v) => { setNeedle(v); setNeedleStatus("ready"); })
-        .catch(() => setNeedleStatus("failed"));
+        .then((v) => { if (requestId === loadRequestRef.current) { setNeedle(v); setNeedleStatus("ready"); } })
+        .catch(() => { if (requestId === loadRequestRef.current) setNeedleStatus("failed"); });
 
       let loadedAccounts: Account[] = [];
       try {
         loadedAccounts = await accsP;
+        if (requestId !== loadRequestRef.current) return;
         setAccounts(loadedAccounts);
       } catch {
+        if (requestId !== loadRequestRef.current) return;
         setLoadError(true);
         return;
       }
@@ -337,13 +356,15 @@ export default function HomePage() {
       // skeletons. recentTxP and safeP each clear their own skeleton
       // (txLoading, stsLoading) independently as they settle, above.
       await Promise.allSettled([invP, safeP, todayP, needleP, recentTxP]);
+      if (requestId !== loadRequestRef.current) return;
       setLoading(false);
     } catch {}
     finally {
+      if (requestId !== loadRequestRef.current) return;
       setLoading(false);
       setStsLoading(false);
-      // Belt-and-braces: if an early exit (e.g. ensureAuth throwing) lands us
-      // here before recentTxP was ever created, its own .finally above never
+      // Belt-and-braces: if an early exit lands us here before recentTxP was
+      // ever created, its own .finally above never
       // runs and this skeleton would otherwise be stuck on forever.
       setTxLoading(false);
     }
@@ -359,6 +380,39 @@ export default function HomePage() {
   // `pageReady` above), so they aren't actually painted before then even
   // once `loading` itself has cleared.
   useTutorialReady("home", pageReady && !loading);
+
+  // Spend's verdict is the page's critical-path request and can take longer
+  // than the route bundle itself on a cold visit. Home is the usual entry
+  // point, so warm that existing 90-second cache only after Home has painted
+  // and the browser is idle. The shared in-flight cache deduplicates this if
+  // the user opens Spend while the warm-up is still running.
+  useEffect(() => {
+    if (!pageReady || !user?.email) return;
+
+    router.prefetch("/spend");
+    let cancelled = false;
+    const warmSpend = () => {
+      if (!cancelled) void fetchVerdictData(0).catch(() => {});
+    };
+
+    const idleApi = window as unknown as {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleApi.requestIdleCallback === "function") {
+      const idleId = idleApi.requestIdleCallback(warmSpend, { timeout: 2500 });
+      return () => {
+        cancelled = true;
+        idleApi.cancelIdleCallback?.(idleId);
+      };
+    }
+
+    const timerId = window.setTimeout(warmSpend, 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [pageReady, router, user?.email]);
 
   // The 90-day bulk fetch (transactions state) now feeds only the opt-in
   // pinned chart widget below, via homeTxns — Recent Transactions has its
@@ -552,7 +606,7 @@ export default function HomePage() {
   );
 
   return (
-    <div className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="relative isolate min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }} aria-busy={!pageReady}>
       {/* Sticky desktop header — appears when greeting scrolls out of view */}
       {stickyHeaderVisible && (
         <div className="hidden lg:flex fixed top-0 z-40 items-center gap-3 px-6 h-14 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 fade-in"
@@ -567,7 +621,7 @@ export default function HomePage() {
           self-fetching strips can report their onReady in) but hidden via
           a plain display toggle, never unmounted, so nothing here ever
           double-fetches and the reveal is instant with no transition. */}
-      {!pageReady && <HomeSkeleton firstName={firstName} />}
+      {!pageReady && <><p className="sr-only" role="status">Loading your overview</p><HomeSkeleton firstName={firstName} /></>}
 
       {/* Desktop 2-col grid wrapper */}
       <div
@@ -588,7 +642,7 @@ export default function HomePage() {
               syncing={syncing}
               syncError={syncError}
               onSync={handleSync}
-              hideNetWorth={hideNetWorth}
+              hideNetWorth={hideNetWorth || !preferencesReady}
               onRefresh={loadData}
               attnTarget={attn}
               dismissible
@@ -632,7 +686,7 @@ export default function HomePage() {
                   Couldn&apos;t load your data, check your connection.
                 </p>
                 <button
-                  onClick={() => { setLoading(true); setStsLoading(true); setTxLoading(true); setLoadError(false); loadData(); }}
+                  onClick={() => { setLoading(true); setStsLoading(true); setTxLoading(true); setLoadError(false); setStsError(false); loadData(); }}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-[transform,background-color] text-white text-sm font-semibold rounded-xl py-2.5 px-4"
                 >
                   Try again
@@ -647,21 +701,14 @@ export default function HomePage() {
           {!loadError && !isFreshUser && (
             <div data-tutorial-id="tutorial-safe-to-spend" className="rise-in px-4 lg:px-0 mt-8" style={{ "--rise-index": 1 } as React.CSSProperties}>
               {/* Verdict card */}
-              {(() => {
-                const hasRealData = safeToSpend != null && safeToSpend.status !== "insufficient_data";
-                const hasMoveItem = companionItems.some(i => i.type === "move");
-                if (stsLoading || hasRealData) {
-                  return (
-                    <SafeToSpendCard
-                      data={safeToSpend}
-                      loading={stsLoading}
-                      suppressCTA={hasMoveItem}
-                      cardDeltaSoFar={needle?.current?.card_delta_so_far ?? null}
-                    />
-                  );
-                }
-                return null;
-              })()}
+              {(stsLoading || safeToSpend != null || stsError) && (
+                <SafeToSpendCard
+                  data={safeToSpend}
+                  loading={stsLoading}
+                  error={stsError}
+                  onRetry={() => { setStsError(false); setStsLoading(true); loadData(); }}
+                />
+              )}
 
               {/* Cleared-advice pointer — see HomeBriefClearedRow's doc
                   comment in components/HomeBrief.tsx for why this state

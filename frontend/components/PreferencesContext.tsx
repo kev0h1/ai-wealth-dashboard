@@ -7,6 +7,9 @@ export type Region = "UK" | "Kenya";
 
 interface Prefs {
   hideNetWorth: boolean;
+  /** False until the server preference has settled. Consumers showing money
+   * should mask while this is false to avoid a privacy flash. */
+  preferencesReady: boolean;
   darkMode: boolean;
   payPeriodConfig: PayPeriodConfig;
   region: Region;
@@ -34,7 +37,8 @@ interface PrefsCtx extends Prefs {
 const todayYM = () => new Date().toISOString().slice(0, 7);
 
 const Ctx = createContext<PrefsCtx>({
-  hideNetWorth: false,
+  hideNetWorth: true,
+  preferencesReady: false,
   darkMode: false,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   region: "UK",
@@ -56,7 +60,16 @@ const Ctx = createContext<PrefsCtx>({
 });
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [hideNetWorth, setHideNetWorthState] = useState(false);
+  const [hideNetWorth, setHideNetWorthState] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("wd_hide_balances");
+      return saved == null ? true : saved === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [darkMode, setDarkModeState] = useState(() => {
     // Match the pre-paint inline script in layout.tsx so hydration doesn't undo it
     if (typeof window === "undefined") return false;
@@ -74,6 +87,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     api.getPreferences().then(p => {
       setHideNetWorthState(p.hide_net_worth);
+      try { localStorage.setItem("wd_hide_balances", p.hide_net_worth ? "1" : "0"); } catch {}
       if (p.dark_mode !== undefined) {
         setDarkModeState(p.dark_mode);
         try { localStorage.setItem("wd_dark", p.dark_mode ? "1" : "0"); } catch {}
@@ -86,7 +100,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
       if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
       setRawPrefs(p as any);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setPreferencesReady(true));
   }, []);
 
   useEffect(() => {
@@ -99,6 +113,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   const setHideNetWorth = useCallback((v: boolean) => {
     setHideNetWorthState(v);
+    try { localStorage.setItem("wd_hide_balances", v ? "1" : "0"); } catch {}
     api.updatePreferences({ hide_net_worth: v }).catch(() => {});
   }, []);
 
@@ -142,7 +157,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
       spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
       setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides,

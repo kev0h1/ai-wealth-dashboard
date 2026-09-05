@@ -19,16 +19,28 @@ async function fetchAll(force = false): Promise<Transaction[]> {
 
 export function invalidateTransactionsCache() { cache = null; inflight = null; }
 
-export function useAllTransactions() {
+export function useAllTransactions(enabled = true) {
   const [transactions, setTransactions] = useState<Transaction[]>(cache?.data ?? []);
   const [loading, setLoading] = useState(!cache);
   const refresh = useCallback(async (force = false) => {
+    setLoading(true);
     const d = await fetchAll(force).catch(() => cache?.data ?? []);
     setTransactions(d);
     setLoading(false);
   }, []);
-  useEffect(() => { refresh(); }, [refresh]);
-  return { transactions, loading, refresh, setTransactions };
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    fetchAll()
+      .catch(() => cache?.data ?? [])
+      .then((data) => {
+        if (cancelled) return;
+        setTransactions(data);
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [enabled]);
+  return { transactions, loading: enabled && loading, refresh, setTransactions };
 }
 
 /** Cached, lazy accessor for consumers that need the full set on demand

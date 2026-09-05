@@ -73,6 +73,8 @@ export interface SpendHeaderProps {
    *  already builds from live transactions; the preview passes a small
    *  fixture list so the interaction is demonstrable without a login. */
   incomeTxns: Transaction[];
+  /** Requests transaction history only when the income disclosure is opened. */
+  onIncomeOpen?: () => void;
   onTransactionClick: (tx: Transaction) => void;
   /** "Out" is the Show Your Working entry point for the spend figure — see
    *  SpendVerdictView's expandMajoritySignal/#spend-majority-section. Forces
@@ -122,17 +124,11 @@ function IncomeDrilldown({ incomeTxns, onTransactionClick }: { incomeTxns: Trans
   );
 }
 
-// ── Breakdown / Charts toggle — an ARIA tablist immediately above the
-// majority list (SpendVerdictView's `aboveMajority` slot), styled as that
-// section's own header row, so the swap between the reconciled breakdown
-// and the chart widgets is announced. Labels renamed from "This period"/
-// "Over time" (owner call, 2026-09): the page header already owns period
-// navigation, so "This period" was still saying "This period" after
-// stepping back to an earlier one, and four of the five chart widgets are
-// themselves period-scoped, so "Over time" misdescribed them too. Rebuilt
-// at a true 44px tap target;
-// slate-600/dark:slate-400 (production's old slate-400-alone was 2.26:1
-// against the canvas — fails WCAG AA 4.5:1). ───────────────────────────────
+// ── This period / Patterns — the Spend page's only view switch. It
+// sits immediately below the shared header, so people choose the scope
+// before reading either the reconciled period breakdown or the cross-period
+// pattern summary. A full-width segmented control gives both choices equal
+// weight and preserves a true 44px tap target. ───────────────────────────────
 export function SpendPatternsToggle({
   showPatterns,
   onSetShowPatterns,
@@ -141,11 +137,11 @@ export function SpendPatternsToggle({
   onSetShowPatterns: (v: boolean) => void;
 }) {
   const items: Array<{ key: "period" | "over"; label: string; active: boolean; onClick: () => void }> = [
-    { key: "period", label: "Breakdown", active: !showPatterns, onClick: () => onSetShowPatterns(false) },
-    { key: "over", label: "Charts", active: showPatterns, onClick: () => onSetShowPatterns(true) },
+    { key: "period", label: "This period", active: !showPatterns, onClick: () => onSetShowPatterns(false) },
+    { key: "over", label: "Patterns", active: showPatterns, onClick: () => onSetShowPatterns(true) },
   ];
   return (
-    <div className="flex items-center gap-1.5 px-1 mb-2" role="tablist" aria-label="Spend view">
+    <div className="grid grid-cols-2 gap-1 rounded-2xl bg-slate-200/70 p-1 dark:bg-slate-800/80" role="tablist" aria-label="Spend view">
       {items.map((it) => (
         <button
           key={it.key}
@@ -153,10 +149,10 @@ export function SpendPatternsToggle({
           role="tab"
           aria-selected={it.active}
           onClick={it.onClick}
-          className={`min-h-[44px] px-4 flex items-center justify-center rounded-full text-[11px] font-semibold transition-colors ${
+          className={`min-h-[44px] px-4 flex items-center justify-center rounded-xl text-[13px] font-semibold transition-[background-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
             it.active
-              ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm"
-              : "text-slate-600 dark:text-slate-400"
+              ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
           }`}
         >
           {it.label}
@@ -268,23 +264,12 @@ export function SpendHeroSkeleton() {
           </div>
           <div className="w-11 h-11 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
         </div>
-        <div className="mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3">
-          <div className="min-h-[44px] px-1 py-1 flex flex-col items-start justify-center gap-1.5">
-            <div className="h-2.5 w-10 rounded bg-slate-200 dark:bg-slate-700" />
-            <div className="h-7 w-28 rounded bg-slate-200 dark:bg-slate-700" />
-          </div>
-          <div className="mt-1 pt-2 flex divide-x divide-slate-200/70 dark:divide-slate-700/70 border-t border-slate-200/70 dark:border-slate-700/70">
-            <div className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center gap-1">
-              <div className="h-2 w-6 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
-            </div>
-            <div className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center gap-1">
-              <div className="h-2 w-10 rounded bg-slate-200 dark:bg-slate-700" />
-              <div className="h-3.5 w-14 rounded bg-slate-200 dark:bg-slate-700" />
-            </div>
-          </div>
-          <div className="mt-2 px-1">
-            <div className="h-3 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="mt-5">
+          <div className="h-2.5 w-10 rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="mt-2 h-9 w-36 rounded bg-slate-200 dark:bg-slate-700" />
+          <div className="mt-4 flex gap-3">
+            <div className="h-3.5 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+            <div className="h-3.5 w-24 rounded bg-slate-200 dark:bg-slate-700" />
           </div>
         </div>
         <div className="mt-3 space-y-1.5">
@@ -299,7 +284,7 @@ export function SpendHeroSkeleton() {
 export default function SpendHeader(props: SpendHeaderProps) {
   const {
     verdict, isCurrentPeriod, canGoPrev, onPrev, onNext, periodLabel, swipeHandlers,
-    onOpenSettings, onOpenRules, incomeTxns, onTransactionClick, onOutTap, onMovedTap,
+    onOpenSettings, onOpenRules, incomeTxns, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap,
     onUnresolvedTap, recentPeriods = [], onSelectOffset,
   } = props;
   const [incomeExpanded, setIncomeExpanded] = useState(false);
@@ -332,21 +317,6 @@ export default function SpendHeader(props: SpendHeaderProps) {
   // so this can never disagree with the reading's own hedge; absent on
   // older payloads (unresolved_material undefined) just like hasMoved above.
   const showUnresolvedFootnote = !!unresolved_material && unresolved_total !== undefined;
-
-  // Point 3 (variant B) — a quiet observation on the relationship between
-  // Out and In, computed from figures already on the payload (presentational
-  // arithmetic, no new engine field, mirrors design/spend-verdict-b/
-  // Header.tsx's gapLine exactly). Never red, never amber: a gap between
-  // what's gone out and what's come in so far this pay period is completely
-  // ordinary (income often lands in one lump near the start), not genuine
-  // risk (DESIGN.md's Red Is Risk Rule).
-  const gap = pills.spent - pills.income;
-  const gapLine =
-    gap > 0
-      ? `${fmt(gap)} more has gone out than come in so far.`
-      : gap < 0
-        ? `${fmt(Math.abs(gap))} more has come in than gone out so far.`
-        : `Out and in are level so far.`;
 
   return (
     <div className="px-4 pt-6">
@@ -421,11 +391,11 @@ export default function SpendHeader(props: SpendHeaderProps) {
             reserved for cards with an actual move to make
             (HomeBrief.tsx/PaydayPlanCard.tsx/SafeToSpendCard.tsx/
             UpcomingBillsStrip.tsx). */}
-        <div className="mt-4 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 p-3">
+        <div className="mt-5">
           <button
             type="button"
             onClick={onOutTap}
-            className="w-full min-h-[44px] px-1 py-1 flex flex-col items-start justify-center text-left active:opacity-70 transition-opacity"
+            className="w-full min-h-[44px] flex flex-col items-start justify-center text-left active:opacity-70 transition-opacity"
           >
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Out</span>
             {/* Display/30 (DESIGN.md Typography Hierarchy: "the one hero
@@ -438,12 +408,16 @@ export default function SpendHeader(props: SpendHeaderProps) {
             </span>
           </button>
 
-          <div className="mt-1 pt-2 flex divide-x divide-slate-200/70 dark:divide-slate-700/70 border-t border-slate-200/70 dark:border-slate-700/70">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
             <button
               type="button"
-              onClick={() => setIncomeExpanded((v) => !v)}
+              onClick={() => {
+                const next = !incomeExpanded;
+                setIncomeExpanded(next);
+                if (next) onIncomeOpen?.();
+              }}
               aria-expanded={incomeExpanded}
-              className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center active:opacity-70 transition-opacity"
+              className="min-h-[44px] inline-flex items-center gap-1.5 active:opacity-70 transition-opacity"
             >
               <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">In</span>
               {/* Title/14 (DESIGN.md: "Row primaries, button labels") — the
@@ -460,16 +434,13 @@ export default function SpendHeader(props: SpendHeaderProps) {
                 type="button"
                 onClick={onMovedTap}
                 aria-label="Money you moved"
-                className="flex-1 min-h-[44px] px-2 py-1 flex flex-col items-start justify-center active:scale-95 transition-transform"
+                className="min-h-[44px] inline-flex items-center gap-1.5 active:opacity-70 transition-opacity"
               >
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Moved</span>
                 <span className="text-sm font-bold tabular-nums font-mono text-slate-700 dark:text-slate-300">{fmt(moved_total!)}</span>
               </button>
             )}
           </div>
-
-          {/* Point 3 (variant B) — the quiet Out-vs-In gap observation. */}
-          <p className="mt-2 px-1 text-[12px] text-slate-500 dark:text-slate-400">{gapLine}</p>
         </div>
 
         {/* OUT-pill footnote — sits below the instrument and above the

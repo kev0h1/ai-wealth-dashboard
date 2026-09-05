@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Check, Undo2 } from "lucide-react";
-import { api, Account, Transaction, SpendVerdict } from "@/lib/api";
+import { api, Account, Transaction, SpendVerdict, type SavingsInsight } from "@/lib/api";
 import { useAllTransactions, invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { cachedVerdict, fetchVerdictData, invalidateVerdictCache } from "@/lib/verdictCache";
 import { cachedSignals, fetchSignals, invalidateSignalsCache, SignalMap } from "@/lib/signalsCache";
@@ -21,19 +22,26 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { usePeriodSwipe } from "@/lib/usePeriodSwipe";
 import { isHomeCurrency } from "@/lib/currency";
 import { CategoryData } from "@/components/CategoryRow";
-import CategorySheet from "@/components/CategorySheet";
-import TeachingSheet from "@/components/TeachingSheet";
-import MiscategorisedReviewSheet from "@/components/MiscategorisedReviewSheet";
-import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
-import SpendTrends from "@/components/SpendTrends";
 import SpendVerdictView from "@/components/SpendVerdictView";
-import IntentConsentSheet from "@/components/IntentConsentSheet";
 import SpendHeader, { SpendPatternsToggle, RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
 import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spendUiState";
 import { useTutorialReady } from "@/components/TutorialContext";
+
+// These surfaces are absent from the initial This period view. Keeping them
+// outside its client graph avoids paying for charts, portals, and form logic
+// until the user explicitly opens that branch.
+const SpendPatternsSummary = dynamic(() => import("@/components/SpendPatternsSummary"));
+const SpendTrends = dynamic(() => import("@/components/SpendTrends"), {
+  loading: () => <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>,
+});
+const CategorySheet = dynamic(() => import("@/components/CategorySheet"));
+const TeachingSheet = dynamic(() => import("@/components/TeachingSheet"));
+const MiscategorisedReviewSheet = dynamic(() => import("@/components/MiscategorisedReviewSheet"));
+const CategorisationRulesSheet = dynamic(() => import("@/components/CategorisationRulesSheet"));
+const IntentConsentSheet = dynamic(() => import("@/components/IntentConsentSheet"));
 
 // Re-exported for any external caller that still reaches invalidateVerdictCache
 // via this module's path, now that the cache itself lives in lib/verdictCache.ts.
@@ -42,6 +50,28 @@ export { invalidateVerdictCache } from "@/lib/verdictCache";
 export { invalidateSignalsCache } from "@/lib/signalsCache";
 
 async function ensureAuth() {}
+
+// Savings insights annotate the category breakdown (via SpendVerdictView's
+// own openTipsFor/tipSubline signifier, see lib/spendTips.ts); they never
+// gate the page's first paint. Cache the full, unfiltered list for this
+// browser session and dedupe a concurrent request if Spend remounts while
+// the first one is still running — SpendVerdictView derives each row/card's
+// own open tips off this same array via openTipsFor(category, insights),
+// so nothing here needs to pre-group or de-dupe by category any more.
+let cachedCategoryInsights: SavingsInsight[] | null = null;
+let categoryInsightsRequest: Promise<SavingsInsight[]> | null = null;
+
+function loadCategoryInsights(): Promise<SavingsInsight[]> {
+  if (!categoryInsightsRequest) {
+    categoryInsightsRequest = api.getSavingsInsights()
+      .then((insights) => {
+        cachedCategoryInsights = insights;
+        return insights;
+      })
+      .finally(() => { categoryInsightsRequest = null; });
+  }
+  return categoryInsightsRequest;
+}
 
 // ── Resolve toast, with Undo — mirrors components/TeachingSheet.tsx's
 // established toast-with-undo pattern (its `step === "done" && toast` block:
@@ -151,7 +181,7 @@ function computeInitialPeriod(restoredUi: SpendUiState): { start: Date; end: Dat
 function SpendSkeleton() {
   return (
     <div
-      className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto"
+      className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       aria-hidden="true"
     >
@@ -209,25 +239,42 @@ export default function SpendPage() {
   // saved offset onto — restoring this state first restores the page's
   // real height too, so that height-gated scroll restore succeeds normally.
   const [restoredUi] = useState<SpendUiState>(() => consumeSpendUiState());
-  // The old three-way Categories/Transactions/Trends tabs are retired — the
-  // verdict hub replaces the first two; only the quiet "Breakdown ·
-  // Charts" split survives (approved spec, "NO Categories/Transactions/
-  // Trends tabs"; labels renamed from "This period"/"Over time", 2026-09 —
-  // period nav already lives in the page header, and most chart widgets are
-  // themselves period-scoped, so the old pair misdescribed both sides).
-  // restoredUi.showPatterns wins over the URL's ?view= on a
-  // restored visit (this page never writes ?view= itself when the tab is
-  // switched — see the persist effect below — so a restored session takes
-  // priority when both are present).
+  // The old three-way Categories/Transactions/Trends tabs are retired. The
+  // page now has two scopes: the reconciled current/selected pay period and
+  // patterns across pay periods (including the former Insights proportion
+  // summary and the existing chart tools).
+  // Patterns is opt-in. A fresh or ordinary /spend navigation always opens
+  // the transaction/category breakdown; only an explicit patterns deep link
+  // opens the cross-period view.
   const [showPatterns, setShowPatterns] = useState<boolean>(
-    () => restoredUi.showPatterns ?? searchParams.get("view") === "trends"
+    () => {
+      const requestedView = searchParams.get("view");
+      return requestedView === "patterns" || requestedView === "trends";
+    }
   );
-  // Persist on every change — cheap (tab switches are rare, explicit taps).
+  const setSpendView = useCallback((nextPatterns: boolean) => {
+    setShowPatterns(nextPatterns);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", nextPatterns ? "patterns" : "period");
+    router.replace(`/spend?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+  const [categoryInsights, setCategoryInsights] = useState<SavingsInsight[]>(
+    () => cachedCategoryInsights ?? []
+  );
+  // Load after the verdict has had a chance to paint. This request only adds
+  // contextual annotations; a failure leaves the category UI unchanged.
   useEffect(() => {
-    writeSpendUiState({ showPatterns });
-  }, [showPatterns]);
-  const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions();
-  const [loading, setLoading] = useState(true);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      loadCategoryInsights()
+        .then((mapped) => { if (active) setCategoryInsights(mapped); })
+        .catch(() => {});
+    }, 300);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, []);
+  const [transactionsRequested, setTransactionsRequested] = useState(false);
+  const transactionsEnabled = showPatterns || transactionsRequested;
+  const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions } = useAllTransactions(transactionsEnabled);
   // Computed exactly once (ref-memoized, not useMemo — this must never be
   // silently recomputed) from restoredUi.periodStart, so periodStart,
   // periodEnd, periodOffset AND the signals cache lookup below all agree on
@@ -266,35 +313,15 @@ export default function SpendPage() {
   // (notable cards, majority rows, the RhythmCard deep-link above).
   const [openCategory, setOpenCategory] = useState<(CategoryData & { title?: string }) | null>(null);
   const [periodOffset, setPeriodOffset] = useState(() => initialPeriod.offset);
-  const [signals, setSignals] = useState<SignalMap>(() => cachedSignals(initialPeriod.offset) ?? {});
-  // Settles (success or failure) once the current period's signals fetch has
-  // resolved — feeds the cold-load skeleton hold below. Needed because a
-  // notable card's AimBlock is entirely absent until `suggested_aim` is
-  // non-null (see SpendVerdictView's `eligible` gate), so a signals fetch
-  // that lands after the page has already revealed pops that block in and
-  // shoves the majority list down — exactly the jerk being fixed here.
-  const [signalsReady, setSignalsReady] = useState(() => cachedSignals(initialPeriod.offset) != null);
-  const signalsOffsetRef = useRef(initialPeriod.offset);
+  const [fetchedSignals, setFetchedSignals] = useState<Record<number, SignalMap>>({});
+  const signals = fetchedSignals[periodOffset] ?? cachedSignals(periodOffset) ?? {};
   // force = the Door or a category just changed, so the cached copy is dead.
   const refetchSignals = useCallback((force = true) => {
-    const captured = signalsOffsetRef.current;
     if (force) invalidateSignalsCache();
-    fetchSignals(captured, force)
-      .then(d => { if (signalsOffsetRef.current === captured) { setSignals(d); setSignalsReady(true); } })
-      .catch(() => { if (signalsOffsetRef.current === captured) { setSignals({}); setSignalsReady(true); } });
-  }, []);
-  useEffect(() => {
-    signalsOffsetRef.current = periodOffset;
-    // Only blank the multiples when we have nothing for this period — a
-    // remembered period keeps its readings and never flashes empty.
-    const hit = cachedSignals(periodOffset);
-    setSignals(hit ?? {});
-    setSignalsReady(hit != null);
-    if (!hit) refetchSignals(false);
-    // Warm the period the user is one swipe away from, after this one settles.
-    const warm = setTimeout(() => { fetchSignals(periodOffset - 1).catch(() => {}); }, 400);
-    return () => clearTimeout(warm);
-  }, [periodOffset, refetchSignals]);
+    fetchSignals(periodOffset, force)
+      .then(data => setFetchedSignals((current) => ({ ...current, [periodOffset]: data })))
+      .catch(() => setFetchedSignals((current) => ({ ...current, [periodOffset]: {} })));
+  }, [periodOffset]);
 
   // ── /spend/verdict — the reading + notable cards + ask/unresolved +
   // majority rows + money-you-moved. Seeded from the module-level cache
@@ -475,9 +502,6 @@ export default function SpendPage() {
       const accs = await api.accounts().catch(() => [] as Account[]);
       setAccounts(accs);
     } catch {}
-    finally {
-      setLoading(false);
-    }
   }, []);
 
   useEffect(() => {
@@ -597,8 +621,10 @@ export default function SpendPage() {
     router.replace(`/transactions?${params.toString()}`);
   }, [categoryRedirectReady, payPeriodConfig, router]);
 
-  // Page is ready once both accounts and transactions are loaded.
-  const pageLoading = loading || txLoading;
+  // Breakdown is verdict-led and does not need a year of transactions or an
+  // accounts response to become useful. Transaction history is requested only
+  // for an explicit income/chart interaction and gates that branch alone.
+  const pageLoading = transactionsEnabled && txLoading;
 
   // ── Cold-load skeleton hold ────────────────────────────────────────────
   // The owner's "stop this jerking loading of the screen" fix (mirrored on
@@ -613,18 +639,9 @@ export default function SpendPage() {
   // above them) — that MUST keep painting instantly, never held, so
   // `initialHadWarmVerdict` bypasses the hold entirely when true.
   //
-  // Cold-load readiness bundles every section that independently arrives on
-  // first mount and can shift layout: accounts+transactions (`pageLoading`
-  // — feeds the categories/trends tab), the verdict hero (`verdictLoading`),
-  // the miscategorised-transfers banner (`miscategorisedLoaded` —
-  // SpendVerdictView only renders that banner once a count > 0 has
-  // actually arrived) and a notable card's aim block (`signalsReady` — see
-  // its own comment above; the block is entirely absent until
-  // `suggested_aim` lands). None of these is safety-bounded on its own —
-  // several of the underlying requests fail silently — so the 5s
-  // `forceReveal` timeout is the non-negotiable backstop: whatever has
-  // arrived by then is shown as-is, so a single stuck endpoint can never
-  // strand the user on the skeleton.
+  // The verdict is the page's meaningful first response. Supporting counts,
+  // signals and account labels may settle after reveal; none can hold the
+  // whole screen behind a network request the user did not ask for.
   const [initialHadWarmVerdict] = useState(() => cachedVerdict(initialPeriod.offset) != null);
   const [initialSettled, setInitialSettled] = useState(initialHadWarmVerdict);
   const [forceReveal, setForceReveal] = useState(false);
@@ -635,10 +652,10 @@ export default function SpendPage() {
   }, [initialHadWarmVerdict]);
   useEffect(() => {
     if (initialSettled) return;
-    if (!pageLoading && !verdictLoading && miscategorisedLoaded && signalsReady) {
+    if (!verdictLoading) {
       setInitialSettled(true);
     }
-  }, [initialSettled, pageLoading, verdictLoading, miscategorisedLoaded, signalsReady]);
+  }, [initialSettled, verdictLoading]);
   // True only until the real tree has actually taken the skeleton's place.
   const showFullSkeleton = !initialSettled && !forceReveal;
 
@@ -850,14 +867,14 @@ export default function SpendPage() {
 
   const periodSwipe = usePeriodSwipe({ onPrev: handlePrev, onNext: handleNext, canPrev: canGoPrev, canNext: !isCurrentPeriod });
 
-  // Sync the Breakdown/Charts split with ?view= when it changes (e.g. a
+  // Sync the This period/Patterns split with ?view= when it changes (e.g. a
   // deep-link from the home strip). "list" — the retired Transactions view —
   // falls back to "Breakdown", the hub that replaces it.
   useEffect(() => {
     const v = searchParams.get("view");
-    if (v === "upcoming") { router.replace("/planning"); return; }
-    if (v === "trends") setShowPatterns(true);
-    else if (v === "categories" || v === "list") setShowPatterns(false);
+    if (v === "upcoming") { router.replace("/upcoming"); return; }
+    if (v === "patterns" || v === "trends") setShowPatterns(true);
+    else if (v === "period" || v === "categories" || v === "list") setShowPatterns(false);
   }, [searchParams, router]);
 
 
@@ -896,7 +913,7 @@ export default function SpendPage() {
   }
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Header — shared with /design/spend-live so the two can never draw
           different Spent/Income figures again (SpendHeader.tsx). */}
       <SpendHeader
@@ -910,6 +927,7 @@ export default function SpendPage() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenRules={() => setRulesOpen(true)}
         incomeTxns={incomeTxns}
+        onIncomeOpen={() => setTransactionsRequested(true)}
         onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
         onOutTap={handleOutTap}
         onMovedTap={handleMovedTap}
@@ -918,10 +936,12 @@ export default function SpendPage() {
         onSelectOffset={handleSelectOffset}
       />
 
-      {/* Breakdown — the verdict hub — or Charts (SpendTrends). The
-          Breakdown/Charts tablist moves with the content it switches: inside
-          SpendVerdictView's aboveMajority slot when "Breakdown" is showing,
-          above SpendTrends when "Charts" is. */}
+      <div className="px-4 pt-4">
+        <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setSpendView} />
+      </div>
+
+      {/* This period is the reconciled verdict hub. Patterns starts with the
+          former Insights money-shape summary, then keeps the useful charts. */}
       {!showPatterns ? (
         <div className="px-4 pt-4" data-tutorial-id="tutorial-spend-categories">
           {verdict ? (
@@ -935,8 +955,8 @@ export default function SpendPage() {
               verdict={verdict}
               colours={colours}
               hideReading
+              categoryInsights={categoryInsights}
               expandMajoritySignal={expandSignal}
-              aboveMajority={<SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />}
               miscategorisedCount={miscategorisedCount}
               pairCount={pairCount}
               reviewTotal={reviewTotal}
@@ -1050,14 +1070,24 @@ export default function SpendPage() {
         </div>
       ) : (
         <>
+          <div className="px-4 pt-5">
+            <SpendPatternsSummary
+              selectedPeriod={{
+                start: isoDate(periodStart),
+                end: isoDate(periodEnd),
+                label: formatPeriodLocal(periodStart, periodEnd),
+              }}
+            />
+          </div>
           {pageLoading ? (
             <div className="flex items-center justify-center py-16">
               <Spinner size={32} />
             </div>
           ) : (
             <>
-              <div className="px-4 pt-4">
-                <SpendPatternsToggle showPatterns={showPatterns} onSetShowPatterns={setShowPatterns} />
+              <div className="px-4 pt-6">
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Charts</h2>
+                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Explore the detail behind those patterns.</p>
               </div>
               <SpendTrends
                 periodTxns={homeTxns}

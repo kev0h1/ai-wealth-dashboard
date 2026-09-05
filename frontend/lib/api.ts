@@ -573,7 +573,11 @@ export type Pace = {
 };
 
 export type SafeToSpend =
-  | { status: "insufficient_data" }
+  | {
+      status: "insufficient_data";
+      calculation_status?: "unsupported" | "unavailable";
+      unavailable_components?: string[];
+    }
   | {
       status: "ok";
       /** Single source of truth for "what's free right now" — NET of any
@@ -582,6 +586,9 @@ export type SafeToSpend =
       next_payday: string;
       days_until_payday: number;
       bills_total: number;
+      /** Own-account movements excluded because both accounts are already in
+       * the spendable pool; exposed so the calculation can say this plainly. */
+      pooled_transfers_excluded?: number;
       income_before_payday: number;
       buffer: number;
       state: "comfortable" | "tight" | "short";
@@ -602,8 +609,17 @@ export type SafeToSpend =
       /** The old cash-only runway (after commitments, before the card
        * reserve) — kept for reference, not the figure to lead with. */
       safe_to_spend_cash?: number;
+      /** Lowest projected balance after scheduled bills and pre-payday income,
+       * before buffer, plans, allocations, and card-spending reserves. */
+      lowest_projected_balance?: number;
       /** >= 0, unpaid credit card growth reserved out of the pot. */
       card_growth_reserved?: number;
+      /** Unfilled allocation envelopes reserved from this pay period. */
+      allocations_reserved?: number;
+      allocations_count?: number;
+      /** Optional calculation health for rolling API deployments. */
+      calculation_status?: "complete" | "degraded";
+      unavailable_components?: string[];
       /** Non-null only when state === "short" — which kind of shortfall. */
       short_reason?: "bills" | "cards" | null;
     };
