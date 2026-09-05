@@ -163,7 +163,7 @@ workflows:
             fi
             /usr/libexec/PlistBuddy -c "Print :aps-environment" "$ENTITLEMENTS" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :aps-environment string production" "$ENTITLEMENTS"
             if ! grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ"; then
-              perl -0pi -e 's/(\t+PRODUCT_BUNDLE_IDENTIFIER = co\.uk\.auriqltd\.wealth;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g; s/(\t+PRODUCT_BUNDLE_IDENTIFIER = com\.getcapacitor\.App;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g' "$PBXPROJ"
+              perl -0pi -e 's/(\t+PRODUCT_BUNDLE_IDENTIFIER = co\.uk\.auriqltd\.sorted;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g; s/(\t+PRODUCT_BUNDLE_IDENTIFIER = com\.getcapacitor\.App;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g' "$PBXPROJ"
             fi
             # Assert the wiring actually took — if Capacitor's pbxproj format
             # ever changes and the perl substitution silently no-ops, fail loud
