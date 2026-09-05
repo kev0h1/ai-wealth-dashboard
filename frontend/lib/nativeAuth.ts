@@ -28,7 +28,7 @@ export function isIOSNative(): boolean {
 // on iOS native, Sign in with Apple uses ASAuthorizationAppleIDProvider
 // directly, so `clientId` here just needs to match the bundle id; it plays
 // no OAuth-redirect role the way a web "Services ID" flow would.
-const APPLE_CLIENT_ID = "co.uk.auriqltd.wealth";
+const APPLE_CLIENT_ID = "co.uk.auriqltd.sorted";
 
 export async function nativeAppleLogin(): Promise<boolean> {
   let identityToken: string | undefined;

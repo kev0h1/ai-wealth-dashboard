@@ -9,7 +9,7 @@
 #
 # Manual one-time steps for PUSH NOTIFICATIONS (not automatable from here):
 #   3. Apple Developer portal -> Certificates, Identifiers & Profiles -> Identifiers
-#      -> co.uk.auriqltd.wealth: enable the "Push Notifications" capability on the
+#      -> co.uk.auriqltd.sorted: enable the "Push Notifications" capability on the
 #      App ID. Signing here is AUTOMATIC (see the ios_signing block below and the
 #      app_store_connect integration), so there is no profile to manually
 #      regenerate or re-download. Codemagic requests a provisioning profile from
@@ -53,7 +53,7 @@ workflows:
       node: 22
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: co.uk.auriqltd.wealth
+        bundle_identifier: co.uk.auriqltd.sorted
       vars:
         # This enables the aps-environment entitlement and the remote-notification
         # background mode in the build steps below (see "Register wealthdash URL
@@ -66,7 +66,7 @@ workflows:
         #
         # !!! PREREQUISITE, READ BEFORE FLIPPING THIS TO "true" !!!
         # The Push Notifications capability must already be enabled on the
-        # co.uk.auriqltd.wealth App ID in the Apple Developer portal (see header
+        # co.uk.auriqltd.sorted App ID in the Apple Developer portal (see header
         # comment step 3 above) BEFORE this is set to "true". If the entitlement
         # is requested in a build before Apple has granted the capability, code
         # signing FAILS. Quoted as a string because the build scripts compare it
@@ -101,7 +101,7 @@ workflows:
           PLIST="$CM_BUILD_DIR/capacitor-spike/ios/App/App/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLName" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string co.uk.auriqltd.wealth" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLName" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string co.uk.auriqltd.sorted" "$PLIST"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string wealthdash" "$PLIST"
           # Face ID usage string — required by iOS to show the biometric-auth prompt

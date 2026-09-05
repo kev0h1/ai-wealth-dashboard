@@ -127,7 +127,7 @@ Gradle plugin will NOT be applied until it's present (applying it without
 this file breaks every subsequent Gradle build). To fix:
   1. Go to the Firebase console (https://console.firebase.google.com/) and
      open (or create) the Firebase project used for this app.
-  2. Add an Android app with package name: co.uk.auriqltd.wealth
+  2. Add an Android app with package name: co.uk.auriqltd.sorted
   3. Download the generated google-services.json.
   4. Place it at: ${CANONICAL_GOOGLE_SERVICES_JSON}
   5. Re-run this script.

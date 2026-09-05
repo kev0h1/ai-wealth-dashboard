@@ -23,7 +23,7 @@ APKs are built locally using the steps below.
 
 The Firebase project and Android app registration are **already done**:
 project `auriq-wealth` (project number `106155458816`) has an Android app
-registered under package name `co.uk.auriqltd.wealth`, matching
+registered under package name `co.uk.auriqltd.sorted`, matching
 `capacitor-spike/capacitor.config.json` `appId` exactly. The resulting
 **`google-services.json`** (the app-side credential) is committed at
 `capacitor-spike/google-services.json`. This file is not a secret: it ships
