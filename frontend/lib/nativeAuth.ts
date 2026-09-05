@@ -1,7 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { Browser } from "@capacitor/browser";
 import { App } from "@capacitor/app";
-import { API_BASE } from "./api";
+import { API_BASE, api } from "./api";
 import { setToken } from "./auth";
 
 export function isNativePlatform(): boolean {
@@ -30,6 +30,33 @@ export function isIOSNative(): boolean {
 // no OAuth-redirect role the way a web "Services ID" flow would.
 const APPLE_CLIENT_ID = "co.uk.auriqltd.sorted";
 
+/**
+ * Serialises a non-string value for a diagnostic report, mirroring
+ * `safeSerialize` in `lib/capacitorPush.ts` (not exported from there, so
+ * duplicated here rather than reaching into that module's internals).
+ */
+function safeSerialize(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Reports a native Apple sign-in failure to the backend's
+ * `/push/client-diagnostic` sink, so it lands in journalctl — a release
+ * TestFlight build has no Safari Web Inspector, so this is the only way
+ * these failures are observable. Never logs the identity token or any
+ * response body. Deliberately swallows its own errors, best-effort only.
+ */
+function reportAppleSignInDiagnostic(stage: string, detail: unknown): void {
+  const message = typeof detail === "string" ? detail : safeSerialize(detail);
+  api.reportPushDiagnostic(stage, message, "ios").catch(() => {
+    /* best-effort, there is nothing more useful to do if the report itself fails */
+  });
+}
+
 export async function nativeAppleLogin(): Promise<boolean> {
   let identityToken: string | undefined;
   let fullName: string | undefined;
@@ -51,7 +78,8 @@ export async function nativeAppleLogin(): Promise<boolean> {
     // this app + Apple ID pair — pass along whatever we got so the backend
     // can use it, and it'll fall back to the email local-part after that.
     fullName = [response.givenName, response.familyName].filter(Boolean).join(" ") || undefined;
-  } catch {
+  } catch (err) {
+    reportAppleSignInDiagnostic("appleSignInAuthorize", err instanceof Error ? err.message : err);
     return false;
   }
 
@@ -63,14 +91,18 @@ export async function nativeAppleLogin(): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identityToken, fullName }),
     });
-    if (!res.ok) return false;
+    if (!res.ok) {
+      reportAppleSignInDiagnostic("appleSignInExchange", `status ${res.status}`);
+      return false;
+    }
     const data = await res.json();
     if (data.ok && data.session_token) {
       setToken(data.session_token);
       return true;
     }
     return false;
-  } catch {
+  } catch (err) {
+    reportAppleSignInDiagnostic("appleSignInExchange", err instanceof Error ? err.message : err);
     return false;
   }
 }

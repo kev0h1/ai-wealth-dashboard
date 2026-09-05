@@ -7,6 +7,12 @@
 #      certificate and an App Store provisioning profile for the bundle id below.
 #      The ios_signing block fetches them from there at build time.
 #
+# NOTE — Sign in with Apple: the "Sign in with Apple" capability must be enabled
+# on the co.uk.auriqltd.sorted App ID in the Apple Developer portal (it already
+# is, and the provisioning profile was generated after that, so no further
+# manual step is needed here; the "Add Sign in with Apple entitlement" build
+# step below wires the app-side entitlement, which was the only missing piece).
+#
 # Manual one-time steps for PUSH NOTIFICATIONS (not automatable from here):
 #   3. Apple Developer portal -> Certificates, Identifiers & Profiles -> Identifiers
 #      -> co.uk.auriqltd.sorted: enable the "Push Notifications" capability on the
@@ -123,6 +129,48 @@ workflows:
           fi
           # Export compliance: HTTPS only via the OS, exempt, so App Store Connect stops asking per build.
           /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+      - name: Add Sign in with Apple entitlement
+        script: |
+          # UNGATED (unlike the push step right after this one): Sign in with
+          # Apple needs the com.apple.developer.applesignin entitlement wired
+          # into the app for ASAuthorizationController to work at all, and
+          # that capability is already enabled on the co.uk.auriqltd.sorted
+          # App ID (see the header comment above), so there is no
+          # provisioning-profile chicken-and-egg problem to wait on the way
+          # there is for push. Enabling the capability on the App ID alone is
+          # not enough, the entitlement must also be present in the app's own
+          # signed App.entitlements / CODE_SIGN_ENTITLEMENTS, which is what
+          # left "Continue with Apple" failing instantly on TestFlight before
+          # any network request went out. This has to be its own step (not
+          # folded into the push step) because the push step is gated behind
+          # IOS_PUSH_ENABLED and this must always run.
+          ENTITLEMENTS="$CM_BUILD_DIR/capacitor-spike/ios/App/App/App.entitlements"
+          PBXPROJ="$CM_BUILD_DIR/capacitor-spike/ios/App/App.xcodeproj/project.pbxproj"
+          if [ ! -f "$ENTITLEMENTS" ]; then
+            # Written with printf (not a heredoc) so it's immune to the
+            # YAML block-literal's leading indentation — a `<<'EOF'` heredoc
+            # here would need its body and terminator at column 0, which the
+            # YAML script block can't express, and a space-indented
+            # terminator never matches, silently swallowing the rest of this
+            # step as heredoc body.
+            printf '%s\n' \
+              '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+              '<plist version="1.0">' \
+              '<dict>' \
+              '</dict>' \
+              '</plist>' \
+              > "$ENTITLEMENTS"
+          fi
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.applesignin" "$ENTITLEMENTS" >/dev/null 2>&1 || { /usr/libexec/PlistBuddy -c "Add :com.apple.developer.applesignin array" "$ENTITLEMENTS"; /usr/libexec/PlistBuddy -c "Add :com.apple.developer.applesignin:0 string Default" "$ENTITLEMENTS"; }
+          if ! grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ"; then
+            perl -0pi -e 's/(\t+PRODUCT_BUNDLE_IDENTIFIER = co\.uk\.auriqltd\.sorted;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g; s/(\t+PRODUCT_BUNDLE_IDENTIFIER = com\.getcapacitor\.App;\n)/$1\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n/g' "$PBXPROJ"
+          fi
+          # Assert the wiring actually took — if Capacitor's pbxproj format
+          # ever changes and the perl substitution silently no-ops, fail loud
+          # here instead of shipping a build that's missing the entitlement.
+          grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ" || { echo "ERROR: failed to wire CODE_SIGN_ENTITLEMENTS (apple sign-in) into $PBXPROJ"; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.applesignin:0" "$ENTITLEMENTS" | grep -q Default || { echo "ERROR: applesignin entitlement missing"; exit 1; }
       - name: Add Push Notifications entitlement (aps-environment)
         script: |
           # Gated behind IOS_PUSH_ENABLED (default false/unset): the
