@@ -2695,7 +2695,7 @@ async def edit_upcoming(body: dict, user: dict = Depends(current_user)):
             {"_id": uid},
             {"$set": {"_override_rebuild": datetime.now()}},
         )
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
     return {"ok": True}
 
 
@@ -4001,12 +4001,31 @@ async def get_cached_safe_to_spend(uid: str) -> dict:
     this key, since it's the only caller that attaches the "pace" block —
     writing a bare compute_safe_to_spend() result here would leave a
     pace-less entry for any reader expecting the full GET /safe-to-spend
-    shape, for up to 90 s.
+    shape, for up to the cache's TTL.
     """
-    cached = response_cache.get("safe_to_spend", uid) or response_cache.get("safe_to_spend_series", uid)
+    cached = await response_cache.aget("safe_to_spend", uid)
+    if cached is None:
+        cached = await response_cache.aget("safe_to_spend_series", uid)
     if cached is not None:
         return cached
     return await compute_safe_to_spend(uid)
+
+
+async def build_safe_to_spend_response(uid: str, include_series: bool = False) -> dict:
+    """Pure compute for GET /safe-to-spend's payload — compute_safe_to_spend's
+    base facts plus the attached pace block. Deliberately does NOT cache
+    anything itself: GET /safe-to-spend wraps this with its own aget/aput
+    (below), and app.services.warmup.warm_user calls this directly and
+    aputs the result itself, so the two call sites can never drift on what
+    this endpoint's shape actually is."""
+    result = await compute_safe_to_spend(uid)
+    if result.get("status") == "ok":
+        try:
+            from app.services.pace import compute_pace
+            result = {**result, "pace": await compute_pace(uid, include_series=include_series, sts=result)}
+        except Exception:
+            logger.exception("pace computation failed for %s", uid)
+    return result
 
 
 @router.get("/safe-to-spend")
@@ -4016,19 +4035,16 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
     want_series = "series" in {p.strip() for p in include.split(",")}
     cache_name = "safe_to_spend_series" if want_series else "safe_to_spend"
 
-    # ── 0. Short-TTL response cache (90 s; invalidated on sync/recompute) ─────
-    _cached_resp = response_cache.get(cache_name, uid)
+    # ── 0. Mongo-backed response cache (6h safety bound; exact invalidation
+    # via the per-user data version — see app/services/response_cache.py) ────
+    _cached_resp = await response_cache.aget(cache_name, uid)
     if _cached_resp is not None:
         return _cached_resp
 
-    result = await compute_safe_to_spend(uid)
+    v = await response_cache.snapshot(uid)
+    result = await build_safe_to_spend_response(uid, include_series=want_series)
     if result.get("status") == "ok":
-        try:
-            from app.services.pace import compute_pace
-            result = {**result, "pace": await compute_pace(uid, include_series=want_series, sts=result)}
-        except Exception:
-            logger.exception("pace computation failed for %s", uid)
-        response_cache.put(cache_name, uid, result)
+        await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 
@@ -4043,13 +4059,14 @@ async def get_pace_detail(offset: int = 0, user: dict = Depends(current_user)):
     uid = user["email"]
     off = max(-60, min(0, int(offset)))
     cache_name = f"pace_detail:{off}"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
     from app.services.pace import compute_pace_detail
     result = await compute_pace_detail(uid, offset=off)
     if result.get("status") == "ok":
-        response_cache.put(cache_name, uid, result)
+        await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 
@@ -4064,12 +4081,13 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
     uid = user["email"]
     off = max(-60, min(0, int(offset)))
     cache_name = f"category_signals:{off}"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
     from app.services.pace import compute_category_signals
     result = await compute_category_signals(uid, offset=off)
-    response_cache.put(cache_name, uid, result)
+    await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 
@@ -4272,9 +4290,10 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     uid = user["email"]
     off = max(-60, min(0, int(offset)))
     cache_name = f"miscategorised_count:{off}"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
 
     # Pair suggestions computed FIRST (owner device-testing fix 2) so their
     # leg ids can be filtered out of the flagged-series set below — one
@@ -4308,7 +4327,7 @@ async def get_miscategorised_count(offset: int = 0, user: dict = Depends(current
     review_total = len(_group_miscategorised(txns)) + len(pairs)
 
     result = {"count": len(groups), "ids": [g["id"] for g in groups][:50], "pair_count": pair_count, "review_total": review_total}
-    response_cache.put(cache_name, uid, result)
+    await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 
@@ -4325,14 +4344,15 @@ async def get_miscategorised_transactions(user: dict = Depends(current_user)):
     transaction must only be asked about once per sheet."""
     uid = user["email"]
     cache_name = "miscategorised_list"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
 
     pairs = await _transfer_pair_suggestions(uid)
     items = _group_miscategorised(await _flagged_miscategorised(uid, exclude_ids=_pair_leg_ids(pairs)))[:50]
     result = {"items": items}
-    response_cache.put(cache_name, uid, result)
+    await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 
@@ -4650,12 +4670,13 @@ async def get_transfer_pair_suggestions(user: dict = Depends(current_user)):
     transfers' sheet's own section, above the miscategorised groups."""
     uid = user["email"]
     cache_name = "transfer_pair_suggestions"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
     items = await _transfer_pair_suggestions(uid)
     result = {"items": items}
-    response_cache.put(cache_name, uid, result)
+    await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 

@@ -113,10 +113,13 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
 
     # Preferences include Safe-to-Spend inputs (notably region, pay-period
     # configuration and the user buffer). A successful patch must never leave
-    # a 90-second cached spending permission on screen. Full invalidation is
+    # a cached spending permission on screen. Full invalidation is
     # deliberately the safe default: some less-obvious preference fields feed
     # dependent Home/Penny summaries too, and cache entries are per-user.
-    response_cache.invalidate(uid)
+    # Awaited (ainvalidate, not the sync invalidate()'s fire-and-forget bump)
+    # so the very next read — even from a different process — is guaranteed
+    # cold, not just eventually cold.
+    await response_cache.ainvalidate(uid)
 
     if pay_period_changed:
         # Best-effort: recompute cashflow so the new pay period takes effect

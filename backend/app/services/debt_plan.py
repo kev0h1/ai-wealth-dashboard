@@ -1790,10 +1790,13 @@ async def compute_debt_plan(uid: str) -> dict:
 
 
 async def get_debt_plan_cached(uid: str) -> dict:
-    """Return debt plan from 90s in-process cache, else compute and store."""
-    cached = response_cache.get(_CACHE_NAME, uid)
+    """Return debt plan from the Mongo-backed response cache (6h safety
+    bound, exact invalidation via the per-user data version — see
+    app/services/response_cache.py), else compute and store."""
+    cached = await response_cache.aget(_CACHE_NAME, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
     plan = await compute_debt_plan(uid)
-    response_cache.put(_CACHE_NAME, uid, plan)
+    await response_cache.aput(_CACHE_NAME, uid, plan, version=v)
     return plan

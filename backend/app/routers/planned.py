@@ -86,10 +86,14 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
     inserted_id = result.inserted_id
 
     # ── Invalidate cache + AFTER snapshot ───────────────────────────────────
-    # (get_cached_safe_to_spend will always miss right here — invalidate()
-    # just wiped this uid's entries — so this is a guaranteed fresh compute,
-    # identical to calling compute_safe_to_spend directly.)
-    response_cache.invalidate(uid)
+    # Awaited (ainvalidate, not the sync invalidate()'s fire-and-forget
+    # bump): the "after" read below must see the bump as ALREADY landed —
+    # with the old fire-and-forget invalidate(), the version bump could
+    # still be in flight by the time get_cached_safe_to_spend's aget reads
+    # the Mongo layer, so it could still match a not-yet-invalidated cached
+    # entry and silently report the SAME value as "before" (zero impact),
+    # even though the memory layer was correctly wiped.
+    await response_cache.ainvalidate(uid)
     after = await get_cached_safe_to_spend(uid)
 
     def _sts(r: dict):

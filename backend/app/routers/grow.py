@@ -224,17 +224,18 @@ async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
 async def grow_view(user: dict = Depends(current_user)):
     uid = user["email"]
 
-    # ── Short-TTL response cache (90 s). Grow's own writers never mutate
-    # anything directly — everything it reads (preferences, debt plan,
-    # savings goal/plan, investments, card terms) is invalidated elsewhere
-    # via the generic response_cache.invalidate(uid) full-wipe (accounts.py,
-    # allocations.py, card_terms.py, analytics.py's transaction/sync paths,
-    # checkpoints.py, planned.py, income.py, account_cascade.py, and
-    # PATCH /preferences), so this entry is dropped the same moment those
-    # writes drop debt_plan's own cache. ─────────────────────────────────
-    cached = response_cache.get("grow", uid)
+    # ── Mongo-backed response cache (6h safety bound). Grow's own writers
+    # never mutate anything directly — everything it reads (preferences,
+    # debt plan, savings goal/plan, investments, card terms) is invalidated
+    # elsewhere via the generic response_cache.invalidate(uid) full-wipe
+    # (accounts.py, allocations.py, card_terms.py, analytics.py's
+    # transaction/sync paths, checkpoints.py, planned.py, income.py,
+    # account_cascade.py, and PATCH /preferences), so this entry is dropped
+    # the same moment those writes drop debt_plan's own cache. ────────────
+    cached = await response_cache.aget("grow", uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
 
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
@@ -525,5 +526,5 @@ async def grow_view(user: dict = Depends(current_user)):
         "notes": notes,
         "period_gate": period_gate,
     }
-    response_cache.put("grow", uid, result)
+    await response_cache.aput("grow", uid, result, version=v)
     return result

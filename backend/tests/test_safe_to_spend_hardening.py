@@ -52,6 +52,12 @@ class _CacheSpy:
     def invalidate(self, *args):
         self.calls.append(args)
 
+    async def ainvalidate(self, uid):
+        # preferences.update_preferences was converted to the awaited
+        # variant (guarantees the version bump lands before the response
+        # returns) — same call-recording behaviour as invalidate() above.
+        self.calls.append((uid,))
+
 
 def test_same_day_debits_are_applied_before_income_for_safe_to_spend():
     # Date-only forecasts cannot establish that salary arrives before a direct

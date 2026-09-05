@@ -1027,10 +1027,11 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
     # letting the callee fetch it itself never changes the returned result,
     # so a cache entry written by either caller is interchangeable here.
     _signals_cache_name = f"category_signals:{offset}"
-    signals_result = response_cache.get(_signals_cache_name, uid)
+    signals_result = await response_cache.aget(_signals_cache_name, uid)
     if signals_result is None:
+        _v = await response_cache.snapshot(uid)
         signals_result = await compute_category_signals(uid, offset=offset, kind_map=kind_map)
-        response_cache.put(_signals_cache_name, uid, signals_result)
+        await response_cache.aput(_signals_cache_name, uid, signals_result, version=_v)
     period = signals_result["period"]
     signals = signals_result["signals"]
 

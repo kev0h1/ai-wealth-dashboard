@@ -32,6 +32,18 @@ from app.services.account_cascade import cascade_account_deletion, purge_user_ex
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
 
+# Retained references for this router's fire-and-forget post-sync tasks —
+# a bare `asyncio.create_task(...)` with nothing holding the result can be
+# garbage-collected mid-flight (a documented asyncio gotcha); each task
+# removes itself from this set once done.
+_background_tasks: set = set()
+
+
+def _fire_and_forget(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 async def _attach_aprs(uid: str, result: List[Account]) -> List[Account]:
     rates = await account_rates_col.find({"user_id": uid}).to_list(None)
@@ -138,7 +150,7 @@ async def sync_all(user: dict = Depends(current_user)):
             ids = await sync_mono_connection(conn["_id"], uid)
             total += len(ids)
         asyncio.create_task(apply_mirror_rules(uid))
-        response_cache.invalidate(uid)
+        await response_cache.ainvalidate(uid)
         return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
     conns = await connections_col.find({"user_id": uid}).to_list(None)
@@ -167,12 +179,20 @@ async def sync_all(user: dict = Depends(current_user)):
         if has_new:
             await compute_and_cache_cashflow(u)
         await settle_planned_expenses(u)
-        # Categorisation/rules may have shifted things even without new txns
-        response_cache.invalidate(u)
-    asyncio.create_task(_post_sync(uid, total_new_txns > 0))
+        # Categorisation/rules may have shifted things even without new txns.
+        # Awaited (not the sync invalidate()'s fire-and-forget bump) so the
+        # warm-up below computes against the version this sync just bumped
+        # to, not a bump still in flight.
+        await response_cache.ainvalidate(u)
+        try:
+            from app.services.warmup import warm_user
+            await warm_user(u)
+        except Exception:
+            logger.exception("post-sync warm_user failed for %s", u)
+    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
     # Balances were refreshed above — the immediate post-sync reload must not
     # be served a pre-sync cached response
-    response_cache.invalidate(uid)
+    await response_cache.ainvalidate(uid)
     return {"message": "Synced", "connections": len(conns), "total_accounts": total}
 
 
@@ -211,9 +231,19 @@ async def sync_history(user: dict = Depends(current_user)):
         if has_new:
             await compute_and_cache_cashflow(u)
         await settle_planned_expenses(u)
-        response_cache.invalidate(u)
-    asyncio.create_task(_post_sync(uid, total_new_txns > 0))
-    response_cache.invalidate(uid)
+        # Same pattern as sync_all's own _post_sync: awaited (not the sync
+        # invalidate()'s fire-and-forget bump) so the warm-up below computes
+        # against the version this sync just bumped to.
+        await response_cache.ainvalidate(u)
+        try:
+            from app.services.warmup import warm_user
+            await warm_user(u)
+        except Exception:
+            logger.exception("post-sync warm_user failed for %s", u)
+    _fire_and_forget(_post_sync(uid, total_new_txns > 0))
+    # Balances were refreshed above — the immediate post-sync reload must not
+    # be served a pre-sync cached response
+    await response_cache.ainvalidate(uid)
     return {"message": "Full sync complete", "connections": len(conns), "total_accounts": total}
 
 

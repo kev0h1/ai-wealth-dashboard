@@ -2,8 +2,8 @@
 "money you moved" payload behind the redesigned Spend view.
 
 All computation lives in `app.services.spend_verdict`; this router is a thin
-HTTP wrapper with the same short-TTL per-user cache the sibling
-`/spend/category-signals` endpoint uses (`response_cache`, 90s).
+HTTP wrapper with the same Mongo-backed per-user cache the sibling
+`/spend/category-signals` endpoint uses (`app.services.response_cache`).
 """
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -28,11 +28,12 @@ async def get_spend_verdict(offset: int = 0, user: dict = Depends(current_user))
     uid = user["email"]
     off = max(-60, min(0, int(offset)))
     cache_name = f"spend_verdict:{off}"
-    cached = response_cache.get(cache_name, uid)
+    cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
         return cached
+    v = await response_cache.snapshot(uid)
     result = await compute_spend_verdict(uid, offset=off)
-    response_cache.put(cache_name, uid, result)
+    await response_cache.aput(cache_name, uid, result, version=v)
     return result
 
 

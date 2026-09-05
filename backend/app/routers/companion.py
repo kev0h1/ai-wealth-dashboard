@@ -21,17 +21,21 @@ router = APIRouter(tags=["companion"])
 async def get_today(payday_preview: int = 0, user: dict = Depends(current_user)):
     uid = user["email"]
     preview = bool(payday_preview)
-    # Short-TTL response cache (90 s; invalidated on dismiss and after sync).
-    # Preview requests never read from or write to it — they're a one-off
-    # design/QA look at the Payday Plan card, not the live today-state.
+    # Mongo-backed response cache (6h safety bound; exact invalidation via
+    # the per-user data version — see app/services/response_cache.py).
+    # Invalidated on dismiss and after sync. Preview requests never read
+    # from or write to it — they're a one-off design/QA look at the Payday
+    # Plan card, not the live today-state.
+    v = None
     if not preview:
-        cached = response_cache.get("today", uid)
+        cached = await response_cache.aget("today", uid)
         if cached is not None:
             return cached
+        v = await response_cache.snapshot(uid)
     items = await compute_today_items(uid, payday_preview=preview)
     payload = {"status": "ok", "items": items}
     if not preview:
-        response_cache.put("today", uid, payload)
+        await response_cache.aput("today", uid, payload, version=v)
     return payload
 
 

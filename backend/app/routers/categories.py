@@ -17,7 +17,7 @@ from app.db.collections import (
     user_categories_col,
     user_rules_col,
 )
-from app.services import response_cache
+from app.services import data_version, response_cache
 from app.services.categorisation import apply_rules_bulk, apply_single_rule
 from app.services.categories import (
     BUILTIN_CATEGORIES,
@@ -33,6 +33,12 @@ from app.services.categories import (
 )
 
 router = APIRouter(tags=["categories"])
+
+# Retained references for this router's fire-and-forget post-write tasks —
+# same rationale as app.routers.accounts._background_tasks: a bare
+# `asyncio.create_task(...)` with nothing holding the result can be
+# garbage-collected mid-flight.
+_background_tasks: set = set()
 
 
 async def _custom_for(uid: str) -> list[dict]:
@@ -301,7 +307,14 @@ async def add_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(
     # response can carry exactly which sibling rows it recategorised —
     # TeachingSheet's "Undo" reverts each one by id (fix-round HIGH finding).
     affected = await apply_single_rule(uid, pattern.lower(), category)
-    asyncio.create_task(apply_rules_bulk(uid))
+
+    async def _apply_rules_bulk_and_bump(u: str) -> None:
+        await apply_rules_bulk(u)
+        await data_version.bump(u)
+
+    task = asyncio.create_task(_apply_rules_bulk_and_bump(uid))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return {
         "id": rule_id, "description": description, "pattern": pattern.lower(), "category": category,
         "affected": affected,

@@ -777,6 +777,27 @@ class FakeResponseCache:
             if cache_name == name or cache_name.startswith(prefix):
                 cache.pop(uid, None)
 
+    # Phase 2 (data_version.py/response_cache.py) added async aget/aput/
+    # ainvalidate/snapshot alongside the original sync get/put/invalidate
+    # (since removed — no caller needs them anymore); the router call sites
+    # this fake stands in for (get_miscategorised_count,
+    # get_transfer_pair_suggestions, dismiss_transfer_pair, ...) were
+    # converted to the async trio plus the version-pinning contract
+    # (`v = await snapshot(uid)` before computing, `aput(..., version=v)`
+    # after) — this fake doesn't model real version races, so `snapshot`
+    # just returns a constant and `aput` accepts (and ignores) `version`.
+    async def snapshot(self, uid):
+        return 0
+
+    async def aget(self, name, uid, ttl=None):
+        return self.get(name, uid)
+
+    async def aput(self, name, uid, payload, *, version=None):
+        self.put(name, uid, payload)
+
+    async def ainvalidate(self, uid):
+        self.invalidate(uid)
+
 
 def _setup_pair_and_series(monkeypatch, *, dismissed_pairs=None):
     """c1/d1 is a live £965 same-day, different-account transfer-pair

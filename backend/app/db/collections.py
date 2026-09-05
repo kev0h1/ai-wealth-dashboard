@@ -179,3 +179,20 @@ recurring_judge_col     = db["recurring_judge_verdicts"]
 # "cancelled" once cancelled_at is set (blocks execute), or naturally expired
 # once `expires_at` has passed with nothing else set.
 penny_proposals_col     = db["penny_proposals"]
+
+# Per-user data-version counter (see app/services/data_version.py) —
+# `{_id: uid, version, updated_at}`. Bumped by every write path that changes
+# something a cached response depends on; app/services/response_cache.py
+# compares a cached entry's stamped version against this so invalidation is
+# EXACT across processes (API + worker), not TTL-based. Indexed on `_id`
+# only (Mongo's automatic primary-key index) — no extra index needed.
+user_data_version_col   = db["user_data_version"]
+
+# Cross-process response cache (see app/services/response_cache.py) — the
+# Mongo-backed half of the two-layer (in-process memory + Mongo) per-user
+# cache. `{user_id, name, version, day, payload, computed_at}`, unique on
+# (user_id, name) with a 6h TTL index on computed_at (app/main.py's
+# _create_indexes). app/services/warmup.py's warm_user() writes here right
+# after a sync so the next request opens warm even after an API process
+# restart, which the old pure in-memory cache could never survive.
+response_cache_col      = db["response_cache"]

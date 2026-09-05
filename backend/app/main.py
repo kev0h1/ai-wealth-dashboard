@@ -21,8 +21,10 @@ from app.db.collections import (
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col,
+    response_cache_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
+from app.services import data_version
 
 from app.routers import (
     auth, truelayer, yapily, mono, accounts as accounts_router,
@@ -198,6 +200,14 @@ async def _create_indexes():
     # Append-only event log with no consumer/rollup yet — TTL bounds growth
     # (365d retention) rather than letting it accumulate forever.
     await teaching_events_col.create_index([("created_at", 1)], expireAfterSeconds=31536000)
+    # Response cache (app/services/response_cache.py) — one entry per
+    # (user_id, name); TTL is the 6h safety bound described there.
+    # user_data_version_col needs no explicit index: `_id` (uid) already has
+    # Mongo's automatic primary-key index.
+    await response_cache_col.create_index([("user_id", 1), ("name", 1)], unique=True)
+    await response_cache_col.create_index(
+        "computed_at", expireAfterSeconds=6 * 3600, name="response_cache_ttl"
+    )
 
 
 async def _acquire_migration_lock() -> bool:
@@ -278,6 +288,9 @@ async def _fix_all_users_categories():
         })
         if needs_fix > 0:
             await apply_rules_bulk(uid)
+            # Startup migration — categories changed under this user without
+            # anything else invalidating their cached responses.
+            await data_version.bump(uid)
 
 
 async def _cleanup_stale_yapily_data():

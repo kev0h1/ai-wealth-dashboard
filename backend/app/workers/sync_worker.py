@@ -68,6 +68,25 @@ async def _enqueue_weekly_insight_refresh(ctx, user_id: str) -> None:
         logging.getLogger(__name__).warning("could not enqueue insights refresh for %s", user_id)
 
 
+async def _warm_after_sync(user_id: str) -> None:
+    """Best-effort post-sync cache warm-up (see app.services.warmup) — never
+    lets a warm-up hiccup fail the sync task that just ran.
+
+    This is ALSO the version-bump path for every task_sync_* below:
+    warm_user() itself calls `data_version.bump(uid)` before it recomputes
+    anything, so a sync task doesn't need its own separate invalidate call
+    on top of this — apply_rules_bulk/categorise_others_bg/apply_mirror_rules
+    (all called just before this, in every task_sync_*) get their exact
+    invalidation for free via that bump. task_reconcile_truelayer never
+    syncs inline — it only ENQUEUES task_sync_truelayer/task_sync_finexer
+    jobs — so it's covered transitively through them, not directly."""
+    try:
+        from app.services.warmup import warm_user
+        await warm_user(user_id)
+    except Exception:
+        logging.getLogger(__name__).exception("warm_user failed after sync for %s", user_id)
+
+
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     ids, new_count = await sync_connection(connection_id, user_id)
     await apply_rules_bulk(user_id, structural=True)
@@ -83,6 +102,7 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
             import logging
             logging.getLogger(__name__).exception("money_shape compute failed for %s", user_id)
     await _enqueue_weekly_insight_refresh(ctx, user_id)
+    await _warm_after_sync(user_id)
     return {"synced": len(ids), "new_transactions": new_count}
 
 
@@ -91,18 +111,21 @@ async def task_sync_yapily(ctx, consent_token: str, user_id: str):
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
+    await _warm_after_sync(user_id)
     return {"ok": True}
 
 
 async def task_sync_mono(ctx, connection_id: str, user_id: str):
     ids = await sync_mono_connection(connection_id, user_id)
     await apply_mirror_rules(user_id)
+    await _warm_after_sync(user_id)
     return {"synced": len(ids)}
 
 
 async def task_sync_finexer(ctx, consent_id: str, user_id: str):
     result = await finexer_sync_pipeline(consent_id, user_id)
     await _enqueue_weekly_insight_refresh(ctx, user_id)
+    await _warm_after_sync(user_id)
     return result
 
 
@@ -378,8 +401,10 @@ async def task_refresh_investment_prices(ctx):
     """
     import logging
     logger = logging.getLogger(__name__)
+    from app.services import data_version
 
     all_accs = await investment_accounts_col.find({}).to_list(None)
+    changed_users: set = set()
     for acc in all_accs:
         account_id = acc["_id"]
         provider   = acc.get("provider", "Unknown")
@@ -389,8 +414,20 @@ async def task_refresh_investment_prices(ctx):
                 "investment price refresh: account=%s provider=%s updated=%s new_total=%.2f",
                 account_id, provider, result["updated"], result["new_total"],
             )
+            # A changed price feeds Grow's investment display and any
+            # cached net-worth-adjacent figure — bump once per affected user
+            # below rather than per account (a user's several holdings would
+            # otherwise re-bump redundantly).
+            if result.get("updated") and acc.get("user_id"):
+                changed_users.add(acc["user_id"])
         except Exception as e:
             logger.warning("investment price refresh failed for %s (%s): %s", account_id, provider, e)
+
+    for uid in changed_users:
+        try:
+            await data_version.bump(uid)
+        except Exception:
+            logger.exception("investment price refresh: version bump failed for %s", uid)
 
 
 class WorkerSettings:

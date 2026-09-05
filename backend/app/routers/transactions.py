@@ -514,9 +514,10 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
     # Category changes can flip a row in/out of the miscategorised-transfers
     # guardrail (auto vs. manual override into/out of a spend category) —
     # invalidate so the flag/sheet reflects the change immediately.
-    response_cache.invalidate(user["email"], "miscategorised_count")
-    response_cache.invalidate(user["email"], "miscategorised_list")
-    response_cache.invalidate(user["email"], "transfer_pair_suggestions")
+    # ainvalidate already wipes the WHOLE memory layer (not just these three
+    # names) and awaits the version bump, so the three named drops that used
+    # to precede it were redundant — removed.
+    await response_cache.ainvalidate(user["email"])
 
     # ENGINE.md "The One Stream Rule" — every teaching write appends to the
     # same uniform event feed, user-scoped (Firewall Rule).
@@ -800,6 +801,10 @@ async def auto_categorise(
 
     uncategorised = await transactions_col.find(query).to_list(1000)
     if not uncategorised:
+        # apply_rules_bulk above may already have changed categories even
+        # though nothing further needs AI — invalidate before every exit,
+        # not just the final one.
+        await response_cache.ainvalidate(uid)
         return {"rules_fixed": rules_fixed, "ai_categorised": 0}
 
     historical = await transactions_col.find(
@@ -840,6 +845,7 @@ async def auto_categorise(
             needs_ai.append(t)
 
     if not needs_ai or not OPENROUTER_API_KEY:
+        await response_cache.ainvalidate(uid)
         return {"rules_fixed": rules_fixed, "history_matched": history_matched, "ai_categorised": 0}
 
     manual = await transactions_col.find(
@@ -918,4 +924,5 @@ async def auto_categorise(
             for t in batch:
                 await transactions_col.update_one({"_id": t["_id"]}, {"$set": {"category": "Other"}})
 
+    await response_cache.ainvalidate(uid)
     return {"rules_fixed": rules_fixed, "history_matched": history_matched, "ai_categorised": ai_total}

@@ -6,9 +6,22 @@ from app.core.config import BOT_SECRET
 from app.db.collections import connections_col, accounts_col, transactions_col
 from app.services.truelayer_sync import sync_connection
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
+from app.services import data_version
 import asyncio
 
 router = APIRouter(tags=["admin"])
+
+# Retained references for this router's fire-and-forget post-sync tasks —
+# same rationale as app.routers.accounts._background_tasks: a bare
+# `asyncio.create_task(...)` with nothing holding the result can be
+# garbage-collected mid-flight.
+_background_tasks: set = set()
+
+
+def _fire_and_forget(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 @router.post("/admin/sync-all")
@@ -30,9 +43,13 @@ async def admin_sync_all(request: Request):
     async def _post_sync(u: str):
         await apply_rules_bulk(u, structural=True)
         await categorise_others_bg(u)
+        # admin_sync_all calls sync_connection directly (inline) rather than
+        # enqueuing task_sync_truelayer, so it doesn't get that task's own
+        # warm_user()-driven bump for free — bump explicitly here instead.
+        await data_version.bump(u)
 
     for uid in user_ids:
-        asyncio.create_task(_post_sync(uid))
+        _fire_and_forget(_post_sync(uid))
     return {"connections": len(all_conns), "total_accounts": total_accounts, "users": len(user_ids)}
 
 

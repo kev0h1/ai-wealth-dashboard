@@ -759,15 +759,14 @@ async def compute_spend_impact(uid: str, verdict_ctx: dict) -> dict:
 
     async def _headroom() -> float:
         try:
-            # A Spend visit commonly follows Home, whose 90-second response
-            # cache already contains this exact Safe-to-Spend fact. Reuse it
+            # A Spend visit commonly follows Home, whose response cache
+            # already contains this exact Safe-to-Spend fact. Reuse it
             # instead of replaying the full cash/bills/card calculation. Do
             # not populate the cache here: the Home endpoint also attaches a
             # pace block, so only that endpoint owns writes to this key.
-            sts = (
-                response_cache.get("safe_to_spend", uid)
-                or response_cache.get("safe_to_spend_series", uid)
-            )
+            sts = await response_cache.aget("safe_to_spend", uid)
+            if sts is None:
+                sts = await response_cache.aget("safe_to_spend_series", uid)
             if sts is None:
                 from app.routers.analytics import compute_safe_to_spend
                 sts = await compute_safe_to_spend(uid)
