@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
       // plan surfaces), redirect old deep links (incl. historical
       // notification links) straight to its successor rather than 404.
       { source: "/debt-plan", destination: "/cards", permanent: false },
+      // Grow folded into Planning, 2026-09-04.
+      { source: "/grow", destination: "/planning", permanent: false },
     ];
   },
 };

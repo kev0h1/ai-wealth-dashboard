@@ -1,12 +1,14 @@
 "use client";
 
-// ── Grow ──────────────────────────────────────────────────────────────────
-// V1 "Instrument-panel ladder" was chosen after UAT comparison of three
-// variants. GrowVariant2/GrowVariant3 remain in this directory as reference
-// but are no longer imported here.
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-import GrowVariant1 from "./GrowVariant1";
-
+// Grow folded into Planning (2026-09-04). Kept as a client redirect
+// because the Capacitor static export cannot use next.config redirects().
 export default function GrowPage() {
-  return <GrowVariant1 />;
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/planning");
+  }, [router]);
+  return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
 }
