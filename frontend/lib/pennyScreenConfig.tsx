@@ -15,7 +15,7 @@
 //   instead of) the personalised `canISuggestions` £-chips
 //   PennyConversation already fetches app-wide. `personalisedChips` decides
 //   whether those still show for THIS screen — true only where the owner
-//   said they "also make sense" (home, planning); everywhere else the owner
+//   said they "also make sense" (home, upcoming); everywhere else the owner
 //   asked for a specific, curated set instead, so the generic can-I chips
 //   would just be noise competing with it.
 //
@@ -25,8 +25,8 @@
 //   documents (informational only, no UI difference yet) that the backend
 //   answers this WITHOUT an LLM call — currently the greeting path, the
 //   payday-status path (PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK below), and the
-//   saving-vs-investing explainer (`grow` entry below). Domain
-//   questions (spend/planning/debt/grow) are NOT deterministic even though
+//   saving-vs-investing explainer (`planning` entry below). Domain
+//   questions (spend/planning/debt) are NOT deterministic even though
 //   their headline is engine-derived: the reply is still one LLM phrasing
 //   call over that headline.
 // - `link`: pure client-side navigation, zero LLM, zero network — the
@@ -43,9 +43,11 @@
 // Route survey behind the `link` chips and headerLinks below (2026-08-25,
 // `find app -name page.tsx`): confirmed real, routable pages used here are
 // `/accounts`, `/mirror`, `/transactions`, `/insights/tax`,
-// `/insights/receipts`, `/planning`, `/grow`, `/debt-plan`. Two surfaces the
+// `/insights/receipts`, `/planning`, `/upcoming`, `/cards`. Two surfaces the
 // brief for this feature guessed at do NOT exist as routable targets, see
-// the `spend` entry below for what replaced them.
+// the `spend` entry below for what replaced them. `/grow` also appeared in
+// this list originally; it's now a redirect to `/planning` (Grow folded in,
+// 2026-09-04), not a distinct screen any chip below routes to.
 
 import type { PennyAskContext } from "@/components/PennySheetProvider";
 
@@ -135,13 +137,21 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     personalisedChips: true,
   },
   planning: {
-    // Unchanged header — plain default. Planning USED to have its own
-    // PennyPromptBar above the fold, which was the original reason this
-    // stayed default rather than growing a Planning-specific header row;
-    // that bar is retired now (PlanningPage.tsx's header comment on
-    // PennyPromptBar's removal, 2026-08-25) but the header still has
-    // nothing more useful to offer here than the one default link, so this
-    // stays as-is.
+    headerLinks: DEFAULT_HEADER_LINKS,
+    chips: [
+      // Savings/investing questions moved over from the old `grow` entry
+      // when Grow folded into Planning (2026-09-04) — these are general
+      // mechanics, not a verdict on the user's own transactions, so
+      // they're answered without an LLM call. `deterministic: true`
+      // documents that, same as the payday chips above.
+      { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", deterministic: true, short: "Saving vs investing?" },
+      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", deterministic: true },
+      { kind: "link", label: "Cards and debt", href: "/cards" },
+      { kind: "link", label: "This pay period", href: "/upcoming" },
+    ],
+    personalisedChips: false,
+  },
+  upcoming: {
     headerLinks: DEFAULT_HEADER_LINKS,
     chips: [PAYDAY_STATUS_ASK, PAYDAY_DUE_ASK],
     personalisedChips: true,
@@ -152,8 +162,8 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
       { kind: "ask", label: "Where did my money go this month?", q: "Where did my money go this month?", short: "Where'd it go?" },
       { kind: "ask", label: "Am I spending more than usual?", q: "Am I spending more than usual?", short: "Spending more?" },
       // Fixed, backend-deterministic explainer (2026-08-26) — same class as
-      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above and the `grow` entry's
-      // saving-vs-investing chip below: general mechanics, not a verdict on
+      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above and the `planning` entry's
+      // saving-vs-investing chip above: general mechanics, not a verdict on
       // the user's own transactions, so it's answered without an LLM call.
       { kind: "ask", label: "How do categories work?", q: "How do categories work?", deterministic: true },
       // Was a blunt "Fix a category" link straight to /transactions — the
@@ -200,6 +210,16 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     ],
     personalisedChips: false,
   },
+  // Kept 2026-09-04 (route now redirects to /planning): Grow folded into
+  // Planning, so this key can never actually be reached any more (/grow's
+  // page is a client redirect that never opens Penny), but "grow" stays in
+  // PennyAskContext["screen"] because PennyConversation.tsx's newBuckets()
+  // needs a bucket for every union member — see that union's own comment
+  // for the fuller cascade explanation. This entry itself is left as it
+  // was before the fold rather than deleted, so it stays a faithful record
+  // of what the (now unreachable) Grow screen used to show; its two ask
+  // chips were separately copied onto the `planning` entry above, which is
+  // the one real callers hit.
   grow: {
     headerLinks: DEFAULT_HEADER_LINKS,
     // Savings/investing questions, not debt ones — see this file's route
@@ -219,22 +239,7 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
       // LLM. `deterministic: true` documents that, same as the payday chips
       // above.
       { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", deterministic: true, short: "Saving vs investing?" },
-      // Money-basics retirement (2026-08-27): the rotating "Money basics"
-      // Home card is gone, its 16 curated explainers now ground Penny's
-      // `explain` tool instead (backend/app/services/penny_tools.py's
-      // `_BASICS_COPY`, built from app/content/money_basics.py). These two
-      // map straight to that registry's `lisa`/`cash-vs-ss-isa` keys — same
-      // deterministic, no-verdict-on-your-own-data class as the
-      // saving-vs-investing chip above.
       { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", deterministic: true },
-      // "Cash ISA or Stocks and Shares ISA?" chip removed (2026-08-27, back
-      // to the established 4-chip comfortable max) — the saving-vs-investing
-      // explainer chip above already covers adjacent ground, and the topic
-      // stays fully reachable through Penny's `explain` tool (the
-      // `cash-vs-ss-isa` key still exists) by just asking.
-      // Not a link back to /grow itself (redundant, chip would fire while
-      // already on that screen) — Planning is the umbrella page Grow is
-      // actually reached from (PlanningPage.tsx's onGrowTap).
       { kind: "link", label: "Your plan", href: "/planning" },
     ],
     personalisedChips: false,
@@ -248,9 +253,10 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     chips: [
       { kind: "ask", label: "How am I doing on my debt?", q: "How am I doing on my debt?", short: "Debt check" },
       { kind: "ask", label: "When will my card be clear?", q: "When will my card be clear?", short: "Card clear when?" },
-      // Same reasoning as `grow` above: not a link back to /debt-plan
-      // itself (redundant), Planning is the umbrella page it's reached
-      // from (PlanningPage.tsx's onDebtTap).
+      // Not a link back to /debt-plan itself (redundant, chip would fire
+      // while already on that screen) — Planning is the umbrella page it's
+      // reached from (LongTermPlanningPage.tsx's DebtPosition section, an
+      // inline `onOpen` prop rather than a named handler these days).
       { kind: "link", label: "Your plan", href: "/planning" },
     ],
     personalisedChips: false,

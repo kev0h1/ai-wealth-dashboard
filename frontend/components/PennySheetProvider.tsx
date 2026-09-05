@@ -63,10 +63,17 @@ export type PennyAskContext = {
   // real, separate routes (/grow, /debt-plan) on a route survey done for
   // that work, not sub-views of Planning as assumed going in. See
   // BottomNav.tsx's screenForPathname for where these two get produced.
+  // Grow folded into Planning 2026-09-04 (/grow now just redirects there),
+  // but "grow" stays in this union: PennyConversation.tsx's newBuckets()
+  // keys a per-screen thread bucket off every member here, so removing it
+  // cascades into that file too (outside this change's file ownership) —
+  // left as an inert, unreachable value instead (BottomNav.tsx's
+  // screenForPathname's "/grow" case is correspondingly inert, matching the
+  // route now redirecting before that case is ever reached).
   // "accounts" added 2026-08-26 for the accounts redesign's Penny entry
   // point (lib/pennyScreenConfig.tsx already had a config entry waiting on
   // this exact addition — see that file's `ConfigScreenKey` comment).
-  screen: "planning" | "tax" | "home" | "spend" | "insights" | "grow" | "debt" | "accounts" | "other";
+  screen: "planning" | "upcoming" | "tax" | "home" | "spend" | "insights" | "grow" | "debt" | "accounts" | "other";
   /** One short line describing what the user was looking at when they
    * opened the sheet from that screen. Decorative context for the
    * conversation, not required. */

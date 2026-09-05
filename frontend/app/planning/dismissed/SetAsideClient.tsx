@@ -150,7 +150,7 @@ export default function SetAsideClient() {
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-[430px] lg:max-w-2xl mx-auto">
         <button
-          onClick={() => goBack(router, "/planning")}
+          onClick={() => goBack(router, "/upcoming")}
           className="flex items-center gap-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 active:opacity-70 transition-[transform,opacity] mb-5"
         >
           <ChevronLeft size={15} />

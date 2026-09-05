@@ -952,7 +952,7 @@ export default function SettingsPage() {
           </div>
           <button
             type="button"
-            onClick={() => router.push("/planning/dismissed")}
+            onClick={() => router.push("/upcoming/dismissed")}
             className="w-full min-h-[44px] flex items-center justify-between gap-3 px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-left active:opacity-70 transition-opacity"
           >
             <span className="min-w-0">

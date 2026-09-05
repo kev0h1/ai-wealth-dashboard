@@ -212,7 +212,7 @@ function AskPaydayCard({ item, router, maskAmounts, onRefresh, hideAttribution }
       sessionStorage.setItem("wealth_open_pay_period", "1");
     }
     setHidden(true);
-    router.push("/planning");
+    router.push("/upcoming");
   }
 
   return (
@@ -389,7 +389,7 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
   }
 
   function handleOpen() {
-    router.push("/planning");
+    router.push("/upcoming");
   }
 
   return (
@@ -561,8 +561,12 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
     });
   }
 
-  const route = item.action?.route ?? "/planning";
-  const actionLabel = item.action?.label ?? "See it in Planning ›";
+  // Existing companion documents may still carry the route used before
+  // Upcoming and long-term Planning became separate pages. Migrate those
+  // in place, and only hand same-origin paths to Next's router.
+  const requestedRoute = item.action?.route?.replace(/^\/planning(?=\?|$)/, "/upcoming") ?? "/upcoming";
+  const route = requestedRoute.startsWith("/") && !requestedRoute.startsWith("//") ? requestedRoute : "/upcoming";
+  const actionLabel = item.action?.label ?? "See it in Upcoming ›";
 
   return (
     <div className="glass-card rounded-2xl p-4">
@@ -1308,7 +1312,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth =
 
     let fallbackText: string;
     if (!safeToSpend || safeToSpend.status === "insufficient_data") {
-      fallbackText = "Nothing needs you today. I'm keeping an eye on the bills, just check back later.";
+      fallbackText = "Your Safe to Spend figure isn't ready yet. I'm still mapping the bills, so check back later.";
     } else if (safeToSpend.state === "tight" && safeToSpend.days_until_payday <= 3) {
       fallbackText = "Nothing needs you today. Your pay period ends in a couple of days. The first week's bills are already mapped, so just cruise.";
     } else if (safeToSpend.state === "tight") {

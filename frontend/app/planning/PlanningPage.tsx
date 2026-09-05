@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
-import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, Trash2, X } from "lucide-react";
-import { api, Account, Allocation, CashflowData, Commitment, SavingsInsight } from "@/lib/api";
+import dynamic from "next/dynamic";
+import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, EyeOff, Wallet, X } from "lucide-react";
+import { api, Account, Allocation, CashflowData } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
@@ -12,15 +13,18 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useRouter, useSearchParams } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
-import UpcomingEditSheet from "@/components/UpcomingEditSheet";
-import PlanOneOffSheet from "@/components/PlanOneOffSheet";
-import PlannedEditSheet from "@/components/PlannedEditSheet";
-import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
-import CommitmentSheet from "@/components/CommitmentSheet";
-import AllocationSheet from "@/components/AllocationSheet";
 import { useTutorialReady } from "@/components/TutorialContext";
-import SetAsideSheet from "@/components/SetAsideSheet";
 import MoneyText from "@/components/MoneyText";
+
+// Editing flows are not needed to understand the initial runway. Keeping them
+// out of the first Planning bundle makes the forecast usable sooner while the
+// same components load on demand when a user opens a sheet.
+const UpcomingEditSheet = dynamic(() => import("@/components/UpcomingEditSheet"));
+const PlanOneOffSheet = dynamic(() => import("@/components/PlanOneOffSheet"));
+const PlannedEditSheet = dynamic(() => import("@/components/PlannedEditSheet"));
+const PayPeriodSettingsSheet = dynamic(() => import("@/components/PayPeriodSettingsSheet"));
+const AllocationSheet = dynamic(() => import("@/components/AllocationSheet"));
+const SetAsideSheet = dynamic(() => import("@/components/SetAsideSheet"));
 
 /**
  * A traced internal transfer whose destination lands inside the same
@@ -40,20 +44,6 @@ import MoneyText from "@/components/MoneyText";
  */
 function isPooledNoOp(item: { kind?: string; dest_account_spendable?: boolean | null }): boolean {
   return item.kind === "movement" && item.dest_account_spendable === true;
-}
-
-function isCliffSoon(until: string): boolean {
-  const y = parseInt(until.slice(0, 4), 10);
-  const m = parseInt(until.slice(5, 7), 10);
-  const lastDay = new Date(y, m, 0); // last day of that month
-  return (lastDay.getTime() - Date.now()) / 86_400_000 <= 60;
-}
-
-function fmtCliffMonth(ym: string): string {
-  const y = parseInt(ym.slice(0, 4), 10);
-  const m = parseInt(ym.slice(5, 7), 10);
-  const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }); // e.g. "Sep 2026"
 }
 
 // ── Deep-link day target (?day=YYYY-MM-DD) ─────────────────────────────────
@@ -102,352 +92,12 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
   return namePart === name;
 }
 
-// A row's content is a single line: verdict fragment (semibold) + slate "·"
-// separator + muted title. `null` = row intentionally hidden.
-type DockRowContent = ReactNode | null;
-
-function computeDebtRow(view: import("@/lib/api").DebtPlanSummary): DockRowContent {
-  const buckets = view.totals.buckets;
-  const carried = buckets?.carried_total ?? 0;
-  const float = buckets?.float_total ?? 0;
-
-  if (carried < 1 && float < 1) {
-    // No cards worth showing
-    return null;
-  }
-
-  // Find the next cliff across all cards (earliest promo end within a year)
-  const now = Date.now();
-  const ONE_YEAR_MS = 365 * 86_400_000;
-  type Cliff = { until: string; name: string };
-  let nextCliff: Cliff | null = null;
-  for (const card of view.cards) {
-    const seg = card.rate_schedule[0];
-    if (!seg || seg.source !== "promo" || !seg.until) continue;
-    const y = parseInt(seg.until.slice(0, 4), 10);
-    const m = parseInt(seg.until.slice(5, 7), 10);
-    const lastDay = new Date(y, m, 0).getTime();
-    if (lastDay - now > ONE_YEAR_MS) continue; // beyond a year, skip
-    if (!nextCliff) {
-      nextCliff = { until: seg.until, name: card.name };
-    } else {
-      const existY = parseInt(nextCliff.until.slice(0, 4), 10);
-      const existM = parseInt(nextCliff.until.slice(5, 7), 10);
-      const existLastDay = new Date(existY, existM, 0).getTime();
-      if (lastDay < existLastDay) nextCliff = { until: seg.until, name: card.name };
-    }
-  }
-
-  if (!nextCliff) {
-    // No cliff to lead with — title only, still bold (Numbers-Lead has
-    // nothing to number here).
-    return <span className="font-semibold">Card plan</span>;
-  }
-
-  const soon = isCliffSoon(nextCliff.until);
-  const dateStr = fmtCliffMonth(nextCliff.until);
-  return (
-    <>
-      <span className="font-semibold">
-        {/* Figures Are Ink (DESIGN.md, Kevin 2026-08-26): the caution
-            lives in a small leading dot, never in the colour of the
-            date itself. The date stays ink so the dot alone carries
-            the "soon" signal, matching the inline dot already used on
-            debt-plan's cliff copy. */}
-        {soon && <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 mr-1 align-middle" />}
-        Next 0% ends {dateStr}
-      </span>
-      <span className="text-slate-400 dark:text-slate-500"> · </span>
-      <span className="text-slate-500 dark:text-slate-400">Card plan</span>
-    </>
-  );
-}
-
-// Pulls the "£X,XXX/month <qualifier>" figure out of the grow verdict
-// headline (e.g. "After debt repayments, you're about £1,256/month short")
-// and renders it abbreviated as "£1,256/mo short". Falls back to the full
-// headline (truncated by the row's own truncate class) if no figure is
-// present — e.g. the "about even" verdict has none.
-//
-// Owner decision, 2026-08-30: when the CURRENT pay period is short
-// (period_gate.short, from the same getGrow() payload GrowVariant1.tsx's
-// hero reads), this row must not echo the typical-month "spare" figure —
-// the same reason Grow's own hero demotes it that period. Quiet copy
-// instead, still linking through to /grow via the row's own onTap.
-function computeGrowRow(view: import("@/lib/api").GrowView): DockRowContent {
-  if (view.period_gate?.short) {
-    return <span className="font-semibold">Covered first, then Grow</span>;
-  }
-
-  if (!view.verdict?.headline) return null;
-
-  const headline = view.verdict.headline;
-  const match = headline.match(/(£[\d,]+(?:\.\d+)?)\s*\/\s*month\s+(.+)$/i);
-  return (
-    <>
-      <span className="font-semibold">
-        {match ? (
-          <>
-            <span className="font-mono tabular-nums">{match[1]}</span>/mo {match[2]}
-          </>
-        ) : (
-          <MoneyText text={headline} />
-        )}
-      </span>
-      <span className="text-slate-400 dark:text-slate-500"> · </span>
-      <span className="text-slate-500 dark:text-slate-400">typical month</span>
-    </>
-  );
-}
-
-// Shape-matched skeleton row — keeps the dock's height stable while either
-// summary is still loading, instead of popping in late (was a bug for Grow).
-function DockSkeletonRow() {
-  return (
-    <div
-      className="w-full min-h-[44px] px-4 py-3 flex items-center gap-3 animate-pulse first:rounded-t-2xl last:rounded-b-2xl"
-      aria-hidden="true"
-    >
-      <div className="h-[15px] w-40 rounded bg-slate-200 dark:bg-slate-700" />
-    </div>
-  );
-}
-
-function DockRow({
-  content,
-  onTap,
-  ariaLabel,
-}: {
-  content: ReactNode;
-  onTap: () => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      onClick={onTap}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTap(); } }}
-      className="w-full min-h-[44px] px-4 py-3 flex items-center gap-3 text-left active:scale-[0.98] transition-transform first:rounded-t-2xl last:rounded-b-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-      aria-label={ariaLabel}
-    >
-      <p className="flex-1 min-w-0 truncate text-[15px] leading-snug text-slate-900 dark:text-slate-100">
-        {content}
-      </p>
-      <ChevronRight size={18} className="text-slate-400 dark:text-slate-500 flex-shrink-0" aria-hidden="true" />
-    </button>
-  );
-}
-
-// Plans dock — Card plan + Grow merged into one glass surface with a hairline
-// divider between rows (Option B: "Plans dock"). Renders nothing if both
-// rows are hidden (no empty shell); shows shape-matched skeletons while
-// either summary is still loading so the dock never reflows.
-function PlansDock({
-  debtView,
-  growView,
-  hide,
-  onDebtTap,
-  onGrowTap,
-}: {
-  debtView: import("@/lib/api").DebtPlanSummary | null;
-  growView: import("@/lib/api").GrowView | null;
-  hide: boolean;
-  onDebtTap: () => void;
-  onGrowTap: () => void;
-}) {
-  // `hide` (hideNetWorth) is threaded through for parity with the prior
-  // DebtEntryCard prop — it had no visible effect there either; preserved
-  // as-is rather than inventing new masking behaviour.
-  void hide;
-
-  // undefined = still loading, null = row intentionally hidden, object = show
-  const debtContent: DockRowContent | undefined = debtView ? computeDebtRow(debtView) : undefined;
-  const growContent: DockRowContent | undefined = growView ? computeGrowRow(growView) : undefined;
-
-  const rows: ReactNode[] = [];
-  if (debtContent === undefined) {
-    rows.push(<DockSkeletonRow key="debt-skeleton" />);
-  } else if (debtContent !== null) {
-    rows.push(<DockRow key="debt" content={debtContent} onTap={onDebtTap} ariaLabel="View your debt plan" />);
-  }
-  if (growContent === undefined) {
-    rows.push(<DockSkeletonRow key="grow-skeleton" />);
-  } else if (growContent !== null) {
-    rows.push(<DockRow key="grow" content={growContent} onTap={onGrowTap} ariaLabel="View your grow plan" />);
-  }
-
-  if (rows.length === 0) return null;
-
-  return (
-    <div className="glass-card rounded-2xl divide-y divide-slate-200/60 dark:divide-white/10">
-      {rows}
-    </div>
-  );
-}
-
-// Commitments — named future big expenses with a per-period slice reserved.
-// A single goal renders full-width — no ghost add-card splitting the row
-// with it. Two or more goals ride a horizontal snap-scroll row of
-// fixed-width glass cards (many goals are realistic — no hard cap); the
-// thin progress fill goes amber (attention, never red) when a plan is
-// behind its elapsed fraction. Cards only — the "+ Set money aside" door
-// that used to live here (as "+ Plan a big expense") is now the single
-// merged door in PlansSection below (owner consolidation, 2026-08-29:
-// Variant A from /design/planning-create replaces the three separate
-// creation affordances with one).
-function CommitmentCards({
-  commitments,
-  onEdit,
-}: {
-  commitments: Commitment[] | null;
-  onEdit: (c: Commitment) => void;
-}) {
-  const router = useRouter();
-  const fmtC = (n: number) => "£" + Math.round(n).toLocaleString("en-GB");
-  const active = (commitments ?? []).filter((c) => c.status === "active");
-
-  if (active.length === 0) return null;
-
-  const renderGoalCard = (c: Commitment, className: string) => {
-    const pct = c.amount > 0 ? Math.min(100, Math.max(0, (c.progress / c.amount) * 100)) : 0;
-    const month = new Date(c.target_date).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
-    const isCaution = c.feasibility_tone ? c.feasibility_tone === "caution" : c.feasibility === "stretch";
-    return (
-      <button
-        key={c.id}
-        onClick={() => onEdit(c)}
-        aria-label={`Edit plan: ${c.name}`}
-        className={className}
-      >
-        <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{c.name}</p>
-        <p className="text-[11px] text-slate-400 dark:text-slate-500">{month}</p>
-        <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
-          <div
-            className={`h-full rounded-full ${c.on_track ? "bg-indigo-500" : "bg-amber-500"}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 money">
-          <span className="font-mono tabular-nums">{fmtC(c.progress)}</span> <span className="font-normal text-slate-400 dark:text-slate-500">of <span className="font-mono tabular-nums">{fmtC(c.amount)}</span></span>
-        </p>
-        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 num">
-          <span className="font-mono tabular-nums">{fmtC(c.per_period_slice)}</span>
-          {c.period_label
-            ? ` each pay period (${c.period_label}) · ${c.periods_left} left`
-            : ` a period · ${c.periods_left} left`}
-        </p>
-        {/* Shared pot — quiet, structural information, never a colour
-            signal (a pound is claimed by only the oldest goal). */}
-        {c.shared_pot_goals && c.shared_pot_goals.length > 0 && (
-          <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500 truncate">
-            Shares a pot with {c.shared_pot_goals.join(", ")}
-          </p>
-        )}
-        {/* Pace note (Spend -> Plan bridge) — a live, this-period signal:
-            spend is running ahead of usual by enough to squeeze what this
-            plan needs. Leads when present; the "stretch" feasibility line
-            below is suppressed alongside it (both are a full-amber "this is
-            at risk" read — one loud thing, not two stacked). */}
-        {c.pace_note && (
-          <p className="mt-1 flex items-start gap-1.5 min-w-0">
-            <span
-              className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] bg-amber-500"
-              aria-hidden="true"
-            />
-            <span className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">
-              {c.pace_note.text}{" "}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  router.push("/spend");
-                }}
-                className="font-semibold underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 rounded"
-              >
-                See where ›
-              </button>
-            </span>
-          </p>
-        )}
-        {/* Feasibility — surplus/funded: slate dot; savings: amber dot,
-            slate text; stretch: amber dot + amber text (attention, never red).
-            Suppressed when pace_note already carries the loud amber line for
-            "stretch" — the two would otherwise restate the same risk twice. */}
-        {c.feasibility && c.feasibility_note && !(c.pace_note && isCaution) && (
-          <p className="mt-1 flex items-start gap-1.5 min-w-0">
-            <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-[3px] ${
-                c.feasibility === "surplus" || c.feasibility === "funded"
-                  ? "bg-slate-300 dark:bg-slate-600"
-                  : "bg-amber-500"
-              }`}
-              aria-hidden="true"
-            />
-            <span className="text-[11px] line-clamp-2 leading-snug text-slate-500 dark:text-slate-400">
-              {c.feasibility_note}
-            </span>
-          </p>
-        )}
-        {/* Origin badge — whisper-tier only (owner decisions locked, agent
-            mode v1): no icon, no gradient, no chip, just a quiet trailing
-            caption when Penny (not the user, by hand) created this goal. */}
-        {c.created_via === "penny" && (
-          <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">set up with Penny</p>
-        )}
-      </button>
-    );
-  };
-
-  if (active.length === 1) {
-    return (
-      <div className="space-y-2" data-tutorial-id="tutorial-planning-goals">
-        {renderGoalCard(
-          active[0],
-          "w-full text-left glass-card rounded-2xl px-4 py-3 active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative -mx-4" data-tutorial-id="tutorial-planning-goals">
-      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 scroll-px-4 pb-1">
-        {active.map((c) =>
-          renderGoalCard(
-            c,
-            "min-w-[240px] max-w-[260px] flex-shrink-0 snap-start glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          )
-        )}
-      </div>
-      {/* Right-edge fade — a quiet hint the row continues */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[var(--background)] to-transparent"
-      />
-    </div>
-  );
-}
-
-// Allocations — per-pay-period envelopes, the goal card's sibling: same
-// glass-card family, progress-bar treatment and snap-scroll-when-many
-// layout as CommitmentCards above, deliberately simpler content (no target
-// date, no pot ledger, no feasibility verdict — owner spec: "just create an
-// allocation, it deducts from what's available"). `error` is a DIFFERENT
-// signal from `allocations === null`: null covers both "still loading" and
-// "genuinely none yet"; `error` means the GET itself failed, which renders
-// nothing at all so Planning degrades to exactly its pre-allocations shape
-// (allocations additive, never blocking). Cards only — the door lives in
-// PlansSection below.
-//
-// Card content updated for the new rule contract (owner amendment,
-// 2026-08-29): the "fed by" line now reads off `fill_display_name` and
-// carries a quiet suffix for contains-rules (an exact-match rule needs no
-// qualifier — "fed by X" alone is already precise); a PENDING allocation
-// (future effective_from) renders a quiet "Starts <date>" line instead of
-// any reserve/progress — nothing has been asked of an account yet, so
-// showing £0-of-£N would read as a a shortfall that isn't real. The rhythm
-// tag (top-right, "Every pay period" / "This period only") mirrors Variant
-// A's card mock — now that an envelope isn't always recurring, the two
-// rhythms need to read as distinct at rest, not just inside the sheet.
+// Compact set-aside ledger — the approved Upcoming design treats envelopes
+// and one-offs as inputs to this pay period's forecast, not as large planning
+// cards. The right-hand amount is the unfilled remainder that the runway
+// actually subtracts; the supporting line keeps filled/target figures and
+// recurrence visible without making the user reconstruct that relationship.
+// Pending entries show no money figure because nothing is reserved yet.
 function AllocationCards({
   allocations,
   error,
@@ -464,172 +114,116 @@ function AllocationCards({
   const active = (allocations ?? []).filter((a) => a.active);
 
   if (active.length === 0) return null;
-
-  const renderAllocationCard = (a: Allocation, className: string) => {
-    const pct = a.amount_per_period > 0
-      ? Math.min(100, Math.max(0, (a.filled_this_period / a.amount_per_period) * 100))
-      : 0;
-    // "Complete" is quiet, not a celebration — full bar, muted tone, no
-    // colour change (allocations are never red, and this isn't a risk
-    // signal in either direction so it never earns amber either). Trusts
-    // the server's `completed` flag first (authoritative for a "once"
-    // envelope whose period has closed) and falls back to the local fill
-    // comparison for the ordinary still-open case.
-    const complete = a.completed || (a.filled_this_period >= a.amount_per_period && a.amount_per_period > 0);
-    const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
-    const feedLabel = a.fill_display_name || feedAccount?.name;
-    const rhythmLabel = a.recurrence === "once" ? "This period only" : "Every pay period";
-    const startsLabel = a.pending
-      ? new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-      : null;
-    return (
-      <button
-        key={a.id}
-        onClick={() => onEdit(a)}
-        aria-label={`Edit allocation: ${a.name}`}
-        className={className}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{a.name}</p>
-          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mt-0.5">
-            {rhythmLabel}
-          </span>
-        </div>
-        {feedLabel && (
-          <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-            fed by {feedLabel}
-            {a.match_type === "description_contains" && " · matches similar payments"}
-          </p>
-        )}
-        {a.pending ? (
-          // Pending — nothing reserved yet, so no bar and no £ figures.
-          <p className="mt-1.5 text-[13px] text-slate-400 dark:text-slate-500">Starts {startsLabel}</p>
-        ) : (
-          <>
-            <div className="mt-2 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden" aria-hidden="true">
-              <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
-            </div>
-            <p className="mt-1.5 text-[13px] font-semibold text-slate-800 dark:text-slate-100 money">
-              <span className="font-mono tabular-nums">{fmtC(a.filled_this_period)}</span>{" "}
-              <span className="font-normal text-slate-400 dark:text-slate-500">
-                of <span className="font-mono tabular-nums">{fmtC(a.amount_per_period)}</span> this period
-              </span>
-            </p>
-            {complete && (
-              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Done this period</p>
-            )}
-          </>
-        )}
-        {/* Origin badge — same whisper-tier treatment as the goal card's
-            own badge above (CommitmentCards' renderGoalCard): no icon, no
-            gradient, just a quiet caption when Penny created this envelope. */}
-        {a.created_via === "penny" && (
-          <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">set up with Penny</p>
-        )}
-      </button>
-    );
-  };
-
-  if (active.length === 1) {
-    return (
-      <div className="space-y-2" data-tutorial-id="tutorial-planning-allocations">
-        {renderAllocationCard(
-          active[0],
-          "w-full text-left glass-card rounded-2xl px-4 py-3 active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="relative -mx-4" data-tutorial-id="tutorial-planning-allocations">
-      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide px-4 scroll-px-4 pb-1">
-        {active.map((a) =>
-          renderAllocationCard(
-            a,
-            "min-w-[240px] max-w-[260px] flex-shrink-0 snap-start glass-card rounded-2xl px-4 py-3 text-left active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          )
-        )}
-      </div>
-      {/* Right-edge fade — a quiet hint the row continues */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[var(--background)] to-transparent"
-      />
+    <div className="glass-card divide-y divide-slate-200/70 overflow-hidden rounded-2xl dark:divide-white/10" data-tutorial-id="tutorial-planning-allocations">
+      {active.map((a) => {
+        const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
+        const feedLabel = a.fill_display_name || feedAccount?.name;
+        const rhythmLabel = a.recurrence === "once" ? "this period only" : "every pay period";
+        const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+        const remaining = Math.max(0, a.remaining);
+        const complete = a.completed || remaining < 0.5;
+        const detail = a.pending
+          ? `Starts ${startsLabel} · nothing reserved yet`
+          : complete
+            ? `Fully set aside · ${rhythmLabel}`
+            : `${fmtC(a.filled_this_period)} of ${fmtC(a.amount_per_period)} set aside · ${rhythmLabel}`;
+        const amount = a.pending ? null : complete ? "£0" : `−${fmtC(remaining)}`;
+
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => onEdit(a)}
+            aria-label={`${a.name}: ${a.pending ? `starts ${startsLabel}` : complete ? "fully set aside" : `${fmtC(remaining)} still to reserve`}. Edit pay-period plan`}
+            className="flex min-h-[62px] w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50/80 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-white/[0.035]"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 dark:bg-indigo-400/10 dark:text-indigo-300">
+              <Wallet size={15} aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{a.name}</span>
+                {a.created_via === "penny" && <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">with Penny</span>}
+              </span>
+              <MoneyText text={detail} className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400" />
+              {feedLabel && <span className="mt-0.5 block truncate text-[11px] text-slate-400 dark:text-slate-500">Fed by {feedLabel}{a.match_type === "description_contains" ? " · similar payments" : ""}</span>}
+            </span>
+            {amount && (
+              <span className="shrink-0 text-right">
+                <span className="block font-mono text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">{amount}</span>
+                <span className="block text-[10px] text-slate-400 dark:text-slate-500">to reserve</span>
+              </span>
+            )}
+            <ChevronRight size={15} className="shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-// The single door — Variant A from /design/planning-create (owner pick,
-// 2026-08-29), replacing "+ Plan a big expense", "+ Allocation" and
-// "+ Plan a one-off" with one "+ Set money aside" affordance. Centred with
-// a subline when nothing exists yet (matches the empty-state idiom every
-// other quiet add-button on this page already uses); a compact right-
-// aligned link above the cards once anything exists (goal or envelope —
-// the door doesn't care which, that choice happens inside the sheet).
+// One section and one creation door for the two current-period plan types:
+// an envelope or a one-off payment. Long-term goals are deliberately absent
+// here and live on Planning.
 function PlansSection({
-  commitments,
   allocations,
   allocationsError,
   accounts,
   onAdd,
-  onEditCommitment,
   onEditAllocation,
 }: {
-  commitments: Commitment[] | null;
   allocations: Allocation[] | null;
   allocationsError: boolean;
   accounts: Account[];
   onAdd: () => void;
-  onEditCommitment: (c: Commitment) => void;
   onEditAllocation: (a: Allocation) => void;
 }) {
-  const activeCommitments = (commitments ?? []).filter((c) => c.status === "active");
+  const loading = allocations === null && !allocationsError;
   const activeAllocations = (allocations ?? []).filter((a) => a.active);
-  const empty = activeCommitments.length === 0 && activeAllocations.length === 0;
-
-  if (empty) {
-    return (
-      <div id="commitments" className="scroll-mt-20" data-tutorial-id="tutorial-planning-plans">
-        <button
-          onClick={onAdd}
-          data-tutorial-id="tutorial-planning-add"
-          className="w-full min-h-[44px] py-2 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 bg-transparent hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-        >
-          + Set money aside
-          <span className="block text-[11px] font-normal text-slate-400 dark:text-slate-500">
-            a goal, an envelope, or a one-off payment
-          </span>
-        </button>
-      </div>
-    );
-  }
+  const empty = activeAllocations.length === 0;
 
   return (
-    <div id="commitments" className="space-y-2 scroll-mt-20" data-tutorial-id="tutorial-planning-plans">
-      <div className="flex justify-end">
+    <section id="pay-period-plans" className="scroll-mt-20" data-tutorial-id="tutorial-planning-plans" aria-labelledby="pay-period-plans-heading">
+      <div className="flex min-h-11 items-center justify-between gap-3 px-1">
+        <h2 id="pay-period-plans-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set aside this period</h2>
         <button
+          type="button"
           onClick={onAdd}
-          title="A goal, an envelope, or a one-off payment"
           data-tutorial-id="tutorial-planning-add"
-          className="min-h-[44px] flex items-center px-2 -my-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 rounded-lg active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          className="min-h-11 rounded-lg px-2 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
         >
-          + Set money aside
+          + Add
         </button>
       </div>
-      <CommitmentCards commitments={commitments} onEdit={onEditCommitment} />
-      <AllocationCards allocations={allocations} error={allocationsError} accounts={accounts} onEdit={onEditAllocation} />
-    </div>
+      {loading ? (
+        <div className="glass-card h-[62px] animate-pulse rounded-2xl" aria-label="Loading pay-period plans" />
+      ) : allocationsError ? (
+        <div className="glass-card rounded-2xl px-4 py-4" role="status">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Couldn’t load what you’ve set aside.</p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">The forecast above is still available.</p>
+        </div>
+      ) : empty ? (
+        <div className="glass-card rounded-2xl px-4 py-4">
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nothing set aside yet.</p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add an envelope or one-off payment for this pay period.</p>
+        </div>
+      ) : (
+        <AllocationCards allocations={allocations} error={allocationsError} accounts={accounts} onEdit={onEditAllocation} />
+      )}
+      {!loading && !allocationsError && !empty && <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>}
+    </section>
   );
 }
 
 export default function PlanningPage() {
-  const { payPeriodConfig, setPayPeriodConfig, region, hideNetWorth } = usePreferences();
+  const { payPeriodConfig, setPayPeriodConfig } = usePreferences();
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
   const searchParams = useSearchParams();
   const sym = "£";
+  const [planningNow] = useState(() => Date.now());
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
@@ -637,30 +231,10 @@ export default function PlanningPage() {
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
   // same way upcomingBlock's own cashflowError/!cashflow gate does above.
-  useTutorialReady("planning", !!cashflow || cashflowError);
-
-  // #commitments deep link (Insights' "Fixed" hero/tip-group row, see
-  // MoneyShapeHero/InsightsPage.tsx) — a plain browser anchor-jump can't be
-  // trusted here: PlansSection (id="commitments", see below) only renders
-  // once `cashflow` has resolved (or errored) the same way the rest of
-  // `upcomingBlock` does, same async-content-below-the-fold problem the
-  // Insights tab's own `?insight=` deep link already solves the same way
-  // (see SavingsInsightsSection's scroll effect).
-  useEffect(() => {
-    if (typeof window === "undefined" || window.location.hash !== "#commitments") return;
-    if (!cashflow && !cashflowError) return;
-    const t = setTimeout(() => {
-      document.getElementById("commitments")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 150);
-    return () => clearTimeout(t);
-  }, [cashflow, cashflowError]);
+  useTutorialReady("upcoming", !!cashflow || cashflowError);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [debtSummary, setDebtSummary] = useState<import("@/lib/api").DebtPlanSummary | null>(null);
-  const [growView, setGrowView] = useState<import("@/lib/api").GrowView | null>(null);
-  const [commitments, setCommitments] = useState<Commitment[] | null>(null);
-  const [commitmentSheet, setCommitmentSheet] = useState<null | { editing: Commitment | null }>(null);
   // Allocations — see AllocationCards' own comment for the null-vs-error
   // distinction (null = loading/genuinely none, error = GET failed).
   const [allocations, setAllocations] = useState<Allocation[] | null>(null);
@@ -669,10 +243,11 @@ export default function PlanningPage() {
   // (owner consolidation, 2026-08-29).
   const [allocationSheet, setAllocationSheet] = useState<Allocation | null>(null);
   // The single door's own sheet (step 1 kind cards, step 2 for "An
-  // envelope" only — "By a date" and "One payment" hand off to
-  // CommitmentSheet/PlanOneOffSheet below, unchanged).
+  // envelope" only — "One payment" hands off to PlanOneOffSheet below.
+  // "By a date" used to hand off to CommitmentSheet on this page; that kind
+  // is hidden here (SetAsideSheet's `scope="upcoming"` prop) now that
+  // long-term goals live on their own section in LongTermPlanningPage.tsx.
   const [setAsideSheetOpen, setSetAsideSheetOpen] = useState(false);
-  const [savingsInsights, setSavingsInsights] = useState<SavingsInsight[] | null>(null);
   // Count backing the header "Set aside" bin's tone (quiet at 0, regular
   // above). Starts at 0 so the control renders quiet by default; see the
   // fetch effect below for why this must never gate the page's main data.
@@ -694,84 +269,42 @@ export default function PlanningPage() {
     });
   }
 
-  // Derive current period (always current — no prev/next navigation)
-  const configKey = JSON.stringify(payPeriodConfig);
-  const [periodStart, setPeriodStart] = useState<Date>(() => {
-    const [s] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-    return s;
-  });
-  const [periodEnd, setPeriodEnd] = useState<Date>(() => {
-    const [, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-    return e;
-  });
+  // Derived rather than mirrored into state: changing the pay-period setting
+  // now produces one render instead of an effect-driven second render.
+  const [periodStart, periodEnd] = useMemo(
+    () => getPayPeriodWithConfig(new Date(planningNow), payPeriodConfig),
+    [payPeriodConfig, planningNow]
+  );
 
+  // The runway is the page's primary answer, so its request starts alone.
+  // Plans now follow it in the page hierarchy, but their supporting requests
+  // can still wait for the browser's first idle slot instead of competing with
+  // the forecast for initial render time.
   useEffect(() => {
-    const [s, e] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
-    setPeriodStart(s);
-    setPeriodEnd(e);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [configKey]);
-
-  // Load data
-  useEffect(() => {
-    api.accounts().catch(() => [] as Account[]).then(accs => setAccounts(accs));
     api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
-    api.getDebtPlanSummary().then(setDebtSummary).catch(() => {});
-    api.getGrow().then(setGrowView).catch(() => {});
-    api.listCommitments().then((d) => setCommitments(d.items)).catch(() => setCommitments([]));
-    // Allocations are additive and must never block the rest of the page —
-    // a failed GET sets allocationsError instead of throwing anywhere else
-    // visible, which AllocationCards reads to render nothing at all.
-    api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
-    // Insight hints on bill rows — decorative: any error just means no hints.
-    api.getSavingsInsights().then(setSavingsInsights).catch(() => {});
   }, []);
 
-  // Header bin's count, fetched separately from the effect above so it can
-  // never delay the page's real data: this is decoration on a control, not
-  // something the page depends on. A failed fetch just leaves dismissedCount
-  // at its 0 default, which is exactly the quiet tone the control should
-  // show when it can't tell whether anything is set aside — an invisible
-  // failure mode, not an error state.
   useEffect(() => {
-    api.dismissedSeries()
-      .then((d) => setDismissedCount(d.user.length + d.engine.length))
-      .catch(() => {});
-  }, []);
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const loadSecondary = () => {
+      api.accounts().catch(() => [] as Account[]).then(setAccounts);
+      // Allocations are additive and must never block the forecast.
+      api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
+      api.dismissedSeries()
+        .then((d) => setDismissedCount(d.user.length + d.engine.length))
+        .catch(() => {});
+    };
 
-  // Merchant-name → insight lookup for the bill-row hints. Keys are the
-  // normalised lowercase merchant names each insight was triggered by; `est`
-  // is the first figure pulled out of the insight's savings estimate (null →
-  // the hint says "save" instead of a number).
-  const insightHintEntries = useMemo(() => {
-    const entries: { key: string; id: string; est: string | null }[] = [];
-    for (const ins of savingsInsights ?? []) {
-      const est = ins.savings_estimate?.match(/([\d][\d,]*)/)?.[1] ?? null;
-      for (const t of ins.triggered_by ?? []) {
-        for (const raw of [t.display_name, t.merchant_key]) {
-          const key = (raw || "").trim().toLowerCase();
-          // Short keys substring-match too much junk — exact-ish only.
-          if (key.length >= 4 && !entries.some((e) => e.key === key)) {
-            entries.push({ key, id: ins.id, est });
-          }
-        }
-      }
+    if (idleWindow.requestIdleCallback) {
+      const idleId = idleWindow.requestIdleCallback(loadSecondary, { timeout: 1200 });
+      return () => idleWindow.cancelIdleCallback?.(idleId);
     }
-    return entries;
-  }, [savingsInsights]);
-
-  function findInsightHint(billName: string): { id: string; est: string | null } | null {
-    const n = billName.trim().toLowerCase();
-    if (n.length < 4) return null;
-    const hit = insightHintEntries.find(
-      (e) => e.key === n || e.key.includes(n) || n.includes(e.key)
-    );
-    return hit ? { id: hit.id, est: hit.est } : null;
-  }
-
-  function refreshCommitments() {
-    api.listCommitments().then((d) => setCommitments(d.items)).catch(() => {});
-  }
+    const timer = window.setTimeout(loadSecondary, 150);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // Refreshes both the allocations list (for the cards) and cashflow (for
   // the "remaining" figures the TO LAST subline/arithmetic reads) after a
@@ -794,7 +327,8 @@ export default function PlanningPage() {
     if (typeof window === "undefined") return;
     if (sessionStorage.getItem("wealth_open_pay_period") === "1") {
       sessionStorage.removeItem("wealth_open_pay_period");
-      setSettingsOpen(true);
+      const timer = window.setTimeout(() => setSettingsOpen(true), 0);
+      return () => window.clearTimeout(timer);
     }
   }, []);
 
@@ -818,7 +352,7 @@ export default function PlanningPage() {
     if (!cashflow) return null;
     const nextPaydayMs = periodEnd.getTime() + 86400000;
     // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
-    const daysToPay = Math.round((nextPaydayMs - Date.now()) / 86400000);
+    const daysToPay = Math.round((nextPaydayMs - planningNow) / 86400000);
     const simEndMs = nextPaydayMs + (daysToPay <= 1 ? 5 * 86400000 : 0);
     const scopedBills = cashflow.upcoming_bills.filter(
       (b) => new Date(b.expected_date).getTime() <= simEndMs &&
@@ -977,7 +511,7 @@ export default function PlanningPage() {
         const bank = firstBill.account_bank || firstBill.account_name || "Account";
         const nextPaydayMs = periodEnd.getTime() + 86400000;
         // last-day lookahead: from the final day of the period, assess the first 5 days of the next one
-        const daysToPay = Math.round((nextPaydayMs - Date.now()) / 86400000);
+        const daysToPay = Math.round((nextPaydayMs - planningNow) / 86400000);
         // EXCLUSIVE of payday day itself, except during the last-day
         // lookahead (daysToPay <= 1), where the window still extends
         // through payday + 5 days INCLUSIVE. Mirrors backend/app/services/
@@ -1147,33 +681,38 @@ export default function PlanningPage() {
   const deepLinkHandledRef = useRef(false);
   useEffect(() => {
     if (!cashflow) return;
-    if (deepLinkHandledRef.current) return;
-    const dayParam = searchParams.get("day");
-    const billParam = searchParams.get("bill");
-    if (!dayParam && !billParam) return;
-    deepLinkHandledRef.current = true;
+    // Wait for the cashflow-backed rows to commit before resolving their DOM
+    // targets. This also avoids an effect-driven synchronous render cascade.
+    const timer = window.setTimeout(() => {
+      if (deepLinkHandledRef.current) return;
+      const dayParam = searchParams.get("day");
+      const billParam = searchParams.get("bill");
+      if (!dayParam && !billParam) return;
+      deepLinkHandledRef.current = true;
 
-    // Malformed or far-outside-the-window days degrade silently — treated
-    // as though no day were given at all, never thrown.
-    const validDay = dayParam && isValidIsoDate(dayParam) && isWithinDeepLinkWindow(dayParam) ? dayParam : null;
+      // Malformed or far-outside-the-window days degrade silently — treated
+      // as though no day were given at all, never thrown.
+      const validDay = dayParam && isValidIsoDate(dayParam) && isWithinDeepLinkWindow(dayParam) ? dayParam : null;
 
-    if (billParam) {
-      const prefix = `bill-${billParam}-`;
-      const billEls = Array.from(document.querySelectorAll<HTMLElement>("[data-bill-key]"));
-      const exactKey = validDay ? `${prefix}${validDay}` : null;
-      const match =
-        (exactKey && billEls.find((el) => el.getAttribute("data-bill-key") === exactKey)) ||
-        billEls.find((el) => billKeyMatchesName(el.getAttribute("data-bill-key"), billParam));
-      if (match) {
-        setHighlightTarget(match.getAttribute("data-bill-key"));
+      if (billParam) {
+        const prefix = `bill-${billParam}-`;
+        const billEls = Array.from(document.querySelectorAll<HTMLElement>("[data-bill-key]"));
+        const exactKey = validDay ? `${prefix}${validDay}` : null;
+        const match =
+          (exactKey && billEls.find((el) => el.getAttribute("data-bill-key") === exactKey)) ||
+          billEls.find((el) => billKeyMatchesName(el.getAttribute("data-bill-key"), billParam));
+        if (match) {
+          setHighlightTarget(match.getAttribute("data-bill-key"));
+        } else if (validDay) {
+          resolveDayTarget(validDay);
+        }
       } else if (validDay) {
         resolveDayTarget(validDay);
       }
-    } else if (validDay) {
-      resolveDayTarget(validDay);
-    }
 
-    router.replace("/planning", { scroll: false });
+      router.replace("/upcoming", { scroll: false });
+    }, 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cashflow]);
 
@@ -1238,7 +777,6 @@ export default function PlanningPage() {
 
   useEffect(() => {
     return () => { flushPlannedDelete(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function dismissUpcoming(name: string) {
@@ -1313,6 +851,9 @@ export default function PlanningPage() {
   }
 
   // ── upcomingBlock ──────────────────────────────────────────────────────────
+  /* renderRow only captures ref-backed mutation handlers for later user
+     events; it never reads those refs while this JSX is being produced. */
+  /* eslint-disable react-hooks/refs */
   const upcomingBlock = (
     <>
       {cashflowError ? (
@@ -1373,20 +914,11 @@ export default function PlanningPage() {
               <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
-              <PlansDock
-                debtView={debtSummary}
-                growView={growView}
-                hide={hideNetWorth}
-                onDebtTap={() => router.push("/cards")}
-                onGrowTap={() => router.push("/grow")}
-              />
               <PlansSection
-                commitments={commitments}
                 allocations={allocations}
                 allocationsError={allocationsError}
                 accounts={accounts}
                 onAdd={() => setSetAsideSheetOpen(true)}
-                onEditCommitment={(c) => setCommitmentSheet({ editing: c })}
                 onEditAllocation={(a) => setAllocationSheet(a)}
               />
               {/* PennyPromptBar removed here too (owner, 2026-08-25: "I
@@ -1519,6 +1051,12 @@ export default function PlanningPage() {
         const runwayBillsTotal = billsBeforePayday
           .filter(b => !isPooledNoOp(b))
           .reduce((s, b) => s + b.amount, 0);
+        // Income landing before payday belongs in the same equation as the
+        // row-by-row ledger below. Previously rows credited it while the hero
+        // ignored it, so the final row and headline could disagree.
+        const runwayIncomeTotal = rawItems
+          .filter(item => item.type === "income" && new Date(item.expected_date) < nextPaydayMidnight)
+          .reduce((s, item) => s + item.amount, 0);
         // Allocations reduce what's left to last the period by their UNFILLED
         // remainder only, never the full amount_per_period: filled money has
         // already left the balances baked into spendableNow, so subtracting
@@ -1530,8 +1068,9 @@ export default function PlanningPage() {
         const allocationsRemainingTotal = (cashflow.allocations ?? [])
           .filter(a => a.active)
           .reduce((s, a) => s + a.remaining, 0);
-        const runway = spendableNow - runwayBillsTotal - allocationsRemainingTotal;
+        const runway = spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal;
         const runwayNegative = runway < 0;
+        const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
 
         const atRiskCount = items.filter(i => i.type === "bill" && i.at_risk).length;
         void atRiskCount;
@@ -1635,18 +1174,13 @@ export default function PlanningPage() {
           const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
           const colour = getCategoryColour(catName, colours);
           const Icon = getCategoryIcon(catName, iconOverrides);
-          // Insight hint — calm bill rows only: never on next-period amber
-          // rows, and never competing with a risk verdict, red OR amber,
-          // leads there instead.
-          // Settling rows are never the moment for a savings nudge either
-          // (2026-09-01 fix) — a "could save ~£X ›" link on money that has
-          // already left reads as an odd non-sequitur, per the owner's own
-          // screenshot.
-          const insightHint =
-            item.type === "bill" && !item.next_period && !flagged && !timingRisk && !item.at_risk && !item.account_short && !movementCalm && !isSettling
-              ? findInsightHint(item.name)
-              : null;
-
+          const openItem = () => {
+            if (isPlanned) {
+              setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
+            } else {
+              setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
+            }
+          };
           return (
             <SwipeDismissRow
               key={rowKey}
@@ -1655,33 +1189,20 @@ export default function PlanningPage() {
             >
               <div
                 data-bill-key={rowKey}
-                onClick={() => {
-                  if (isPlanned) {
-                    setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
-                  } else {
-                    setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    if (isPlanned) {
-                      setEditPlanned({ id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null });
-                    } else {
-                      setEditItem({ name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, category: item.category, edited: item.edited, rule_label: item.rule_label });
-                    }
-                  }
-                }}
-                aria-label={isPlanned ? `Edit planned payment: ${item.name}` : `Edit ${item.name}`}
                 // Variant A, "The Ledger" (owner pick, 2026-08-28): at-risk
                 // rows keep the ordinary glass-card surface, no tinted
                 // background or coloured border — red/amber is spent only
                 // on the icon chip and the amount figure below, never on a
                 // filled card (source: VariantA.tsx's own header comment).
-                className={`rounded-2xl px-4 py-3 flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform glass-card${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
+                className={`relative rounded-2xl glass-card${highlighted ? " ring-2 ring-rose-400 dark:ring-rose-500" : ""}`}
               >
+                <button
+                  type="button"
+                  onClick={openItem}
+                  aria-label={isPlanned ? `Edit planned payment: ${item.name}` : `Edit ${item.name}`}
+                  className="absolute inset-0 z-0 rounded-2xl cursor-pointer active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                />
+                <div className="relative z-[1] pointer-events-none px-4 py-3 flex items-center gap-3">
                 {flagged ? (
                   <span className="w-8 h-8 rounded-lg bg-rose-100 dark:bg-rose-900/40 flex items-center justify-center flex-shrink-0 text-rose-500" aria-hidden="true">
                     <AlertTriangle size={14} />
@@ -1725,10 +1246,10 @@ export default function PlanningPage() {
                     )}
                   </div>
 
-                  {/* Origin badge — same whisper-tier treatment as the goal/
-                      allocation cards' own badge (CommitmentCards/
-                      AllocationCards above): no icon, no gradient, quiet
-                      caption only, only ever meaningful on a planned row. */}
+                  {/* Origin badge — same whisper-tier treatment as the
+                      allocation cards' own badge (AllocationCards above):
+                      no icon, no gradient, quiet caption only, only ever
+                      meaningful on a planned row. */}
                   {item.type === "bill" && item.created_via === "penny" && (
                     <p className="text-[10px] text-slate-400 dark:text-slate-500">set up with Penny</p>
                   )}
@@ -1745,7 +1266,7 @@ export default function PlanningPage() {
                       link both stay neutral ink, red is confined to the
                       icon chip and the amount figure only. */}
                   {item.account_short && (item.account_bank || item.account_name) && (
-                    <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                       <span className="truncate min-w-0">
                         {item.account_bank || item.account_name} · only <span className="font-mono tabular-nums">{sym}{(item.account_balance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> available
                       </span>
@@ -1753,7 +1274,7 @@ export default function PlanningPage() {
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); toggleWhy(rowKey); }}
-                          className="flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
+                          className="pointer-events-auto flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
                         >
                           Why? {whyOpen.has(rowKey) ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
                         </button>
@@ -1761,7 +1282,7 @@ export default function PlanningPage() {
                     </p>
                   )}
                   {item.account_short && whyOpen.has(rowKey) && atRiskMatch?.movementCulprit && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       Includes a <span className="font-mono tabular-nums">{sym}{atRiskMatch.movementCulprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatItemDate(atRiskMatch.movementCulprit.expected_date)}
                     </p>
                   )}
@@ -1771,14 +1292,14 @@ export default function PlanningPage() {
                       Hedged like the callout's copy, never claims the
                       transfer has landed, only that it's due. */}
                   {item.account_timing && (item.account_bank || item.account_name) && (
-                    <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                       <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
                       <span className="truncate min-w-0">{item.account_bank || item.account_name} · money&apos;s due in around now</span>
                       {atRiskMatch?.movementCulprit && (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); toggleWhy(rowKey); }}
-                          className="flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
+                          className="pointer-events-auto flex-shrink-0 font-medium text-slate-400 dark:text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline"
                         >
                           Why? {whyOpen.has(rowKey) ? <ChevronDown size={10} className="inline" aria-hidden="true" /> : "›"}
                         </button>
@@ -1786,16 +1307,16 @@ export default function PlanningPage() {
                     </p>
                   )}
                   {item.account_timing && whyOpen.has(rowKey) && atRiskMatch?.movementCulprit && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                       <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
                       <span className="truncate">Includes a <span className="font-mono tabular-nums">{sym}{atRiskMatch.movementCulprit.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> move {formatItemDate(atRiskMatch.movementCulprit.expected_date)}</span>
                     </p>
                   )}
                   {item.at_risk && !item.account_short && !item.account_timing && (
                     <>
-                      <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Overall balance will be low</p>
+                      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Overall balance will be low</p>
                       {item.type === "bill" && (item.account_bank || item.account_name) && (
-                        <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                        <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                           {item.account_bank || item.account_name}
                         </p>
                       )}
@@ -1807,43 +1328,20 @@ export default function PlanningPage() {
                       copy with a small amber signifier dot rather than the
                       red treatment above. */}
                   {movementCalm && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                       <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
                       May not go through if the balance is tight. No fee either way.
                     </p>
                   )}
                   {item.is_credit_card && (item.account_bank || item.account_name) && !flagged && !timingRisk && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       {item.account_bank || item.account_name}
                     </p>
                   )}
                   {item.type === "bill" && !item.account_short && !item.account_timing && !item.is_credit_card && !item.at_risk && !movementCalm && (item.account_bank || item.account_name) && (
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                    <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
                       {item.account_bank || item.account_name}
                     </p>
-                  )}
-
-                  {insightHint && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/insights?tab=save&insight=${encodeURIComponent(insightHint.id)}`);
-                      }}
-                      onKeyDown={(e) => e.stopPropagation()}
-                      className="min-h-[44px] flex items-center -my-2.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
-                    >
-                      {/* Wrapped in one span (owner fix, 2026-08-29): the
-                          button is a flex container, and "could save "/" ›"
-                          were previously bare text nodes sitting directly
-                          alongside the amount span as separate flex items —
-                          flex trims leading/trailing whitespace at each
-                          item's own edge, so the rendered affordance lost
-                          its spaces ("could save~£32›"). One span keeps the
-                          whole phrase in normal inline flow, where internal
-                          spaces are never trimmed. */}
-                      <span>{insightHint.est ? <>could save <span className="font-mono tabular-nums">~£{insightHint.est}</span></> : "could save"}{" "}›</span>
-                    </button>
                   )}
 
                   {/* Next-period distance is a temporal fact, not a caution,
@@ -1851,7 +1349,7 @@ export default function PlanningPage() {
                       Kevin 2026-08-26, supersedes the 2026-08-09 amber
                       call). It reads one step quieter than a current-period
                       date instead, muteness standing in for distance. */}
-                  <p className={`text-[11px] ${item.next_period ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400"}`}>{formatItemDate(item.expected_date)}</p>
+                  <p className={`text-xs ${item.next_period ? "text-slate-400 dark:text-slate-500" : "text-slate-500 dark:text-slate-400"}`}>{formatItemDate(item.expected_date)}</p>
                   {/* Bank-side PENDING debit already matched (see
                       UpcomingBill.observed_pending) — the money has already
                       left the account per the bank, our settled feed just
@@ -1860,7 +1358,7 @@ export default function PlanningPage() {
                       with the `item.pending` block below (backend never
                       sets both on the same row). */}
                   {item.type === "bill" && item.observed_pending && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                       Left earlier today, still settling
                     </p>
                   )}
@@ -1886,12 +1384,12 @@ export default function PlanningPage() {
                       return (
                         <div>
                           {unfunded ? (
-                            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs leading-snug text-slate-500 dark:text-slate-400 flex items-center gap-1.5 min-w-0">
                               <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400 flex-shrink-0" />
                               <span className="truncate">Planned for {pendingDateStr}, hasn&apos;t left. {item.account_bank || item.account_name || "The account"} may not have the funds for it.</span>
                             </p>
                           ) : (
-                            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                            <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">
                               Planned for {pendingDateStr}, hasn&apos;t left yet.
                             </p>
                           )}
@@ -1899,7 +1397,7 @@ export default function PlanningPage() {
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); skipOccurrence(item); }}
-                              className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
+                              className="pointer-events-auto text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
                             >
                               Dismiss for this month
                             </button>
@@ -1912,7 +1410,7 @@ export default function PlanningPage() {
                       const isDebt = item.category === "Debt";
                       return (
                         <div>
-                          <p className={`text-[11px] leading-snug ${isDebt ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
+                          <p className={`text-xs leading-snug ${isDebt ? "text-red-600 dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
                             {isDebt
                               ? `Expected ${pendingDateStr}, hasn't left. A missed card payment can mean fees, so worth checking today.`
                               : `Expected ${pendingDateStr}, we haven't seen it leave. Worth checking with them.`}
@@ -1920,7 +1418,7 @@ export default function PlanningPage() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); skipOccurrence(item); }}
-                            className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
+                            className="pointer-events-auto text-xs font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 mt-0.5 focus:outline-none focus-visible:underline"
                           >
                             Dismiss for this month
                           </button>
@@ -1928,7 +1426,7 @@ export default function PlanningPage() {
                       );
                     }
                     return (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
                         expected {new Date(item.original_date ?? item.expected_date).toLocaleDateString("en-GB", { weekday: "short" })}, hasn&apos;t left yet
                       </p>
                     );
@@ -1988,18 +1486,19 @@ export default function PlanningPage() {
                     // quiet word, same caption ramp as "pool left" itself,
                     // is the honest answer rather than a real-looking but
                     // meaningless number.
-                    <p className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                    <p className="text-xs font-medium text-slate-400 dark:text-slate-500">
                       settling
                     </p>
                   ) : isPooledNoOp(item) ? (
-                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       stays in your accounts
                     </p>
                   ) : (
-                    <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                      <span className="font-mono tabular-nums">{item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> pool left
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      After: <span className="font-mono tabular-nums">{item.balance_after >= 0 ? "" : "−"}{sym}{Math.abs(item.balance_after).toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> {item.balance_after < 0 ? "short" : "left"}
                     </p>
                   )}
+                </div>
                 </div>
               </div>
             </SwipeDismissRow>
@@ -2028,7 +1527,7 @@ export default function PlanningPage() {
                 // "from" reads correctly for both.
                 <div key="payday-boundary" className="flex items-center gap-3 py-1.5" role="separator" aria-label={`Next pay period, from ${paydayLabel}`}>
                   <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Next pay period · from {paydayLabel}</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Next pay period · from {paydayLabel}</span>
                   <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700" />
                 </div>
               );
@@ -2101,47 +1600,29 @@ export default function PlanningPage() {
               }`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">
-                      {isCalendarMonth ? "Before month end" : "To last this pay period"}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
+                      {isCalendarMonth ? "Projected at month end" : "Projected at payday"}
                     </p>
-                    <p className={`text-2xl font-bold tracking-tight font-mono tabular-nums ${
-                      runwayNegative
-                        ? "text-rose-600 dark:text-rose-400"
-                        : "text-slate-900 dark:text-slate-100"
-                    }`}>
-                      {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
-                      <span className="font-mono tabular-nums">{sym}{spendableNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> now
-                      {" − "}
-                      <span className="font-mono tabular-nums">{sym}{runwayBillsTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> bills
+                    <div className="flex items-baseline gap-2">
+                      <p
+                        aria-label={`${Math.round(Math.abs(runway)).toLocaleString("en-GB")} pounds ${runwayStatus}`}
+                        className={`text-3xl font-bold tracking-tight font-mono tabular-nums ${
+                          runwayNegative
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-slate-900 dark:text-slate-100"
+                        }`}
+                      >
+                        <span aria-hidden="true">{runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                      </p>
+                      <span className={`text-sm font-semibold ${runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-300"}`}>
+                        {runwayStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug">
                       {isCalendarMonth
-                        ? ` · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
-                        : ` · ends ${paydayLabel} (${daysToPayday} ${daysToPayday === 1 ? "day" : "days"})`}
+                        ? `${daysToPayday} ${daysToPayday === 1 ? "day" : "days"} remaining`
+                        : `${paydayLabel} · ${daysToPayday} ${daysToPayday === 1 ? "day" : "days"}`}
                     </p>
-                    {savingsNow > 0 && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
-                        <span className="font-mono tabular-nums">+ {sym}{savingsNow.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> in savings if needed
-                      </p>
-                    )}
-                    {/* Allocations subline — only the unfilled remainder,
-                        same figure already folded into the headline above
-                        (allocationsRemainingTotal), never a second/different
-                        number. Quiet ramp, matches the savings line's tone. */}
-                    {allocationsRemainingTotal > 0 && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
-                        <span className="font-mono tabular-nums">− {sym}{allocationsRemainingTotal.toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> set aside for allocations
-                      </p>
-                    )}
-                    {/* Variant A only shows this line when there's nothing
-                        else to say — once the shortfall/timing attribution
-                        below fills the card, restating "based on typical
-                        spending" is noise on top of the real news. */}
-                    {genuineShortfalls.length === 0 && timingShortfalls.length === 0 && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">
-                        Based on your typical spending, last 90 days
-                      </p>
-                    )}
                   </div>
                   {/* Same genuine/timing split as the attribution below:
                       counts genuine shortfalls only when there are any, and
@@ -2149,7 +1630,7 @@ export default function PlanningPage() {
                       when that's all that's left. Never shows red for a
                       same-day timing risk. */}
                   {(genuineShortfalls.length > 0 || timingShortfalls.length > 0) && (
-                    <span className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold ${
+                    <span className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold ${
                       genuineShortfalls.length > 0
                         ? "bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400"
                         : "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
@@ -2160,10 +1641,57 @@ export default function PlanningPage() {
                       {" "}
                       {genuineShortfalls.length > 0
                         ? `${genuineShortfalls.length} ${genuineShortfalls.length === 1 ? "account" : "accounts"} short`
-                        : `${timingShortfalls.length} ${timingShortfalls.length === 1 ? "account" : "accounts"} short`}
+                        : `${timingShortfalls.length} timing ${timingShortfalls.length === 1 ? "risk" : "risks"}`}
                     </span>
                   )}
                 </div>
+
+                <details className="group mt-3 border-t border-slate-200/80 dark:border-white/10">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+                    Full calculation
+                    <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </summary>
+                  <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
+                    <div className="flex items-center justify-between gap-4 py-1.5">
+                      <dt>Available now</dt>
+                      <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{sym}{spendableNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
+                    </div>
+                    {runwayIncomeTotal > 0 && (
+                      <div className="flex items-center justify-between gap-4 py-1.5">
+                        <dt>{isCalendarMonth ? "Income before month end" : "Income before payday"}</dt>
+                        <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">+{sym}{runwayIncomeTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-4 py-1.5">
+                      <dt>{isCalendarMonth ? "Bills before month end" : "Bills before payday"}</dt>
+                      <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">−{sym}{runwayBillsTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
+                    </div>
+                    {allocationsRemainingTotal > 0 && (
+                      <div className="flex items-center justify-between gap-4 py-1.5">
+                        <dt>Still to set aside</dt>
+                        <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">−{sym}{allocationsRemainingTotal.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</dd>
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
+                      <dt>Projected balance</dt>
+                      <dd className={`font-mono tabular-nums ${runwayNegative ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}>
+                        {runwayNegative ? "−" : ""}{sym}{Math.abs(runway).toLocaleString("en-GB", { maximumFractionDigits: 0 })}
+                      </dd>
+                    </div>
+                  </dl>
+                </details>
+
+                {savingsNow > 0 && (
+                  <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-slate-500 dark:text-slate-400">
+                    <span>Savings backup</span>
+                    <span><span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{sym}{savingsNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> · not included</span>
+                  </div>
+                )}
+                {genuineShortfalls.length === 0 && timingShortfalls.length === 0 && (
+                  <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">
+                    Predicted bills use your last 90 days.
+                  </p>
+                )}
 
                 {/* The shortfall attribution — stated exactly once on the
                     whole page now. One sentence per genuinely short
@@ -2184,7 +1712,7 @@ export default function PlanningPage() {
                       </p>
                     ))}
                     <div className="mt-2 flex items-center justify-between gap-3">
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Payments can take a day or two to appear, so a very recent one may not be counted yet.
                       </p>
                       {/* Review — same behaviour the old banner's Review
@@ -2193,7 +1721,7 @@ export default function PlanningPage() {
                           link. Amendment (owner, verbatim: "the review
                           should be an chevron instead of an arrow"):
                           Variant A's own mock reads "Review →"; every other
-                          row affordance in this app (DockRow, PlansDock,
+                          row affordance in this app (AllocationCards,
                           "could save … ›") uses a trailing chevron, not an
                           arrow, so this uses the same ChevronRight icon
                           rather than A's arrow glyph. */}
@@ -2235,44 +1763,13 @@ export default function PlanningPage() {
               </div>
             )}
 
-            <PlansDock
-              debtView={debtSummary}
-              growView={growView}
-              hide={hideNetWorth}
-              onDebtTap={() => router.push("/cards")}
-              onGrowTap={() => router.push("/grow")}
-            />
             <PlansSection
-              commitments={commitments}
               allocations={allocations}
               allocationsError={allocationsError}
               accounts={accounts}
               onAdd={() => setSetAsideSheetOpen(true)}
-              onEditCommitment={(c) => setCommitmentSheet({ editing: c })}
               onEditAllocation={(a) => setAllocationSheet(a)}
             />
-            {/* PennyPromptBar removed here (owner, 2026-08-25: "I think we
-                can remove penny from the planning page"). HISTORY: this bar
-                was removed once before, on 2026-08-17, on the owner's
-                challenge that a one-tap-away control duplicated the bottom
-                nav and outranked the genuine-risk shortfall alert above it
-                on this page — then re-added when Penny became its own
-                /penny page and Planning needed an explicit door back in.
-                That reasoning no longer applies: Penny now opens as a
-                popover from the nav (usePennySheet,
-                components/PennySheetProvider.tsx) on every screen,
-                including this one, so the nav affordance the 2026-08-17
-                removal was protecting is already present in-place here —
-                this bar would just be a second, redundant one. Same logic,
-                same retirement; it should not come back a third time.
-                `planningSummary` (the runway/at-risk grounding string this
-                bar used to hand off via `open({ summary })`) was removed
-                alongside it: BottomNav.tsx's screenForPathname/
-                openPennySheet is the only other caller that opens the sheet
-                with `screen: "planning"`, and it passes only `{ screen,
-                paydayActive }`, no `summary` — so there was no other
-                reachable path left for that string to reach Penny through,
-                and it's gone rather than left as an orphaned computation. */}
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">
@@ -2280,46 +1777,49 @@ export default function PlanningPage() {
               </div>
             )}
             {groups.length > 0 && (
-              <div className="space-y-3" data-tutorial-id="tutorial-planning-upcoming">
+              <section className="space-y-3" data-tutorial-id="tutorial-planning-upcoming" aria-labelledby="upcoming-ledger-heading">
+                <div className="flex items-end justify-between gap-3 px-1">
+                  <h2 id="upcoming-ledger-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Upcoming</h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">“After” is your projected cash</p>
+                </div>
                 {renderGroups(groups)}
-              </div>
+              </section>
             )}
           </div>
         );
       })()}
     </>
   );
+  /* eslint-enable react-hooks/refs */
 
   return (
-    <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-3xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div className="mx-auto min-h-dvh max-w-xl pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">PLANNING</p>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">What&apos;s coming</h1>
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1">UPCOMING</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Before payday</h1>
+            <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">What will enter or leave, and whether every payment is covered.</p>
           </div>
-          {/* Entry point to /planning/dismissed. Owner pick, 2026-08-29,
-              from the /design/dismissed entry-point round: Variant A, a
-              bare bin glyph, icon only, header right, transplanted class-
-              for-class from EntryPointVariants.tsx's HeaderA. Always
-              visible rather than appearing only once something is set
-              aside, so it sits exactly where a user reaching for it after
-              an accidental dismissal already expects to find it, just
-              quieter (lighter slate, no badge) while dismissedCount is 0.
-              The foot link this replaced (both branches of the upcoming
-              list, below) is removed per A/B's shared rule: one
-              destination, one door. */}
+          {/* Hidden predictions are recoverable, not deleted. Eye-off keeps
+              that meaning distinct from a destructive bin action. */}
           <button
             type="button"
-            onClick={() => router.push("/planning/dismissed")}
-            aria-label="Set aside"
+            onClick={() => router.push("/upcoming/dismissed")}
+            aria-label={dismissedCount > 0 ? `Review ${dismissedCount} hidden predictions` : "Review hidden predictions"}
+            title="Hidden predictions"
             className="relative shrink-0 w-11 h-11 rounded-xl flex items-center justify-center active:scale-95 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
-            <Trash2
+            <EyeOff
               size={20}
               strokeWidth={1.75}
               className={dismissedCount > 0 ? "text-slate-500 dark:text-slate-400" : "text-slate-300 dark:text-slate-600"}
             />
+            {dismissedCount > 0 && (
+              <span className="absolute right-1 top-1 min-w-4 h-4 px-1 rounded-full bg-indigo-600 text-[10px] leading-4 font-semibold text-white text-center font-mono tabular-nums" aria-hidden="true">
+                {Math.min(dismissedCount, 99)}
+              </span>
+            )}
           </button>
         </div>
         {/* The genuine/timing shortfall callouts that used to live here
@@ -2396,17 +1896,6 @@ export default function PlanningPage() {
         />
       )}
 
-      {/* CommitmentSheet */}
-      {commitmentSheet && (
-        <CommitmentSheet
-          accounts={accounts}
-          commitment={commitmentSheet.editing}
-          onClose={() => setCommitmentSheet(null)}
-          onSaved={() => refreshCommitments()}
-          onCancelled={() => refreshCommitments()}
-        />
-      )}
-
       {/* AllocationSheet — edit only, creation is SetAsideSheet's envelope step */}
       {allocationSheet && (
         <AllocationSheet
@@ -2422,10 +1911,10 @@ export default function PlanningPage() {
       {/* SetAsideSheet — the single "+ Set money aside" door */}
       {setAsideSheetOpen && (
         <SetAsideSheet
+          scope="upcoming"
           accounts={accounts}
           periodStart={periodStart}
           onClose={() => setSetAsideSheetOpen(false)}
-          onSelectByDate={() => setCommitmentSheet({ editing: null })}
           onSelectSingle={() => setPlanSheetOpen(true)}
           onSavedAllocation={() => refreshAllocations()}
         />

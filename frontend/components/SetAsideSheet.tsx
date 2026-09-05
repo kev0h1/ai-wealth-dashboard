@@ -50,10 +50,12 @@ interface SetAsideSheetProps {
   periodStart: Date;
   onClose: () => void;
   /** Hands off to the existing CommitmentSheet (create mode); this sheet closes itself. */
-  onSelectByDate: () => void;
+  onSelectByDate?: () => void;
   /** Hands off to the existing PlanOneOffSheet; this sheet closes itself. */
   onSelectSingle: () => void;
   onSavedAllocation: (item: Allocation) => void;
+  /** Limits the first step to period-scoped choices on Upcoming. */
+  scope?: "all" | "upcoming";
 }
 
 export default function SetAsideSheet({
@@ -63,6 +65,7 @@ export default function SetAsideSheet({
   onSelectByDate,
   onSelectSingle,
   onSavedAllocation,
+  scope = "all",
 }: SetAsideSheetProps) {
   useLockBodyScroll();
   useSheetOpen();
@@ -90,7 +93,7 @@ export default function SetAsideSheet({
   const periodStartLabel = periodStart.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
   function pickKind(kind: Kind) {
-    if (kind === "date") { onSelectByDate(); onClose(); return; }
+    if (kind === "date") { onSelectByDate?.(); onClose(); return; }
     if (kind === "single") { onSelectSingle(); onClose(); return; }
     setStep("envelope");
   }
@@ -201,7 +204,7 @@ export default function SetAsideSheet({
           >
             {step === "kind" && (
               <div className="space-y-2 pb-2">
-                {KINDS.map((k) => {
+                {KINDS.filter((kind) => scope === "all" || kind.id !== "date").map((k) => {
                   const Icon = k.icon;
                   return (
                     <button

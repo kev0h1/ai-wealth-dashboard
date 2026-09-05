@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import LongTermPlanningPage from "./LongTermPlanningPage";
+import UpcomingPage from "../planning/PlanningPage";
 
-export default function Planning() {
+export default function Upcoming() {
   return (
     <Suspense fallback={<div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />}>
-      <LongTermPlanningPage />
+      <UpcomingPage />
     </Suspense>
   );
 }

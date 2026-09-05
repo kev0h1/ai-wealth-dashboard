@@ -263,8 +263,13 @@ function newBuckets(): Record<PennyAskContext["screen"], ThreadBucket> {
   return {
     home: newBucket(),
     spend: newBucket(),
+    upcoming: newBucket(),
     planning: newBucket(),
     insights: newBucket(),
+    // "grow" is unreachable in practice (Grow folded into Planning
+    // 2026-09-04, /grow now just redirects there) but stays in the union
+    // this Record is keyed off — see PennySheetProvider.tsx's own comment —
+    // so it needs a bucket here too, same as every other member.
     grow: newBucket(),
     debt: newBucket(),
     tax: newBucket(),
@@ -1729,7 +1734,7 @@ export default function PennyConversation({
   //      conversation rather than answering inline) but still cost nothing
   //      to show or tap.
   //   3. LLM ask chips — every other config `ask` chip (tax explainers,
-  //      spend/planning/grow/debt domain questions); each tap is a real
+  //      spend/planning/debt domain questions); each tap is a real
   //      LLM round-trip, so these rank behind the two free tiers above.
   //   4. personalised suggestions (canISuggestions' £-chips) fill whatever
   //      slots remain — already screen-relevant, but generic next to a

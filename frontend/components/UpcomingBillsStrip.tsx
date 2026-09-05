@@ -170,7 +170,7 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
   const headsUp = computeHeadsUp(bills);
   const heaviestIso = headsUp.kind === "insight" ? headsUp.heaviestLead.isoDate : undefined;
   const targetIso = today[0]?.isoDate ?? heaviestIso;
-  const href = targetIso ? `/planning?day=${targetIso}` : "/planning";
+  const href = targetIso ? `/upcoming?day=${targetIso}` : "/upcoming";
 
   return (
     <div className="px-4 lg:px-0 fade-in">

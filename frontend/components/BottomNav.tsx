@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, CalendarClock, Lightbulb } from "lucide-react";
+import { Home, PieChart, CalendarClock, Target } from "lucide-react";
 import { api, CompanionItem } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
 import { isPaydayWindowActive, PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
@@ -19,8 +19,6 @@ import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProv
 // cache, same as before.
 const PAGES_THAT_SELF_REPORT_PAYDAY = ["/", "/penny"];
 
-// Ambient awareness: a quiet count of new insights on the tab icon.
-// Cached 5 minutes so navigating between pages doesn't hammer the API.
 // State badge (not seen-clearable): bills due in 7 days their account can't cover
 function useAtRiskCount(): number {
   const [count, setCount] = useState(0);
@@ -37,27 +35,6 @@ function useAtRiskCount(): number {
       .then(({ count: n }) => {
         setCount(n);
         try { localStorage.setItem("wd_spend_badge", JSON.stringify({ n, at: Date.now() })); } catch {}
-      })
-      .catch(() => {});
-  }, []);
-  return count;
-}
-
-function useNewInsightCount(): number {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem("wd_insight_badge");
-      if (cached) {
-        const { n, at } = JSON.parse(cached);
-        setCount(n);
-        if (Date.now() - at < 5 * 60_000) return;
-      }
-    } catch {}
-    api.newInsightCount()
-      .then(({ count: n }) => {
-        setCount(n);
-        try { localStorage.setItem("wd_insight_badge", JSON.stringify({ n, at: Date.now() })); } catch {}
       })
       .catch(() => {});
   }, []);
@@ -114,15 +91,14 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
   switch (pathname) {
     case "/": return "home";
     case "/spend": return "spend";
+    case "/upcoming": return "upcoming";
     case "/planning": return "planning";
     case "/insights": return "insights";
-    // Both added 2026-08-25 for lib/pennyScreenConfig.tsx — confirmed real,
-    // separate routes on a route survey (find app -name page.tsx), not
-    // sub-views of Planning. GrowVariant1 (app/grow/GrowVariant1.tsx, the
-    // live variant behind /grow) does NOT currently render BottomNav at
-    // all — no Penny entry point exists on that screen yet, so this case
-    // is correct but inert until that file (outside this feature's file
-    // ownership) adds one.
+    // "grow" stays a producible value here even though Grow folded into
+    // Planning 2026-09-04 (see PennySheetProvider.tsx's `PennyAskContext`
+    // comment) — /grow is now a client redirect that never renders this
+    // BottomNav, so this case is inert in practice, kept only so the
+    // switch's return type keeps agreeing with the union.
     case "/grow": return "grow";
     // Was "/debt-plan" (DebtPlanPage.tsx rendered this BottomNav itself)
     // until that page was retired 2026-08-30 — CardsPage.tsx (/cards) is
@@ -145,22 +121,23 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
 
 // 4 real tabs. Slot indices leave slot 2 (of 5) empty as the spacer the
 // raised Penny button floats over — mirrors app/design/_nav/NavPrototype.tsx.
-type TabId = "home" | "spend" | "planning" | "insights";
+type TabId = "home" | "spend" | "upcoming" | "planning";
 const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: number }[] = [
   { id: "home", href: "/", label: "Home", Icon: Home, slot: 0 },
-  { id: "spend", href: "/spend", label: "Spend", Icon: PieChart, slot: 1 },
-  { id: "planning", href: "/planning", label: "Planning", Icon: CalendarClock, slot: 3 },
-  { id: "insights", href: "/insights", label: "Insights", Icon: Lightbulb, slot: 4 },
+  // A primary-nav tap is an explicit return to the transaction/category
+  // breakdown, never a restoration of the optional Patterns view.
+  { id: "spend", href: "/spend?view=period", label: "Spend", Icon: PieChart, slot: 1 },
+  { id: "upcoming", href: "/upcoming", label: "Upcoming", Icon: CalendarClock, slot: 3 },
+  { id: "planning", href: "/planning", label: "Planning", Icon: Target, slot: 4 },
 ];
 
 export default function BottomNav() {
   const pathname = usePathname();
   const { open: openPennySheet, close: closePennySheet, isOpen: pennySheetOpen } = usePennySheet();
-  const newInsights = useNewInsightCount();
   const atRisk = useAtRiskCount();
   const paydayActive = usePaydayWindowActive(PAGES_THAT_SELF_REPORT_PAYDAY.includes(pathname ?? ""));
 
-  const activeTab = TABS.find((t) => t.href === pathname);
+  const activeTab = TABS.find((t) => t.id === "spend" ? pathname === "/spend" : t.href === pathname);
   // Halo state: lit either on the /penny hub route itself, or while the
   // floating chat window (PennySheetProvider.tsx) is open — the button
   // is what the window visually "came out of" (PennySheet.tsx's header
@@ -305,21 +282,13 @@ export default function BottomNav() {
                         strokeWidth={isActive ? 2.5 : 1.8}
                         className={isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}
                       />
-                      {/* Living dots — calm ambient state, not counts. Amber on
-                          Planning (bills at risk), violet on Insights (new
-                          reads) so the only bright colour on the rail stays
-                          Penny's indigo→violet + this restrained pair. */}
-                      {tab.id === "planning" && atRisk > 0 && (
+                      {/* Bills-at-risk belongs to the near-term Upcoming
+                          surface, not the long-term plan. */}
+                      {tab.id === "upcoming" && atRisk > 0 && (
                         <span
                           aria-hidden="true"
                           className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full"
                           style={{ background: "#f59e0b" }}
-                        />
-                      )}
-                      {tab.id === "insights" && newInsights > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-violet-500"
                         />
                       )}
                     </span>

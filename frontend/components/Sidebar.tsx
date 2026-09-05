@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, CalendarClock, Lightbulb } from "lucide-react";
+import { Home, PieChart, Settings, CalendarClock, Target } from "lucide-react";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import { screenForPathname } from "@/components/BottomNav";
 
 const TABS = [
-  { href: "/", label: "Home", Icon: Home },
-  { href: "/spend", label: "Spend", Icon: PieChart },
-  { href: "/planning", label: "Planning", Icon: CalendarClock },
-  { href: "/insights", label: "Insights", Icon: Lightbulb },
-  { href: "/settings", label: "Settings", Icon: Settings },
+  { href: "/", matchPath: "/", label: "Home", Icon: Home },
+  { href: "/spend?view=period", matchPath: "/spend", label: "Spend", Icon: PieChart },
+  { href: "/upcoming", matchPath: "/upcoming", label: "Upcoming", Icon: CalendarClock },
+  { href: "/planning", matchPath: "/planning", label: "Planning", Icon: Target },
+  { href: "/settings", matchPath: "/settings", label: "Settings", Icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -49,8 +49,8 @@ export default function Sidebar() {
 
       {/* Nav links */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {TABS.map(({ href, label, Icon }) => {
-          const active = pathname === href;
+        {TABS.map(({ href, matchPath, label, Icon }) => {
+          const active = pathname === (matchPath ?? href);
           return (
             <Link
               key={href}
