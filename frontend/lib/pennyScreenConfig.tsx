@@ -42,12 +42,15 @@
 //
 // Route survey behind the `link` chips and headerLinks below (2026-08-25,
 // `find app -name page.tsx`): confirmed real, routable pages used here are
-// `/accounts`, `/mirror`, `/transactions`, `/insights/tax`,
-// `/insights/receipts`, `/planning`, `/upcoming`, `/cards`. Two surfaces the
-// brief for this feature guessed at do NOT exist as routable targets, see
-// the `spend` entry below for what replaced them. `/grow` also appeared in
-// this list originally; it's now a redirect to `/planning` (Grow folded in,
-// 2026-09-04), not a distinct screen any chip below routes to.
+// `/accounts`, `/mirror`, `/transactions`, `/tax`, `/receipts`, `/planning`,
+// `/upcoming`, `/cards`. Two surfaces the brief for this feature guessed at
+// do NOT exist as routable targets, see the `spend` entry below for what
+// replaced them. `/grow` also appeared in this list originally; it's now a
+// redirect to `/planning` (Grow folded in, 2026-09-04), not a distinct
+// screen any chip below routes to. `/tax`/`/receipts` were `/insights/tax`/
+// `/insights/receipts` until the Insights page retired (2026-09-05, see the
+// `insights` entry's own comment below) — moved to top-level routes, links
+// updated here to match.
 
 import type { PennyAskContext } from "@/components/PennySheetProvider";
 
@@ -201,12 +204,24 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     ],
     personalisedChips: false,
   },
+  // The Insights page itself retired 2026-09-05 (/insights is now a client
+  // redirect to /spend/shape or /tax that never opens this sheet from a
+  // real route — see BottomNav.tsx's screenForPathname, which no longer
+  // produces "insights" either). This entry, and the "insights" member of
+  // `PennyAskContext["screen"]` it depends on, are kept anyway: the standing
+  // design twin at app/design/insights-live/InsightsLiveClient.tsx still
+  // calls `openPennySheet({ screen: "insights", ... })`, and
+  // PennyConversation.tsx's `newBuckets()` requires a bucket for every
+  // union member. Removing "insights" would break that twin's typecheck for
+  // no live-route benefit, so it stays, unreachable from a real screen but
+  // still real for the twin — same "keep it real dead code" call as the
+  // `grow` entry below.
   insights: {
     headerLinks: DEFAULT_HEADER_LINKS,
     chips: [
       PAYDAY_DUE_ASK,
-      { kind: "link", label: "Tax", href: "/insights/tax" },
-      { kind: "link", label: "Receipts", href: "/insights/receipts" },
+      { kind: "link", label: "Tax", href: "/tax" },
+      { kind: "link", label: "Receipts", href: "/receipts" },
     ],
     personalisedChips: false,
   },

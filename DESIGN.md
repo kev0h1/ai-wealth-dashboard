@@ -243,6 +243,9 @@ Planning's priority ladder folds to what is live: completed rungs collapse into 
 ### Tips on Spend and the transactions page (2026-09-05)
 Savings tips never add rows to the Spend category list. A category that has open tips says so in its own subline, count first and a figure only for the tips that carry one ("2 tips · ~£52/mo from 1"), muted like the rest of the subline. The tip itself waits on the transactions page: when a single category filter is active, one collapsed line sits under the filter chips, above the payments, and unfolds in place to the tip detail, fact line first, then the researched body, the estimate and the research age. Single-tip categories unfold straight to the detail. Nothing about tips is attributed to Penny; they are research, labelled as tips, with their age visible.
 
+### The shape card and Your money's shape (2026-09-05)
+The money shape leaves Spend's Patterns view. The period view ends on one instrument card, How your pay was split, with the four-segment bar and four figures, Fixed, Moved, Free and Left (Beyond take-home when spend went over), and opens Your money's shape, a drill-in page holding the shape hero with its period and averages control, what works for you, and the reference shapes. It holds nothing else. Tips live in category sublines and on the transactions page. The Insights page is retired.
+
 ## 6. Do's and Don'ts
 
 ### Do:
@@ -260,4 +263,4 @@ Savings tips never add rows to the Spend category list. A category that has open
 - **Don't** use red outside genuine financial risk (The Red Is Risk Rule) or the Penny gradient outside AI surfaces (The Penny Gradient Rule).
 - **Don't** flood surfaces with a category colour; tint at ~15% and let the icon carry the hue (The Category Voice Rule).
 - **Don't** stack shadows for depth — if separation fails, fix tone or borders (The One Shadow Rule).
-- **Don't** stretch the mobile column on desktop; wide screens get real multi-column layouts (as Home, Spend, Budget, Insights already do).
+- **Don't** stretch the mobile column on desktop; wide screens get real multi-column layouts (as Home, Spend, Budget already do).

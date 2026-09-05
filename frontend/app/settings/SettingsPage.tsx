@@ -24,6 +24,7 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account } from "@/lib/api";
+import { getAccountsCached } from "@/lib/accountsCache";
 import { isNativePlatform } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
@@ -195,7 +196,7 @@ export default function SettingsPage() {
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
   const [coverOpen, setCoverOpen] = useState(false);
   useEffect(() => {
-    api.accounts().then(accs => {
+    getAccountsCached().then(accs => {
       const eligible = accs.filter(acc => {
         const type = (acc.type || "").toLowerCase();
         const sub = (acc.subtype || "").toLowerCase();
@@ -905,7 +906,7 @@ export default function SettingsPage() {
 
           {incomeBracket && (
             <button
-              onClick={() => router.push("/insights?tab=tax")}
+              onClick={() => router.push("/tax")}
               className="w-full flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 active:bg-indigo-50 dark:active:bg-indigo-900/10 transition-colors"
             >
               <span className="text-sm font-semibold">View tax breakdown</span>

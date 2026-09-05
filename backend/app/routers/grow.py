@@ -10,6 +10,7 @@ percentages) — never an instruction. 'options' use generic trade-off
 phrasing ("some people ...", "overpaying debt is a guaranteed return ...")
 and never say "you should".
 """
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -17,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
+from app.services import response_cache
 from app.db.collections import (
     card_terms_col,
     investment_accounts_col,
@@ -36,13 +38,13 @@ DAYS_PER_MONTH = 30.44
 FULL_FUND_MONTHS = 3
 
 # UK income-tax facts used for the pension rungs (mirrors the client-side
-# maths in frontend/app/insights/tax/TaxPage.tsx — keep the two in sync).
+# maths in frontend/app/tax/TaxPage.tsx — keep the two in sync).
 PERSONAL_ALLOWANCE = 12_570
 TAPER_START = 100_000
 TAPER_END = 125_140
 HIGHER_RATE_THRESHOLD = 50_270
 PENSION_ANNUAL_ALLOWANCE = 60_000
-TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/insights?tab=tax"}
+TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/tax"}
 
 
 # ── Small formatting helpers (facts only — no instructions) ──────────────────
@@ -64,7 +66,7 @@ def _safe_float(value, default: float = 0.0) -> float:
 def _taper_loss(adjusted_income: float) -> float:
     """Personal allowance lost to the £100k taper.
 
-    Mirrors `taperLoss()` in frontend/app/insights/tax/TaxPage.tsx: £1 of
+    Mirrors `taperLoss()` in frontend/app/tax/TaxPage.tsx: £1 of
     allowance goes for every £2 of adjusted income above £100,000.
     """
     if adjusted_income <= TAPER_START:
@@ -221,6 +223,19 @@ async def _promo_cliff(uid: str, account_ids: set[str]) -> Optional[str]:
 @router.get("/grow")
 async def grow_view(user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # ── Short-TTL response cache (90 s). Grow's own writers never mutate
+    # anything directly — everything it reads (preferences, debt plan,
+    # savings goal/plan, investments, card terms) is invalidated elsewhere
+    # via the generic response_cache.invalidate(uid) full-wipe (accounts.py,
+    # allocations.py, card_terms.py, analytics.py's transaction/sync paths,
+    # checkpoints.py, planned.py, income.py, account_cascade.py, and
+    # PATCH /preferences), so this entry is dropped the same moment those
+    # writes drop debt_plan's own cache. ─────────────────────────────────
+    cached = response_cache.get("grow", uid)
+    if cached is not None:
+        return cached
+
     region = await get_user_region(uid)
     cutoff = datetime.now() - timedelta(days=90)
 
@@ -237,9 +252,9 @@ async def grow_view(user: dict = Depends(current_user)):
     # Lazy import: avoids a circular import at module load, same pattern as
     # app/services/pace.py, app/services/spend_impact.py and
     # app/routers/planned.py's own calls into this function.
-    from app.routers.analytics import compute_safe_to_spend
+    from app.routers.analytics import get_cached_safe_to_spend
     try:
-        _sts = await compute_safe_to_spend(uid)
+        _sts = await get_cached_safe_to_spend(uid)
     except Exception:
         logger.exception("grow: compute_safe_to_spend failed for %s — treating as not short", uid)
         _sts = {"status": "insufficient_data"}
@@ -294,7 +309,7 @@ async def grow_view(user: dict = Depends(current_user)):
 
     # ── Investments (reuses investments.py display helper) ───────────────────
     inv_accounts = await investment_accounts_col.find({"user_id": uid}).to_list(None)
-    _inv_displays = [await _investment_display(a) for a in inv_accounts]
+    _inv_displays = await asyncio.gather(*(_investment_display(a) for a in inv_accounts))
     portfolio_value = round(
         sum(d["display_value"] for d in _inv_displays), 2
     )
@@ -500,7 +515,7 @@ async def grow_view(user: dict = Depends(current_user)):
         "The cash-ISA limit drops to £12,000 for under-65s from April 2027.",
     ]
 
-    return {
+    result = {
         "verdict": verdict,
         "surplus_monthly": round(monthly_surplus, 2),
         "buffer": buffer,
@@ -510,3 +525,5 @@ async def grow_view(user: dict = Depends(current_user)):
         "notes": notes,
         "period_gate": period_gate,
     }
+    response_cache.put("grow", uid, result)
+    return result

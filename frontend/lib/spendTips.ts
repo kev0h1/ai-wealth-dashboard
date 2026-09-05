@@ -10,20 +10,47 @@ import type { SavingsInsight } from "@/lib/api";
 
 /** Every READABLE tip for a given Spend category — state "fresh", matched
  *  on the backend's own `app_category` field. For an older payload that
- *  predates the `state` field, falls back to the same rule
- *  InsightsPage.tsx's own `heroOpen` uses for a missing state:
- *  `!verified_savings && !substituted`. Deliberately narrower than
- *  heroOpen otherwise — heroOpen also counts "quiet" as open, but a quiet
- *  card renders no title/body/estimate (InsightCard has nothing to show
- *  for it), so it is excluded here on purpose rather than opening a tip
- *  strip with no content. Never returns a verified/substituted/quiet tip;
- *  those are closed or silent states, not actionable tips. */
+ *  predates the `state` field, falls back to the same missing-state rule
+ *  the old Insights hero's own `heroOpen` used (that page, and `heroOpen`
+ *  with it, deleted 2026-09-05): `!verified_savings && !substituted`.
+ *  Deliberately narrower than that historical rule otherwise — it also
+ *  counted "quiet" as open, but a quiet card renders no title/body/estimate
+ *  (components/InsightCard.tsx has nothing to show for it), so it is
+ *  excluded here on purpose rather than opening a tip strip with no
+ *  content. Never returns a verified/substituted/quiet tip; those are
+ *  closed or silent states, not actionable tips. */
 export function openTipsFor(category: string, insights: SavingsInsight[]): SavingsInsight[] {
   return insights.filter((t) => {
     if (t.app_category !== category) return false;
     if (t.state != null) return t.state === "fresh";
     return !t.verified_savings && !t.substituted;
   });
+}
+
+/** The tip a merchant-scoped transactions deep-link (`?merchants=…&tip=…`)
+ *  should unfold to — used when there's no category filter active but a
+ *  merchants filter is, mirroring `openTipsFor`'s category-scoped role for
+ *  that case. Always returns at most one insight (or none): a merchant deep
+ *  link only ever names the one insight the caller (HomeInsightSpotlight)
+ *  actually linked to, never "every tip touching this merchant". Matches on
+ *  `tipId` first (the authoritative link), then confirms that insight's own
+ *  merchant evidence (`triggered_by[0].display_name`) is actually one of the
+ *  merchants in the filter — a stale/mismatched `tip=` id (or a `merchants=`
+ *  value that no longer matches its insight) yields no tip rather than a
+ *  wrong one. Never returns a verified/substituted/quiet tip, same as
+ *  `openTipsFor`. */
+export function tipsForMerchants(
+  merchants: string[],
+  insights: SavingsInsight[],
+  tipId: string | null
+): SavingsInsight[] {
+  if (!tipId || merchants.length === 0) return [];
+  const tip = insights.find((t) => t.id === tipId);
+  if (!tip) return [];
+  if (tip.state != null ? tip.state !== "fresh" : (tip.verified_savings || tip.substituted)) return [];
+  const merchantName = tip.triggered_by?.[0]?.display_name;
+  if (!merchantName || !merchants.includes(merchantName)) return [];
+  return [tip];
 }
 
 /** Sum of `savings_estimate_monthly` across exactly the tips passed in,

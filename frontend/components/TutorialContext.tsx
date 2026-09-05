@@ -336,44 +336,13 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
       },
     ],
   },
-  {
-    id: "insights",
-    label: "Insights",
-    blurb: "What Sorted noticed, and what to do",
-    route: "/insights",
-    readyKey: "insights",
-    steps: [
-      {
-        id: "insights-hero",
-        target: "tutorial-insights-hero",
-        tooltipSide: "below",
-        iconName: "Lightbulb",
-        color: "#d97706",
-        bg: "#fef3c7",
-        title: "What Sorted noticed",
-        description: "Insights come out of your own data. Each one is something worth acting on, not generic advice.",
-      },
-      {
-        id: "insights-list",
-        target: "tutorial-insights-list",
-        tooltipSide: "above",
-        iconName: "ListChecks",
-        color: "#4f46e5",
-        bg: "#ede9fe",
-        title: "Work through them",
-        description: "Each one says what it saw and what acting on it would take. Dismiss the ones that are not for you.",
-      },
-      {
-        id: "insights-penny",
-        tooltipSide: "center",
-        iconName: "Sparkles",
-        color: "#4f46e5",
-        bg: "#ede9fe",
-        title: "Ask about any of it",
-        description: "Penny can explain an insight in more detail, or tell you whether a particular spend is affordable.",
-      },
-    ],
-  },
+  // The "insights" flow (What Sorted noticed / Work through them / Ask
+  // about any of it) retired with the Insights page itself (2026-09-05,
+  // /insights is now a client redirect to /spend/shape or /tax). Its two
+  // `data-tutorial-id` targets (tutorial-insights-hero on
+  // app/spend/shape/MoneyShapeHero.tsx, tutorial-insights-list) are now
+  // inert — harmless, unreferenced by any flow — rather than stripped from
+  // that file, which is out of scope for this retirement.
 ];
 
 type ActionHandler = () => void | Promise<void>;

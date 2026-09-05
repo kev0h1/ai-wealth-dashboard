@@ -15,6 +15,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-shape",
+    name: "spend-shape",
+    description:
+      "Shape card on the Spend period view + the /spend/shape destination (owner decisions 2026-09-05: Insights page retired, shape hero left Patterns) · variant B, the instrument, is the SHIPPED design — renders the live components/SpendShapeCard.tsx; A (sentence) and C (change-led) kept as reference forks · the shape view renders the live app/spend/shape/ShapePage.tsx fed this route's fixture — hero, what works, reference shapes, nothing else, no tips index · ?variant=a|b|c&mode=light|dark&view=list|shape",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "spend-tips",
     name: "spend-tips",
     description:
@@ -29,26 +36,6 @@ const ROUTES: PreviewRoute[] = [
     states: [
       { label: "Short period", value: "short" },
       { label: "Calm period", value: "calm" },
-    ],
-  },
-  {
-    slug: "insights-full",
-    name: "insights-full",
-    description:
-      "Insights tab FULL-PAGE wireframe on variant A (Kevin's pick 2026-09-02) · tappable job rows wired to Planning/Penny/Spend/Home · What-works card with Mirror citation + consent-aware Penny proposal · existing tip cards (real InsightCard) regrouped by job with a shape-anchor strip · Elsewhere appendix mocking the Spend header line, Home change moment, Planning proposal · ?state=full|thin&consent=change|keep&mode=light|dark",
-    states: [
-      { label: "Full", value: "full" },
-      { label: "Thin history", value: "thin" },
-    ],
-  },
-  {
-    slug: "insights-shape",
-    name: "insights-shape",
-    description:
-      "Insights tab redesign wireframe (2026-09-02) · philosophy: money has a few jobs, describe the user's own shape, never grade it · 3 hero variants (A one bar + legend / B four tiles with sparklines / C sentence-led + ribbon) over a shared \"What works for you\" evidence card, reference-shapes link row, and placeholder order for the rest of the tab · ?variant=a|b|c&state=full|thin&mode=light|dark",
-    states: [
-      { label: "Full", value: "full" },
-      { label: "Thin history", value: "thin" },
     ],
   },
   {
@@ -134,15 +121,9 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "insights-hero",
-    name: "insights-hero",
-    description: "Insights tab hero · Variant B (opportunity leads) chosen, now vs full/partial/no-estimate-coverage + nothing-open states",
-    states: [{ label: "Everything", value: "everything" }],
-  },
-  {
     slug: "insights-live",
     name: "insights-live",
-    description: "STANDING design twin for Insights (owner phone report 2026-09-01, \"still empty cards\"; updated same-day for the cost-driven TTL reversal; extended 2026-09-02 for the money-shape redesign, then again same-day for Kevin's phone feedback — job rows link to real transactions not Planning, and (after a short-lived separate \"Over time\" block was retired the same day per Kevin's redirect) a period/average PICKER built into the hero itself) · renders the REAL exported InsightsPage.tsx components (InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero) against fixture payloads shaped field-for-field like the live GET /savings-insights serializer output · one fixture per insight.state (fresh with the weekly-default expiry line, fresh with a dated-claim expiry line, quiet never-researched, quiet expired-since-last-pass, substituted, verified) plus the is_new invariant case · ALSO renders the real MoneyShapeHero/WhatWorksCard/ReferenceShapesRow against MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, copy mirrors backend/app/services/money_shape.py's deterministic templates) independently selectable via its own `shape` param: ok_change (live Penny proposal, carries 8 periods + 3/6-month averages exercising the hero's own period/average picker sheet), ok_keep (trait kept, celebration chip), ok_nochoice (undecided trait, \"choose in your Mirror\" link), no_pattern (headline-only, no rows), thin (both cards fall back to their one-line placeholder), overspent (\"Beyond take-home\" row, no red, calm_start proposal) · closes the verification blind spot that let three prior fix rounds ship on code-trace alone, /insights has no auth-exempt twin so nobody ever rendered the pixels · ?mode=light|dark&state=all|fresh_weekly|fresh_claim|quiet_never_researched|quiet_expired|substituted|verified|is_new&shape=ok_change|ok_keep|ok_nochoice|no_pattern|thin|overspent",
+    description: "STANDING design twin for Insights, kept even after the Insights page itself retired 2026-09-05 (owner phone report 2026-09-01, \"still empty cards\"; updated same-day for the cost-driven TTL reversal; extended 2026-09-02 for the money-shape redesign, then again same-day for Kevin's phone feedback — job rows link to real transactions not Planning, and (after a short-lived separate \"Over time\" block was retired the same day per Kevin's redirect) a period/average PICKER built into the hero itself) · renders the REAL exported components/InsightCard.tsx components (InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero) against fixture payloads shaped field-for-field like the live GET /savings-insights serializer output · one fixture per insight.state (fresh with the weekly-default expiry line, fresh with a dated-claim expiry line, quiet never-researched, quiet expired-since-last-pass, substituted, verified) plus the is_new invariant case · ALSO renders the real MoneyShapeHero/WhatWorksCard/ReferenceShapesRow (now app/spend/shape/) against MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, copy mirrors backend/app/services/money_shape.py's deterministic templates) independently selectable via its own `shape` param: ok_change (live Penny proposal, carries 8 periods + 3/6-month averages exercising the hero's own period/average picker sheet), ok_keep (trait kept, celebration chip), ok_nochoice (undecided trait, \"choose in your Mirror\" link), no_pattern (headline-only, no rows), thin (both cards fall back to their one-line placeholder), overspent (\"Beyond take-home\" row, no red, calm_start proposal) · closes the verification blind spot that let three prior fix rounds ship on code-trace alone, before this twin existed nobody ever rendered the pixels · ?mode=light|dark&state=all|fresh_weekly|fresh_claim|quiet_never_researched|quiet_expired|substituted|verified|is_new&shape=ok_change|ok_keep|ok_nochoice|no_pattern|thin|overspent",
     states: [{ label: "Everything", value: "all" }],
   },
   {

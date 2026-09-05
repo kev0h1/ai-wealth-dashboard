@@ -44,7 +44,7 @@
 //    is, which is exactly the detail a reviewer's eye slides past.
 //
 // This is the STANDING design twin for Insights (not a one-off preview):
-// it renders the REAL exported components from InsightsPage.tsx
+// it renders the REAL exported components from components/InsightCard.tsx
 // (InsightCard, CompactInsightRow, InsightsHero, isCompactPullInsight) — no
 // forked/redrawn card markup — so a future state-machine change either
 // keeps behaving correctly here or breaks visibly here, instead of only

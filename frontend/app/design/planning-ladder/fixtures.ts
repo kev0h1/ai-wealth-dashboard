@@ -30,7 +30,7 @@ export const LADDER_STEPS: GrowLadderStep[] = [
     detail:
       "Your income (£107,000) and pension contributions (~£24,000/year) are on file. An employer match is a guaranteed 100% return on the matched amount, some people check their scheme's match ceiling first.",
     options: [],
-    link: { label: "See your tax levers ›", route: "/insights?tab=tax" },
+    link: { label: "See your tax levers ›", route: "/tax" },
   },
   {
     key: "starter_buffer",
@@ -72,7 +72,7 @@ export const LADDER_STEPS: GrowLadderStep[] = [
       "Some people top up pension contributions for the tax relief before investing elsewhere",
       "Others prioritise ISA investing for easier access to the money",
     ],
-    link: { label: "See your tax levers ›", route: "/insights?tab=tax" },
+    link: { label: "See your tax levers ›", route: "/tax" },
   },
   {
     key: "isa_invest",

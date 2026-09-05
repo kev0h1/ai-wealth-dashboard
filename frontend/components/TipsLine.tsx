@@ -20,7 +20,7 @@
 // caller uses this to mark the tip opened server-side, never fired twice
 // for the same tip in one mount.
 //
-// InsightCard (app/insights/InsightsPage.tsx) is rendered `inSheet`, which
+// InsightCard (components/InsightCard.tsx) is rendered `inSheet`, which
 // strips its own category/badges/pin header, primary-action CTA, and
 // comparison links — the category name and "see the transactions" are
 // already one scroll away on this same screen.
@@ -28,7 +28,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, Lightbulb } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
-import { InsightCard } from "@/app/insights/InsightsPage";
+import { InsightCard } from "@/components/InsightCard";
 import type { SavingsInsight } from "@/lib/api";
 import { tipsLineText, sumEstimates } from "@/lib/spendTips";
 

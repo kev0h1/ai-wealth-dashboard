@@ -27,9 +27,10 @@ const QUICK = [
  * before the conversation moved off that page into the sheet (2026-08-25).
  *
  * Rendered in normal document flow at the end of the page content in both
- * places TaxChat used to float (TaxPage.tsx, InsightsPage.tsx's mobile tax
- * tab) — deliberately NOT fixed-position; the floating-popup pattern is
- * exactly what's being retired here. */
+ * places TaxChat used to float (app/tax/TaxPage.tsx, and the old Insights
+ * page's mobile tax tab, deleted 2026-09-05 along with that page — tax is
+ * its own top-level route now) — deliberately NOT fixed-position; the
+ * floating-popup pattern is exactly what's being retired here. */
 export default function TaxPennyEntry() {
   const { open } = usePennySheet();
 

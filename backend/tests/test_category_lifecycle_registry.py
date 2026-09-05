@@ -39,7 +39,8 @@ Four things, each covered by its own section below:
    backend's invariant (section 3) guarantees `state === "fresh"` never
    occurs without content, so there's nothing left for `is_new` to safely
    override. Not unit-testable from Python (see
-   frontend/app/insights/InsightsPage.tsx's `isCompactPullInsight` and the
+   frontend/components/InsightCard.tsx's `isCompactPullInsight`, moved
+   there 2026-09-05 when app/insights/InsightsPage.tsx was deleted, and the
    frontend design twin at frontend/app/design/insights-live/fixtures.ts),
    but the double-refresh idempotency test below proves the BACKEND half of
    the contract this frontend fix now safely relies on: state doesn't

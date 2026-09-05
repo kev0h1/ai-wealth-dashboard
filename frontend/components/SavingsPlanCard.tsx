@@ -1,10 +1,11 @@
 "use client";
 
 // Savings plan milestone tracker, extracted verbatim from the old Insights
-// "Savings" tab (frontend/app/insights/InsightsPage.tsx) so it can be shown
-// on the Grow page below the priority ladder. Faithful extraction — logic
-// and copy unchanged. ProgressRing moved alongside it since this was its
-// only remaining consumer once SafetyNetCard's read-view was retired.
+// "Savings" tab (app/insights/InsightsPage.tsx, deleted 2026-09-05 when the
+// Insights page retired) so it can be shown below Planning's priority
+// ladder (Grow folded into Planning 2026-09-04). Faithful extraction —
+// logic and copy unchanged. ProgressRing moved alongside it since this was
+// its only remaining consumer once SafetyNetCard's read-view was retired.
 
 import { CheckCircle2, Circle, Trash2, X } from "lucide-react";
 import { fmt } from "@/lib/format";

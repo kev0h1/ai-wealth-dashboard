@@ -2,9 +2,9 @@
 
 // Insights tab hero, production — Variant A ("one bar", Kevin's pick
 // 2026-09-02 from /design/insights-shape's three-variant comparison).
-// Replaces the old InsightsHero (kept exported from InsightsPage.tsx for
-// the design twin, no longer rendered on the real page — see
-// SavingsInsightsSection). Ported from the approved wireframe
+// Replaces the old InsightsHero (kept exported from components/InsightCard.tsx
+// for the design twin at app/design/insights-live/, no longer rendered on
+// any live page). Ported from the approved wireframe
 // (app/design/insights-full/sections.tsx's TappableHero) onto the real
 // GET /money-shape contract instead of static fixtures.
 //
@@ -112,9 +112,13 @@ function jobHref(job: MoneyShapeJob, range: { start: string; end: string } | nul
   return `/transactions?${params.toString()}`;
 }
 
-/** Colour dot identity marker — reused by SavingsInsightsSection's own
- *  per-job group headers below the hero, so the hero's legend and the tip
- *  list's group headers can never drift to a second colour source. */
+/** Colour dot identity marker for a job's legend row below. Used to be
+ *  reused by the old Insights page's SavingsInsightsSection for its own
+ *  per-job tip-list group headers, so the hero's legend and the tip list's
+ *  headers could never drift to a second colour source; that section was
+ *  deleted with the page (2026-09-05, tips no longer group by job in a
+ *  list of their own). Kept exported for the same reason should a future
+ *  per-job grouping need this hero's own colour identity again. */
 export function JobDot({ id, className }: { id: MoneyShapeJob["id"]; className?: string }) {
   return <span className={`inline-block rounded-full flex-shrink-0 ${JOB_COLOR[id].bg} ${className ?? "h-2.5 w-2.5"}`} aria-hidden="true" />;
 }
@@ -444,7 +448,14 @@ export default function MoneyShapeHero({
                 className="text-[14px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0"
               />
               <span className="w-9 flex-shrink-0 text-right text-[12px] text-slate-500 dark:text-slate-400">
-                {Math.round(job.share)}%
+                {/* The "Beyond take-home" row's own share, job.share, is the
+                    ordinary Left-over share this job would have had if
+                    nothing had gone over — showing it as a percentage next
+                    to the overspend £ figure read as a data error (bug
+                    fixed 2026-09-05, left visible in earlier design
+                    previews on purpose): "over" says what actually happened
+                    without inventing a number for it. */}
+                {overspentHere ? "over" : `${Math.round(job.share)}%`}
               </span>
               <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
             </Link>

@@ -32,6 +32,26 @@ const nextConfig: NextConfig = {
       { source: "/debt-plan", destination: "/cards", permanent: false },
       // Grow folded into Planning, 2026-09-04.
       { source: "/grow", destination: "/planning", permanent: false },
+      // Insights page retired 2026-09-05: tax and receipts became their own
+      // top-level routes, everything else redirects to the money shape's
+      // new home. These rules only run on the web build — redirects() is
+      // disabled for MOBILE_EXPORT (see the guard above), so the Capacitor
+      // app relies entirely on app/insights/page.tsx's own client redirect
+      // for this route (which reimplements the same `?tab=tax` distinction
+      // below, purely for that build). The `?tab=tax` rule must come BEFORE
+      // the blanket `/insights` rule: Next preserves the query string across
+      // a redirect, so without this more-specific rule ahead of it, the
+      // blanket rule below would fire first (it matches on path alone) and
+      // send `/insights?tab=tax` to `/spend/shape?tab=tax`, not `/tax`.
+      { source: "/insights/tax", destination: "/tax", permanent: false },
+      { source: "/insights/receipts", destination: "/receipts", permanent: false },
+      {
+        source: "/insights",
+        has: [{ type: "query", key: "tab", value: "tax" }],
+        destination: "/tax",
+        permanent: false,
+      },
+      { source: "/insights", destination: "/spend/shape", permanent: false },
     ];
   },
 };

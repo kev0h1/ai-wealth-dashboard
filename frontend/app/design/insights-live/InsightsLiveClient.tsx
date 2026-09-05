@@ -1,22 +1,27 @@
 "use client";
 
-// STANDING DESIGN TWIN for Insights — not a one-off preview. Renders the
-// REAL exported components from app/insights/InsightsPage.tsx (InsightCard,
-// CompactInsightRow via isCompactPullInsight, InsightsHero) against fixture
-// SavingsInsight payloads shaped field-for-field like the real GET
-// /savings-insights serializer output (see fixtures.ts). Auth-exempt, no
-// network calls, deep-linkable — the point is to make the compact-vs-full
-// render decision checkable in actual pixels, in both themes, without
-// needing a live session or a phone.
+// STANDING DESIGN TWIN for Insights — not a one-off preview, and kept as
+// one even after the Insights page itself retired (2026-09-05, /insights is
+// now a client redirect to /spend/shape or /tax). Renders the REAL exported
+// components from components/InsightCard.tsx (InsightCard, CompactInsightRow
+// via isCompactPullInsight, InsightsHero) against fixture SavingsInsight
+// payloads shaped field-for-field like the real GET /savings-insights
+// serializer output (see fixtures.ts). Auth-exempt, no network calls,
+// deep-linkable — the point is to make the compact-vs-full render decision
+// checkable in actual pixels, in both themes, without needing a live
+// session or a phone.
 //
 // Root cause this route exists to close (owner phone report 2026-09-01,
 // 13:24): three prior fix rounds verified the quiet-state compact-row
-// behaviour by code trace + backend census alone. /insights has no
-// auth-exempt twin, so nobody ever rendered the actual pixels. This route
-// is that twin, permanently.
+// behaviour by code trace + backend census alone. There was no auth-exempt
+// twin, so nobody ever rendered the actual pixels. This route is that twin,
+// permanently — InsightsHero itself no longer renders on any live page
+// (MoneyShapeHero replaced it there 2026-09-02), but stays real and tested
+// here rather than deleted, in case a future surface needs its coverage-state
+// grammar again.
 //
 // Extended 2026-09-02 for the money-shape redesign: also renders the REAL
-// MoneyShapeHero/WhatWorksCard/ReferenceShapesRow from app/insights/ against
+// MoneyShapeHero/WhatWorksCard/ReferenceShapesRow from app/spend/shape/ against
 // MONEY_SHAPE_FIXTURES (GET /money-shape shaped fixtures, one per state
 // WhatWorksCard's consent branching can be in — see fixtures.ts). Selected
 // independently of the SavingsInsight `state` param via its own `shape`
@@ -38,10 +43,10 @@
 // Deep-linkable: /design/insights-live?mode=light|dark&state=<FixtureKey|all>&shape=<MoneyShapeFixtureKey>
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero } from "@/app/insights/InsightsPage";
-import MoneyShapeHero from "@/app/insights/MoneyShapeHero";
-import WhatWorksCard from "@/app/insights/WhatWorksCard";
-import ReferenceShapesRow from "@/app/insights/ReferenceShapesRow";
+import { InsightCard, CompactInsightRow, isCompactPullInsight, InsightsHero } from "@/components/InsightCard";
+import MoneyShapeHero from "@/app/spend/shape/MoneyShapeHero";
+import WhatWorksCard from "@/app/spend/shape/WhatWorksCard";
+import ReferenceShapesRow from "@/app/spend/shape/ReferenceShapesRow";
 import { usePennySheet } from "@/components/PennySheetProvider";
 import {
   FIXTURE_LABELS, FIXTURE_ORDER, INSIGHT_FIXTURES, type FixtureKey,

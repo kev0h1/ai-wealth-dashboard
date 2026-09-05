@@ -103,10 +103,11 @@
 //         components/Sidebar.tsx, components/BottomNav.tsx)
 //   z-50  BottomNav's rail itself; CustomSelect's in-page dropdown
 //   z-[60] TutorialModal, TutorialOverlay (both mounted globally in
-//         app/layout.tsx, same as this sheet), InsightsPage's share sheet,
-//         and BudgetPage's own (older, page-scoped) Penny chat FAB+panel —
-//         crowded enough already that landing on it too would just trade
-//         one DOM-order gamble for another
+//         app/layout.tsx, same as this sheet), the old Insights page's share
+//         sheet (deleted 2026-09-05 along with that page), and BudgetPage's
+//         own (older, page-scoped) Penny chat FAB+panel — crowded enough
+//         already that landing on it too would just trade one DOM-order
+//         gamble for another
 //   z-[65]/z-[70] the established sheet backdrop/panel tier — CommitmentSheet,
 //         and ~15 other sheets across the app
 //   z-[70] also ConfirmDialog, AccountsPage's modals, PlanningPage's tooltip

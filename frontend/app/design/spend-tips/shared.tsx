@@ -164,7 +164,7 @@ export function MoneyMovedBar() {
 // A tip's own category-name subline is redundant whenever `app_category`
 // repeats the `label` verbatim (e.g. Groceries/Groceries) — suppressed in
 // that case so `expiry_line` (the honest age stamp, never a refresh-cadence
-// claim — see the OWNER RULING at app/insights/InsightsPage.tsx ~1062) can
+// claim — see the OWNER RULING, originally at InsightsPage.tsx ~1062, now components/InsightCard.tsx) can
 // take the subline slot instead of sitting next to a duplicate word.
 function tipRowSubline(tip: SavingsInsight): string {
   const parts: string[] = [];

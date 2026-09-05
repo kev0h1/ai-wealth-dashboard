@@ -5,7 +5,7 @@
 // Majority rows and the Shopping notable are the owner's own real /spend
 // data (phone screenshot, 2026-09-04). SavingsInsight tips copy the field
 // shape from app/design/insights-live/fixtures.ts's FRESH_WEEKLY fixture
-// so the REAL InsightCard (app/insights/InsightsPage.tsx) renders them
+// so the REAL InsightCard (components/InsightCard.tsx) renders them
 // exactly as it would in production — every required field is filled, not
 // just the ones this preview happens to read.
 import type { SavingsInsight, Transaction } from "@/lib/api";

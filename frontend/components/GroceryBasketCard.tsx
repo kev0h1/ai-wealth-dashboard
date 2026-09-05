@@ -387,7 +387,7 @@ export default function GroceryBasketCard() {
 
       {baskets.length > 3 && (
         <button
-          onClick={() => router.push("/insights/receipts")}
+          onClick={() => router.push("/receipts")}
           className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400"
         >
           View all {baskets.length} receipts

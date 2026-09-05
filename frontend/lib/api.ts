@@ -1858,6 +1858,11 @@ export const api = {
   transportSummary: () => get<TransportSummary>("/transport/summary"),
   oldestTransaction: () => get<{ date: string | null }>("/transactions/oldest"),
   goalsSummary: () => get<{ goals: GoalSummary[] }>("/goals/summary"),
+  // 365 is a deliberate default, not a leftover — see lib/useAllTransactions.ts's
+  // module-cache comment for the window audit behind it (SpendTrends'
+  // PeriodCompareWidget only ever needs ~6 pay periods back, but the
+  // AccountsPage rule-builder's match-preview pool wants as much real
+  // history as it can get).
   allTransactions: (days = 365) => get<Transaction[]>(`/transactions?days=${days}`),
   dismissRecurring: (key: string) => post<{ ok: boolean }>("/cashflow/dismiss-recurring", { key }),
   skipUpcomingOccurrence: (key: string, date: string) => post<{ ok: boolean }>("/cashflow/skip-occurrence", { key, date }),
@@ -2594,12 +2599,14 @@ export const api = {
     fetch(`${API_BASE}/rules/${encodeURIComponent(id)}`, { method: "DELETE", headers: authHeaders() }).then((r) => toJson<{ deleted: string }>(r)),
   getGrow: () => get<GrowView>("/grow"),
   getSavingsInsights: () => get<SavingsInsight[]>("/savings-insights"),
-  /** "Your money shape" — the Insights tab hero + "What works for you"
+  /** "Your money shape" — the /spend/shape hero + "What works for you"
    *  evidence card (see shared/src/types.ts's MoneyShape for the full
    *  contract). Callers should tolerate a failed/rejected call by falling
    *  back to a synthetic `status: "thin"` shape rather than blocking the
-   *  rest of the tab — see MoneyShapeHero's thin-state render and
-   *  SavingsInsightsSection's fetch. */
+   *  rest of the page — see MoneyShapeHero's own thin-state render and
+   *  lib/moneyShape.ts's shared loader (SpendPage.tsx's closing
+   *  SpendShapeCard and app/spend/shape/ShapePage.tsx both read through
+   *  it). */
   getMoneyShape: () => get<MoneyShape>("/money-shape"),
   newInsightCount: () => get<{ count: number }>("/savings-insights/new-count"),
   markInsightsViewed: () => post<{ ok: boolean }>("/savings-insights/mark-viewed", {}),

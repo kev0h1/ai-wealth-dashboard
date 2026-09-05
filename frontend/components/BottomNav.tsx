@@ -4,20 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Home, PieChart, CalendarClock, Target } from "lucide-react";
-import { api, CompanionItem } from "@/lib/api";
+import { api } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
-import { isPaydayWindowActive, PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
+import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
-
-// The two pages that already fetch safeToSpend + today for their own
-// purposes (Home's brief, the Penny screen itself) write-through the exact
-// same boolean via writePaydayDotCache (see HomePage.tsx/PennyPage.tsx) the
-// moment their own data resolves. usePaydayWindowActive skips its OWN
-// self-fetch on these two routes — firing it there would just duplicate a
-// request the page is making anyway, worst on /penny (the screen the dot
-// points at). Every other route still self-fetches on a genuinely cold
-// cache, same as before.
-const PAGES_THAT_SELF_REPORT_PAYDAY = ["/", "/penny"];
 
 // State badge (not seen-clearable): bills due in 7 days their account can't cover
 function useAtRiskCount(): number {
@@ -43,38 +33,34 @@ function useAtRiskCount(): number {
 
 // Penny's living dot — active exactly when the shared payday window rule
 // (lib/paydayWindow.ts) says so: last 5 days before period end, or a live
-// payday_plan item already exists. Mirrors the two hooks above (same 5-min
-// localStorage cache pattern, computed locally per-tab) rather than reaching
-// for a new shared context/global system. `skipSelfFetch` (Home/Penny only —
-// see PAGES_THAT_SELF_REPORT_PAYDAY) skips the request entirely on a cold
-// cache, trusting the page's own imminent write-through instead.
-function usePaydayWindowActive(skipSelfFetch: boolean): boolean {
+// payday_plan item already exists.
+//
+// This hook never fetches for itself, on ANY route. Home and Penny already
+// fetch safeToSpend + getToday for their own purposes (the brief, the
+// screen itself) and write the result through via writePaydayDotCache the
+// moment it resolves (see HomePage.tsx/PennyPage.tsx) — this hook just
+// reads that localStorage cache on mount, at whatever age it finds it, and
+// stops there. It used to also fire its own copy of the same two requests
+// on every OTHER route once that cache had gone stale (past its 5-minute
+// freshness window) — a genuinely cold or 5-minutes-old cache on
+// Spend/Upcoming/Planning/Settings/etc. silently cost a `safeToSpend` +
+// `getToday` round trip on every one of THOSE pages' own loads, paid on top
+// of whatever those pages were already fetching for themselves. Removed:
+// the dot is not worth a network request of its own anywhere. A cache
+// that's stale or missing here just means the dot stays off (or shows its
+// last known value) until the user's next Home or Penny visit writes a
+// fresh one — it self-corrects within one navigation either way.
+function usePaydayWindowActive(): boolean {
   const [active, setActive] = useState(false);
   useEffect(() => {
     try {
       const cached = localStorage.getItem(PAYDAY_DOT_CACHE_KEY);
       if (cached) {
-        const { v, at } = JSON.parse(cached);
+        const { v } = JSON.parse(cached);
         setActive(v);
-        if (Date.now() - at < 5 * 60_000) return;
       }
     } catch {}
-    if (skipSelfFetch) return;
-    Promise.all([
-      api.safeToSpend().catch(() => null),
-      api.getToday().catch(() => ({ status: "ok" as const, items: [] as CompanionItem[] })),
-    ])
-      .then(([sts, today]) => {
-        const hasLivePlan = (today?.items ?? []).some((i) => i.type === "payday_plan");
-        const v = isPaydayWindowActive({
-          hasLivePlan,
-          daysUntilPayday: sts?.status === "ok" ? sts.days_until_payday : null,
-        });
-        setActive(v);
-        try { localStorage.setItem(PAYDAY_DOT_CACHE_KEY, JSON.stringify({ v, at: Date.now() })); } catch {}
-      })
-      .catch(() => {});
-  }, [skipSelfFetch]);
+  }, []);
   return active;
 }
 
@@ -91,9 +77,19 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
   switch (pathname) {
     case "/": return "home";
     case "/spend": return "spend";
+    // /spend/shape is a drill-in page (like /transactions) with no
+    // BottomNav instance of its own — this case only matters to Sidebar.tsx's
+    // desktop Penny trigger, which derives its screen context from the
+    // current pathname regardless of whether BottomNav itself is mounted.
+    case "/spend/shape": return "spend";
     case "/upcoming": return "upcoming";
     case "/planning": return "planning";
-    case "/insights": return "insights";
+    // /insights is retired to a client redirect (-> /spend/shape or /tax)
+    // that never renders this BottomNav, so this case is now unreachable in
+    // practice — removed rather than kept inert, unlike "/grow" below,
+    // because nothing still needs "insights" as a producible screen value
+    // from a real route (see pennyScreenConfig.tsx's own comment on why the
+    // "insights" screen KEY still exists for the design twin).
     // "grow" stays a producible value here even though Grow folded into
     // Planning 2026-09-04 (see PennySheetProvider.tsx's `PennyAskContext`
     // comment) — /grow is now a client redirect that never renders this
@@ -111,10 +107,10 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
     // `accounts` config entry (chips, header links) waiting on exactly this.
     case "/accounts": return "accounts";
     // "tax" is never produced here — that value is for TaxPennyEntry.tsx's
-    // own entry point, a different door into the same sheet. /insights/tax
-    // and /insights/receipts don't render BottomNav themselves (only their
-    // parent /insights does), so they fall to "other" like any other
-    // sub-route without its own nav instance.
+    // own entry point, a different door into the same sheet. /tax and
+    // /receipts (retired from under /insights 2026-09-05, now their own
+    // top-level routes) don't render BottomNav themselves, so they fall to
+    // "other" like any other sub-route without its own nav instance.
     default: return "other";
   }
 }
@@ -135,7 +131,7 @@ export default function BottomNav() {
   const pathname = usePathname();
   const { open: openPennySheet, close: closePennySheet, isOpen: pennySheetOpen } = usePennySheet();
   const atRisk = useAtRiskCount();
-  const paydayActive = usePaydayWindowActive(PAGES_THAT_SELF_REPORT_PAYDAY.includes(pathname ?? ""));
+  const paydayActive = usePaydayWindowActive();
 
   const activeTab = TABS.find((t) => t.id === "spend" ? pathname === "/spend" : t.href === pathname);
   // Halo state: lit either on the /penny hub route itself, or while the

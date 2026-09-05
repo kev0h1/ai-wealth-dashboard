@@ -129,11 +129,17 @@ async def _maybe_goal_funded(user_id: str, region: str) -> None:
     if state.get("goal_funded") == target_key:
         return
     sym = "KES " if region == "Kenya" else "£"
+    # Was "/insights" — the Insights page retired 2026-09-05 (now a client
+    # redirect to /spend/shape or /tax, neither of which is where a savings
+    # goal lives). This push has no insight doc to build the new deep-link
+    # scheme from (no category/merchant evidence, just a SavingsGoal), so it
+    # lands on home instead, the same "/" every other money-movement push in
+    # this file already uses.
     await send_push_to_user(
         user_id,
         "Savings goal reached",
         f"You've hit your {sym}{target:,.0f} safety-net target. Nicely done.",
-        "/insights",
+        "/",
     )
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"goal_funded": target_key}}, upsert=True,
@@ -162,7 +168,13 @@ async def _maybe_new_insights(user_id: str) -> None:
     if fresh:
         top = max(fresh, key=lambda i: i.impact)
         title = "New money insight" if len(fresh) == 1 else f"{len(fresh)} new money insights"
-        await send_push_to_user(user_id, title, top.title, "/insights")
+        # "/spend", not a /transactions?tip= deep link: analytics.py's
+        # Insight model (the "sweep idle cash" / "review subscription"
+        # heuristics this caller reads) has no SavingsInsight id, category,
+        # or merchant evidence to build that link from, so it can't point
+        # at the tip the way HomeInsightSpotlight.tsx's own SavingsInsight
+        # deep link does.
+        await send_push_to_user(user_id, title, top.title, "/spend")
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"seen_insights": current_ids}}, upsert=True,
     )
