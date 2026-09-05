@@ -3983,6 +3983,32 @@ async def compute_safe_to_spend(uid: str) -> dict:
     }
 
 
+async def get_cached_safe_to_spend(uid: str) -> dict:
+    """Read-through for compute_safe_to_spend's hot direct callers (can_i.py's
+    suggestions/refusal-fallback, grow.py's period gate, planned.py's
+    before/after preview) that only ever need the base facts above, never
+    net_position or pace — see compute_safe_to_spend's own docstring for why
+    those direct callers bypass the response cache and skip net_position.
+
+    Reuses GET /safe-to-spend's 90 s cache (name "safe_to_spend" /
+    "safe_to_spend_series") when a Home/Penny visit already populated it
+    this window: same cache entries, so no separate cache namespace to keep
+    in sync. That entry is a superset (base fields + "pace") — these callers
+    only read base fields, so the extra "pace" key is harmless to ignore.
+
+    Never WRITES to the cache itself, mirroring the established precedent in
+    spend_impact.py's `_headroom()`: only get_safe_to_spend owns writes to
+    this key, since it's the only caller that attaches the "pace" block —
+    writing a bare compute_safe_to_spend() result here would leave a
+    pace-less entry for any reader expecting the full GET /safe-to-spend
+    shape, for up to 90 s.
+    """
+    cached = response_cache.get("safe_to_spend", uid) or response_cache.get("safe_to_spend_series", uid)
+    if cached is not None:
+        return cached
+    return await compute_safe_to_spend(uid)
+
+
 @router.get("/safe-to-spend")
 async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user)):
     """Headline verdict + pace reading. `?include=series` adds the per-day pace series."""

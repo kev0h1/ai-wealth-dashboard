@@ -68,8 +68,8 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
             raise HTTPException(404, "Account not found")
 
     # ── BEFORE snapshot ──────────────────────────────────────────────────────
-    from app.routers.analytics import compute_safe_to_spend
-    before = await compute_safe_to_spend(uid)
+    from app.routers.analytics import get_cached_safe_to_spend
+    before = await get_cached_safe_to_spend(uid)
 
     # ── Insert document ──────────────────────────────────────────────────────
     doc: dict[str, Any] = {
@@ -86,8 +86,11 @@ async def create_planned_expense(body: dict, user: dict = Depends(current_user))
     inserted_id = result.inserted_id
 
     # ── Invalidate cache + AFTER snapshot ───────────────────────────────────
+    # (get_cached_safe_to_spend will always miss right here — invalidate()
+    # just wiped this uid's entries — so this is a guaranteed fresh compute,
+    # identical to calling compute_safe_to_spend directly.)
     response_cache.invalidate(uid)
-    after = await compute_safe_to_spend(uid)
+    after = await get_cached_safe_to_spend(uid)
 
     def _sts(r: dict):
         """Safe-to-spend value if status is ok, else None."""

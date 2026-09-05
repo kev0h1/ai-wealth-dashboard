@@ -947,6 +947,14 @@ async def _get_owned(uid: str, commitment_id: str) -> dict:
 @router.get("/commitments")
 async def list_commitments(user: dict = Depends(current_user)):
     uid = user["email"]
+
+    # ── Short-TTL response cache (90 s; every write below already calls the
+    # generic response_cache.invalidate(uid) full-wipe, so this cache entry
+    # never outlives a create/update/delete/cancel/complete/consent write) ──
+    cached = response_cache.get("commitments", uid)
+    if cached is not None:
+        return cached
+
     docs = await commitments_col.find(
         {"user_id": uid, "status": {"$ne": "cancelled"}}
     ).to_list(None)
@@ -966,7 +974,9 @@ async def list_commitments(user: dict = Depends(current_user)):
     pace_ctx = await _pace_note_ctx(uid) if has_active else None
     _apply_pace_notes(items, docs, pace_ctx)
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
-    return {"items": items}
+    result = {"items": items}
+    response_cache.put("commitments", uid, result)
+    return result
 
 
 @router.post("/commitments")

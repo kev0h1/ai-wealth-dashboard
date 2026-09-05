@@ -12,6 +12,7 @@ from app.db.collections import (
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.cashflow import monthly_cashflow_cached
+from app.services import response_cache
 
 router = APIRouter(tags=["savings"])
 
@@ -144,12 +145,14 @@ async def save_savings_goal(body: dict, user: dict = Depends(current_user)):
         doc["target_amount"] = round(amount, 2)
         doc["target_months"] = None
     await savings_goals_col.replace_one({"_id": uid}, doc, upsert=True)
+    response_cache.invalidate(uid)  # grow buffer target/pct changed
     return await savings_insights(user)
 
 
 @router.delete("/savings/goal")
 async def delete_savings_goal(user: dict = Depends(current_user)):
     await savings_goals_col.delete_one({"_id": user["email"]})
+    response_cache.invalidate(user["email"])  # grow buffer target/pct changed
     return {"configured": False}
 
 
@@ -178,6 +181,7 @@ async def add_manual_account(body: dict, user: dict = Depends(current_user)):
         "created_at": datetime.now(), "updated_at": datetime.now(),
     }
     await manual_accounts_col.insert_one(doc)
+    response_cache.invalidate(uid)  # grow/savings buffer changed
     return await savings_insights(user)
 
 
@@ -198,6 +202,7 @@ async def update_manual_account(acc_id: str, body: dict, user: dict = Depends(cu
     res = await manual_accounts_col.update_one({"_id": acc_id, "user_id": uid}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(404, "Account not found")
+    response_cache.invalidate(uid)  # grow/savings buffer changed
     return await savings_insights(user)
 
 
@@ -206,6 +211,7 @@ async def delete_manual_account(acc_id: str, user: dict = Depends(current_user))
     uid = user["email"]
     await manual_accounts_col.delete_one({"_id": acc_id, "user_id": uid})
     await savings_goals_col.update_one({"_id": uid}, {"$pull": {"account_ids": acc_id}})
+    response_cache.invalidate(uid)  # grow/savings buffer changed
     return await savings_insights(user)
 
 
@@ -285,6 +291,7 @@ async def save_savings_plan(body: dict, user: dict = Depends(current_user)):
         "created_at":          datetime.now(),
     }
     await savings_plans_col.replace_one({"_id": uid}, doc, upsert=True)
+    response_cache.invalidate(uid)
     return {"plan": _plan_with_progress(doc, current)}
 
 
@@ -322,6 +329,7 @@ async def add_savings_plan_milestones(body: dict, user: dict = Depends(current_u
         raise HTTPException(400, "Plan must have at least one milestone")
 
     await savings_plans_col.replace_one({"_id": uid}, plan, upsert=True)
+    response_cache.invalidate(uid)
     return {"plan": _plan_with_progress(plan, current), "added": added}
 
 
@@ -342,6 +350,7 @@ async def toggle_savings_plan_step(step_id: str, body: dict, user: dict = Depend
     if not found:
         raise HTTPException(404, "Step not found or not manually toggleable")
     await savings_plans_col.update_one({"_id": uid}, {"$set": {"milestones": plan["milestones"]}})
+    response_cache.invalidate(uid)
     return {"plan": _plan_with_progress(plan, await _savings_balance(uid))}
 
 
@@ -356,8 +365,10 @@ async def delete_savings_plan_step(step_id: str, user: dict = Depends(current_us
         raise HTTPException(404, "Step not found")
     if not remaining:
         await savings_plans_col.delete_one({"_id": uid})
+        response_cache.invalidate(uid)
         return {"plan": None}
     await savings_plans_col.update_one({"_id": uid}, {"$set": {"milestones": remaining}})
+    response_cache.invalidate(uid)
     plan["milestones"] = remaining
     return {"plan": _plan_with_progress(plan, await _savings_balance(uid))}
 
@@ -365,4 +376,5 @@ async def delete_savings_plan_step(step_id: str, user: dict = Depends(current_us
 @router.delete("/savings/plan")
 async def delete_savings_plan(user: dict = Depends(current_user)):
     await savings_plans_col.delete_one({"_id": user["email"]})
+    response_cache.invalidate(user["email"])
     return {"plan": None}

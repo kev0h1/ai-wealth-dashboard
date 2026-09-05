@@ -365,7 +365,7 @@ def test_can_i_seam_full_integration_out_of_scope_sentinel_no_usage_charged(monk
     async def fake_sts(uid):
         return {"status": "ok", "safe_to_spend": 100.0, "days_until_payday": 5}
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
 
     body = {"question": "what's the weather like today"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
@@ -393,7 +393,7 @@ def test_can_i_seam_falls_back_to_refusal_when_agent_returns_none(monkeypatch):
     async def fake_sts(uid):
         return {"status": "ok", "safe_to_spend": 100.0, "days_until_payday": 5}
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
 
     body = {"question": "what's the weather like today"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))

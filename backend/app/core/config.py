@@ -38,7 +38,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 # APPLE_SERVICES_ID is only needed for a future web/"Services ID" OAuth flow
 # (Sign in with Apple JS or server-side redirect); empty means that flow
 # isn't configured yet, so only the bundle id is accepted as audience.
-APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.wealth")
+APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.sorted")
 APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
@@ -92,7 +92,7 @@ VAPID_PUBLIC_KEY_B64: str  = (
 # ── APNs / native iOS Push ──────────────────────────────────────────────────────
 APNS_KEY_ID       = os.getenv("APNS_KEY_ID", "")
 APNS_TEAM_ID      = os.getenv("APNS_TEAM_ID", "")
-APNS_BUNDLE_ID    = os.getenv("APNS_BUNDLE_ID", "co.uk.auriqltd.wealth")
+APNS_BUNDLE_ID    = os.getenv("APNS_BUNDLE_ID", "co.uk.auriqltd.sorted")
 APNS_USE_SANDBOX  = os.getenv("APNS_USE_SANDBOX", "false").lower() in ("1", "true", "yes")
 
 _apns_key_file = _BACKEND_DIR / ".apns_auth_key.p8"

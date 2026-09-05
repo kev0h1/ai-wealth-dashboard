@@ -1,5 +1,7 @@
 """FastAPI application factory."""
 import asyncio
+import logging
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -63,6 +65,32 @@ app.add_middleware(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.middleware("http")(auth_middleware)
+
+_slow_request_logger = logging.getLogger("app.perf")
+_SLOW_REQUEST_MS = 400
+
+
+@app.middleware("http")
+async def _log_slow_requests(request, call_next):
+    """Lightweight request timing: logs at WARNING only when a request takes
+    longer than 400 ms — silent otherwise, so it stays a no-op signal source
+    rather than request-volume noise. Uses the stdlib logging module (no
+    extra handler configured), so it's visible under uvicorn's own
+    `--log-level warning` (the systemd unit's flag): WARNING is emitted via
+    Python's logging "lastResort" handler to stderr regardless of uvicorn's
+    own logger configuration, which systemd captures via the journal.
+    Registered after auth_middleware so elapsed time reflects route/
+    dependency execution, not the cheap token-decode auth check.
+    """
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    if elapsed_ms > _SLOW_REQUEST_MS:
+        _slow_request_logger.warning(
+            "%s %s %s %.0fms",
+            request.method, request.url.path, response.status_code, elapsed_ms,
+        )
+    return response
 
 for router in [
     auth.router, truelayer.router, yapily.router, mono.router,

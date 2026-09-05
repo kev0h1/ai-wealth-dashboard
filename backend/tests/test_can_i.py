@@ -204,7 +204,7 @@ def test_can_i_refusal_fallback_when_agent_returns_none(monkeypatch):
     async def fake_sts(uid):
         return {"status": "ok", "safe_to_spend": 100.0, "days_until_payday": 5}
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
 
     body = {"question": "what's the weather like today"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
@@ -229,7 +229,7 @@ def test_can_i_refusal_fallback_appends_screen_hint_only_when_known(monkeypatch)
     async def fake_sts(uid):
         return {"status": "insufficient_data"}
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
 
     with_screen = asyncio.run(can_i_module.can_i(
         {"question": "what's the weather like today", "screen": "spend"}, {"email": "kevin"},
@@ -258,7 +258,7 @@ def test_can_i_refusal_fallback_gracefully_handles_sts_lookup_failure(monkeypatc
     async def _boom(uid):
         raise RuntimeError("db outage")
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", _boom)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", _boom)
 
     body = {"question": "what's the weather like today"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
@@ -306,7 +306,7 @@ def test_can_i_suggestions_insufficient_data_returns_fixed_chips(monkeypatch):
     async def fake_sts(uid):
         return {"status": "insufficient_data"}
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
     result = asyncio.run(can_i_suggestions({"email": "kevin"}))
     assert len(result["chips"]) == 2
     assert result["context_line"] == "Connect an account to see your numbers"
@@ -319,7 +319,7 @@ def test_can_i_suggestions_negative_safe_to_spend_uses_reassurance_chips(monkeyp
             "next_payday": "2026-08-28", "state": "short", "short_reason": "cards",
         }
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
     result = asyncio.run(can_i_suggestions({"email": "kevin"}))
     labels = [c["label"] for c in result["chips"]]
     assert labels == can_i_module._REASSURANCE_CHIPS
@@ -334,7 +334,7 @@ def test_can_i_suggestions_comfortable_headroom_uses_spend_shaped_chips(monkeypa
             "next_payday": "2026-09-05", "state": "comfortable", "short_reason": None,
         }
 
-    monkeypatch.setattr(can_i_module, "compute_safe_to_spend", fake_sts)
+    monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
 
     async def fake_kind_map(uid):
         return {}

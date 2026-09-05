@@ -34,7 +34,7 @@ from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
-from app.routers.analytics import compute_safe_to_spend
+from app.routers.analytics import get_cached_safe_to_spend
 from app.routers.scenario import looks_like_scenario, parse_question
 from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
@@ -311,7 +311,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     example_amount = 50
     timeframe = _weekend_or_week()
     try:
-        sts_preview = await compute_safe_to_spend(uid)
+        sts_preview = await get_cached_safe_to_spend(uid)
         if sts_preview.get("status") != "insufficient_data":
             preview_chip = _headroom_chip(float(sts_preview.get("safe_to_spend") or 0.0))
             if preview_chip:
@@ -497,7 +497,7 @@ async def _commitment_chip_candidate(uid: str) -> tuple[str, float] | None:
 @router.get("/can-i/suggestions")
 async def can_i_suggestions(user: dict = Depends(current_user)):
     uid = user["email"]
-    sts = await compute_safe_to_spend(uid)
+    sts = await get_cached_safe_to_spend(uid)
     if sts.get("status") == "insufficient_data":
         return {
             "chips": [

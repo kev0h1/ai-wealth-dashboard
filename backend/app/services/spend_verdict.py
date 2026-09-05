@@ -47,6 +47,7 @@ from app.services.categorisation import canonical_merchant_key
 from app.services.pace import compute_category_signals, get_total_pace_curve_fn
 from app.services.region import get_user_region
 from app.services.spend_impact import compute_spend_impact
+from app.services import response_cache
 
 logger = logging.getLogger(__name__)
 
@@ -1017,7 +1018,19 @@ async def compute_spend_verdict(uid: str, offset: int = 0) -> dict:
         _dismissed_unresolved_ids(uid),
     )
 
-    signals_result = await compute_category_signals(uid, offset=offset, kind_map=kind_map)
+    # Reuse the same 90 s per-offset cache GET /spend/category-signals reads
+    # and writes (analytics.py's get_category_signals) — offset here is
+    # already clamped to [-60, 0] the same way that endpoint clamps it, so
+    # the key matches whether this offset arrived here first or there first.
+    # kind_map is only an internal cache-avoidance detail of
+    # compute_category_signals (see its own docstring): passing it in or
+    # letting the callee fetch it itself never changes the returned result,
+    # so a cache entry written by either caller is interchangeable here.
+    _signals_cache_name = f"category_signals:{offset}"
+    signals_result = response_cache.get(_signals_cache_name, uid)
+    if signals_result is None:
+        signals_result = await compute_category_signals(uid, offset=offset, kind_map=kind_map)
+        response_cache.put(_signals_cache_name, uid, signals_result)
     period = signals_result["period"]
     signals = signals_result["signals"]
 

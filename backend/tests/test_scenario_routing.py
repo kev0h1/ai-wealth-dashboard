@@ -299,7 +299,7 @@ def test_scenario_question_short_circuits_before_fact_gathering(monkeypatch):
     monkeypatch.setattr(can_i_mod, "parse_question", fake_parse_question)
     # Any of these being called at all proves the Can-I fact-gathering path
     # ran, which the scenario short-circuit must pre-empt entirely.
-    monkeypatch.setattr(can_i_mod, "compute_safe_to_spend", _RaisingFake())
+    monkeypatch.setattr(can_i_mod, "get_cached_safe_to_spend", _RaisingFake())
     monkeypatch.setattr(can_i_mod, "commitments_col", _RaisingFake())
 
     body = {"question": "What if I start paying £450 a month for a car from October?"}
@@ -352,7 +352,7 @@ def test_scenario_clarify_case_reads_as_a_sensible_reply(monkeypatch):
         return {"items": [], "rejected": [], "prefilled": False, "clarify": "Give me a rough monthly figure and I'll run it."}
 
     monkeypatch.setattr(can_i_mod, "parse_question", fake_parse_question)
-    monkeypatch.setattr(can_i_mod, "compute_safe_to_spend", _RaisingFake())
+    monkeypatch.setattr(can_i_mod, "get_cached_safe_to_spend", _RaisingFake())
     monkeypatch.setattr(can_i_mod, "commitments_col", _RaisingFake())
 
     # "new job" fires the income-change regex (see looks_like_scenario) with
