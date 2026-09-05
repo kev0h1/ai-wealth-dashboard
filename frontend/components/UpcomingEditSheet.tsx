@@ -93,7 +93,9 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
     try {
       const params: { key: string; date: string; new_date?: string; new_amount?: number; scope: "one" | "future" } = {
         key: item.name,
-        date: item.expected_date,
+        // Overrides are keyed by the occurrence's original date; expected_date is the
+        // display date and differs from it when a bill is past due.
+        date: item.original_date ?? item.expected_date,
         scope,
       };
       if (dateVal !== item.expected_date) params.new_date = dateVal;
@@ -110,7 +112,9 @@ export default function UpcomingEditSheet({ item, onClose, onDismiss, onSaved }:
 
   async function handleReset() {
     try {
-      await api.clearUpcomingOverride({ key: item.name, date: item.expected_date });
+      // Overrides are keyed by the occurrence's original date; expected_date is the
+      // display date and differs from it when a bill is past due.
+      await api.clearUpcomingOverride({ key: item.name, date: item.original_date ?? item.expected_date });
       onSaved();
       onClose();
     } catch {
