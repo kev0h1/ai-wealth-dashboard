@@ -55,6 +55,10 @@ capacitor-spike/node_modules/
 capacitor-spike/www/
 capacitor-spike/android/
 capacitor-spike/ios/
+# Firebase config, per-package, never commit
+capacitor-spike/google-services.json
+# Firebase config, per-package, never commit
+mobile/google-services.json
 frontend/public/*.apk
 capacitor-spike/dist/
 frontend/out/
