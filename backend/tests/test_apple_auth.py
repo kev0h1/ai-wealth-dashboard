@@ -63,6 +63,26 @@ def _patch_jwks(monkeypatch):
     auth_module._apple_jwks_cache["fetched_at"] = 0.0
 
 
+class _NoLinkCol:
+    """apple_native() now looks up linked_identities_col before falling back
+    to the claim-email + allow-list check (see tests/test_linked_identities.py
+    for that behaviour). None of the tokens in this file are ever linked, so
+    this always answers "no link" — a tiny fake rather than the real Mongo
+    collection, both to keep this file's own doctrine of not touching real
+    data and because a real Motor call here hits the "Event loop is closed"
+    issue this suite's neighbours already document (test_allocations.py /
+    conftest.py): asyncio.run() per test tears down the loop each call the
+    driver got bound to."""
+
+    async def find_one(self, query=None, projection=None):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _patch_linked_identities(monkeypatch):
+    monkeypatch.setattr(auth_module, "linked_identities_col", _NoLinkCol())
+
+
 def test_valid_token_issues_session():
     token = _make_token()
     result = _run(auth_module.apple_native({"identityToken": token, "fullName": "Kevin M"}))

@@ -2,18 +2,21 @@
 import logging
 import time
 import urllib.parse
-from fastapi import APIRouter, HTTPException, Request
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import jwt
 from jwt.algorithms import RSAAlgorithm
 
+from app.core.auth import current_user
 from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
     resolve_allowed_email, mask_email,
 )
+from app.db.collections import linked_identities_col
 from itsdangerous import SignatureExpired, BadSignature
 
 router = APIRouter(tags=["auth"])
@@ -107,10 +110,9 @@ async def google_native(body: dict):
     return {"session_token": session_token, "ok": True}
 
 
-@router.post("/auth/apple/native")
-async def apple_native(body: dict):
+async def _verify_apple_identity_token(identity_token: str) -> dict:
     """Verify an identityToken from the native Sign in with Apple SDK and
-    issue a session.
+    return its claims.
 
     Unlike Google, Apple's native flow hands back a self-contained RS256 JWT
     (no tokeninfo-style verification endpoint), so we verify it ourselves
@@ -119,22 +121,9 @@ async def apple_native(body: dict):
     or, if configured, a Services ID (APPLE_SERVICES_ID) for a future web
     flow — empty APPLE_SERVICES_ID means only the bundle id is accepted.
 
-    Apple only includes the user's name in the *first* authorization ever
-    performed with this app, so the client passes it through as `fullName`
-    on that first call; every call after that has no name in the token or
-    from the client, so we fall back to the email's local-part.
-
-    Hide My Email caveat: when a user chooses to relay their email, Apple
-    issues a stable, per-app, *verified* @privaterelay.appleid.com address.
-    We treat that relay address as the identity exactly like any other
-    verified email — it satisfies `email_verified` and passes the
-    ALLOWED_EMAILS gate just like a real address would. This means a user
-    who signs in with Google using their real email and later signs in with
-    Apple using a relay address gets two distinct accounts/sessions; there
-    is no email-based account linking here, and building that is explicitly
-    out of scope for this change.
+    Shared by apple_native() (sign-in) and the /auth/identities/apple link
+    endpoint (linking), so both paths reject a bad token identically.
     """
-    identity_token = body.get("identityToken")
     if not identity_token:
         raise HTTPException(400, "Missing identityToken")
 
@@ -172,21 +161,143 @@ async def apple_native(body: dict):
     if str(claims.get("email_verified")).lower() != "true":
         raise HTTPException(401, "Email not verified")
 
-    email = (claims.get("email") or "").lower()
-    if not email:
-        raise HTTPException(401, "Auth failed")
-    allowed = resolve_allowed_email(email)
-    if not allowed:
-        logging.warning(
-            "Sign-in refused by allow list: provider=%s email=%s relay=%s",
-            "apple-native", mask_email(email), claims.get("is_private_email"),
-        )
-        raise HTTPException(403, "Access denied")
-    email = allowed
+    return claims
+
+
+@router.post("/auth/apple/native")
+async def apple_native(body: dict):
+    """Verify an identityToken from the native Sign in with Apple SDK and
+    issue a session.
+
+    Apple only includes the user's name in the *first* authorization ever
+    performed with this app, so the client passes it through as `fullName`
+    on that first call; every call after that has no name in the token or
+    from the client, so we fall back to the email's local-part.
+
+    Hide My Email caveat: when a user chooses to relay their email, Apple
+    issues a stable, per-app, *verified* @privaterelay.appleid.com address.
+    That relay address is per-app but otherwise ordinary as far as this
+    route is concerned: it satisfies `email_verified` like any other
+    address. Without linking, a user who signs in with Google using their
+    real email and later signs in with Apple using a relay address would
+    get two distinct accounts (or, on a restricted allow list, a flat 403).
+    To avoid that, the token's `sub` claim (Apple's stable, non-rotating
+    per-user identifier) is looked up in `linked_identities_col` FIRST; a
+    match resolves straight to the linked account's email, bypassing the
+    fresh-claim allow-list check entirely (linking already proved that
+    account owns this identity). Only when there is no link does this fall
+    back to the original claim-email + allow-list flow. See
+    /auth/identities/apple for how a link is created.
+    """
+    identity_token = body.get("identityToken")
+    claims = await _verify_apple_identity_token(identity_token)
+
+    sub = claims.get("sub")
+    link = await linked_identities_col.find_one({"_id": f"apple:{sub}"}) if sub else None
+
+    if link:
+        email = link["user_id"]
+        allowed = resolve_allowed_email(email)
+        if not allowed:
+            # The allow list changed since this link was created (e.g. the
+            # linked account was removed from ALLOWED_EMAILS) — refuse just
+            # like an unlinked sign-in would, rather than trusting the
+            # stale linked value.
+            logging.warning(
+                "Sign-in refused by allow list: provider=%s email=%s relay=%s",
+                "apple-native-linked", mask_email(email), claims.get("is_private_email"),
+            )
+            raise HTTPException(403, "Access denied")
+        email = allowed
+    else:
+        email = (claims.get("email") or "").lower()
+        if not email:
+            raise HTTPException(401, "Auth failed")
+        allowed = resolve_allowed_email(email)
+        if not allowed:
+            logging.warning(
+                "Sign-in refused by allow list: provider=%s email=%s relay=%s",
+                "apple-native", mask_email(email), claims.get("is_private_email"),
+            )
+            raise HTTPException(403, "Access denied")
+        email = allowed
 
     name = body.get("fullName") or email.split("@")[0]
     session_token = serializer.dumps({"email": email, "name": name})
     return {"session_token": session_token, "ok": True}
+
+
+@router.get("/auth/identities")
+async def list_linked_identities(user: dict = Depends(current_user)):
+    """List provider identities linked to the caller's account (Phase 1:
+    Apple only). Never returns the raw relay/real email, only a masked form,
+    since this is reachable by anyone with a valid session for the account."""
+    linked = []
+    cursor = linked_identities_col.find({"provider": "apple", "user_id": user["email"]})
+    async for doc in cursor:
+        linked_at = doc.get("linked_at")
+        linked.append({
+            "provider": "apple",
+            "relay": bool(doc.get("relay")),
+            "email_masked": mask_email(doc.get("email_at_link", "")),
+            "linked_at": linked_at.isoformat() if isinstance(linked_at, datetime) else None,
+        })
+    return {"primary_email": user["email"], "linked": linked}
+
+
+@router.post("/auth/identities/apple")
+async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
+    """Link the caller's authenticated account to the Apple identity behind
+    `identityToken`. Keyed on the token's `sub` claim (Apple's stable
+    per-user identifier), not the email claim, since a relay address's
+    local-part can itself change if the user disables/re-enables Hide My
+    Email — `sub` is the one thing that never does.
+
+    Re-linking the same sub to the same account is a no-op refresh (updates
+    email_at_link/relay/linked_at in case those drifted). Linking a sub
+    already linked to a DIFFERENT account is refused (409) rather than
+    silently reassigning someone else's linked identity.
+    """
+    identity_token = body.get("identityToken")
+    claims = await _verify_apple_identity_token(identity_token)
+
+    sub = claims.get("sub")
+    if not sub:
+        raise HTTPException(401, "Invalid token")
+
+    doc_id = f"apple:{sub}"
+    existing = await linked_identities_col.find_one({"_id": doc_id})
+    if existing and existing.get("user_id") != user["email"]:
+        raise HTTPException(409, "This Apple ID is linked to another account")
+
+    email_at_link = (claims.get("email") or "").lower()
+    # Apple encodes this claim as the string "true"/"false" (like
+    # email_verified above), not a JSON boolean — bool(...) on a non-empty
+    # string is always True, so this must compare the lowercased string.
+    relay = str(claims.get("is_private_email")).lower() == "true"
+    await linked_identities_col.update_one(
+        {"_id": doc_id},
+        {"$set": {
+            "_id": doc_id,
+            "provider": "apple",
+            "subject": sub,
+            "user_id": user["email"],
+            "email_at_link": email_at_link,
+            "relay": relay,
+            "linked_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    logging.info("Linked apple identity to %s relay=%s", mask_email(user["email"]), relay)
+    return {"ok": True, "provider": "apple", "relay": relay, "email_masked": mask_email(email_at_link)}
+
+
+@router.delete("/auth/identities/apple")
+async def unlink_apple_identity(user: dict = Depends(current_user)):
+    """Remove every Apple identity link for the caller's account (there
+    should only ever be one, but this is not assumed)."""
+    result = await linked_identities_col.delete_many({"provider": "apple", "user_id": user["email"]})
+    return {"ok": True, "removed": result.deleted_count}
 
 
 @router.get("/auth/google")

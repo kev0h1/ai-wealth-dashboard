@@ -188,6 +188,21 @@ penny_proposals_col     = db["penny_proposals"]
 # only (Mongo's automatic primary-key index) — no extra index needed.
 user_data_version_col   = db["user_data_version"]
 
+# Linked sign-in identities — lets an authenticated user attach a second
+# provider identity (e.g. Apple's Hide My Email relay address, which is
+# stable per-app but distinct from their real email) to their existing
+# account, so that provider's sign-in resolves to the SAME account instead
+# of silently creating a second one. Keyed `_id: f"{provider}:{subject}"`
+# (subject = the provider's stable per-user identifier, e.g. Apple's `sub`
+# claim) so linking is idempotent per (provider, subject). Doc shape:
+# {_id, provider, subject, user_id (canonical allow-list account email this
+# identity resolves to), email_at_link (the email claim seen at link time,
+# lowercased — may be a relay address), relay (bool, Apple's
+# is_private_email at link time), linked_at}. See app/routers/auth.py's
+# apple_native() (resolves through this map before the email allow list)
+# and the /auth/identities endpoints.
+linked_identities_col   = db["linked_identities"]
+
 # Cross-process response cache (see app/services/response_cache.py) — the
 # Mongo-backed half of the two-layer (in-process memory + Mongo) per-user
 # cache. `{user_id, name, version, day, payload, computed_at}`, unique on
