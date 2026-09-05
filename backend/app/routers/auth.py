@@ -2,7 +2,7 @@
 import time
 import urllib.parse
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import jwt
 from jwt.algorithms import RSAAlgorithm
@@ -224,10 +224,43 @@ async def mobile_poll(state: str):
 
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
-    def finish(value: str) -> RedirectResponse:
+    def finish(value: str) -> HTMLResponse:
         if state:
             _store_pending(state, value)
-        return RedirectResponse("wealthdash://auth-done", status_code=302)
+        ok = value.startswith("token:")
+        if ok:
+            heading = "Signed in"
+            message = "Taking you back to Sorted."
+            icon = "&#10003;"
+            heading_color = "#34d399"
+        else:
+            heading = "Sign-in didn&#39;t complete"
+            message = "Close this window and try again in Sorted."
+            icon = "&#10007;"
+            heading_color = "#f87171"
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       text-align:center;padding:60px 24px;background:#0f172a;color:#e2e8f0;margin:0}}
+  .icon{{font-size:56px;margin-bottom:16px}}
+  h1{{color:{heading_color};font-size:24px;margin:0 0 12px}}
+  p{{color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 32px}}
+  .btn{{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;
+       padding:14px 32px;border-radius:14px;font-size:16px;font-weight:600;
+       cursor:pointer;border:none;-webkit-tap-highlight-color:transparent}}
+</style></head>
+<body>
+  <div class="icon">{icon}</div>
+  <h1>{heading}</h1>
+  <p>{message}</p>
+  <button class="btn" onclick="returnToApp()">Return to Sorted</button>
+  <script>
+    function returnToApp(){{window.location.href='wealthdash://auth-done';}}
+    setTimeout(returnToApp, 600);
+  </script>
+</body></html>
+""")
 
     if error or not code:
         return finish("error:auth_failed")

@@ -52,7 +52,7 @@ if [[ ! -f "${PROJECT_GRADLE}" ]]; then
 fi
 
 if grep -q "com.google.gms:google-services:" "${PROJECT_GRADLE}"; then
-  echo "[1/6] build.gradle: google-services classpath already present — skipping."
+  echo "[1/7] build.gradle: google-services classpath already present — skipping."
 else
   # Insert the classpath line right after the AGP classpath line inside
   # the buildscript { dependencies { ... } } block.
@@ -72,7 +72,7 @@ content = content[:line_end] + insertion + content[line_end:]
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-  echo "[1/6] build.gradle: added com.google.gms:google-services:${GOOGLE_SERVICES_CLASSPATH_VERSION} classpath."
+  echo "[1/7] build.gradle: added com.google.gms:google-services:${GOOGLE_SERVICES_CLASSPATH_VERSION} classpath."
 fi
 
 # --- 2. AndroidManifest.xml: POST_NOTIFICATIONS runtime permission (Android 13+) ---
@@ -83,7 +83,7 @@ if [[ ! -f "${MANIFEST}" ]]; then
 fi
 
 if grep -q "android.permission.POST_NOTIFICATIONS" "${MANIFEST}"; then
-  echo "[2/6] AndroidManifest.xml: POST_NOTIFICATIONS permission already present — skipping."
+  echo "[2/7] AndroidManifest.xml: POST_NOTIFICATIONS permission already present — skipping."
 else
   # Insert alongside the existing INTERNET permission.
   python3 - "${MANIFEST}" <<'PYEOF'
@@ -100,7 +100,7 @@ content = content.replace(marker, replacement, 1)
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-  echo "[2/6] AndroidManifest.xml: added POST_NOTIFICATIONS permission."
+  echo "[2/7] AndroidManifest.xml: added POST_NOTIFICATIONS permission."
 fi
 
 # --- 3. google-services.json presence check ---
@@ -108,14 +108,14 @@ fi
 # plugin without this file present is a hard Gradle config-time error that
 # would otherwise persist across re-runs once the plugin block is written.
 if [[ -f "${GOOGLE_SERVICES_JSON}" ]]; then
-  echo "[3/6] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
+  echo "[3/7] google-services.json: found at ${GOOGLE_SERVICES_JSON}."
 elif [[ -f "${CANONICAL_GOOGLE_SERVICES_JSON}" ]]; then
   # android/ is gitignored and wiped by `cap add android`, so the working
   # copy won't survive a regeneration. The canonical copy at
   # capacitor-spike/google-services.json is committed and survives that,
   # so restore the working copy from it instead of hard-stopping.
   cp "${CANONICAL_GOOGLE_SERVICES_JSON}" "${GOOGLE_SERVICES_JSON}"
-  echo "[3/6] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
+  echo "[3/7] google-services.json: restored from canonical copy at ${CANONICAL_GOOGLE_SERVICES_JSON}."
 else
   cat >&2 <<EOF
 
@@ -145,7 +145,7 @@ if [[ ! -f "${APP_GRADLE}" ]]; then
 fi
 
 if grep -q "com.google.gms.google-services" "${APP_GRADLE}"; then
-  echo "[4/6] app/build.gradle: google-services plugin already applied — skipping."
+  echo "[4/7] app/build.gradle: google-services plugin already applied — skipping."
 else
   if grep -qE '^\s*plugins\s*\{' "${APP_GRADLE}"; then
     # File uses a plugins {} block — add the plugin id there. Safe to apply
@@ -164,7 +164,7 @@ content = re.sub(
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-    echo "[4/6] app/build.gradle: added 'com.google.gms.google-services' to plugins {} block."
+    echo "[4/7] app/build.gradle: added 'com.google.gms.google-services' to plugins {} block."
   else
     # Legacy `apply plugin:` style — append at the end of the file. Kept
     # guarded on google-services.json existing (belt-and-braces on top of
@@ -181,7 +181,7 @@ try {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
 EOF
-    echo "[4/6] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block."
+    echo "[4/7] app/build.gradle: appended guarded 'apply plugin: com.google.gms.google-services' block."
   fi
 fi
 
@@ -214,14 +214,14 @@ for density in "${NOTIFICATION_ICON_DENSITIES[@]}"; do
 done
 
 if [[ "${icon_all_present}" == true ]]; then
-  echo "[5/6] notification icon: ic_stat_notify.png already present at all five densities, skipping."
+  echo "[5/7] notification icon: ic_stat_notify.png already present at all five densities, skipping."
 else
   for density in "${NOTIFICATION_ICON_DENSITIES[@]}"; do
     mkdir -p "${RES_DIR}/drawable-${density}"
     cp "${CANONICAL_NOTIFICATION_ICON_DIR}/drawable-${density}/ic_stat_notify.png" \
        "${RES_DIR}/drawable-${density}/ic_stat_notify.png"
   done
-  echo "[5/6] notification icon: copied ic_stat_notify.png to all five drawable-*/ densities."
+  echo "[5/7] notification icon: copied ic_stat_notify.png to all five drawable-*/ densities."
 fi
 
 # --- 6. AndroidManifest.xml: default notification icon + channel meta-data ---
@@ -304,9 +304,58 @@ PYEOF
 fi
 
 if [[ "${manifest_changed}" == true ]]; then
-  echo "[6/6] AndroidManifest.xml: added default_notification_icon and/or default_notification_channel_id meta-data."
+  echo "[6/7] AndroidManifest.xml: added default_notification_icon and/or default_notification_channel_id meta-data."
 else
-  echo "[6/6] AndroidManifest.xml: notification meta-data already present, skipping."
+  echo "[6/7] AndroidManifest.xml: notification meta-data already present, skipping."
+fi
+
+# --- 7. AndroidManifest.xml: wealthdash:// deep-link intent-filter ---
+# Google sign-in opens the OAuth flow in a Chrome Custom Tab. The backend's
+# /auth/google/mobile-callback answers with an HTML page (see
+# backend/app/routers/auth.py) that navigates to wealthdash://auth-done to
+# hand control back to the app. Without this intent-filter on MainActivity,
+# Android has no app registered for that scheme, so the Custom Tab is left on
+# a dead page and the user has to quit and reopen the app to see the signed-in
+# state. This is unrelated to push notifications but lives in this script
+# because it patches the same gitignored, regenerated manifest.
+if [[ ! -f "${MANIFEST}" ]]; then
+  echo "ERROR: ${MANIFEST} not found." >&2
+  exit 1
+fi
+
+if grep -q 'android:scheme="wealthdash"' "${MANIFEST}"; then
+  echo "[7/7] AndroidManifest.xml: wealthdash:// deep-link intent-filter already present — skipping."
+else
+  python3 - "${MANIFEST}" <<'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+marker = (
+    '            <intent-filter>\n'
+    '                <action android:name="android.intent.action.MAIN" />\n'
+    '                <category android:name="android.intent.category.LAUNCHER" />\n'
+    '            </intent-filter>\n'
+)
+idx = content.find(marker)
+if idx == -1:
+    print("ERROR: could not find MAIN/LAUNCHER intent-filter to anchor insertion", file=sys.stderr)
+    sys.exit(1)
+insert_at = idx + len(marker)
+insertion = (
+    "\n"
+    "            <intent-filter>\n"
+    '                <action android:name="android.intent.action.VIEW" />\n'
+    '                <category android:name="android.intent.category.DEFAULT" />\n'
+    '                <category android:name="android.intent.category.BROWSABLE" />\n'
+    '                <data android:scheme="wealthdash" />\n'
+    "            </intent-filter>\n"
+)
+content = content[:insert_at] + insertion + content[insert_at:]
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+  echo "[7/7] AndroidManifest.xml: added wealthdash:// deep-link intent-filter to MainActivity."
 fi
 
 echo

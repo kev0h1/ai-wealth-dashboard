@@ -164,6 +164,27 @@ the script exits non-zero.
      This id must exactly match the channel created client-side and the id
      the backend targets when sending, so it's deliberately not
      configurable here.
+7. **`android/app/src/main/AndroidManifest.xml`** — adds a
+   `wealthdash://` deep-link `<intent-filter>` to `MainActivity`, inserted
+   right after the existing MAIN/LAUNCHER intent-filter, guarded by a
+   `grep` for `android:scheme="wealthdash"`. This step is unrelated to
+   push notifications but lives in this same script because it patches
+   the same gitignored, regenerated manifest. Google sign-in opens the
+   OAuth flow in a Chrome Custom Tab, and the backend's
+   `/auth/google/mobile-callback` finishes by returning an HTML page
+   (`backend/app/routers/auth.py`) that navigates to
+   `wealthdash://auth-done` to hand control back to the app. Without this
+   intent-filter, Android has no app registered for that scheme, so the
+   Custom Tab is left sitting on a dead page and the user has to quit and
+   reopen the app to see the signed-in state. The filter is:
+   ```xml
+   <intent-filter>
+       <action android:name="android.intent.action.VIEW" />
+       <category android:name="android.intent.category.DEFAULT" />
+       <category android:name="android.intent.category.BROWSABLE" />
+       <data android:scheme="wealthdash" />
+   </intent-filter>
+   ```
 
 ## Verifying the patch worked
 
@@ -179,4 +200,7 @@ ls android/app/src/main/res/drawable-*/ic_stat_notify.png
 # Notification icon + channel meta-data in the manifest
 grep -A0 "default_notification_icon\|default_notification_channel_id" \
   android/app/src/main/AndroidManifest.xml
+
+# wealthdash:// deep-link intent-filter (for the Google sign-in return trip)
+grep 'android:scheme="wealthdash"' android/app/src/main/AndroidManifest.xml
 ```
