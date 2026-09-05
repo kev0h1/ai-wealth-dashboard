@@ -34,10 +34,12 @@ import type {
   SpendVerdictNotable,
   SpendVerdictState,
   SpendVerdictUnresolved,
+  SavingsInsight,
 } from "@/lib/api";
 import { fmtWhole as fmtAimWhole, daysLabel } from "@/lib/aimFormat";
 import { formatDate } from "@/lib/payPeriod";
 import MoneyText from "@/components/MoneyText";
+import { openTipsFor, tipSubline } from "@/lib/spendTips";
 
 // − U+2212, never ASCII hyphen-minus, for money (copy rule).
 const MINUS = "−";
@@ -61,7 +63,7 @@ const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
 const AMBER_THRESHOLD = 2.0;
 function paceBadgeClasses(multiple: number): string {
   return multiple >= AMBER_THRESHOLD
-    ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+    ? "border border-amber-200/70 bg-amber-50/70 text-amber-700 dark:border-amber-300/15 dark:bg-amber-300/10 dark:text-amber-200"
     : "bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300";
 }
 
@@ -292,6 +294,11 @@ interface NotableCardProps {
   // always asks the parent to open the consent sheet (which prices the
   // filing before it saves). The card takes no other action on this tap.
   onNewNormalRequest?: (category: string) => void;
+  /** This category's own open tips (already filtered via openTipsFor) —
+   *  feeds the "N payments · day X" subline's tip suffix (tipSubline).
+   *  Never renders a callout of its own; see DESIGN.md "Tips on Spend and
+   *  the transactions page". */
+  tips: SavingsInsight[];
 }
 
 // ── Shared resolve-in-place state/logic (variant B refactor) ───────────────
@@ -520,41 +527,69 @@ function NotableCardBody({
 // to the pre-variant-B card; only the badge threshold (ResolveBadge, point
 // 9) and the intent-button/aim-block treatment inside NotableCardBody
 // changed. ───────────────────────────────────────────────────────────────
-function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest }: NotableCardProps) {
+function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest, tips }: NotableCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const { localResolved, pending, intentError, handleOneOff } = useNotableResolve({
     category: notable.category,
     resolved,
     onIntent,
     onResolved,
   });
+  const detailId = `notable-review-${notable.category.replace(/[^a-zA-Z0-9]+/g, "-")}`;
 
   return (
-    <div className="glass-card-flat rounded-2xl p-4">
-      <div className="flex items-center gap-2.5">
-        <IconChip name={notable.category} colours={colours} />
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 flex-1 min-w-0 truncate">
-          {notable.category}
-        </p>
-        <ResolveBadge multiple={notable.multiple} localResolved={localResolved} />
+    <section className="glass-card-flat rounded-2xl overflow-hidden" aria-label={`${notable.category} needs a look`}>
+      <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Needs a look</p>
+      <div className="flex items-center gap-2.5 px-4 pt-2">
+        <IconChip name={notable.category} colours={colours} size={32} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{notable.category}</p>
+          <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+            <MoneyText
+              text={`${notable.payments_count} payment${notable.payments_count === 1 ? "" : "s"} · day ${daysElapsed}${
+                tipSubline(tips) ? ` · ${tipSubline(tips)}` : ""
+              }`}
+            />
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <p className="font-mono text-base font-bold tabular-nums text-slate-900 dark:text-slate-100">{fmt(notable.spent)}</p>
+          <ResolveBadge multiple={notable.multiple} localResolved={localResolved} />
+        </div>
       </div>
-
-      <p className="mt-2 text-[19px] font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(notable.spent)}</p>
-
-      <NotableCardBody
-        notable={notable}
-        daysElapsed={daysElapsed}
-        onOpenCategory={onOpenCategory}
-        sym={sym}
-        suggestedAim={suggestedAim}
-        checkpoint={checkpoint}
-        onAimChanged={onAimChanged}
-        onNewNormalRequest={onNewNormalRequest}
-        localResolved={localResolved}
-        pending={pending}
-        intentError={intentError}
-        handleOneOff={handleOneOff}
-      />
-    </div>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !expanded;
+          setExpanded(next);
+          if (next) onAimChanged();
+        }}
+        aria-expanded={expanded}
+        aria-controls={detailId}
+        className="mt-3 flex min-h-12 w-full items-center justify-between border-t border-slate-100 px-4 text-left text-[13px] font-semibold text-indigo-700 transition-colors hover:bg-slate-50 active:bg-slate-100 dark:border-white/10 dark:text-indigo-300 dark:hover:bg-white/5 dark:active:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+      >
+        <span>{expanded ? "Close details" : "Review this spending"}</span>
+        {expanded ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+      </button>
+      {expanded && (
+        <div id={detailId} className="border-t border-slate-100 px-4 pb-4 pt-2 dark:border-white/10">
+          <NotableCardBody
+            notable={notable}
+            daysElapsed={daysElapsed}
+            onOpenCategory={onOpenCategory}
+            sym={sym}
+            suggestedAim={suggestedAim}
+            checkpoint={checkpoint}
+            onAimChanged={onAimChanged}
+            onNewNormalRequest={onNewNormalRequest}
+            localResolved={localResolved}
+            pending={pending}
+            intentError={intentError}
+            handleOneOff={handleOneOff}
+          />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -571,7 +606,7 @@ function NotableCardView({ notable, colours, daysElapsed, onOpenCategory, onInte
 // toggled (grid-template-rows 1fr→0fr + opacity + `inert` on the collapsed
 // region), never conditionally unmounted, matching the collapse convention
 // already established on this file's other grid-rows blocks. ─────────────
-function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest }: NotableCardProps) {
+function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onIntent, sym, suggestedAim, checkpoint, onAimChanged, resolved, onResolved, onNewNormalRequest, tips }: NotableCardProps) {
   const [expanded, setExpanded] = useState(false);
   const { localResolved, pending, intentError, handleOneOff } = useNotableResolve({
     category: notable.category,
@@ -585,15 +620,26 @@ function NotableMiniRow({ notable, colours, daysElapsed, onOpenCategory, onInten
     <div>
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          const next = !expanded;
+          setExpanded(next);
+          if (next) onAimChanged();
+        }}
         aria-expanded={expanded}
         aria-controls={detailId}
         className="w-full min-h-[44px] flex items-center gap-2.5 pl-4 pr-5 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
       >
         <IconChip name={notable.category} colours={colours} size={28} />
-        <span className="flex-1 min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
-          {notable.category}
-        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{notable.category}</p>
+          <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+            <MoneyText
+              text={`${notable.payments_count} payment${notable.payments_count === 1 ? "" : "s"} · day ${daysElapsed}${
+                tipSubline(tips) ? ` · ${tipSubline(tips)}` : ""
+              }`}
+            />
+          </p>
+        </div>
         <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
           {fmt(notable.spent)}
         </span>
@@ -639,13 +685,16 @@ interface GroupedNotablesTileProps {
   resolved?: Record<string, "one_off" | "new_normal">;
   onResolved?: (category: string, answer: "one_off" | "new_normal") => void;
   onNewNormalRequest?: (category: string) => void;
+  /** Full, unfiltered insights list — each mini-row derives its own open
+   *  tips via openTipsFor(n.category, categoryInsights). */
+  categoryInsights?: SavingsInsight[];
 }
 
 // ── The grouped tile — every notable but the single highest-multiple hero
 // collapses into one tile of compact mini-rows (point 7). "Also running
 // warm" names the tile without repeating "notable"/"usual" language already
 // used by the hero card directly above it. ─────────────────────────────────
-function GroupedNotablesTile({ notables, colours, daysElapsed, onOpenCategory, onIntent, sym, signals, onAimChanged, resolved, onResolved, onNewNormalRequest }: GroupedNotablesTileProps) {
+function GroupedNotablesTile({ notables, colours, daysElapsed, onOpenCategory, onIntent, sym, signals, onAimChanged, resolved, onResolved, onNewNormalRequest, categoryInsights }: GroupedNotablesTileProps) {
   if (notables.length === 0) return null;
   return (
     <div className="glass-card-flat rounded-2xl overflow-hidden">
@@ -668,6 +717,7 @@ function GroupedNotablesTile({ notables, colours, daysElapsed, onOpenCategory, o
             resolved={resolved?.[n.category] ?? null}
             onResolved={onResolved}
             onNewNormalRequest={onNewNormalRequest}
+            tips={openTipsFor(n.category, categoryInsights ?? [])}
           />
         ))}
       </div>
@@ -802,13 +852,16 @@ function MajorityRowView({
   colours,
   quietTag,
   onOpen,
+  tips,
 }: {
   row: SpendVerdictMajorityRow;
   colours: Record<string, string>;
   quietTag: boolean;
   onOpen: () => void;
+  tips: SavingsInsight[];
 }) {
   const s = row.payments_count === 1 ? "" : "s";
+  const suffix = tipSubline(tips);
   return (
     <button
       type="button"
@@ -821,9 +874,11 @@ function MajorityRowView({
         <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
           {row.payments_count} payment{s}
           {quietTag && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · above usual</span>}
+          {suffix && <MoneyText text={` · ${suffix}`} />}
         </p>
       </div>
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(row.spent)}</span>
+      <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
     </button>
   );
 }
@@ -844,22 +899,20 @@ function OtherRowView({ total, paymentsCount, colours, onOpen }: {
 }) {
   const s = paymentsCount === 1 ? "" : "s";
   return (
-    <div className="mt-2 glass-card-flat rounded-2xl overflow-hidden">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="w-full min-h-[44px] flex items-center gap-2.5 px-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
-      >
-        <IconChip name="Other" colours={colours} size={28} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">Other</p>
-          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-            {paymentsCount} payment{s} · still placing
-          </p>
-        </div>
-        <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(total)}</span>
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full min-h-[44px] flex items-center gap-2.5 px-4 py-2.5 text-left active:bg-slate-50 dark:active:bg-slate-700/30 transition-colors"
+    >
+      <IconChip name="Other" colours={colours} size={28} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">Other</p>
+        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+          {paymentsCount} payment{s} · still placing
+        </p>
+      </div>
+      <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(total)}</span>
+    </button>
   );
 }
 
@@ -978,12 +1031,19 @@ function majorityHeader(state: SpendVerdictState, sum: number, count: number): s
   }
 }
 
-const MAJORITY_COLLAPSE_AT = 8;
+const MAJORITY_COLLAPSE_AT = 3;
 
 export interface SpendVerdictViewProps {
   verdict: SpendVerdict;
   colours: Record<string, string>;
   onOpenCategory: (category: string) => void;
+  /** Every current insight, unfiltered — each row/card derives its own
+   *  category's OPEN tips via openTipsFor(category, categoryInsights),
+   *  which is what actually excludes quiet/verified/substituted entries.
+   *  Feeds only the subline signifier now (count + estimate); tips never
+   *  render as a callout on Spend, see DESIGN.md "Tips on Spend and the
+   *  transactions page". */
+  categoryInsights?: SavingsInsight[];
   onIntent: (category: string, answer: "one_off" | "new_normal") => Promise<void>;
   // The aim/checkpoint mechanism, relocated onto the notable card from
   // CategorySheet's DoorBlock (see AimBlock above). `signals` mirrors
@@ -1083,7 +1143,7 @@ export interface SpendVerdictViewProps {
   onMovedOpenChange?: (open: boolean) => void;
 }
 
-export default function SpendVerdictView({ verdict, colours, onOpenCategory, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange }: SpendVerdictViewProps) {
+export default function SpendVerdictView({ verdict, colours, onOpenCategory, categoryInsights, onIntent, signals, sym = "£", onAimChanged, onAskCorrect, hideReading, aboveMajority, expandMajoritySignal, miscategorisedCount = 0, onMiscategorisedTap, pairCount = 0, reviewTotal, resolved, onResolved, onNewNormalRequest, unresolvedAccountName, onOpenMoved, initialMajorityExpanded, onMajorityExpandedChange, initialMovedOpen, onMovedOpenChange }: SpendVerdictViewProps) {
   // Optimistic, in-session hide the instant "Not now" is tapped — the real
   // persistence is server-side (POST /spend/verdict/dismiss-unresolved sets
   // unresolved.ask_worthy=false on every future fetch for this transaction,
@@ -1112,7 +1172,6 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
   const headerSum = nonZeroRows.reduce((s, r) => s + r.spent, 0);
 
   const showAskCard = unresolved.ask_worthy && !askDismissed && unresolved.largest != null;
-  const showUnresolvedWhisper = !showAskCard && unresolved.total > 0;
 
   async function handleDismissAsk() {
     const txnId = unresolved.largest?.id;
@@ -1196,6 +1255,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
                 resolved={resolved?.[hero.category] ?? null}
                 onResolved={onResolved}
                 onNewNormalRequest={onNewNormalRequest}
+                tips={openTipsFor(hero.category, categoryInsights ?? [])}
               />
             )}
             <GroupedNotablesTile
@@ -1210,6 +1270,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
               resolved={resolved}
               onResolved={onResolved}
               onNewNormalRequest={onNewNormalRequest}
+              categoryInsights={categoryInsights}
             />
           </div>
         );
@@ -1235,11 +1296,6 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
             />
           </div>
         )}
-        {showUnresolvedWhisper && (
-          <p className="mt-3 px-1 text-[11px] text-slate-600 dark:text-slate-400">
-            Other · <span className="font-mono tabular-nums">{fmt(unresolved.total)}</span>, still working this one out
-          </p>
-        )}
       </div>
 
       {/* Majority — aboveMajority (the This period/Over time tablist) gets
@@ -1253,7 +1309,7 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
         <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
           <MoneyText text={majorityHeader(state, headerSum, nonZeroRows.length)} />
         </p>
-        {nonZeroRows.length > 0 ? (
+        {nonZeroRows.length > 0 || unresolved.total > 0 ? (
           <div className="mt-2 glass-card-flat rounded-2xl divide-y divide-slate-100 dark:divide-slate-700/50 overflow-hidden">
             {visibleRows.map((row) => (
               <MajorityRowView
@@ -1262,8 +1318,17 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
                 colours={colours}
                 quietTag={quietFlagCategories.has(row.category)}
                 onOpen={() => onOpenCategory(row.category)}
+                tips={openTipsFor(row.category, categoryInsights ?? [])}
               />
             ))}
+            {unresolved.total > 0 && (
+              <OtherRowView
+                total={unresolved.total}
+                paymentsCount={unresolved.payments_count}
+                colours={colours}
+                onOpen={() => onOpenCategory("Other")}
+              />
+            )}
           </div>
         ) : (
           <p className="mt-2 px-1 text-[11px] text-slate-600 dark:text-slate-400">Nothing to show yet.</p>
@@ -1281,17 +1346,6 @@ export default function SpendVerdictView({ verdict, colours, onOpenCategory, onI
           <p className="mt-2 px-1 text-[11px] text-slate-600 dark:text-slate-400">
             Nothing in {zeroRows.map((r) => r.category).join(" or ")} yet
           </p>
-        )}
-        {/* "Other" — never counted in the header's sum/count above (see
-            OtherRowView doc), always rendered here regardless of
-            collapsed/expanded state so it's never hidden behind "Show all". */}
-        {unresolved.total > 0 && (
-          <OtherRowView
-            total={unresolved.total}
-            paymentsCount={unresolved.payments_count}
-            colours={colours}
-            onOpen={() => onOpenCategory("Other")}
-          />
         )}
       </div>
 

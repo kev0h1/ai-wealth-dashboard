@@ -816,12 +816,50 @@ export function CompactInsightRow({
 
 // ── Insight Card ──────────────────────────────────────────────────────────────
 
+// A `display_name` that started life as a short ALL-CAPS abbreviation (EE,
+// BT, TFL, HSBC) can arrive here already Title-cased by the backend's own
+// normalisation (`.title()` in savings_insights.py, applied to the
+// lower-cased merchant key so ordinary multi-word names print correctly) —
+// "ee" -> "Ee" instead of staying "EE". This is a pure display-time guard,
+// not a re-derivation: any single word already in "Titlecase" shape (one
+// capital letter followed only by lowercase) at 4 characters or fewer is
+// re-uppercased, on the theory that at that length it reads as a bank/
+// network initialism, not a genuine title-cased English word. A merchant
+// like "O2" never hits this in the first place, `.title()` leaves a
+// letter-then-digit token alone, so it already renders correctly.
+// The backend (backend/app/routers/savings_insights.py) runs merchant
+// display names through Python's `.title()` for presentation, which
+// mangles real initialisms into Title Case ("Ee" for EE, "Bt" for BT,
+// "Whsmith" for WHSmith). This used to be a shape heuristic
+// (`/^[A-Z][a-z]{0,3}$/`, uppercasing any short Title-Case word wholesale)
+// that also wrongly shouted ordinary short brand names — Sky, Lidl, Uber,
+// Ikea, Zara, Nike all matched that shape and got capitalised for no
+// reason. Replaced with an explicit initialism allowlist instead, compared
+// case-insensitively per whitespace-separated token (so "Tk Maxx" ->
+// "TK Maxx" without touching "Maxx"). The real fix belongs in the
+// backend's own `.title()` call; this is a frontend patch until that
+// happens.
+const KNOWN_INITIALISMS: Record<string, string> = {
+  EE: "EE", BT: "BT", O2: "O2", TFL: "TFL", HSBC: "HSBC", RAC: "RAC",
+  AA: "AA", ASDA: "ASDA", BP: "BP", KFC: "KFC", TSB: "TSB", NHS: "NHS",
+  DVLA: "DVLA", EON: "EON", OVO: "OVO", EDF: "EDF", GWR: "GWR", LNER: "LNER",
+  TK: "TK", WHSMITH: "WHSmith",
+};
+
+function fixShortAllCaps(name: string): string {
+  return name
+    .split(" ")
+    .map((token) => KNOWN_INITIALISMS[token.toUpperCase()] ?? token)
+    .join(" ");
+}
+
 export function InsightCard({
   insight,
   workflow,
   onPin,
   onContextSaved,
   anyOpenHasEstimate,
+  inSheet = false,
 }: {
   insight: SavingsInsight;
   workflow: WorkflowDef | null;
@@ -837,6 +875,18 @@ export function InsightCard({
    *  label on every single card underneath would just add noise, not
    *  information, so the label is suppressed entirely in that state. */
   anyOpenHasEstimate: boolean;
+  /** True only when this card renders inside a TipStrip on a category's
+   *  transactions page (app/design/spend-tips/TransactionsMock.tsx, a mock
+   *  of the real app/transactions/TransactionsPage.tsx), a payments
+   *  drill-down that already shows the category chip (the page's own
+   *  filter chip) and the transactions themselves (the page's own list).
+   *  Strips the card down to the fact line, body, estimate, and age line
+   *  only — the pin button, category chip, compare-site chips, workflow
+   *  CTA, app_route CTA, and the "Based on N transactions" evidence footer
+   *  all either duplicate something already visible on the page or are
+   *  page-level actions that don't belong in a payments drill-down.
+   *  Defaults false; no behaviour change for the Insights tab itself. */
+  inSheet?: boolean;
 }) {
   const router = useRouter();
   const [showTriggers, setShowTriggers] = useState(false);
@@ -916,24 +966,28 @@ export function InsightCard({
             expires, never carries a research stamp; this is fact, not
             research. ── */}
         <div className="p-4 flex flex-col gap-3">
-          {/* Category + badges + pin */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <CategoryChip category={insight.category} label={insight.label} />
+          {/* Category + badges + pin — hidden inSheet: the sheet's own
+              header already carries the category identity, and pinning is
+              a page-level action, not a payments drill-down one. */}
+          {!inSheet && (
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CategoryChip category={insight.category} label={insight.label} />
 
-              {insight.is_new && (
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center gap-1">
-                  <PennyMark size={10} /> New
-                </span>
-              )}
+                {insight.is_new && (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 flex items-center gap-1">
+                    <PennyMark size={10} /> New
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => onPin(insight.id)}
+                className="relative before:absolute before:-inset-2.5 before:content-[''] flex-shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-indigo-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              >
+                {insight.pinned ? <BookmarkCheck size={18} className="text-indigo-500" /> : <Bookmark size={18} />}
+              </button>
             </div>
-            <button
-              onClick={() => onPin(insight.id)}
-              className="relative before:absolute before:-inset-2.5 before:content-[''] flex-shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-indigo-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-            >
-              {insight.pinned ? <BookmarkCheck size={18} className="text-indigo-500" /> : <Bookmark size={18} />}
-            </button>
-          </div>
+          )}
 
           {/* Closure: the loop actually closed — celebrate. Copy is server-
               composed and already tier-aware (verified_savings_line is the
@@ -976,15 +1030,17 @@ export function InsightCard({
               ) : (
                 <>
                   <span className="font-mono tabular-nums">~£{topTrigger.monthly_amount.toLocaleString("en-GB", { maximumFractionDigits: 0 })}/mo</span>{" "}
-                  <span className="font-medium">at {topTrigger.display_name}</span>{" "}
+                  <span className="font-medium">at {fixShortAllCaps(topTrigger.display_name)}</span>{" "}
                 </>
               )}
               <span className="text-xs font-normal text-slate-500 dark:text-slate-400">· from your transactions</span>
             </p>
           )}
 
-          {/* Primary action — the user's own data, in-app */}
-          {insight.app_route && (
+          {/* Primary action — the user's own data, in-app. Hidden inSheet:
+              this leads to the same transactions the sheet's own Payments
+              list already shows. */}
+          {!inSheet && insight.app_route && (
             <button
               onClick={() => { markOpened(); router.push(insight.app_route!); }}
               className="self-start inline-flex items-center gap-0.5 py-3 -my-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 active:scale-95 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -1070,8 +1126,9 @@ export function InsightCard({
                 </span>
               )}
 
-              {/* Comparison sites — secondary, quiet */}
-              {CATEGORY_LINKS[insight.category] && (
+              {/* Comparison sites — secondary, quiet. Hidden inSheet, a
+                  page-level action, not part of a payments drill-down. */}
+              {!inSheet && CATEGORY_LINKS[insight.category] && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] text-slate-400 dark:text-slate-500">Compare:</span>
                   {CATEGORY_LINKS[insight.category].map(link => (
@@ -1121,7 +1178,7 @@ export function InsightCard({
               surface on this card again — the CTA would be a dead end
               exactly like the caption text this same ruling deleted above,
               just one furniture item later. */}
-          {workflow && !isResolved && (
+          {!inSheet && workflow && !isResolved && (
             <button
               onClick={() => { setShowWorkflow(true); markOpened(); }}
               className="w-full py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/50 active:scale-[0.98] text-slate-600 dark:text-slate-300 text-sm font-medium flex items-center justify-center gap-2 transition-all motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -1132,8 +1189,11 @@ export function InsightCard({
           )}
         </div>
 
-        {/* Triggered by — collapsible, the deterministic evidence footer */}
-        {insight.triggered_by.length > 0 && (
+        {/* Triggered by — collapsible, the deterministic evidence footer.
+            Hidden inSheet: this is a per-merchant breakdown of the same
+            transactions the sheet's own Payments list already shows in
+            full. */}
+        {!inSheet && insight.triggered_by.length > 0 && (
           <div className="border-t border-slate-100 dark:border-slate-700">
             <button
               onClick={() => { setShowTriggers(v => !v); markOpened(); }}
@@ -1159,7 +1219,7 @@ export function InsightCard({
               <div className="px-4 pb-3 space-y-1.5">
                 {insight.triggered_by.map(t => (
                   <div key={t.merchant_key} className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{t.display_name}</span>
+                    <span className="text-slate-600 dark:text-slate-300 truncate max-w-[65%]">{fixShortAllCaps(t.display_name)}</span>
                     {/* is_recurring: exact engine figure, matches the card's
                         own title/body — no hedge. Missing/false: a plain
                         window average over ad-hoc spend — hedge it like

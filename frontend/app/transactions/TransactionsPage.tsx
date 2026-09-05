@@ -12,11 +12,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { api, Transaction } from "@/lib/api";
+import { api, Transaction, type SavingsInsight } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
+import { TipsLine } from "@/components/TipsLine";
+import { openTipsFor } from "@/lib/spendTips";
 
 const PAGE_SIZE = 20;
 
@@ -67,6 +69,9 @@ export default function TransactionsPage() {
   // clearing category/merchants.
   const [periodFrom, setPeriodFrom] = useState<string | null>(() => searchParams.get("from"));
   const [periodTo, setPeriodTo] = useState<string | null>(() => searchParams.get("to"));
+  // Deep link for an already-open tip (e.g. from the Insights hero or Home
+  // spotlight) — read once at mount, same convention as the filters above.
+  const [tipParam] = useState<string | null>(() => searchParams.get("tip"));
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -75,8 +80,32 @@ export default function TransactionsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  // Savings insights for the collapsed tips line under the chips (Step 4,
+  // spend-tips promotion) — the same api.getSavingsInsights() call
+  // SpendPage.tsx uses for its own categoryInsights, fetched once here on
+  // mount and tolerant of failure (no line at all rather than an error UI).
+  const [insights, setInsights] = useState<SavingsInsight[]>([]);
+  // Fetched once, the first time a category filter is actually active — a
+  // ref (not state) so this never re-triggers itself; `categoryFilter` in
+  // the deps means switching TO a category filter for the first time on
+  // this page instance still fires the fetch, but flipping between two
+  // categories, or losing/reapplying the same one, does not refetch (the
+  // list is every insight, not scoped to one category — openTipsFor below
+  // filters it per render). Tolerant of failure: a rejected fetch just
+  // leaves the tips line absent, never an error UI.
+  const insightsLoadedRef = useRef(false);
 
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!categoryFilter) return;
+    if (insightsLoadedRef.current) return;
+    let active = true;
+    api.getSavingsInsights()
+      .then((r) => { if (active) { insightsLoadedRef.current = true; setInsights(r); } })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [categoryFilter]);
 
   // Re-seed every URL-driven filter whenever `searchParams` itself changes
   // (a fresh deep link from Spend's "money you moved" rows, or any other
@@ -233,6 +262,23 @@ export default function TransactionsPage() {
     ? "Searching all accounts"
     : "Searching everything · all accounts, all time";
 
+  // The collapsed tips line's own data — computed here (not inline in the
+  // JSX) so `!loading` and a `key={categoryFilter}` remount can both gate
+  // on the same `tips` value. Only when a single category filter is active
+  // with nothing else narrowing the scope (no multi-category deep link, no
+  // merchant filter, no free-text search), matching the owner brief's "a
+  // category tap from Spend" case exactly. `insights` starts empty and
+  // resolves after mount (see the fetch effect above); computing `tips`
+  // fresh on every render (rather than once at mount) is what makes it
+  // reflect that resolution instead of freezing on the empty initial state.
+  const tips: SavingsInsight[] = (() => {
+    if (!categoryFilter) return [];
+    if (categoriesFilter && categoriesFilter.length > 0) return [];
+    if (merchantsFilter && merchantsFilter.length > 0) return [];
+    if (searchQuery) return [];
+    return openTipsFor(categoryFilter, insights);
+  })();
+
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Sticky back header — same convention as ReceiptsPage.tsx (the app's
@@ -321,6 +367,28 @@ export default function TransactionsPage() {
             )}
           </div>
         </div>
+
+        {/* Mounted only once `tips` is non-empty AND the list itself has
+            settled (`!loading`) — never inserted above a payments list that
+            has already painted, and never mounted against the pre-fetch
+            empty `insights` array (that used to compute an empty `tips`
+            once at mount and stay that way: `?tip=` deep links and the
+            line's own initial-open state were decided before the fetch
+            resolved and never re-evaluated). `key={categoryFilter}` forces
+            a fresh instance on every category change, so a stale open/
+            notified-tips strip from the PREVIOUS category can never carry
+            over onto the new one. */}
+        {tips.length > 0 && !loading && (
+          <div className="mt-1">
+            <TipsLine
+              key={categoryFilter}
+              category={categoryFilter!}
+              tips={tips}
+              initialOpenTipId={tipParam ?? undefined}
+              onTipOpened={(id) => api.markInsightOpened(id).catch(() => {})}
+            />
+          </div>
+        )}
       </div>
 
       <div className="px-4 pt-2 space-y-2">
