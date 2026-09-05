@@ -10,7 +10,8 @@ from jwt.algorithms import RSAAlgorithm
 from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
-    APP_URL, ALLOWED_EMAILS, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
+    APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
+    resolve_allowed_email,
 )
 from itsdangerous import SignatureExpired, BadSignature
 
@@ -95,8 +96,10 @@ async def google_native(body: dict):
     email = info.get("email", "").lower()
     if not email:
         raise HTTPException(401, "Auth failed")
-    if email not in ALLOWED_EMAILS:
+    allowed = resolve_allowed_email(email)
+    if not allowed:
         raise HTTPException(403, "Access denied")
+    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": info.get("name", "")})
     return {"session_token": session_token, "ok": True}
@@ -170,8 +173,10 @@ async def apple_native(body: dict):
     email = (claims.get("email") or "").lower()
     if not email:
         raise HTTPException(401, "Auth failed")
-    if email not in ALLOWED_EMAILS:
+    allowed = resolve_allowed_email(email)
+    if not allowed:
         raise HTTPException(403, "Access denied")
+    email = allowed
 
     name = body.get("fullName") or email.split("@")[0]
     session_token = serializer.dumps({"email": email, "name": name})
@@ -293,8 +298,10 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
     email    = userinfo.get("email", "").lower()
     if not email:
         return finish("error:auth_failed")
-    if email not in ALLOWED_EMAILS:
+    allowed = resolve_allowed_email(email)
+    if not allowed:
         return finish("error:access_denied")
+    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return finish(f"token:{session_token}")
@@ -333,8 +340,10 @@ async def google_callback(code: str = None, error: str = None):
     email    = userinfo.get("email", "").lower()
     if not email:
         return RedirectResponse(f"{APP_URL}/?error=auth_failed")
-    if email not in ALLOWED_EMAILS:
+    allowed = resolve_allowed_email(email)
+    if not allowed:
         return RedirectResponse(f"{APP_URL}/?error=access_denied")
+    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return RedirectResponse(f"{APP_URL}/?token={urllib.parse.quote(session_token, safe='')}")

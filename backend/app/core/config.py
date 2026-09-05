@@ -26,6 +26,39 @@ _raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "k
 ALLOWED_EMAILS      = set(_raw_allowed_emails)
 PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
 SESSION_MAX_AGE     = 7 * 24 * 3600
+
+_GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
+
+
+def _gmail_key(email: str) -> str:
+    """Gmail ignores dots in the local part and treats googlemail.com as gmail.com."""
+    local, _, domain = email.lower().partition("@")
+    if domain in _GMAIL_DOMAINS:
+        return f"{local.replace('.', '')}@gmail.com"
+    return email.lower()
+
+
+# Earlier entries win if two allow-list emails collapse to the same Gmail key
+# (build in list order, only filling keys not already present).
+_ALLOWED_BY_KEY: dict[str, str] = {}
+for _e in _raw_allowed_emails:
+    _k = _gmail_key(_e)
+    if _k not in _ALLOWED_BY_KEY:
+        _ALLOWED_BY_KEY[_k] = _e
+
+
+def resolve_allowed_email(email: str) -> str | None:
+    """Return the allow-list spelling for `email`, or None if it is not allowed.
+
+    Exact (case-insensitive) matches win. Gmail/googlemail addresses also match
+    dot-insensitively, and the returned value is the allow-list spelling so the
+    same person always lands in the same account regardless of provider."""
+    if not email:
+        return None
+    e = email.strip().lower()
+    if e in ALLOWED_EMAILS:
+        return e
+    return _ALLOWED_BY_KEY.get(_gmail_key(e))
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
