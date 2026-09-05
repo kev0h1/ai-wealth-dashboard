@@ -57,10 +57,15 @@ function reportAppleSignInDiagnostic(stage: string, detail: unknown): void {
   });
 }
 
-export async function nativeAppleLogin(): Promise<boolean> {
-  let identityToken: string | undefined;
-  let fullName: string | undefined;
-
+// Runs the native ASAuthorizationAppleIDProvider flow via the Capacitor
+// plugin and returns the raw identity token (plus whatever name Apple
+// handed back), or null on any failure or cancellation — the existing
+// `appleSignInAuthorize` diagnostic still fires on failure, exactly as it
+// did when this was inlined into `nativeAppleLogin`. Shared by both the
+// sign-in flow (nativeAppleLogin) and the account-linking flow
+// (linkAppleIdentity) below, since both need the same plugin call and the
+// same failure reporting.
+export async function nativeAppleAuthorize(): Promise<{ identityToken: string; fullName?: string } | null> {
   try {
     // Dynamic import so a web build (which never calls this function,
     // gated by isIOSNative() at the call site) doesn't need the plugin's
@@ -73,17 +78,23 @@ export async function nativeAppleLogin(): Promise<boolean> {
       redirectURI: `${API_BASE}/auth/apple/native`,
       scopes: "email name",
     });
-    identityToken = response.identityToken;
+    const identityToken = response.identityToken;
+    if (!identityToken) return null;
     // Apple only ever sends the name on the very first authorization for
     // this app + Apple ID pair — pass along whatever we got so the backend
     // can use it, and it'll fall back to the email local-part after that.
-    fullName = [response.givenName, response.familyName].filter(Boolean).join(" ") || undefined;
+    const fullName = [response.givenName, response.familyName].filter(Boolean).join(" ") || undefined;
+    return { identityToken, fullName };
   } catch (err) {
     reportAppleSignInDiagnostic("appleSignInAuthorize", err instanceof Error ? err.message : err);
-    return false;
+    return null;
   }
+}
 
-  if (!identityToken) return false;
+export async function nativeAppleLogin(): Promise<boolean> {
+  const authResult = await nativeAppleAuthorize();
+  if (!authResult) return false;
+  const { identityToken, fullName } = authResult;
 
   try {
     const res = await fetch(`${API_BASE}/auth/apple/native`, {
@@ -104,6 +115,30 @@ export async function nativeAppleLogin(): Promise<boolean> {
   } catch (err) {
     reportAppleSignInDiagnostic("appleSignInExchange", err instanceof Error ? err.message : err);
     return false;
+  }
+}
+
+// Links the signed-in user's Apple identity to their existing account
+// (Phase 1 of linked identities, Settings → "Sign-in methods"). iOS native
+// only — there's no web fallback for Sign in with Apple in this app (see
+// isIOSNative() above). Distinguishes a 409 (that Apple ID is already
+// linked to a different account) from every other failure so the Settings
+// UI can show a specific message; api.linkAppleIdentity throws an Error
+// whose message starts with "409" for that case (mirrors the 429 handling
+// in api.sendTestPush).
+export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelled" | "failed"> {
+  if (!isIOSNative()) return "failed";
+
+  const authResult = await nativeAppleAuthorize();
+  if (!authResult) return "cancelled";
+
+  try {
+    await api.linkAppleIdentity(authResult.identityToken);
+    return "ok";
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("409")) return "conflict";
+    reportAppleSignInDiagnostic("appleLink", err instanceof Error ? err.message : err);
+    return "failed";
   }
 }
 

@@ -20,12 +20,13 @@ import {
   HelpCircle,
   AlertTriangle,
   Wand2,
+  KeyRound,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { api, NotificationPrefs, Account } from "@/lib/api";
+import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
-import { isNativePlatform } from "@/lib/nativeAuth";
+import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
   isAvailable as checkBiometryAvailability,
@@ -184,6 +185,66 @@ export default function SettingsPage() {
   const [profileMsg, setProfileMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const profileDirty = profileLoaded !== null &&
     (profileName !== profileLoaded.name || profilePostcode !== profileLoaded.postcode);
+
+  // Sign-in methods (Phase 1 linked identities: Apple only, native iOS)
+  const [identities, setIdentities] = useState<IdentitiesResponse | null>(null);
+  const [identitiesError, setIdentitiesError] = useState(false);
+  const [identitiesLoading, setIdentitiesLoading] = useState(true);
+  const [appleLinking, setAppleLinking] = useState(false);
+  const [appleLinkMsg, setAppleLinkMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [appleUnlinkOpen, setAppleUnlinkOpen] = useState(false);
+  const [appleUnlinking, setAppleUnlinking] = useState(false);
+
+  // No synchronous setState calls in the function body itself (only inside
+  // the .then/.catch/.finally continuations) so this is safe to call
+  // directly from the mount effect below without tripping
+  // react-hooks/set-state-in-effect.
+  function fetchIdentities() {
+    api.getIdentities()
+      .then(setIdentities)
+      .catch(() => setIdentitiesError(true))
+      .finally(() => setIdentitiesLoading(false));
+  }
+  // Same fetch, but resets the loading/error state first — for a refetch
+  // after linking/unlinking, where identitiesLoading/identitiesError may
+  // already have settled to their post-mount values.
+  function refetchIdentities() {
+    setIdentitiesLoading(true);
+    setIdentitiesError(false);
+    fetchIdentities();
+  }
+  useEffect(() => { fetchIdentities(); }, []);
+
+  const appleIdentity = identities?.linked.find(l => l.provider === "apple") ?? null;
+
+  async function handleLinkApple() {
+    setAppleLinking(true);
+    setAppleLinkMsg(null);
+    const result = await linkAppleIdentity();
+    setAppleLinking(false);
+    if (result === "ok") {
+      setAppleLinkMsg({ text: "Apple ID linked", ok: true });
+      refetchIdentities();
+    } else if (result === "conflict") {
+      setAppleLinkMsg({ text: "That Apple ID is already linked to another account", ok: false });
+    } else if (result === "failed") {
+      setAppleLinkMsg({ text: "Could not link. Try again.", ok: false });
+    }
+    // "cancelled" — nothing to show, the user backed out of the OS sheet.
+  }
+
+  async function handleUnlinkApple() {
+    setAppleUnlinking(true);
+    try {
+      await api.unlinkAppleIdentity();
+      setAppleUnlinkOpen(false);
+      refetchIdentities();
+    } catch {
+      setAppleLinkMsg({ text: "Could not unlink. Try again.", ok: false });
+    } finally {
+      setAppleUnlinking(false);
+    }
+  }
 
   // Account deletion
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -551,6 +612,74 @@ export default function SettingsPage() {
       </div>
 
       <div className="px-4 pt-3 space-y-3">
+
+        {/* ── Sign-in methods ── */}
+        <div className="glass-card rounded-2xl overflow-hidden">
+          <SectionHeader icon={KeyRound} hex={INDIGO} title="Sign-in methods" />
+
+          {/* Google — always present, this account always has one */}
+          <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Google</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{user?.email}</p>
+            </div>
+            <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
+              Primary
+            </span>
+          </div>
+
+          {/* Apple */}
+          <div className="px-4 py-3.5">
+            {identitiesLoading ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">Checking…</p>
+            ) : identitiesError ? (
+              <>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Apple</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Could not load sign-in methods</p>
+              </>
+            ) : appleIdentity ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Apple</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{appleIdentity.email_masked}</p>
+                  {appleIdentity.relay && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Uses Hide My Email</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAppleUnlinkOpen(true)}
+                  className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
+                >
+                  Unlink
+                </button>
+              </div>
+            ) : isIOSNative() ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Apple</p>
+                <button
+                  type="button"
+                  onClick={handleLinkApple}
+                  disabled={appleLinking}
+                  className="flex-shrink-0 min-h-[44px] px-4 rounded-full text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-colors disabled:opacity-60 flex items-center gap-2"
+                >
+                  {appleLinking && <Loader2 size={14} className="animate-spin" />}
+                  Link Apple ID
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Apple</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Link from the iPhone app</p>
+              </>
+            )}
+            {appleLinkMsg && (
+              <p className={`text-xs mt-2 ${appleLinkMsg.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
+                {appleLinkMsg.text}
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* ── Display ── */}
         <div className="glass-card rounded-2xl overflow-hidden">
@@ -1091,6 +1220,18 @@ export default function SettingsPage() {
         confirmDisabled={deleteConfirm !== "DELETE"}
         onConfirm={handleDeleteAccount}
         onCancel={() => { setDeleteOpen(false); setDeleteConfirm(""); }}
+      />
+
+      {/* Unlink Apple ID confirmation dialog */}
+      <ConfirmDialog
+        open={appleUnlinkOpen}
+        title="Unlink Apple ID?"
+        message="You will not be able to sign in with Apple until you link it again."
+        confirmLabel="Unlink"
+        destructive
+        confirmDisabled={appleUnlinking}
+        onConfirm={handleUnlinkApple}
+        onCancel={() => setAppleUnlinkOpen(false)}
       />
 
       <BottomNav />

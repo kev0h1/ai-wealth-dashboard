@@ -1712,6 +1712,21 @@ export type TestPushResult = {
   };
 };
 
+// A single external identity linked to this account (Phase 1: Apple only).
+// `relay` is true when the email is an Apple "Hide My Email" private relay
+// address rather than the user's real one — surfaced so Settings can say so.
+export type LinkedIdentity = {
+  provider: "apple";
+  relay: boolean;
+  email_masked: string;
+  linked_at: string | null;
+};
+
+export type IdentitiesResponse = {
+  primary_email: string;
+  linked: LinkedIdentity[];
+};
+
 // One leg (credit or debit) of a suggested cross-account transfer pair —
 // mirrors backend/app/routers/analytics.py's `_pair_leg` field-for-field.
 // `category` is the effective category (custom_category always wins, though
@@ -2747,6 +2762,34 @@ export const api = {
     if (res.status === 429) throw new Error("429 Too Many Requests");
     return toJson<TestPushResult>(res);
   },
+
+  // Linked sign-in identities (Settings → "Sign-in methods", Phase 1: Apple
+  // only). See lib/nativeAuth.ts's linkAppleIdentity for the native-plugin
+  // side of the link flow.
+  getIdentities: () => get<IdentitiesResponse>("/auth/identities"),
+
+  // 409 means that Apple ID is already linked to a different account —
+  // pre-checked and thrown as a distinguishable Error before falling
+  // through to the shared toJson(...) parsing, same pattern as the 429
+  // pre-check in sendTestPush above, so the caller (nativeAuth.ts) can tell
+  // "already linked elsewhere" apart from every other failure.
+  linkAppleIdentity: async (
+    identityToken: string
+  ): Promise<{ ok: true; provider: "apple"; relay: boolean; email_masked: string }> => {
+    const res = await fetch(`${API_BASE}/auth/identities/apple`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ identityToken }),
+    });
+    if (res.status === 409) throw new Error("409 Conflict");
+    return toJson<{ ok: true; provider: "apple"; relay: boolean; email_masked: string }>(res);
+  },
+
+  unlinkAppleIdentity: () =>
+    fetch(`${API_BASE}/auth/identities/apple`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ ok: boolean; removed: number }>(r)),
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
 
