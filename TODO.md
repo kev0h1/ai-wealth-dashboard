@@ -76,7 +76,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 ## G. Design and copy follow-ups
 
 - [x] **G1. DESIGN.md drift.** [owner: claude] Still describes the retired Out-vs-In gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card. Update to the current surface map in `CLAUDE.md`. (done 2026-09-07, 39df8c22c9b9dfe477508f12f34473639e8aeab0)
-- [ ] **G2. Dead code in `app/planning/PlanningPage.tsx`** [owner: claude] [state: in-progress] (`PlansDock`, `CommitmentCards`, `computeDebtRow`, `computeGrowRow`) and the duplicated fetch path in `lib/useAllTransactions.ts`.
+- [ ] **G2. Dead code in `app/planning/PlanningPage.tsx`** [owner: claude] [state: review: feature-G2-planning-dead-code] (`PlansDock`, `CommitmentCards`, `computeDebtRow`, `computeGrowRow`) and the duplicated fetch path in `lib/useAllTransactions.ts`.
 - [ ] **G3. Design index.** [owner: claude] `app/design/page.tsx` now lists `penny-usage-ring`, `planning-plans`, `spend-penny-flow`, `upcoming-plan`; keep it current for every new preview.
 - [x] **G4. `chat.py` tax explainer prompt** [owner: claude] [priority: p1] [unblocks: Q8] has no product constraints (EIS/SEIS content invites investment-product suggestions) and no temperature; tighten before go-live (Q8 promises it). (done 2026-09-06, e24bd9fbe1ffbf0c1f6ec81b0bdb2bde709c2361)
 - [ ] **G5. Penny agent mode** [owner: claude] (propose-only writes, consent-gated) stays off until Finexer approval; when it ships it is a disclosed change with a privacy update.
