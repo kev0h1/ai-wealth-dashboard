@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-06
 **Version:** 1.0
 
 This Privacy Policy explains how we collect, use, share and protect your personal data when you use our personal finance app, Sorted. It is written for UK residents aged 18 or over. Please read it alongside any in-app consent screens you are shown when you connect a bank account.
@@ -23,7 +23,7 @@ We provide an account information service (AIS): a personal finance dashboard th
 
 We collect the following categories of data:
 
-1. **Account details**: your name and email address, obtained when you sign in with Google.
+1. **Account details**: your name and email address, obtained when you sign in with Google or with Apple. If you choose Apple's Hide My Email, we receive the private relay address Apple generates for you instead of your real email address, and we use that relay address as your account identity. You can link or unlink your Apple sign-in from Settings; linking lets you sign in with either Google or Apple to the same account.
 2. **Open banking data**: account names, account types, balances, and transactions (date, amount, description, merchant) from the bank accounts you choose to connect.
 3. **Postcode**: if you provide it during onboarding, so we can show you location-relevant information. This is optional.
 4. **Documents you choose to upload**: such as bank or investment statements, and receipt photos.
@@ -79,7 +79,7 @@ We share data with the following sub-processors, who process it on our behalf un
 | Logo.dev | Provides brand logos; receives brand domain names only, never customer data |
 | postcodes.io | Converts a postcode to an approximate location |
 | Google | Sign-in, and push notification delivery on Android |
-| Apple | Push notification delivery on iOS |
+| Apple | Sign in with Apple, and push notification delivery on iOS |
 | Expo | Push notification delivery relay |
 | Sentry | Error monitoring (only if enabled) |
 
