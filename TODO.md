@@ -82,3 +82,4 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-06, claude): session abandoned, branch item/H2-shared-sync discarded
 - [ ] **H3. `docs/compliance` and `docs/pricing`** [owner: claude] are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
   - note (2026-09-06, kevin): Board write-side smoke test
+- [ ] **H4. Prune stale git worktrees on the VPS left by earlier sessions (git worktree prune, then remove directories whose branches are merged), without touching worktrees of live sessions.** [owner: claude]
