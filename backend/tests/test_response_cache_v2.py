@@ -66,6 +66,9 @@ class FakeResponseCacheCol:
     async def delete_many(self, filt):
         self.docs.clear()
 
+    async def delete_one(self, filt):
+        self.docs.pop((filt["user_id"], filt["name"]), None)
+
 
 def _patch_cols(monkeypatch):
     version_col = FakeVersionCol()
@@ -412,5 +415,62 @@ def test_warm_user_single_flight_shares_one_run(monkeypatch):
         assert r1 is r2  # the second call got the SAME result object
         after = await data_version.current(UID)
         assert after == before + 1  # only one bump, not two
+
+    asyncio.run(go())
+
+
+# ── adrop: targeted retire, no version bump (backlog B1) ────────────────────
+
+def test_adrop_removes_memory_and_mongo_without_bumping_version(monkeypatch):
+    _, cache_col = _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+
+    async def go():
+        v = await response_cache.snapshot(UID)
+        await response_cache.aput("grow", UID, {"verdict": "ok"}, version=v)
+        assert await response_cache.aget("grow", UID) == {"verdict": "ok"}
+        assert (UID, "grow") in cache_col.docs
+
+        before = await data_version.current(UID)
+        await response_cache.adrop("grow", UID)
+        after = await data_version.current(UID)
+
+        assert after == before  # NOT bumped — that's the whole point of adrop
+        assert response_cache._caches.get("grow", {}).get(UID) is None
+        assert (UID, "grow") not in cache_col.docs
+        assert await response_cache.aget("grow", UID) is None
+
+    asyncio.run(go())
+
+
+def test_adrop_is_a_noop_when_entry_absent(monkeypatch):
+    """No entry under that name/uid — adrop must not raise or create one."""
+    _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+
+    async def go():
+        await response_cache.adrop("grow", UID)
+        assert await response_cache.aget("grow", UID) is None
+
+    asyncio.run(go())
+
+
+def test_adrop_only_touches_the_named_cache(monkeypatch):
+    """Sibling entries for the same uid (e.g. "safe_to_spend") must survive
+    an adrop("grow", uid) — this is the whole reason adrop exists instead of
+    the version-bumping `invalidate`."""
+    _, cache_col = _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+
+    async def go():
+        v = await response_cache.snapshot(UID)
+        await response_cache.aput("grow", UID, {"verdict": "ok"}, version=v)
+        await response_cache.aput("safe_to_spend", UID, {"safe_to_spend": 749.0}, version=v)
+
+        await response_cache.adrop("grow", UID)
+
+        assert await response_cache.aget("grow", UID) is None
+        assert await response_cache.aget("safe_to_spend", UID) == {"safe_to_spend": 749.0}
+        assert (UID, "safe_to_spend") in cache_col.docs
 
     asyncio.run(go())

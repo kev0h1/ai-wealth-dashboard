@@ -253,6 +253,15 @@ async def grow_view(user: dict = Depends(current_user)):
     # Lazy import: avoids a circular import at module load, same pattern as
     # app/services/pace.py, app/services/spend_impact.py and
     # app/routers/planned.py's own calls into this function.
+    #
+    # get_cached_safe_to_spend never WRITES the "safe_to_spend" cache (see
+    # its own docstring) — if there's no entry yet, it computes fresh here
+    # and this "grow" payload becomes the only place that moment is cached.
+    # That's fine: GET /safe-to-spend's own write path drops "grow"
+    # whenever it caches a NEWER moment (backlog B1, see
+    # response_cache.adrop's docstring), so the next Home/Penny visit that
+    # populates "safe_to_spend" retires this entry rather than letting it
+    # drift for up to 6h.
     from app.routers.analytics import get_cached_safe_to_spend
     try:
         _sts = await get_cached_safe_to_spend(uid)
