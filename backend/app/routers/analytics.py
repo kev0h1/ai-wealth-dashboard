@@ -2115,8 +2115,10 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> N
             {"$set": data, "$unset": {"total_baselines": ""}},
             upsert=True,
         )
-        # Fresh data invalidates the short-TTL response caches (same-process
-        # only; worker-process syncs rely on the 90 s TTL as the bound).
+        # Fresh data invalidates the response caches (same-process memory
+        # layer here; the per-user data version bump below is what actually
+        # makes every OTHER process's cached entries — and Mongo's — stale,
+        # bounded at 6h if a version-bump signal is ever missed).
         response_cache.invalidate(uid)
     except Exception as e:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
@@ -3987,11 +3989,12 @@ async def get_cached_safe_to_spend(uid: str) -> dict:
     net_position or pace — see compute_safe_to_spend's own docstring for why
     those direct callers bypass the response cache and skip net_position.
 
-    Reuses GET /safe-to-spend's 90 s cache (name "safe_to_spend" /
-    "safe_to_spend_series") when a Home/Penny visit already populated it
-    this window: same cache entries, so no separate cache namespace to keep
-    in sync. That entry is a superset (base fields + "pace") — these callers
-    only read base fields, so the extra "pace" key is harmless to ignore.
+    Reuses GET /safe-to-spend's version-pinned, 6h-bounded cache (name
+    "safe_to_spend" / "safe_to_spend_series") when a Home/Penny visit
+    already populated it this window: same cache entries, so no separate
+    cache namespace to keep in sync. That entry is a superset (base fields +
+    "pace") — these callers only read base fields, so the extra "pace" key
+    is harmless to ignore.
 
     Never WRITES to the cache itself, mirroring the established precedent in
     spend_impact.py's `_headroom()`: only get_safe_to_spend owns writes to
@@ -4042,6 +4045,11 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
     result = await build_safe_to_spend_response(uid, include_series=want_series)
     if result.get("status") == "ok":
         await response_cache.aput(cache_name, uid, result, version=v)
+        # grow.py's cached "/grow" payload embeds a period gate derived from
+        # THIS endpoint's figure (via get_cached_safe_to_spend below); retire
+        # it now so the next /grow read recomputes against this fresher
+        # moment instead of serving an older one for up to 6h (backlog B1).
+        await response_cache.adrop("grow", uid)
     return result
 
 

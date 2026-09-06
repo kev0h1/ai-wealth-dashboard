@@ -226,3 +226,43 @@ async def ainvalidate(uid: str) -> None:
     for cache in _caches.values():
         cache.pop(uid, None)
     await data_version.bump(uid)
+
+
+async def adrop(name: str, uid: str) -> None:
+    """Retire ONE named cache entry for a user WITHOUT bumping the data
+    version — unlike `invalidate`/`ainvalidate`, which always take the
+    version (and therefore every OTHER cached entry for this uid) down with
+    them. Exists for a narrow case `invalidate` can't express: caller A just
+    wrote a fresh entry (pinned to the CURRENT version) and needs caller B's
+    STALE entry gone too, but bumping the version would immediately make
+    caller A's own just-written entry stale as well, which defeats the
+    write.
+
+    Concretely (backlog B1): `GET /grow` derives its period gate from
+    Safe-to-Spend and caches the whole derived payload under "grow"; `GET
+    /safe-to-spend` caches its own payload under "safe_to_spend" /
+    "safe_to_spend_series". Both entries carry the SAME data version and
+    both respect the same 6h bound, so a plain version bump would only ever
+    coincidentally line them up. Safe-to-Spend is additionally
+    time-sensitive within one version (days-to-payday, bills settling,
+    pending clearing), so two live reads hours apart with no intervening
+    write can cache two different "moments" under "grow" and
+    "safe_to_spend" — Home and Planning then disagree even though nothing
+    the version tracks actually changed. `adrop("grow", uid)` right after a
+    fresh Safe-to-Spend write forces the next `/grow` read to recompute
+    against THAT moment instead of serving an older one for up to 6h.
+
+    The memory-layer drop is process-local: this call only clears the
+    calling process's copy of `_caches[name][uid]`. That is sufficient
+    here because the API runs a single uvicorn worker process, and the arq
+    worker process (which also writes cache entries after a sync) never
+    serves `GET /grow` itself — so there is no second process holding a
+    stale memory-layer "grow" entry that this call would need to reach. The
+    Mongo layer is always cleared regardless of process."""
+    cache = _caches.get(name)
+    if cache is not None:
+        cache.pop(uid, None)
+    try:
+        await response_cache_col.delete_one({"user_id": uid, "name": name})
+    except Exception:
+        logger.exception("response_cache.adrop(%s, %s): Mongo delete failed", name, uid)
