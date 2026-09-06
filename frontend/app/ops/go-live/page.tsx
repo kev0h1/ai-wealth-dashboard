@@ -27,14 +27,18 @@ import { api, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
 import { LegalTable, splitMarkdownIntoSegments } from "@/components/LegalDocument";
 import {
   DEFAULT_GO_LIVE_FILTERS,
+  DEFAULT_GO_LIVE_UI,
   filterItems,
   filterQuestions,
   groupItemsBySection,
   itemTotals,
   loadGoLiveFilters,
+  loadGoLiveUi,
   saveGoLiveFilters,
+  saveGoLiveUi,
   type GoLiveFilters,
   type GoLiveStatus,
+  type GoLiveUiState,
 } from "@/lib/goLive";
 import { FilterBar } from "./FilterBar";
 import { HeaderHero } from "./HeaderHero";
@@ -60,16 +64,27 @@ export default function GoLivePage() {
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [saveNotes, setSaveNotes] = useState<Record<string, SaveNote>>({});
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
+  const [ui, setUi] = useState<GoLiveUiState>(DEFAULT_GO_LIVE_UI);
 
-  // Filters are read from localStorage once on mount (after hydration, so
-  // server and first client render match) and written back on every change.
+  // Filters and section-collapse state are read from localStorage once on
+  // mount (after hydration, so server and first client render match) and
+  // written back on every change.
   useEffect(() => {
     setFilters(loadGoLiveFilters());
+    setUi(loadGoLiveUi());
   }, []);
 
   const updateFilters = useCallback((next: GoLiveFilters) => {
     setFilters(next);
     saveGoLiveFilters(next);
+  }, []);
+
+  const toggleUi = useCallback((key: keyof GoLiveUiState) => {
+    setUi((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveGoLiveUi(next);
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -154,6 +169,10 @@ export default function GoLivePage() {
     [filteredItems, data]
   );
   const { done, total } = useMemo(() => (data ? itemTotals(data.items) : { done: 0, total: 0 }), [data]);
+  const submittedCount = useMemo(
+    () => filteredQuestions.filter((q) => q.status === "submitted").length,
+    [filteredQuestions]
+  );
   const pricingSegments = useMemo(
     () => (data?.files.pricing ? splitMarkdownIntoSegments(data.files.pricing.markdown) : []),
     [data]
@@ -203,52 +222,114 @@ export default function GoLivePage() {
       <div className="mx-auto max-w-2xl">
         {filteredQuestions.length > 0 && (
           <section className="mb-8">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Questionnaire</h2>
-            <QuestionsSection
-              questions={filteredQuestions}
-              pendingIds={pendingIds}
-              saveNotes={saveNotes}
-              onStatusChange={handleQuestionStatus}
-            />
+            <button
+              type="button"
+              onClick={() => toggleUi("questionnaireOpen")}
+              aria-expanded={ui.questionnaireOpen}
+              className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Questionnaire</span>
+                {!ui.questionnaireOpen && (
+                  <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
+                    {submittedCount} of {filteredQuestions.length} submitted
+                  </span>
+                )}
+              </span>
+              <ChevronDown
+                size={17}
+                className={`shrink-0 text-slate-400 transition-transform ${ui.questionnaireOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+            {ui.questionnaireOpen && (
+              <QuestionsSection
+                questions={filteredQuestions}
+                pendingIds={pendingIds}
+                saveNotes={saveNotes}
+                onStatusChange={handleQuestionStatus}
+              />
+            )}
           </section>
         )}
 
         <section className="mb-8">
-          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Backlog</h2>
-          {filters.view === "list" ? (
-            <ListView sections={sections} pendingIds={pendingIds} saveNotes={saveNotes} onAction={handleItemAction} />
-          ) : (
-            <BoardView
-              items={filteredItems}
-              todoMarkdown={data.files.todo?.markdown}
-              lanes={filters.lanes}
-              onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}
-              pendingIds={pendingIds}
-              saveNotes={saveNotes}
-              onAction={handleItemAction}
+          <button
+            type="button"
+            onClick={() => toggleUi("backlogOpen")}
+            aria-expanded={ui.backlogOpen}
+            className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+          >
+            <span className="flex items-center gap-2">
+              <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Backlog</span>
+              {!ui.backlogOpen && (
+                <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
+                  {done} of {total} done
+                </span>
+              )}
+            </span>
+            <ChevronDown
+              size={17}
+              className={`shrink-0 text-slate-400 transition-transform ${ui.backlogOpen ? "rotate-180" : ""}`}
+              aria-hidden="true"
             />
-          )}
+          </button>
+          {ui.backlogOpen &&
+            (filters.view === "list" ? (
+              <ListView sections={sections} pendingIds={pendingIds} saveNotes={saveNotes} onAction={handleItemAction} />
+            ) : (
+              <BoardView
+                items={filteredItems}
+                todoMarkdown={data.files.todo?.markdown}
+                lanes={filters.lanes}
+                onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}
+                pendingIds={pendingIds}
+                saveNotes={saveNotes}
+                onAction={handleItemAction}
+              />
+            ))}
         </section>
 
         {data.files.pricing && (
           <section className="mb-8">
-            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Reference</h2>
-            <details className="group glass-card rounded-2xl p-4">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Pricing and unit economics</span>
-                <ChevronDown size={17} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
-              </summary>
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Last updated {formatUpdatedAt(data.files.pricing.updated_at)}</p>
-              <article className="mt-3">
-                {pricingSegments.map((segment, index) =>
-                  segment.type === "table" ? (
-                    <LegalTable key={index} headers={segment.headers} rows={segment.rows} />
-                  ) : (
-                    <ReactMarkdown key={index}>{segment.content}</ReactMarkdown>
-                  )
+            <button
+              type="button"
+              onClick={() => toggleUi("referenceOpen")}
+              aria-expanded={ui.referenceOpen}
+              className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Reference</span>
+                {!ui.referenceOpen && (
+                  <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
+                    Last updated {formatUpdatedAt(data.files.pricing.updated_at)}
+                  </span>
                 )}
-              </article>
-            </details>
+              </span>
+              <ChevronDown
+                size={17}
+                className={`shrink-0 text-slate-400 transition-transform ${ui.referenceOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+            {ui.referenceOpen && (
+              <details className="group glass-card rounded-2xl p-4">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">Pricing and unit economics</span>
+                  <ChevronDown size={17} className="shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Last updated {formatUpdatedAt(data.files.pricing.updated_at)}</p>
+                <article className="mt-3">
+                  {pricingSegments.map((segment, index) =>
+                    segment.type === "table" ? (
+                      <LegalTable key={index} headers={segment.headers} rows={segment.rows} />
+                    ) : (
+                      <ReactMarkdown key={index}>{segment.content}</ReactMarkdown>
+                    )
+                  )}
+                </article>
+              </details>
+            )}
           </section>
         )}
 

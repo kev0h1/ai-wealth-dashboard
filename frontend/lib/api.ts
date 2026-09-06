@@ -1394,6 +1394,7 @@ export type GoLiveActionResponse = GoLiveResponse & { committed: boolean };
 export type GoLiveItemAction =
   | { action: "done"; commit?: string }
   | { action: "reopen" }
+  | { action: "todo" }
   | { action: "start" }
   | { action: "block"; reason: string }
   | { action: "note"; text: string }

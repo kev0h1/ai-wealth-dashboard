@@ -120,7 +120,7 @@ async def go_live(user: dict = Depends(current_user)):
 
 
 class ItemActionRequest(BaseModel):
-    action: Literal["done", "reopen", "start", "block", "note", "owner", "priority", "unblocks"]
+    action: Literal["done", "reopen", "start", "block", "note", "owner", "priority", "unblocks", "todo"]
     reason: Optional[str] = None
     text: Optional[str] = None
     owner: Optional[Literal["kevin", "claude"]] = None
@@ -152,6 +152,14 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
             )
         elif body.action == "reopen":
             _, committed = backlog.set_done(item_id, False, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        elif body.action == "todo":
+            # Resets the `[state: ...]` tag on a not-done item (board drag
+            # from In progress or Blocked back to To do). For a *done* item
+            # the board sends "reopen" instead (see BoardView.tsx's drop
+            # mapping), which also clears the `done` flag via `set_done` —
+            # "todo" deliberately stays a single, single-commit call rather
+            # than chaining two writes for a case the frontend never hits.
+            _, committed = backlog.set_state(item_id, "todo", actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
         elif body.action == "start":
             _, committed = backlog.set_state(
                 item_id, "in-progress", actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root

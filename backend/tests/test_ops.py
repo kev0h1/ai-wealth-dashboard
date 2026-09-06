@@ -184,6 +184,34 @@ def test_item_action_start_then_block_then_reopen(tmp_path, monkeypatch, mock_gi
     asyncio.run(_run())
 
 
+def test_item_action_todo_resets_in_progress_item(tmp_path, monkeypatch, mock_git):
+    # "todo" resets the state tag on a not-yet-done item (e.g. a board drag
+    # from In progress or Blocked back to To do) — it does not touch the
+    # `done` flag, unlike "reopen" which is what the board uses when
+    # dragging a *done* item back to To do. See BoardView.tsx's drop
+    # mapping: reopen if the item was done, else todo.
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="start"), user=user)
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "in-progress"
+
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="todo"), user=user)
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["state"] == "todo"
+        assert item["reason"] is None
+
+        saved = (tmp_path / "TODO.md").read_text(encoding="utf-8")
+        assert "- [x]" not in saved
+        assert "[state:" not in saved
+
+    asyncio.run(_run())
+
+
 def test_item_action_block_without_reason_is_400(tmp_path, monkeypatch, mock_git):
     monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     _write_repo(tmp_path)

@@ -222,6 +222,54 @@ export function saveGoLiveFilters(filters: GoLiveFilters): void {
   }
 }
 
+// ---------------------------------------------------------------------
+// Section collapse state — Questionnaire / Backlog / Reference headers on
+// the page, persisted separately from the filters under a sibling key so
+// clearing one doesn't clear the other.
+// ---------------------------------------------------------------------
+
+export type GoLiveUiState = {
+  questionnaireOpen: boolean;
+  backlogOpen: boolean;
+  referenceOpen: boolean;
+};
+
+export const DEFAULT_GO_LIVE_UI: GoLiveUiState = {
+  questionnaireOpen: true,
+  backlogOpen: true,
+  referenceOpen: false, // matches today's default: the Reference/"Pricing" details starts closed
+};
+
+export const GO_LIVE_UI_STORAGE_KEY = "wd_go_live_ui";
+
+/** Reads persisted section-collapse state from localStorage, tolerating a
+ *  missing key, corrupt JSON, or a shape from an older version of this
+ *  page — same approach as `loadGoLiveFilters` above. */
+export function loadGoLiveUi(): GoLiveUiState {
+  if (typeof window === "undefined") return DEFAULT_GO_LIVE_UI;
+  try {
+    const raw = window.localStorage.getItem(GO_LIVE_UI_STORAGE_KEY);
+    if (!raw) return DEFAULT_GO_LIVE_UI;
+    const parsed = JSON.parse(raw) as Partial<GoLiveUiState>;
+    return {
+      questionnaireOpen: typeof parsed.questionnaireOpen === "boolean" ? parsed.questionnaireOpen : DEFAULT_GO_LIVE_UI.questionnaireOpen,
+      backlogOpen: typeof parsed.backlogOpen === "boolean" ? parsed.backlogOpen : DEFAULT_GO_LIVE_UI.backlogOpen,
+      referenceOpen: typeof parsed.referenceOpen === "boolean" ? parsed.referenceOpen : DEFAULT_GO_LIVE_UI.referenceOpen,
+    };
+  } catch {
+    return DEFAULT_GO_LIVE_UI;
+  }
+}
+
+export function saveGoLiveUi(ui: GoLiveUiState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(GO_LIVE_UI_STORAGE_KEY, JSON.stringify(ui));
+  } catch {
+    // Private browsing / storage full — collapse state just won't persist this session.
+  }
+}
+
 function matchesSearch(haystack: string, search: string): boolean {
   const q = search.trim().toLowerCase();
   if (!q) return true;
