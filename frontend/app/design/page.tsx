@@ -3,6 +3,12 @@
 // Static index of the active /design/* preview routes so the owner can
 // bookmark one URL on his phone instead of the individual previews.
 // No data fetching, no client state — plain links only.
+//
+// Keep this current for every new preview: every directory under
+// app/design/*/page.tsx needs an entry here, and every slug listed here
+// needs a matching directory. `npm run check:design-index`
+// (scripts/check-design-index.mjs) enforces that and runs as part of
+// `scripts/session.sh finish`.
 
 import Link from "next/link";
 
@@ -11,6 +17,7 @@ type PreviewRoute = {
   name: string;
   description: string;
   states: { label: string; value: string }[];
+  group?: "current" | "earlier";
 };
 
 const ROUTES: PreviewRoute[] = [
@@ -266,7 +273,173 @@ const ROUTES: PreviewRoute[] = [
     description: "Home hero · 4 typeface treatments (System / Figtree / DM Sans / Figtree+Mono)",
     states: [{ label: "Everything", value: "everything" }],
   },
+
+  // ── Earlier rounds (2026-08-05 to 2026-09-02) ──────────────────────────
+  // Older preview directories that still render but predate the current
+  // surface map. Kept indexed rather than deleted so they stay reachable
+  // and check:design-index has no untracked directories to flag.
+  {
+    slug: "settings-b",
+    name: "settings-b",
+    description:
+      "Settings redesign, Variant B: Grouped Estate. Accounts, notifications and other settings grouped into estate-style sections, compare against settings-a on Kevin's phone. Static preview only, hardcoded mock state, no API calls or auth context (2026-09-02)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "accounts-rows",
+    name: "accounts-rows",
+    description:
+      "Accounts redesign, Variant A: dense ledger-row list upgraded to a fully navigable estate (find bar, lens chips, pinned band, collapsible sticky-header groups, inactive bucket). See accounts-preview for all three variants (2026-08-24)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "accounts-tiles",
+    name: "accounts-tiles",
+    description:
+      "Accounts redesign, Variant B: rich 2-col account tiles with sparklines and utilisation bars, fixes the live-app bug where tiles leave dead space at the bottom. See accounts-preview for all three variants (2026-08-24)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "account-detail",
+    name: "account-detail",
+    description:
+      "Redesigned account-detail view as a mini statement, balance-forward header, no dead space, Transactions and Categories tabs. See accounts-preview for the index (2026-08-16)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "accounts-preview",
+    name: "accounts-preview",
+    description:
+      "Index page linking the three accounts-redesign explorations, accounts-rows, accounts-tiles and account-detail (2026-08-16)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "settings-c",
+    name: "settings-c",
+    description:
+      "Settings redesign, Variant C: Merged Settings. Static preview only, hardcoded mock state, no API calls or auth context (2026-08-16)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "cards-check",
+    name: "cards-check",
+    description:
+      "Visual check for account-card Fix 1, spine removal, investment-card unification, equal heights across the 2-col grid (2026-08-15)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "category-kind",
+    name: "category-kind",
+    description:
+      "Category-kind chooser preview mirroring TeachingSheet's naming step, same exported CategoryKindChooser component over realistic names (2026-08-15)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "settings-a",
+    name: "settings-a",
+    description:
+      "Settings redesign, Variant A: Refined Cockpit. Static preview only, hardcoded mock state, no API calls or auth (2026-08-15)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "spend-a",
+    name: "spend-a",
+    description:
+      "Spend to Categories redesign, Variant A: Dossier. Hardcoded figures, includes the engine-teaching correction sheet in move and spend modes (2026-08-13)",
+    states: [
+      { label: "Normal", value: "normal" },
+      { label: "Nothing", value: "nothing" },
+      { label: "Everything", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+      { label: "Early", value: "early" },
+    ],
+    group: "earlier",
+  },
+  {
+    slug: "spend-b",
+    name: "spend-b",
+    description:
+      "Spend to Categories redesign, Variant B: Reading and rows. The normal majority of categories always renders as compact rows instead of collapsing away (2026-08-13)",
+    states: [
+      { label: "Normal", value: "normal" },
+      { label: "Nothing", value: "nothing" },
+      { label: "Everything", value: "everything" },
+      { label: "No baseline", value: "nobaseline" },
+      { label: "Early", value: "early" },
+    ],
+    group: "earlier",
+  },
+  {
+    slug: "v1",
+    name: "v1",
+    description:
+      "Home page variant, verdict rendered as a typographic statement with a state icon, no bordered card (2026-08-05)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "v2",
+    name: "v2",
+    description:
+      "Home page variant, verdict inside a bordered gradient hero instrument card with a whisper label above it (2026-08-05)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
+  {
+    slug: "v3",
+    name: "v3",
+    description:
+      "Home page variant, verdict folded into flowing prose paragraphs alongside the greeting, no card at all (2026-08-05)",
+    states: [{ label: "Everything", value: "everything" }],
+    group: "earlier",
+  },
 ];
+
+const CURRENT_ROUTES = ROUTES.filter((route) => (route.group ?? "current") === "current");
+const EARLIER_ROUTES = ROUTES.filter((route) => route.group === "earlier");
+
+function PreviewCard({ route }: { route: PreviewRoute }) {
+  return (
+    <div className="glass-card-flat rounded-2xl p-4">
+      <div className="text-sm font-semibold text-slate-900 dark:text-white">
+        {route.name}
+      </div>
+      <div className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
+        {route.description}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {route.states.map((s) => (
+          <Link
+            key={s.value}
+            href={`/design/${route.slug}?mode=dark&state=${s.value}`}
+            className="inline-flex items-center min-h-[44px] rounded-full px-3.5 py-2 text-[11px] font-semibold text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15 active:scale-95 transition-transform"
+          >
+            {s.label}
+          </Link>
+        ))}
+      </div>
+
+      <div className="mt-2">
+        <Link
+          href={`/design/${route.slug}?mode=light&state=${route.states[0].value}`}
+          className="text-[11px] font-medium text-slate-400 dark:text-slate-500 underline underline-offset-2"
+        >
+          light
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export default function DesignIndexPage() {
   return (
@@ -280,38 +453,23 @@ export default function DesignIndexPage() {
         </p>
 
         <div className="mt-6 flex flex-col gap-3">
-          {ROUTES.map((route) => (
-            <div key={route.slug} className="glass-card-flat rounded-2xl p-4">
-              <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                {route.name}
-              </div>
-              <div className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">
-                {route.description}
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                {route.states.map((s) => (
-                  <Link
-                    key={s.value}
-                    href={`/design/${route.slug}?mode=dark&state=${s.value}`}
-                    className="inline-flex items-center min-h-[44px] rounded-full px-3.5 py-2 text-[11px] font-semibold text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-500/15 active:scale-95 transition-transform"
-                  >
-                    {s.label}
-                  </Link>
-                ))}
-              </div>
-
-              <div className="mt-2">
-                <Link
-                  href={`/design/${route.slug}?mode=light&state=${route.states[0].value}`}
-                  className="text-[11px] font-medium text-slate-400 dark:text-slate-500 underline underline-offset-2"
-                >
-                  light
-                </Link>
-              </div>
-            </div>
+          {CURRENT_ROUTES.map((route) => (
+            <PreviewCard key={route.slug} route={route} />
           ))}
         </div>
+
+        {EARLIER_ROUTES.length > 0 && (
+          <>
+            <p className="mt-8 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              Earlier rounds
+            </p>
+            <div className="mt-3 flex flex-col gap-3">
+              {EARLIER_ROUTES.map((route) => (
+                <PreviewCard key={route.slug} route={route} />
+              ))}
+            </div>
+          </>
+        )}
 
         <p className="mt-8 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500 text-center">
           These routes are deleted after review.

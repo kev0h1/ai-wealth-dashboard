@@ -8,7 +8,8 @@
     "build:mobile": "bash scripts/build-mobile.sh",
     "build:mobile:prod": "MOBILE_API_BASE=https://api.wealth.auriqltd.co.uk bash scripts/build-mobile.sh",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:design-index": "node scripts/check-design-index.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
