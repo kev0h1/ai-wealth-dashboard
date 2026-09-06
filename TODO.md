@@ -73,7 +73,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 ## H. Repo hygiene
 
 - [ ] **H1. Firebase config history.** [owner: kevin] `capacitor-spike/google-services.json` was tracked until 2026-09-05 and an old copy with the Android API key remains in git history. Decision: restrict the key to the Android package in Google Cloud console rather than rewrite history. Kevin.
-- [ ] **H2. Retired Expo project `mobile/`.** [owner: claude] [state: in-progress] `sync-shared.sh` still writes into `mobile/lib/shared/`; either delete the directory or stop syncing to it.
+- [ ] **H2. Retired Expo project `mobile/`.** [owner: claude] `sync-shared.sh` still writes into `mobile/lib/shared/`; either delete the directory or stop syncing to it.
   - note (2026-09-06, claude): session abandoned, branch item/H2-shared-sync discarded
 - [ ] **H3. `docs/compliance` and `docs/pricing`** [owner: claude] are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
   - note (2026-09-06, kevin): Board write-side smoke test
