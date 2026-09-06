@@ -20,6 +20,7 @@ from app.services.finexer_sync import finexer_sync_pipeline
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services.manual_account_rules import apply_rules as apply_mirror_rules
 from app.services.notifications import notif_pref
+from app.core.subscription import get_subscription
 from app.db.collections import investment_accounts_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
@@ -130,24 +131,95 @@ async def task_sync_finexer(ctx, consent_id: str, user_id: str):
     return result
 
 
+# Just under the cron's own interval, so a connection synced right at the
+# start of one run is still due again by the next one — nothing drifts a
+# full cycle late. Kept as the fallback/"4h"/"priority" window; see
+# _refresh_window for how the other tiers derive from it.
+_DEFAULT_REFRESH_WINDOW = timedelta(hours=3, minutes=30)
+
+_REFRESH_WINDOWS = {
+    "4h":        _DEFAULT_REFRESH_WINDOW,
+    "priority":  _DEFAULT_REFRESH_WINDOW,
+    "daily":     timedelta(hours=23, minutes=30),
+    "on_upload": None,
+}
+
+
+def _refresh_window(refresh: Optional[str]) -> Optional[timedelta]:
+    """Map a subscription tier's `refresh` cadence (app.core.subscription
+    TIER_LIMITS) onto the stale window task_reconcile_truelayer uses to
+    decide whether a connection needs re-syncing this cycle.
+
+    "4h" (Standard/Connect) and "priority" (Max) both get the cron's own
+    just-under-the-4-hour-interval window (see _DEFAULT_REFRESH_WINDOW) —
+    today's unchanged behaviour. "daily" (Lite) gets the same "just under
+    the interval" treatment scaled to a 24h cadence: 23h30, so a
+    connection is always caught by the very next 4-hourly cron tick after
+    it turns a day old rather than waiting up to 4 hours more.
+    "on_upload" (Statements) has no scheduled refresh at all, so this
+    returns None and the caller must never enqueue a sync for it.
+
+    Any refresh value this map doesn't recognise — including None, e.g. an
+    upstream get_subscription failure — fails OPEN to today's 4h-ish
+    cadence rather than silently stopping sync for that connection."""
+    if refresh in _REFRESH_WINDOWS:
+        return _REFRESH_WINDOWS[refresh]
+    logger.warning(
+        "reconcile: unrecognised refresh cadence %r, defaulting to the 4h window", refresh,
+    )
+    return _DEFAULT_REFRESH_WINDOW
+
+
 async def task_reconcile_truelayer(ctx):
-    """Keep every connection fresh and catch missed webhooks.
+    """Keep every connection fresh (at its tier's own cadence) and catch
+    missed webhooks.
 
     Runs every 4 hours (took over scheduled syncing when the Discord bot was
-    retired). Culls superseded connections, re-syncs any TrueLayer connection
-    whose last sync is stale, then retries failed webhook events.
+    retired). Culls superseded connections, re-syncs any TrueLayer
+    connection or authorized Finexer consent whose last sync is stale for
+    its user's tier (app.core.subscription TIER_LIMITS["refresh"], see
+    _refresh_window), then retries failed webhook events regardless of
+    tier. Each user's tier is resolved at most once per run and cached
+    locally; a subscriptions read failure for one user falls back to the
+    default cadence rather than ever stopping that user's sync. Within
+    each of the TrueLayer/Finexer groups, priority-tier (Max) users'
+    sync jobs are enqueued before everyone else's, oldest-connection-first
+    within each of those two groups.
 
     NB: Mongo returns naive UTC datetimes, so all comparisons here use naive
     utcnow — mixing in tz-aware datetimes raises TypeError.
     """
     arq: ArqRedis = ctx["redis"]
     now = datetime.utcnow()
-    # Just under the cron interval, so every connection refreshes each cycle.
-    # (This cron replaced the Discord bot's 4-hourly sync-all loop.)
-    stale_cutoff = now - timedelta(hours=3, minutes=30)
-    enqueued = 0
+    reconciled = 0
+    skipped_on_upload = 0
+    skipped_fresh = 0
 
     await cull_orphaned_connections()
+
+    # Per-run caches: one get_subscription call per uid, one _refresh_window
+    # call (and warning, if any) per distinct refresh value.
+    tier_cache: dict = {}
+    window_cache: dict = {}
+
+    async def _window_for_user(uid: str) -> Optional[timedelta]:
+        if uid not in tier_cache:
+            try:
+                tier_cache[uid] = await get_subscription(uid)
+            except Exception:
+                logger.exception(
+                    "reconcile: get_subscription failed for a user, defaulting to the 4h window"
+                )
+                tier_cache[uid] = None
+        sub = tier_cache[uid]
+        refresh = sub.limit("refresh") if sub is not None else None
+        if refresh not in window_cache:
+            window_cache[refresh] = _refresh_window(refresh)
+        return window_cache[refresh]
+
+    def _is_priority(uid: str) -> bool:
+        sub = tier_cache.get(uid)
+        return sub is not None and sub.limit("refresh") == "priority"
 
     # Oldest first, so when duplicates remain the newest connection syncs
     # last and wins the account claims.
@@ -156,6 +228,7 @@ async def task_reconcile_truelayer(ctx):
         {"_id": 1, "user_id": 1, "last_synced": 1},
     ).sort("created_at", 1).to_list(None)
 
+    tl_candidates = []
     for conn in all_conns:
         uid = conn.get("user_id")
         if not uid:
@@ -164,17 +237,34 @@ async def task_reconcile_truelayer(ctx):
         owns = await accounts_col.count_documents({"connection_id": conn["_id"]}, limit=1)
         if owns == 0:
             continue
+        window = await _window_for_user(uid)
+        if window is None:
+            skipped_on_upload += 1
+            continue
         last_synced = conn.get("last_synced")
-        if last_synced is None or last_synced < stale_cutoff:
-            await arq.enqueue_job(
-                "task_sync_truelayer",
-                connection_id=str(conn["_id"]),
-                user_id=uid,
-                _job_id=f"reconcile:{conn['_id']}",  # deduplicate if already queued
-            )
-            enqueued += 1
+        if last_synced is None or last_synced < now - window:
+            tl_candidates.append((conn, uid))
+        else:
+            skipped_fresh += 1
+
+    # Priority-tier users first; each group keeps the oldest-first order
+    # the query above already produced.
+    tl_ordered = (
+        [c for c in tl_candidates if _is_priority(c[1])]
+        + [c for c in tl_candidates if not _is_priority(c[1])]
+    )
+    for conn, uid in tl_ordered:
+        await arq.enqueue_job(
+            "task_sync_truelayer",
+            connection_id=str(conn["_id"]),
+            user_id=uid,
+            _job_id=f"reconcile:{conn['_id']}",  # deduplicate if already queued
+        )
+        reconciled += 1
 
     # Retry webhook events that failed or got stuck in pending > 15 minutes
+    # — unconditional on tier, these are missed-webhook catch-ups, not the
+    # scheduled refresh.
     stuck_cutoff = now - timedelta(minutes=15)
     failed_events = await webhook_events_col.find(
         {
@@ -198,29 +288,51 @@ async def task_reconcile_truelayer(ctx):
         await webhook_events_col.update_one(
             {"_id": ev["_id"]}, {"$set": {"status": "retried", "retried_at": now}}
         )
-        enqueued += 1
+        reconciled += 1
 
-    # Re-sync authorized Finexer consents whose last_synced is stale
+    # Re-sync authorized Finexer consents whose last_synced is stale for
+    # their user's tier.
     fx_conns = await finexer_consents_col.find(
         {"status": "authorized"},
         {"_id": 1, "user_id": 1, "last_synced": 1},
     ).sort("created_at", 1).to_list(None)
 
+    fx_candidates = []
     for fx in fx_conns:
         uid = fx.get("user_id")
         if not uid:
             continue
+        window = await _window_for_user(uid)
+        if window is None:
+            skipped_on_upload += 1
+            continue
         last_synced = fx.get("last_synced")
-        if last_synced is None or last_synced < stale_cutoff:
-            await arq.enqueue_job(
-                "task_sync_finexer",
-                consent_id=str(fx["_id"]),
-                user_id=uid,
-                _job_id=f"fx_reconcile:{fx['_id']}",
-            )
-            enqueued += 1
+        if last_synced is None or last_synced < now - window:
+            fx_candidates.append((fx, uid))
+        else:
+            skipped_fresh += 1
 
-    return {"reconciled": enqueued, "at": now.isoformat()}
+    fx_ordered = (
+        [c for c in fx_candidates if _is_priority(c[1])]
+        + [c for c in fx_candidates if not _is_priority(c[1])]
+    )
+    for fx, uid in fx_ordered:
+        await arq.enqueue_job(
+            "task_sync_finexer",
+            consent_id=str(fx["_id"]),
+            user_id=uid,
+            _job_id=f"fx_reconcile:{fx['_id']}",
+        )
+        reconciled += 1
+
+    summary = {
+        "reconciled": reconciled,
+        "skipped_on_upload": skipped_on_upload,
+        "skipped_fresh": skipped_fresh,
+        "at": now.isoformat(),
+    }
+    logger.info("reconcile: %s", summary)
+    return summary
 
 
 def _reconnect_body(bank: str, last_synced: Optional[datetime]) -> str:
