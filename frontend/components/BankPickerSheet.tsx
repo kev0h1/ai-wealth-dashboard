@@ -6,6 +6,7 @@ import { X, Search, ChevronRight, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
+import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 interface Bank {
   id: string;
@@ -185,6 +186,11 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
             </div>
           )}
         </div>
+
+        {/* Regulatory disclosure (Q6/A9) — single source of truth in lib/regulatoryCopy.ts */}
+        <p className="px-5 py-3 text-xs leading-relaxed text-slate-400 dark:text-slate-500 text-center flex-shrink-0">
+          {AGENT_DISCLOSURE}
+        </p>
       </div>
     </div>,
     document.body
