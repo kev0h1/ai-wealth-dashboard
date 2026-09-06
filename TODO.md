@@ -17,6 +17,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **A7. Penetration test.** [owner: kevin] Now: run OWASP ZAP baseline against UAT and fix findings. Before public launch: CREST manual test of web app, API and both mobile shells (UK market 2026: about £3,750 to £8,000, 5 to 7 days; Precursor Security publishes from £3,750). Kevin books; record the scheduled date in Q11.
 - [ ] **A8. Kevin-only inputs for the questionnaire:** [owner: kevin] insurance details (Q12), last backup restore test date or run one (Q13), Penny agent mode timing (recommend: not before approval, Q2 says not live), confirm nothing else changed in the onboarding data-sharing list (Q9).
 - [ ] **A9. Play Console record.** [owner: kevin] Organisation account for AURIQ LTD (D-U-N-S), create app "Sorted", package `co.uk.auriqltd.sorted` fixed by first upload, Finance category, financial-features declaration (personal finance management), privacy URL `https://wealth.auriqltd.co.uk/privacy`. Needs an Android release signing config and AAB build (see C2). Gives the Q4 Play URL.
+- [ ] **A10. Web shell for production: a build flag (NEXT_PUBLIC_WEB_PRODUCT=off) that renders a 'Sorted is an app' page with store badges on every product route while /terms, /privacy, the Finexer and Google return pages and the landing page keep working; owner sign-in may stay allowed.** [owner: claude]
 
 ## B. Penny cost, tiers and billing
 
