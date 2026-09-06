@@ -88,6 +88,8 @@ Migration from the current code: replace the four existing tiers (free, pro, pre
 ## 5. Build order (proposal)
 
 1. **Usage metering (first, before any cap).** New `llm_usage` collection: user_id, pipeline, model, input tokens, cached input tokens, output tokens, cost in USD, timestamp, from every OpenRouter response's `usage` object. Monthly rollup per user and per pipeline. This also answers "what does AI cost us" with real numbers instead of this estimate.
+
+   **Cost dashboard.** `GET /admin/llm-usage?month=YYYY-MM` (bot or owner session only) reads that same `llm_usage` collection and returns totals, a per-pipeline breakdown, a per-user breakdown with tier and top pipeline, and mean/median/p90 cost per user, for one calendar month at a time. Call it with the bot token: `curl -H "Authorization: Bearer $BOT_SECRET" "$API/admin/llm-usage?month=2026-09"`. Its per-user cost, call and token figures supersede the estimates in this section, so treat this endpoint as the source of truth for real AI cost per user from here on.
 2. **Prompt caching on Penny.** Mark the system prompt and tool schemas with cache control in the OpenRouter request (Anthropic models honour it through OpenRouter). Only offer the propose-tool schemas once agent-mode consent exists, which removes 2,500 tokens per round for everyone else.
 3. **Caps.** Penny messages per month by tier, checked before the call; Settings shows "Penny messages used 37 of 150"; a friendly stop message at the cap with the top-up route.
 4. **Tier model swap** and the free statements-only path (upload already exists via the Gemini PDF parser).
