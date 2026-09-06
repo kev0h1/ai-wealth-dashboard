@@ -2,6 +2,11 @@
 frontend/node_modules/
 backend/.venv/
 backend/venv/
+# scripts/session.sh symlinks these into worktrees; the trailing-slash
+# patterns above only match real directories, not symlinks, so list the
+# bare names too.
+frontend/node_modules
+backend/.venv
 
 # Build output
 frontend/.next/
@@ -52,6 +57,10 @@ skills-lock.json
 # Mobile / Capacitor spike artifacts — never commit or deploy
 .android-sdk/
 capacitor-spike/node_modules/
+# scripts/session.sh symlinks these into worktrees; the trailing-slash
+# patterns above only match real directories, not symlinks, so list the
+# bare names too.
+capacitor-spike/node_modules
 capacitor-spike/www/
 capacitor-spike/android/
 capacitor-spike/ios/
