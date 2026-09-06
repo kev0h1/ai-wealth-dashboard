@@ -35,7 +35,7 @@ Fixed, per month (ex VAT where recoverable):
 | Finexer AIS subscription | £450 (+£90 VAT, recoverable only if VAT registered) |
 | MongoDB Atlas M10 (M0 free tier is not viable past a few hundred users: 512 MB, no backups, 500 connections) | about £45 |
 | Railway (web + worker + Redis; Hobby $5 plus usage, Pro $20 seat when replicas are needed) | about £60 at 500 users |
-| Vercel Pro (Hobby forbids commercial use; must upgrade before charging anyone) | £16 |
+| Vercel Pro (already on Pro) | £16 |
 | Apple developer programme | £8 |
 | Cloudflare R2, Codemagic, domains | about £5 |
 | **Total fixed** | **about £585 ex VAT, £675 if VAT is not recoverable** |

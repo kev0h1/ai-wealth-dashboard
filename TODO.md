@@ -28,7 +28,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **B2. Bill display names in the due-list chip.** [owner: claude] `services/penny_chips.py` `home_payday_due` prints "a card or account payment" for card repayments and own-transfers. Use the destination card or account display name ("American Express card payment"). Squarespace lines clean to "Worksp"; consider a merchant alias.
 - [ ] **B3. Tax chips still on the model.** [owner: claude] `tax_pension_carry_forward`, `tax_salary_sacrifice`, `tax_gift_aid` return `kind: "llm"` and count as messages. Add registry entries (verified, general explanation) plus the user's own figure where the tax engine exposes one. Registry doctrine in `PENNY_TOOLS.md`.
 - [ ] **B4. Settings usage row.** [owner: claude] Show "Penny messages used 37 of 150, resets 1 Oct" in Settings under Sign-in methods, from `GET /subscription`.
-- [ ] **B5. Billing.** [owner: claude] Stripe subscriptions on the web first (`prices_gbp` in `core/subscription.py`), then App Store and Play subscription products, then the £2.99 top-up as a consumable in-app purchase writing `penny_topups`. Wire the "Available soon" rows in `components/MoreMessagesSheet.tsx`. Vercel must move from Hobby to Pro before charging anyone (Hobby forbids commercial use).
+- [ ] **B5. Billing.** [owner: claude] Stripe subscriptions on the web first (`prices_gbp` in `core/subscription.py`), then App Store and Play subscription products, then the £2.99 top-up as a consumable in-app purchase writing `penny_topups`. Wire the "Available soon" rows in `components/MoreMessagesSheet.tsx`. Vercel is already on Pro (verified 2026-09-06).
 - [ ] **B6. Statements-only free tier path.** [owner: claude] Tier `statements` has `open_banking: False` and `statement_uploads_per_month: 3`; nothing enforces either yet. Gate bank connect and count uploads (PDF parser in `services/pdf.py`, pipeline `pdf_statement` in `llm_usage`).
 - [ ] **B7. Lite refresh cadence.** [owner: claude] Tier `lite` says `refresh: "daily"`; the 4-hourly reconcile cron syncs everyone. Make the cron respect the tier's cadence.
 - [ ] **B8. OpenRouter organisation account.** [owner: kevin] Move from Kevin's personal account to an AURIQ LTD organisation with per-environment keys and spend limits; keep `data_collection: deny`; file their data processing terms for the sub-processor record. Kevin creates the account; agent rotates keys in env (never in git).
@@ -56,7 +56,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 
 - [ ] **E1. Atlas M0 to M10** [owner: kevin] before real users; M20 or M30 by 10,000. Kevin actions in Atlas; agent updates connection string in env.
 - [ ] **E2. Railway Pro and replicas** [owner: claude] once D4 is done; spread the 4-hourly reconcile across the window and check Finexer rate limits (10,000 connections is about 42 syncs a minute).
-- [ ] **E3. Vercel Pro** [owner: kevin] (see B5).
+- [x] **E3. Vercel Pro** [owner: kevin] already in place (verified 2026-09-06), nothing to do.
 - [ ] **E4. Backup restore test** [owner: kevin] documented with a date (Q13).
 
 ## F. MCP connector (start after Finexer production approval)
