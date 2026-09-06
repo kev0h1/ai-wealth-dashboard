@@ -50,6 +50,10 @@ mpesa_transactions_col  = db["mpesa_transactions"]
 # Bank statements (UK + Kenya)
 statement_accounts_col      = db["statement_accounts"]
 statement_transactions_col  = db["statement_transactions"]
+# One doc per successful statement/M-Pesa upload (app.core.subscription
+# check_statement_upload_allowed / record_statement_upload) — counts
+# against the Statements tier's statement_uploads_per_month cap.
+statement_uploads_col       = db["statement_uploads"]
 
 # Yapily
 yapily_consents_col     = db["yapily_consents"]

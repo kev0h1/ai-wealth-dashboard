@@ -1435,6 +1435,33 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json();
 }
 
+// A handful of 402s (app.core.subscription's check_open_banking_allowed /
+// check_statement_upload_allowed) carry a STRUCTURED `detail` object
+// ({code, current_tier, limit, kind, message, ...}) rather than the plain
+// string every other `detail` in this file is. Turning that straight into
+// `new Error(detail)` stringifies the object to "[object Object]" — this
+// picks `detail.message` (the backend already writes one for every gate)
+// or, failing that, a friendly fallback keyed by `code`, so the upload
+// sheet's existing error text (see StatementUpload.tsx) reads as a
+// sentence instead of a stack-trace-looking blob.
+const TIER_GATE_FALLBACK_MESSAGES: Record<string, string> = {
+  OPEN_BANKING_NOT_IN_TIER: "Bank connections are not included in the Statements plan.",
+  STATEMENT_UPLOAD_LIMIT_REACHED: "You have used this month's statement uploads. More are available next month.",
+};
+
+function humanizeErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    const d = detail as { message?: string; code?: string; limit?: number; resets_on?: string };
+    if (typeof d.message === "string" && d.message) return d.message;
+    if (d.code === "STATEMENT_UPLOAD_LIMIT_REACHED" && d.limit != null && d.resets_on) {
+      return `You have used this month's ${d.limit} statement uploads. More are available from ${d.resets_on}.`;
+    }
+    if (d.code && TIER_GATE_FALLBACK_MESSAGES[d.code]) return TIER_GATE_FALLBACK_MESSAGES[d.code];
+  }
+  return fallback;
+}
+
 // Every hand-rolled `fetch(...).then(r => r.json())` call below used to skip
 // the ok check that get<T>/post<T> do — a FastAPI error body is still valid
 // JSON, so those promises resolved on 4xx/5xx and callers never saw a
@@ -1442,14 +1469,15 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
 // Route every one of them through this so a non-2xx always throws.
 async function toJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
+    const fallback = `${res.status} ${res.statusText}`;
+    let detail: unknown = fallback;
     try {
       const body = await res.json();
       if (body?.detail) detail = body.detail;
     } catch {
       /* body wasn't JSON — keep the status line */
     }
-    throw new Error(detail);
+    throw new Error(humanizeErrorDetail(detail, fallback));
   }
   return res.json();
 }
@@ -2541,8 +2569,15 @@ export const api = {
       body: form,
     }).then(async r => {
       if (!r.ok) {
-        const text = await r.text();
-        throw new Error(text || `${r.status}`);
+        const fallback = `${r.status}`;
+        let detail: unknown = fallback;
+        try {
+          const body = await r.json();
+          if (body?.detail) detail = body.detail;
+        } catch {
+          try { detail = (await r.text()) || fallback; } catch { /* ignore */ }
+        }
+        throw new Error(humanizeErrorDetail(detail, fallback));
       }
       return r.json() as Promise<{ inserted: number; account_id: string }>;
     });
@@ -2577,14 +2612,15 @@ export const api = {
     clearTimeout(timer);
 
     if (!r.ok) {
-      let detail = `Server error (${r.status})`;
+      const fallback = `Server error (${r.status})`;
+      let detail: unknown = fallback;
       try {
         const body = await r.json();
         if (body?.detail) detail = body.detail;
       } catch {
-        try { detail = await r.text() || detail; } catch { /* ignore */ }
+        try { detail = (await r.text()) || fallback; } catch { /* ignore */ }
       }
-      throw new Error(detail);
+      throw new Error(humanizeErrorDetail(detail, fallback));
     }
 
     return r.json() as Promise<{

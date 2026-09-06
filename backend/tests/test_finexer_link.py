@@ -56,9 +56,14 @@ async def _noop_check_connection_limit(email):
     return None
 
 
+async def _noop_check_open_banking_allowed(email):
+    return None
+
+
 def _setup(monkeypatch, captured_consent_calls=None, consent_url="https://consent.finexer.example/abc"):
     monkeypatch.setattr(finexer_module, "FINEXER_API_KEY", "test-key")
     monkeypatch.setattr(finexer_module, "check_connection_limit", _noop_check_connection_limit)
+    monkeypatch.setattr(finexer_module, "check_open_banking_allowed", _noop_check_open_banking_allowed)
 
     fake_consents = _FakeCol()
     monkeypatch.setattr(finexer_module, "finexer_consents_col", fake_consents)

@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.core.auth import current_user
 from app.core.config import FINEXER_API_KEY
-from app.core.subscription import check_connection_limit
+from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import finexer_consents_col
 from app.services.finexer_sync import (
     list_providers,
@@ -55,6 +55,7 @@ async def finexer_link(
     """Initiate a Finexer consent flow; return the redirect URL."""
     if not FINEXER_API_KEY:
         raise HTTPException(500, "Finexer not configured")
+    await check_open_banking_allowed(user["email"])
     await check_connection_limit(user["email"])
 
     customer_id = await get_or_create_customer(user)

@@ -250,3 +250,83 @@ async def check_connection_limit(email: str) -> None:
                     "message": f"Your {sub.tier_name.title()} plan allows up to {max_accounts} connected accounts.",
                 },
             )
+
+
+async def check_open_banking_allowed(email: str) -> None:
+    """Raise 402 if the user's tier has no open banking at all (Statements
+    tier today). Called at the top of every bank-connect link endpoint,
+    immediately before `check_connection_limit`, so a Statements-tier user
+    is turned away before we spend a round trip talking to the provider."""
+    sub = await get_subscription(email)
+    if sub.limit("open_banking") is False:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "OPEN_BANKING_NOT_IN_TIER",
+                "current_tier": sub.tier_name,
+                "kind": "open_banking",
+                "message": f"Bank connections are not included in the {sub.tier_name.title()} plan.",
+            },
+        )
+
+
+def _next_month_first_day(now: datetime) -> date:
+    if now.month == 12:
+        return date(now.year + 1, 1, 1)
+    return date(now.year, now.month + 1, 1)
+
+
+async def check_statement_upload_allowed(email: str) -> None:
+    """Raise 402 if the user's tier caps statement uploads per calendar
+    month (`statement_uploads_per_month`, None = unlimited) and this
+    month's count in `statement_uploads_col` has already reached it.
+
+    Called before any file parsing or LLM call in the upload handlers, so
+    a capped user's rejected upload costs nothing."""
+    from app.db.collections import statement_uploads_col
+
+    sub = await get_subscription(email)
+    limit = sub.limit("statement_uploads_per_month")
+    if limit is None:
+        return
+
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+    used = await statement_uploads_col.count_documents({"user_id": email, "year_month": ym})
+    if used >= limit:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "STATEMENT_UPLOAD_LIMIT_REACHED",
+                "current_tier": sub.tier_name,
+                "limit": limit,
+                "used": used,
+                "kind": "statement_uploads",
+                "resets_on": _next_month_first_day(now).isoformat(),
+                "message": (
+                    f"You have used this month's {limit} statement uploads. "
+                    f"More are available from {_next_month_first_day(now).isoformat()}."
+                ),
+            },
+        )
+
+
+async def record_statement_upload(
+    email: str, *, kind: str, filename: str, region: str, account_id: str,
+) -> None:
+    """Record one successful statement/M-Pesa upload against the calendar
+    month it happened in, for `check_statement_upload_allowed` to count
+    against. Only call this after a parse-and-store succeeds; a failed
+    parse must not count against the monthly cap."""
+    from app.db.collections import statement_uploads_col
+
+    now = datetime.now(timezone.utc)
+    await statement_uploads_col.insert_one({
+        "user_id": email,
+        "uploaded_at": now,
+        "year_month": now.strftime("%Y-%m"),
+        "kind": kind,
+        "filename": filename,
+        "region": region,
+        "account_id": account_id,
+    })
