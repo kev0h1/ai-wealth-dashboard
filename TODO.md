@@ -19,7 +19,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **A9. Play Console record.** [owner: kevin] [unblocks: Q4] Organisation account for AURIQ LTD (D-U-N-S), create app "Sorted", package `co.uk.auriqltd.sorted` fixed by first upload, Finance category, financial-features declaration (personal finance management), privacy URL `https://wealth.auriqltd.co.uk/privacy`. Needs an Android release signing config and AAB build (see C2). Gives the Q4 Play URL.
 - [ ] **A10. Web shell for production: a build flag (NEXT_PUBLIC_WEB_PRODUCT=off) that renders a 'Sorted is an app' page with store badges on every product route while /terms, /privacy, the Finexer and Google return pages and the landing page keep working; owner sign-in may stay allowed.** [owner: claude] [unblocks: Q4]
 - [ ] **A11. Create the API custom domain api.wealth.auriqltd.co.uk on the Railway web service and the DNS record, so the apps call Railway directly instead of the Vercel /api rewrite.** [owner: kevin] [unblocks: Q4]
-- [ ] **A12. Point mobile builds at the API domain: build:mobile:prod base and the Codemagic prod variable become https://api.wealth.auriqltd.co.uk, add the domain to CORS, keep the Finexer return URL on the web domain.** [owner: claude]
+- [ ] **A12. Point mobile builds at the API domain: build:mobile:prod base and the Codemagic prod variable become https://api.wealth.auriqltd.co.uk, add the domain to CORS, keep the Finexer return URL on the web domain.** [owner: claude] [unblocks: Q4]
 - [ ] **A13. Switch Vercel's Production Branch from main to release before the first merge into main; then confirm so the docs branch can be merged.** [owner: kevin]
 
 ## B. Penny cost, tiers and billing
