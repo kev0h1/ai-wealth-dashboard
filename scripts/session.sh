@@ -41,8 +41,9 @@ Usage:
 
   scripts/session.sh finish <ID>
       Run inside the worktree for <ID>: backend tests, frontend typecheck,
-      then push the branch and mark the item "review" with that branch.
-      Refuses if the worktree is dirty or either check fails.
+      then the design preview index check, then push the branch and mark
+      the item "review" with that branch. Refuses if the worktree is dirty
+      or any check fails.
 
   scripts/session.sh abandon <ID>
       Delete the worktree and its branch, reset the item to to-do with a
@@ -243,6 +244,9 @@ cmd_finish() {
 
   log "running frontend typecheck in $worktree_dir/frontend..."
   (cd "$worktree_dir/frontend" && npx tsc --noEmit -p .)
+
+  log "checking design preview index in $worktree_dir/frontend..."
+  (cd "$worktree_dir/frontend" && npm run -s check:design-index)
 
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
