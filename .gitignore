@@ -75,3 +75,6 @@ frontend/.screens/
 # Backlog write-lock — runtime artifact from backend/app/services/backlog.py
 # and scripts/backlog.py, never content.
 .backlog.lock
+
+# Integrate run-lock — runtime artifact from scripts/integrate.py, never content.
+.integrate.lock
