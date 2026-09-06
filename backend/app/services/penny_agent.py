@@ -29,21 +29,19 @@ wall-clock ceiling firing, unparseable output, OR the model itself declining
 the question as off-topic (see `_OUT_OF_SCOPE_SENTINEL` below) — it never
 raises. The caller (can_i.py's seam) falls back to the pre-existing
 out-of-scope refusal on `None`, so a slow/unavailable model, or a genuinely
-off-topic question, never costs the user a wrong answer or a spent quota
-unit — only the chance of a better one.
+off-topic question, never costs the user a wrong answer — only the chance
+of a better one.
 
 Off-topic sentinel: rule 5 of `_SYSTEM_PROMPT` instructs the model to answer
 a question with no financial angle with the single bare line
 `OUT_OF_SCOPE`, no HEADLINE/REPLY, no tool calls. can_i.py's long-standing
-invariant is that an off-topic question costs no LLM-phrased answer and no
-`increment_ai_chat_usage` — see its own module comments (e.g. "no LLM call,
-no increment_ai_chat_usage" scattered through the domain handlers). Letting
-the model phrase its own decline would silently break that: the decline
-parses as a normal HEADLINE/REPLY pair, so the seam would charge quota and
-return `out_of_scope: False` for a question that was never in scope. The
-sentinel closes that gap — a detected `OUT_OF_SCOPE` response is treated
-exactly like any other failure (logged, `None` returned), so the seam falls
-through to the existing free, correctly-labelled refusal, unchanged.
+invariant is that an off-topic question costs no LLM-phrased answer at all.
+Letting the model phrase its own decline would silently break that: the
+decline parses as a normal HEADLINE/REPLY pair, so the seam would return
+`out_of_scope: False` for a question that was never in scope. The sentinel
+closes that gap — a detected `OUT_OF_SCOPE` response is treated exactly
+like any other failure (logged, `None` returned), so the seam falls through
+to the existing free, correctly-labelled refusal, unchanged.
 
 Wall-clock ceiling: `_WALL_CLOCK_BUDGET_S` is a SOFT signal read inside the
 loop (it forces `tool_choice="none"` on the next round once elapsed time
@@ -584,8 +582,8 @@ async def run_penny_agent(
                     # See the module docstring's "Off-topic sentinel"
                     # section: treated exactly like any other failure so the
                     # seam falls through to the existing free, correctly
-                    # `out_of_scope: True` refusal, never charging quota for
-                    # a question that was never in scope.
+                    # `out_of_scope: True` refusal for a question that was
+                    # never in scope.
                     #
                     # Promoted .info() -> .warning() (observability sweep):
                     # this branch returns None, which per the module's own

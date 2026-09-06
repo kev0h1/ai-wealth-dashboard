@@ -56,18 +56,11 @@ def test_greeting_response_shape_costs_nothing():
 
 def test_can_i_greeting_short_circuits_before_length_gate(monkeypatch):
     # "Hi" is 2 characters, below the 3-160 gate — proves the greeting check
-    # runs BEFORE that gate, not after.
-    called = {"limit": False}
-
-    async def _boom_limit(email):
-        called["limit"] = True
-
-    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _boom_limit)
+    # runs BEFORE that gate, not after (it would otherwise 400).
     body = {"question": "Hi"}
     result = asyncio.run(can_i_module.can_i(body, {"email": "kevin"}))
     assert result["out_of_scope"] is False
     assert result["headline"] is None
-    assert called["limit"] is False  # never reached check_ai_chat_limit at all
 
 
 # ── Length gate / API-key guard ──────────────────────────────────────────
@@ -116,9 +109,8 @@ def test_valid_screen_accepts_known_values_only():
 
 # ── Scenario gate: covered end-to-end (wiring into /can-i) in
 # test_scenario_routing.py, not duplicated here — this file just confirms
-# the gate still runs before check_ai_chat_limit's result would matter,
-# i.e. that /can-i still exposes `looks_like_scenario` as the module-level
-# name test_scenario_routing.py patches. ──────────────────────────────────
+# that /can-i still exposes `looks_like_scenario` as the module-level name
+# test_scenario_routing.py patches. ───────────────────────────────────────
 
 def test_can_i_module_still_exposes_scenario_gate_hooks():
     assert hasattr(can_i_module, "looks_like_scenario")
@@ -127,24 +119,12 @@ def test_can_i_module_still_exposes_scenario_gate_hooks():
 
 # ── Wire shape: a real answer from the tool loop ─────────────────────────
 
-async def _noop_check_ai_chat_limit(email):
-    return None
-
-
 def _patch_can_i_common(monkeypatch):
     monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
 
 
 def test_can_i_wire_shape_on_agent_success(monkeypatch):
     _patch_can_i_common(monkeypatch)
-
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     async def fake_agent(uid, question, history, screen, context):
         return {"headline": "You have headroom", "reply": "You have £100 free until payday.", "tools_used": ["get_safe_to_spend"]}
@@ -161,8 +141,6 @@ def test_can_i_wire_shape_on_agent_success(monkeypatch):
     assert result["explainer"] is False
     assert result["topic"] is None
     assert result["out_of_scope"] is False
-    # Usage-quota: charged exactly once on a real answer.
-    assert usage_calls == ["kevin"]
 
 
 def test_can_i_house_style_applied_to_agent_output(monkeypatch):
@@ -170,7 +148,6 @@ def test_can_i_house_style_applied_to_agent_output(monkeypatch):
     # em-dash/en-dash backstop) before it reaches the user, same as every
     # other reply shape in this file.
     _patch_can_i_common(monkeypatch)
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
 
     async def fake_agent(uid, question, history, screen, context):
         return {"headline": "Fine either way", "reply": "That works, no issue at all — go for it.", "tools_used": []}
@@ -189,13 +166,6 @@ def test_can_i_house_style_applied_to_agent_output(monkeypatch):
 def test_can_i_refusal_fallback_when_agent_returns_none(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
-
     async def fake_agent(uid, question, history, screen, context):
         return None
 
@@ -213,13 +183,10 @@ def test_can_i_refusal_fallback_when_agent_returns_none(monkeypatch):
     assert result["headline"] == "That one's outside what I can work out from your numbers."
     assert result["facts"] == []
     assert result["reply"]
-    # No usage charged for a refusal.
-    assert usage_calls == []
 
 
 def test_can_i_refusal_fallback_appends_screen_hint_only_when_known(monkeypatch):
     _patch_can_i_common(monkeypatch)
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
 
     async def fake_agent(uid, question, history, screen, context):
         return None
@@ -248,7 +215,6 @@ def test_can_i_refusal_fallback_gracefully_handles_sts_lookup_failure(monkeypatc
     # take the whole refusal down, it just falls back to the default £50
     # example.
     _patch_can_i_common(monkeypatch)
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
 
     async def fake_agent(uid, question, history, screen, context):
         return None

@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.llm import openrouter_chat
-from app.core.subscription import check_scan_limit, increment_scan_usage
 from app.db.collections import shopping_baskets_col
 
 router = APIRouter(tags=["baskets"])
@@ -156,7 +155,6 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
     image = body.get("image")
     if not image:
         raise HTTPException(400, "Missing image")
-    await check_scan_limit(user["email"])
 
     parsed = await _extract_receipt(_data_uri(image), user["email"])
     items = _clean_items(parsed.get("items"))
@@ -183,7 +181,6 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
         "created_at": datetime.now(),
     }
     await shopping_baskets_col.insert_one(doc)
-    await increment_scan_usage(user["email"])
     return _serialize(doc)
 
 

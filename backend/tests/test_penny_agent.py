@@ -171,11 +171,11 @@ def test_run_penny_agent_malformed_final_text_returns_none(monkeypatch):
 # ── Off-topic sentinel: the model's OWN decline, not a phrased refusal ──────
 # Fix 2 of the independent audit, 2026-08-26: letting the model phrase its
 # own "that's outside what I can help with" would parse as a normal
-# HEADLINE/REPLY pair, silently charging quota and mislabelling a genuinely
-# off-topic question as answered (out_of_scope False) — can_i.py's
-# long-standing invariant is the opposite (off-topic costs no LLM answer and
-# no increment_ai_chat_usage). The sentinel closes that gap: a bare
-# "OUT_OF_SCOPE" final message is treated exactly like any other failure.
+# HEADLINE/REPLY pair, mislabelling a genuinely off-topic question as
+# answered (out_of_scope False) — can_i.py's long-standing invariant is the
+# opposite (off-topic gets the fixed refusal, never an LLM-phrased answer).
+# The sentinel closes that gap: a bare "OUT_OF_SCOPE" final message is
+# treated exactly like any other failure.
 
 def test_run_penny_agent_out_of_scope_sentinel_returns_none(monkeypatch):
     client = _ScriptedAsyncClient([_final_payload("OUT_OF_SCOPE")])
@@ -289,17 +289,12 @@ class _RaisingFind:
         raise RuntimeError("no real Mongo access in this test")
 
 
-async def _noop_check_ai_chat_limit(email):
-    return None
-
-
 def _patch_can_i_common(monkeypatch):
     monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
     monkeypatch.setattr(can_i_module, "commitments_col", _RaisingFind())
 
 
-def test_can_i_seam_full_integration_success_increments_usage_once(monkeypatch):
+def test_can_i_seam_full_integration_success(monkeypatch):
     # Full integration, no stubbing of run_penny_agent itself: any ordinary
     # question (not a greeting, not scenario-shaped) reaches the REAL agent
     # loop directly, no ladder in front of it any more, which calls a tool
@@ -309,13 +304,6 @@ def test_can_i_seam_full_integration_success_increments_usage_once(monkeypatch):
     # patches elsewhere in this suite, so patching it here reaches the real
     # `run_penny_agent` call the seam makes.
     _patch_can_i_common(monkeypatch)
-
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     client = _ScriptedAsyncClient([
         _tool_call_payload("get_safe_to_spend", {}),
@@ -335,24 +323,16 @@ def test_can_i_seam_full_integration_success_increments_usage_once(monkeypatch):
     assert result["headline"] == "You have headroom"
     assert result["reply"] == "You have £100 free until payday."
     assert result["facts"] == []
-    assert usage_calls == ["kevin"]
 
 
-def test_can_i_seam_full_integration_out_of_scope_sentinel_no_usage_charged(monkeypatch):
+def test_can_i_seam_full_integration_out_of_scope_sentinel_falls_back(monkeypatch):
     # Same full integration, but the (scripted) model correctly declines via
     # the OUT_OF_SCOPE sentinel — the seam must fall through to the existing
-    # free, correctly-labelled refusal, exactly as if run_penny_agent had
-    # never been called at all. This is the regression the independent audit
-    # flagged: without the sentinel, a model-phrased decline would have
-    # parsed as a normal answer and charged usage for an off-topic question.
+    # fixed refusal, exactly as if run_penny_agent had never been called at
+    # all. This is the regression the independent audit flagged: without
+    # the sentinel, a model-phrased decline would have parsed as a normal,
+    # correctly-labelled answer for what is actually an off-topic question.
     _patch_can_i_common(monkeypatch)
-
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     client = _ScriptedAsyncClient([_final_payload("OUT_OF_SCOPE")])
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
@@ -372,18 +352,10 @@ def test_can_i_seam_full_integration_out_of_scope_sentinel_no_usage_charged(monk
 
     assert result["out_of_scope"] is True
     assert result["headline"] == "That one's outside what I can work out from your numbers."
-    assert usage_calls == []
 
 
 def test_can_i_seam_falls_back_to_refusal_when_agent_returns_none(monkeypatch):
     _patch_can_i_common(monkeypatch)
-
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     async def fake_agent(uid, question, history, screen, context):
         return None
@@ -400,7 +372,6 @@ def test_can_i_seam_falls_back_to_refusal_when_agent_returns_none(monkeypatch):
 
     assert result["out_of_scope"] is True
     assert result["headline"] == "That one's outside what I can work out from your numbers."
-    assert usage_calls == []
 
 
 # ── 7. check_affordability tool — the verdict word passes through
@@ -526,13 +497,6 @@ def test_get_category_spend_tool_last_n_months_uses_rolling_window(monkeypatch):
 def test_can_i_entertainment_advice_question_reaches_the_loop_not_a_deterministic_route(monkeypatch):
     _patch_can_i_common(monkeypatch)
 
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
-
     client = _ScriptedAsyncClient([
         _tool_call_payload("get_category_spend", {"category": "Entertainment"}),
         _final_payload(
@@ -567,7 +531,6 @@ def test_can_i_entertainment_advice_question_reaches_the_loop_not_a_deterministi
     assert result["out_of_scope"] is False
     assert "£231" in result["reply"]
     assert "Daniel Maingi" in result["reply"] or "Google Play" in result["reply"]
-    assert usage_calls == ["kevin"]
 
 
 # ── 10. Tax-mechanics question: no tool call needed, doctrine-shaped
@@ -576,7 +539,6 @@ def test_can_i_entertainment_advice_question_reaches_the_loop_not_a_deterministi
 
 def test_can_i_tax_mechanics_question_needs_no_tool_call(monkeypatch):
     _patch_can_i_common(monkeypatch)
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
 
     client = _ScriptedAsyncClient([
         _final_payload(
@@ -754,7 +716,6 @@ def test_can_i_personal_allowance_question_calls_get_tax_position(monkeypatch):
     # End-to-end: the loop must reach get_tax_position for a question about
     # the user's OWN allowance, not answer from general knowledge alone.
     _patch_can_i_common(monkeypatch)
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", _noop_check_ai_chat_limit)
 
     client = _ScriptedAsyncClient([
         _tool_call_payload("get_tax_position", {}),

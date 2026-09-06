@@ -3368,22 +3368,11 @@ async def _exec_propose_recategorise_transaction(
     # alongside it specifically so this preview can never disagree with
     # what executing the proposal really does (ENGINE.md: rules are
     # engine-proposed with blast radius shown, never auto-applied).
-    from app.core.subscription import Tier, get_subscription
     from app.services.categorisation import (
         build_rule_pattern as _build_rule_pattern,
         canonical_merchant_key as _canonical_merchant_key,
         count_rule_matches as _count_rule_matches,
     )
-
-    # Rule creation (POST /rules) requires a Pro subscription in the real
-    # app (`require_tier(Tier.PRO)`) — a direct router-function call at
-    # execute time bypasses that FastAPI dependency silently, so it is
-    # re-checked explicitly here too, at PROPOSE time, so a Free-tier user
-    # is told up front rather than being handed a proposal that would fail
-    # on confirm.
-    sub = await get_subscription(uid)
-    if sub.tier < Tier.PRO:
-        return _tool_error("setting an automatic rule needs a Pro plan or higher, ask to file this just once instead")
 
     merchant_key = doc.get("merchant_key") or _canonical_merchant_key(
         doc.get("merchant_name") or "", doc.get("description") or "",

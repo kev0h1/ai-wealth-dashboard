@@ -444,7 +444,7 @@ def test_get_savings_insights_excludes_retired_broadband_but_keeps_others(monkey
     ]
     _setup_get_endpoint(monkeypatch, [retired_broadband] + other_docs)
 
-    result = _run(get_savings_insights(user=USER, _sub=None))
+    result = _run(get_savings_insights(user=USER))
 
     categories = {r["category"] for r in result}
     assert "broadband" not in categories
@@ -456,7 +456,7 @@ def test_get_savings_insights_serves_active_broadband_when_not_retired(monkeypat
     active_broadband = _broadband_doc()  # no retired_at
     _setup_get_endpoint(monkeypatch, [active_broadband])
 
-    result = _run(get_savings_insights(user=USER, _sub=None))
+    result = _run(get_savings_insights(user=USER))
 
     assert len(result) == 1
     assert result[0]["category"] == "broadband"
@@ -472,7 +472,7 @@ def test_spotlight_never_features_a_retired_insight(monkeypatch):
     _setup_get_endpoint(monkeypatch, [retired_broadband])
     monkeypatch.setattr(savings_insights, "preferences_col", FakePreferencesCol([]))
 
-    result = _run(get_spotlight_insight(user=USER, _sub=None))
+    result = _run(get_spotlight_insight(user=USER))
 
     assert result is None
 
@@ -482,7 +482,7 @@ def test_spotlight_features_an_active_insight_normally(monkeypatch):
     _setup_get_endpoint(monkeypatch, [active])
     monkeypatch.setattr(savings_insights, "preferences_col", FakePreferencesCol([]))
 
-    result = _run(get_spotlight_insight(user=USER, _sub=None))
+    result = _run(get_spotlight_insight(user=USER))
 
     assert result is not None
     assert result["category"] == "broadband"

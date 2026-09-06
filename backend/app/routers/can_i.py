@@ -32,7 +32,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
-from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
 from app.routers.analytics import get_cached_safe_to_spend
 from app.routers.scenario import looks_like_scenario, parse_question
@@ -123,8 +122,8 @@ def _greeting_response() -> dict:
     headline-less reply renders as plain body text in the existing bubble
     shell (the same branch a phrasing-call failure elsewhere in this app
     degrades to), so this reuses an existing render path rather than
-    inventing a new one. No LLM call and no `increment_ai_chat_usage` here:
-    a greeting costs the user nothing."""
+    inventing a new one. No LLM call here: a greeting costs the user
+    nothing."""
     return {
         "reply": _house_style(_GREETING_REPLY),
         "headline": None,
@@ -202,8 +201,6 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             history.append({"role": role, "content": content[:300]})
 
     uid = user["email"]
-    # ── 4. Usage-quota check — unchanged ─────────────────────────────────
-    await check_ai_chat_limit(uid)
 
     # ── 5. Scenario short-circuit — deterministic routing, no LLM
     # judgement, byte-identical to before this rebuild ──────────────────
@@ -251,9 +248,7 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
     # app.services.penny_tools. Its failure contract (see that module's own
     # docstring) is a dict on success, None on ANY failure whatsoever
     # (provider error, timeout, round/budget cap, unparseable output, or the
-    # model's own OUT_OF_SCOPE decline) — never raises. Usage is only ever
-    # incremented here, exactly once, on the success path; the agent module
-    # itself never touches the quota counter.
+    # model's own OUT_OF_SCOPE decline) — never raises.
     agent_result = await run_penny_agent(uid, question, history, screen, context)
     if agent_result is not None:
         # ── Penny Agent Mode v1 (owner decision, 2026-08-30) — two new
@@ -261,8 +256,8 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
         # both additive on the wire (see PENNY_TOOLS.md's "Write tools
         # (propose-only)" section and frontend/lib/api.ts's CanIResponse).
         if agent_result.get("consent_required"):
-            # No usage charge: the user asked for an action, not an answer,
-            # and got neither — nothing was consulted, nothing decided. See
+            # The user asked for an action, not an answer, and got neither
+            # — nothing was consulted, nothing decided. See
             # app.services.penny_agent's own consent-gate comment for why
             # this can only ever fire for a genuinely non-consenting user.
             return {
@@ -284,7 +279,6 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             # LLM-phrased, so they're safe to surface directly as the
             # headline/reply pair alongside the structured `proposal` block
             # the frontend's confirm card renders from.
-            await increment_ai_chat_usage(uid)
             proposal = agent_result["proposal"]
             return {
                 "reply": _house_style(proposal["consequence"]),
@@ -295,7 +289,6 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
                 "out_of_scope": False,
                 "proposal": proposal,
             }
-        await increment_ai_chat_usage(uid)
         return {
             "reply": _house_style(agent_result["reply"]),
             "headline": _house_style(agent_result["headline"]),
@@ -671,14 +664,6 @@ async def _execute_recategorise_transaction(uid: str, params: dict) -> dict:
     Penny-originated correction is still a user correction, nothing here is
     a second, parallel write path.
 
-    `add_rule` is Pro-gated in the real app (`Depends(require_tier(Tier.
-    PRO))`); calling the router function directly bypasses that FastAPI
-    dependency silently (a plain default-parameter value, never resolved
-    outside a real request), so the tier check is re-run explicitly here —
-    already checked once at propose time too
-    (`penny_tools._exec_propose_recategorise_transaction`), re-checked here
-    in case the subscription lapsed in between.
-
     `scope="always"` PATCHes the primary transaction FIRST, then creates
     the rule — the same two-call sequence TeachingSheet's own
     `commitSpend` (PATCH) followed by `handleAlways` (POST /rules) already
@@ -698,18 +683,6 @@ async def _execute_recategorise_transaction(uid: str, params: dict) -> dict:
         return await _route_update_transaction(params["transaction_id"], body, user={"email": uid})
 
     if scope == "always":
-        from app.core.subscription import Tier, get_subscription
-
-        sub = await get_subscription(uid)
-        if sub.tier < Tier.PRO:
-            raise HTTPException(
-                402,
-                {
-                    "code": "UPGRADE_REQUIRED", "current_tier": sub.tier_name,
-                    "required_tier": "pro",
-                    "message": "This feature requires a Pro subscription.",
-                },
-            )
         from app.routers.categories import add_rule as _route_add_rule
         from app.routers.transactions import update_transaction as _route_update_transaction
 

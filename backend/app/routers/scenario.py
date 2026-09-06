@@ -12,9 +12,9 @@ strictly from the numbers `simulate` already produced.
 
 Mirrors can_i.py's pattern throughout: deterministic scope/routing gate (no
 free-form LLM judgement over whether a question is even in-scope), same
-OpenRouter call shape, same house-style post-processing, same subscription
-gating. FCA doctrine per grow.py/can_i.py: facts only, hedged projections,
-never "you should", never a promise about money actually moving.
+OpenRouter call shape, same house-style post-processing. FCA doctrine per
+grow.py/can_i.py: facts only, hedged projections, never "you should", never
+a promise about money actually moving.
 """
 import json
 import re
@@ -26,7 +26,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
-from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.copy_style import house_style as _house_style
 from app.services.region import get_user_region
@@ -306,25 +305,13 @@ async def parse_question(uid: str, question: str) -> dict:
 
     Deliberately does NOT simulate: the user (or the UI on their behalf)
     confirms/edits the extracted items first, then calls /scenario/run.
-
-    Does NOT call check_ai_chat_limit itself — every caller is responsible
-    for gating on that exactly once per request before reaching here
-    (/scenario/parse below does it just before calling this; /can-i already
-    does it at its own entry point, before routing to this helper) so the
-    limit check is never doubled up between the two surfaces. DOES call
-    increment_ai_chat_usage exactly when the underlying extraction LLM call
-    actually ran and returned something usable, mirroring this endpoint's
-    original behaviour: a failed or empty extraction counts as nothing
-    delivered, so nothing is charged, on either caller's path.
     """
     today = date.today()
     raw_items = await _extract_items_llm(question, today, uid)
     if raw_items is None:
         # Extraction call itself failed (network/non-200/unparsable reply)
-        # — no usage counted, nothing was actually delivered.
+        # — nothing was actually delivered.
         return {"items": [], "rejected": [], "prefilled": False, "clarify": _CLARIFY_MESSAGE}
-
-    await increment_ai_chat_usage(uid)
 
     if not raw_items:
         return {"items": [], "rejected": [], "prefilled": False, "clarify": _CLARIFY_MESSAGE}
@@ -368,7 +355,6 @@ async def scenario_parse(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(500, "AI not configured")
 
     uid = user["email"]
-    await check_ai_chat_limit(uid)
 
     return await parse_question(uid, question)
 
@@ -714,7 +700,6 @@ async def scenario_run(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "too many items")
 
     uid = user["email"]
-    await check_ai_chat_limit(uid)
 
     # This is the single validation point for the request body: normalise
     # here, against the RAW client-submitted items, and pass the clean
@@ -740,13 +725,11 @@ async def scenario_run(body: dict, user: dict = Depends(current_user)):
         # lumpy composer (real figures, two clearly-scoped clauses), not
         # _template_headline (that generic sentence stays reserved for the
         # genuine LLM-failure path below — a lumpy scenario is a legitimate
-        # question, not an error). No usage charged, since no LLM call was
-        # made.
+        # question, not an error).
         headline = _lumpy_headline(items, payload)
     else:
         headline = await _compose_headline_llm(payload, uid)
         if headline:
-            await increment_ai_chat_usage(uid)
             headline = _house_style(headline)
         else:
             headline = _template_headline(items)

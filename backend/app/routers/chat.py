@@ -2,9 +2,7 @@
 
 `answer_tax_question` is the reusable core: deterministic tax fact pack
 (from preferences_col) + system prompt + OpenRouter call, returning the
-reply string. It deliberately does NOT touch the AI-chat usage limit
-(check_ai_chat_limit / increment_ai_chat_usage) — callers own that, so a
-single question is never counted twice against a user's quota.
+reply string.
 
 Ground-up loop-first rebuild, 2026-08-26 (see PENNY_TOOLS.md): POST /can-i
 no longer has a dedicated tax-routing branch that calls this function — see
@@ -18,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
-from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 
 import httpx
 
@@ -156,10 +153,8 @@ async def tax_chat(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "No messages or AI not configured")
 
     uid  = user["email"]
-    await check_ai_chat_limit(uid)
     name = user.get("name", "").split()[0] or "there"
 
     reply = await answer_tax_question(uid, name, messages)
 
-    await increment_ai_chat_usage(uid)
     return {"reply": reply}

@@ -11,9 +11,7 @@ from datetime import datetime, timezone
 from enum import IntEnum
 from typing import Optional
 
-from fastapi import Depends, HTTPException
-
-from app.core.auth import current_user
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -24,20 +22,6 @@ class Tier(IntEnum):
     STANDARD = 2
     CONNECT = 3
     MAX = 4
-
-    # --- Backward-compatible aliases (TEMPORARY — see bottom-of-file note) --
-    # Several files outside this task's ownership boundary still reference
-    # Tier.PRO / Tier.PREMIUM / Tier.FAMILY, in some cases as a
-    # `Depends(require_tier(Tier.PRO))` default value evaluated at import
-    # time — deleting these names outright crash-loops the whole API on
-    # boot (import chain: main.py -> routers -> categories.py /
-    # savings_insights.py). Aliasing keeps every one of those attribute
-    # lookups working and resolving to a sane new tier without editing
-    # those files. Remove once they are migrated off the old names.
-    FREE = 0
-    PRO = 2
-    PREMIUM = 4
-    FAMILY = 4
 
 
 TIER_NAMES = {
@@ -215,45 +199,3 @@ async def check_connection_limit(email: str) -> None:
                     "message": f"Your {sub.tier_name.title()} plan allows up to {max_accounts} connected accounts.",
                 },
             )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# TEMPORARY compatibility shims — DO NOT build on these, DO NOT re-add real
-# enforcement to them. This tier-retirement task's brief was to delete
-# require_tier / check_ai_chat_limit / increment_ai_chat_usage /
-# check_scan_limit outright, but they are still imported at module scope by
-# files outside this task's ownership boundary (all contain OpenRouter
-# calls, or belong to a concurrent LLM-refactor task): app/routers/chat.py,
-# app/routers/can_i.py, app/routers/scenario.py, app/routers/baskets.py,
-# app/routers/savings_insights.py, app/routers/categories.py,
-# app/services/penny_tools.py. Two of those (categories.py,
-# savings_insights.py) evaluate `Depends(require_tier(Tier.PRO))` as a
-# function-default at IMPORT time, so deleting these names crash-loops the
-# entire API on boot, not just a handful of tests.
-#
-# These shims exist purely to keep the app importable while that is true.
-# They are no-ops by design — consistent with "nobody should be restricted
-# before launch" — never enforce anything, and should be deleted the moment
-# the files above drop these imports.
-def require_tier(min_tier: "Tier"):
-    """No-op replacement for the old FastAPI dependency factory — resolves
-    the caller's subscription but never raises 402."""
-    async def _dep(user: dict = Depends(current_user)) -> Subscription:
-        return await get_subscription(user["email"])
-    return _dep
-
-
-async def check_ai_chat_limit(email: str) -> None:
-    return None
-
-
-async def increment_ai_chat_usage(email: str) -> None:
-    return None
-
-
-async def check_scan_limit(email: str) -> None:
-    return None
-
-
-async def increment_scan_usage(email: str) -> None:
-    return None

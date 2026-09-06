@@ -12,10 +12,9 @@ ever runs, while a plain affordability question must still reach that loop
 `can_i_mod.can_i(...)` directly via `asyncio.run` (matching the
 direct-async-call convention used in test_notifications.py/test_scenario.py,
 rather than a real HTTP/DB round trip) and monkeypatch the LLM/DB boundaries
-the function touches: `check_ai_chat_limit`/`increment_ai_chat_usage`
-(subscription usage docs), `parse_question` (the scenario extraction LLM
-call), `run_penny_agent` (the ground-up loop-first rebuild's own tool loop,
-see PENNY_TOOLS.md) and `compute_safe_to_spend` (the deterministic refusal
+the function touches: `parse_question` (the scenario extraction LLM call),
+`run_penny_agent` (the ground-up loop-first rebuild's own tool loop, see
+PENNY_TOOLS.md) and `compute_safe_to_spend` (the deterministic refusal
 fallback's own worked-example read). Each fake either returns a fixed value
 or raises loudly if hit, so a routing regression that lets the wrong path
 run fails the test rather than silently making a live call.
@@ -262,23 +261,11 @@ class _RaisingFake:
         return _boom
 
 
-async def _noop_check_ai_chat_limit(email):
-    return None
-
-
-async def _noop_increment_ai_chat_usage(email):
-    return None
-
-
 def _patch_common(monkeypatch):
     """Shared plumbing every /can-i test below needs: a usable-looking API
     key (never read from .env — just a dummy truthy string so the
-    `if not OPENROUTER_API_KEY` guard at the top of can_i() passes) and a
-    no-op subscription-limit check/increment (never touches
-    subscription_usage_col)."""
+    `if not OPENROUTER_API_KEY` guard at the top of can_i() passes)."""
     monkeypatch.setattr(can_i_mod, "OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(can_i_mod, "check_ai_chat_limit", _noop_check_ai_chat_limit)
-    monkeypatch.setattr(can_i_mod, "increment_ai_chat_usage", _noop_increment_ai_chat_usage)
 
 
 def test_scenario_question_short_circuits_before_fact_gathering(monkeypatch):

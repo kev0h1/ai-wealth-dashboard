@@ -16,7 +16,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
 from app.core.llm import openrouter_chat
-from app.core.subscription import Tier, require_tier
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
 )
@@ -2913,7 +2912,7 @@ def _spotlight_candidates(docs: list[dict]) -> list[dict]:
 
 
 @router.get("/savings-insights")
-async def get_savings_insights(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+async def get_savings_insights(user: dict = Depends(current_user)):
     uid  = user["email"]
     # Evidence-gone retirement (`retired_at`) excludes a doc from every
     # surface, not just this one — see `_evidence_is_gone` and the
@@ -2959,7 +2958,7 @@ async def get_savings_insights(user: dict = Depends(current_user), _sub=Depends(
 
 
 @router.get("/savings-insights/spotlight")
-async def get_spotlight_insight(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+async def get_spotlight_insight(user: dict = Depends(current_user)):
     """The single insight to feature on the home screen, or null.
 
     Applies supersession: if the insight shown last time has been replaced by a

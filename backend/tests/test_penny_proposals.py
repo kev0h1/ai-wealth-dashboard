@@ -505,21 +505,6 @@ def _patch_recat_txn_col(monkeypatch, docs):
     return fake_col
 
 
-def _patch_subscription_tier(monkeypatch, tier):
-    import app.core.subscription as subscription_module
-
-    class _FakeSub:
-        def __init__(self, t):
-            self.tier = t
-            self.tier_name = subscription_module.TIER_NAMES[t]
-
-    async def fake_get_subscription(email):
-        return _FakeSub(tier)
-
-    monkeypatch.setattr(subscription_module, "get_subscription", fake_get_subscription)
-    return subscription_module
-
-
 def test_propose_recategorise_resolves_by_id(monkeypatch):
     fake_proposals = _FakeCol()
     monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
@@ -669,7 +654,6 @@ def test_propose_recategorise_always_shape_with_real_blast_radius(monkeypatch):
     ]
     _patch_recat_txn_col(monkeypatch, history)
     _patch_get_categories(monkeypatch)
-    _patch_subscription_tier(monkeypatch, __import__("app.core.subscription", fromlist=["Tier"]).Tier.PRO)
 
     result = asyncio.run(execute_tool(UID, "propose_recategorise_transaction", {
         "transaction_id": "t1", "new_category": "Eating Out", "scope": "always",
@@ -686,26 +670,11 @@ def test_propose_recategorise_always_no_past_matches(monkeypatch):
     monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
     _patch_recat_txn_col(monkeypatch, [_txn_doc()])
     _patch_get_categories(monkeypatch)
-    import app.core.subscription as subscription_module
-    _patch_subscription_tier(monkeypatch, subscription_module.Tier.PRO)
 
     result = asyncio.run(execute_tool(UID, "propose_recategorise_transaction", {
         "transaction_id": "t1", "new_category": "Eating Out", "scope": "always",
     }))
     assert result["consequence"] == "Sets a rule for this merchant. No past transactions match it yet."
-
-
-def test_propose_recategorise_always_requires_pro_tier(monkeypatch):
-    _patch_recat_txn_col(monkeypatch, [_txn_doc()])
-    _patch_get_categories(monkeypatch)
-    import app.core.subscription as subscription_module
-    _patch_subscription_tier(monkeypatch, subscription_module.Tier.FREE)
-
-    result = asyncio.run(execute_tool(UID, "propose_recategorise_transaction", {
-        "transaction_id": "t1", "new_category": "Eating Out", "scope": "always",
-    }))
-    assert "error" in result
-    assert "Pro" in result["error"]
 
 
 def test_no_guardrail_queue_propose_tools_exist():
@@ -753,9 +722,6 @@ def test_execute_recategorise_transaction_always_dispatches_add_rule(monkeypatch
     monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
     _patch_consented_prefs(monkeypatch)
 
-    import app.core.subscription as subscription_module
-    _patch_subscription_tier(monkeypatch, subscription_module.Tier.PRO)
-
     import app.routers.categories as categories_module
     import app.routers.transactions as transactions_module
 
@@ -785,34 +751,6 @@ def test_execute_recategorise_transaction_always_dispatches_add_rule(monkeypatch
     assert rule_captured["category"] == "Eating Out"
     assert result["result"]["transaction"]["custom_category"] == "Eating Out"
     assert result["result"]["rule"]["id"] == "rule1"
-
-
-def test_execute_recategorise_transaction_always_requires_pro_tier_at_execute_time(monkeypatch):
-    fake_proposals = _FakeCol([_live_doc("recategorise_transaction", {
-        "transaction_id": "t1", "new_category": "Eating Out", "scope": "always",
-        "previous_category": "Groceries", "pattern": r"\bsainsburys\b", "merchant_label": "SAINSBURYS",
-    })])
-    monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
-    _patch_consented_prefs(monkeypatch)
-
-    import app.core.subscription as subscription_module
-    _patch_subscription_tier(monkeypatch, subscription_module.Tier.FREE)
-
-    import app.routers.categories as categories_module
-    import app.routers.transactions as transactions_module
-
-    async def fail_add_rule(body, user):
-        raise AssertionError("must never create a rule for a Free-tier user")
-
-    async def fail_update_transaction(transaction_id, body, user):
-        raise AssertionError("must never patch the transaction either — the tier gate fires before both calls")
-
-    monkeypatch.setattr(categories_module, "add_rule", fail_add_rule)
-    monkeypatch.setattr(transactions_module, "update_transaction", fail_update_transaction)
-
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
-    assert exc.value.status_code == 402
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -984,23 +922,12 @@ def test_run_penny_agent_ordinary_read_tool_unaffected_by_consent_gate(monkeypat
 # Section C — can_i.py seam: consent_required / proposal response branches
 # ═════════════════════════════════════════════════════════════════════════
 
-async def _noop_check_ai_chat_limit(email):
-    return None
-
-
 def _patch_can_i_common(monkeypatch):
     monkeypatch.setattr(can_i_module, "OPENROUTER_API_KEY", "test-key")
-    monkeypatch.setattr(can_i_module, "check_ai_chat_limit", _noop_check_ai_chat_limit)
 
 
-def test_can_i_seam_consent_required_branch_charges_no_usage(monkeypatch):
+def test_can_i_seam_consent_required_branch(monkeypatch):
     _patch_can_i_common(monkeypatch)
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     async def fake_agent(uid, question, history, screen, context):
         return {"consent_required": True}
@@ -1011,17 +938,10 @@ def test_can_i_seam_consent_required_branch_charges_no_usage(monkeypatch):
 
     assert result["consent_required"] is True
     assert result["out_of_scope"] is False
-    assert usage_calls == []
 
 
-def test_can_i_seam_proposal_branch_charges_usage_once(monkeypatch):
+def test_can_i_seam_proposal_branch(monkeypatch):
     _patch_can_i_common(monkeypatch)
-    usage_calls = []
-
-    async def spy_increment(uid):
-        usage_calls.append(uid)
-
-    monkeypatch.setattr(can_i_module, "increment_ai_chat_usage", spy_increment)
 
     proposal = {
         "proposal": True, "proposal_id": "abc123", "kind": "create_allocation",
@@ -1040,7 +960,6 @@ def test_can_i_seam_proposal_branch_charges_usage_once(monkeypatch):
     assert result["proposal"] == proposal
     assert result["headline"] == "Create allocation 'Saving Challenge'"
     assert "£9" in result["reply"]
-    assert usage_calls == [UID]
 
 
 # ═════════════════════════════════════════════════════════════════════════
