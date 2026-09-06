@@ -14,7 +14,7 @@ from app.core.config import (
     TRUELAYER_AUTH_URL, TRUELAYER_API_URL, TRUELAYER_REDIRECT_URI,
     TRUELAYER_WEBHOOK_SECRET, APP_URL,
 )
-from app.core.subscription import check_connection_limit
+from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import connections_col
 from app.services.truelayer_sync import save_connection, sync_connection
 
@@ -38,6 +38,7 @@ async def truelayer_providers(user: dict = Depends(current_user)):
 async def truelayer_link(provider: str = "", user: dict = Depends(current_user)):
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
+    await check_open_banking_allowed(user["email"])
     await check_connection_limit(user["email"])
     connection_id = secrets.token_hex(8)
     await connections_col.update_one(

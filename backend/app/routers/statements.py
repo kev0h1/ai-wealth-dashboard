@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from app.core.auth import current_user
+from app.core.subscription import check_statement_upload_allowed, record_statement_upload
 from app.db.collections import (
     mpesa_accounts_col, mpesa_transactions_col,
     statement_accounts_col, statement_transactions_col,
@@ -56,6 +57,7 @@ async def mpesa_upload(
     user: dict = Depends(current_user),
 ):
     uid      = user["email"]
+    await check_statement_upload_allowed(uid)
     content  = await file.read()
     filename = (file.filename or "").lower()
 
@@ -132,6 +134,9 @@ async def mpesa_upload(
         {"$set": {"_id": conn_id, "user_id": uid, "provider_type": "mpesa"}},
         upsert=True,
     )
+    await record_statement_upload(
+        uid, kind="mpesa", filename=(file.filename or ""), region="Kenya", account_id=acc_id,
+    )
     return {"inserted": imported, "account_id": acc_id, "balance": latest_balance}
 
 
@@ -173,10 +178,12 @@ async def statement_upload(
     user: dict = Depends(current_user),
 ):
     uid      = user["email"]
+    await check_statement_upload_allowed(uid)
     content  = await file.read()
     filename = (file.filename or "").lower()
+    is_pdf   = filename.endswith(".pdf") or content[:4] == b"%PDF"
 
-    if filename.endswith(".pdf") or content[:4] == b"%PDF":
+    if is_pdf:
         raw_text = await extract_pdf_text(content, password=password)
         if not raw_text.strip():
             raise HTTPException(422, "Could not extract text, wrong PDF password or unsupported format")
@@ -290,6 +297,11 @@ async def statement_upload(
         account_update["balance"] = 0
 
     await statement_accounts_col.update_one({"_id": acc_id}, {"$set": account_update}, upsert=True)
+
+    await record_statement_upload(
+        uid, kind=("pdf" if is_pdf else "csv"), filename=(file.filename or ""),
+        region=region, account_id=acc_id,
+    )
 
     return {
         "inserted": imported, "skipped": skipped, "account_id": acc_id,

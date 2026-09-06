@@ -16,7 +16,7 @@ from app.db.collections import (
     budgets_col, mono_connections_col, mono_accounts_col, mono_transactions_col,
     statement_transactions_col, mpesa_transactions_col,
     savings_insights_col, savings_labels_col,
-    subscriptions_col, subscription_usage_col,
+    subscriptions_col, subscription_usage_col, statement_uploads_col,
     yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
@@ -178,6 +178,8 @@ async def _create_indexes():
     await savings_labels_col.create_index([("user_id", 1), ("merchant_key", 1)], unique=True)
     await subscriptions_col.create_index("user_id", unique=True)
     await subscription_usage_col.create_index([("user_id", 1), ("year_month", 1)], unique=True)
+    # Statements-tier upload cap (app.core.subscription check_statement_upload_allowed).
+    await statement_uploads_col.create_index([("user_id", 1), ("year_month", 1)])
     await cashflow_cache_col.create_index("computed_at")
     await webhook_events_col.create_index([("status", 1), ("received_at", 1)])
     # TTL: auto-delete webhook event logs after 30 days

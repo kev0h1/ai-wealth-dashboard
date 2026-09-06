@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import MONO_PUBLIC_KEY, MONO_API_URL
+from app.core.subscription import check_open_banking_allowed
 from app.db.collections import (
     mono_connections_col, mono_accounts_col, mono_transactions_col,
 )
@@ -16,6 +17,10 @@ router = APIRouter(tags=["mono"])
 
 @router.get("/auth/mono/public-key")
 async def mono_public_key(user: dict = Depends(current_user)):
+    # This is the first server round trip in the Mono Connect flow (the
+    # widget itself opens client-side against Mono directly), so this is
+    # where we turn away a Statements-tier user before the widget shows.
+    await check_open_banking_allowed(user["email"])
     return {"public_key": MONO_PUBLIC_KEY}
 
 
