@@ -104,7 +104,11 @@ How this is enforced in the product:
 - Savings insights are generated under fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any output that breaches them.
 - Debt payoff shows the customer's own repayment order and timelines from their existing accounts; it does not propose consolidation, balance transfers, lenders or debt solutions.
 - Investment holdings can be tracked as a category; the product offers no investment recommendations, comparisons or execution.
-- Tax content is limited to general explanation of UK rules; no product or scheme is recommended. [KEVIN: we intend to tighten the tax explainer's prompt before go-live so it cannot discuss specific investment schemes; confirm.]
+- Tax content is limited to general explanation of UK rules; no product or scheme is recommended.
+
+The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's external assistant gives is that assistant's, under the customer's contract with its provider, and nothing in Sorted recommends or steers towards it.
+
+[KEVIN: we intend to tighten the tax explainer's prompt before go-live so it cannot discuss specific investment schemes; confirm.]
 ```
 
 ## Q9 AI and third-party processing
