@@ -36,7 +36,7 @@ const TABS = [
 export default function MockBottomNav({ state, data }: { state: UsageState; data: UsageData }) {
   const hasRing = data.limit != null;
   return (
-    <div className="relative w-full max-w-[402px] mx-auto pt-12 pb-2">
+    <div className="relative w-full max-w-[430px] mx-auto pt-12 pb-2">
       <div className="relative">
         {hasRing && (
           <UsageRing
@@ -60,7 +60,13 @@ export default function MockBottomNav({ state, data }: { state: UsageState; data
           <PennyMark size={22} className="text-white" />
         </button>
 
-        <div className="glass-rail relative rounded-[22px]">
+        {/* overflow-hidden here (not on the outer wrapper) is deliberate:
+            the raised Penny button and its ring sit as siblings ABOVE this
+            pill, positioned absolutely against the outer "relative" div one
+            level up, so clipping only this inner rail keeps them free to
+            poke up past its top edge while still guaranteeing an unbroken
+            tab label can never spill past the rail's own right edge. */}
+        <div className="glass-rail relative rounded-[22px] overflow-hidden">
           <div className="relative grid grid-cols-5 h-[64px] px-1.5">
             <span
               aria-hidden="true"
