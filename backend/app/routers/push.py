@@ -131,7 +131,7 @@ async def native_push_status(token: str, user: dict = Depends(current_user)):
 @router.post("/push/test")
 async def push_test(request: Request, user: dict = Depends(current_user)):
     """Send a test push to every device registered for the caller, so setup can be verified."""
-    if limited := check_rate_limit(request):
+    if limited := await check_rate_limit(request):
         return limited
 
     user_id = user["email"]
@@ -174,7 +174,7 @@ async def push_client_diagnostic(
     still be logged, not cause a 500 on the one endpoint whose whole job is
     to catch failures.
     """
-    if limited := check_rate_limit(request):
+    if limited := await check_rate_limit(request):
         return limited
 
     try:

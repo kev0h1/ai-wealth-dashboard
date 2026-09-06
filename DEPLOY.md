@@ -75,6 +75,17 @@ Add the **Redis** plugin to the project. Railway exposes it as a reference
 variable (e.g. `${{Redis.REDIS_URL}}`) — use that for `REDIS_URL` on both
 services below.
 
+The API's rate limiter and the mobile login "pending" hand-off store are
+both backed by this Redis (`REDIS_URL`), not in-process memory, so they work
+correctly across multiple `web` replicas: a rate-limit hit and a mobile poll
+can land on different instances and still see the same state. If Redis is
+unreachable, the API degrades rather than failing: rate limits fall back to
+a per-process count and the pending-login store falls back to a per-process
+dict, both with the same limits and TTLs as the Redis-backed path. That
+degraded mode is only correct with a single replica, so treat sustained
+Redis unavailability as a page, not a shrug. With this in place, E2
+(Railway Pro and replicas) can proceed.
+
 ## Step 4 — Railway: web service
 
 - **New service** → deploy from this GitHub repo.
