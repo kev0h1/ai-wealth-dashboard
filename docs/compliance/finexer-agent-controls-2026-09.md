@@ -38,15 +38,14 @@ Confirmed. Auriq Ltd's use of Finexer is limited exclusively to Account Informat
 Status: ready
 
 ```text
-Production service name: Sorted (by AURIQ LTD).
-
-Web application (production): https://wealth.auriqltd.co.uk
-API: https://wealth.auriqltd.co.uk/api (reverse-proxied to our hosted backend)
-
-Mobile applications: the iOS and Android apps are the same production web application packaged in a native shell and call the same production API above. No separate backend, callback or webhook endpoints exist for mobile.
+Production service: Sorted (by AURIQ LTD), delivered through the iOS and Android apps. Both apps package the same application and call the same production backend.
 - iOS: App Store Connect record "Sorted by Auriq", bundle ID co.uk.auriqltd.sorted, Apple ID 6809018846, store URL https://apps.apple.com/gb/app/id6809018846
 - Android: Google Play package co.uk.auriqltd.sorted, store URL https://play.google.com/store/apps/details?id=co.uk.auriqltd.sorted
-Initial mobile distribution is to an invited audience via TestFlight and Google Play closed testing before public listing.
+Initial distribution is to an invited audience via TestFlight and Google Play closed testing before public listing.
+
+Production backend (API): https://api.wealth.auriqltd.co.uk, hosted on Railway (EU West) with MongoDB Atlas (Frankfurt). Until that hostname is live the apps use https://wealth.auriqltd.co.uk/api, which proxies to the same backend.
+
+Web domain https://wealth.auriqltd.co.uk: in production this hosts only the Terms and Privacy pages, the open banking consent return page, the Google sign-in return page and an app landing page. The product itself is not offered on the web.
 
 Finexer production URLs (final):
 - Consent return URL: https://wealth.auriqltd.co.uk/auth/finexer/callback
@@ -60,9 +59,9 @@ We confirm these URLs are final, are used solely by the Sorted service operated 
 Status: blocked-deploy
 
 ```text
-Attached: screen recording "sorted-finexer-journey.mp4" and numbered screenshots 01 to 09, captured on the production web application at https://wealth.auriqltd.co.uk. [KEVIN: capture after the production deploy; frames listed below.]
+Attached: screen recording "sorted-finexer-journey.mp4" and numbered screenshots 01 to 09, captured in the iOS app (TestFlight build against the production backend) with the web consent return page shown where the bank hands back to the app. [KEVIN: capture after the production deploy; frames listed below.]
 
-01 Sign-in screen (Google or Apple), with links to Terms and Privacy Policy.
+01 App sign-in screen (Google or Apple), with links to Terms and Privacy Policy.
 02 Settings, "Where money can come from": the Connect a bank action.
 03 Bank picker.
 04 Finexer hosted consent page (AIS consent, scope and duration shown to the customer).
