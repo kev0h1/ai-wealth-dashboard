@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.core.config import OPENROUTER_API_KEY
+from app.core.subscription import penny_allowance
 from app.db.collections import commitments_col, penny_proposals_col, preferences_col
 from app.routers.analytics import get_cached_safe_to_spend
 from app.routers.scenario import looks_like_scenario, parse_question
@@ -241,6 +242,36 @@ async def can_i(body: dict, user: dict = Depends(current_user)):
             "out_of_scope": False,
         }
 
+    # ── 5b. Monthly Penny message cap — the ONE gate on this path that
+    # costs the user nothing to CHECK but blocks the model call that would
+    # cost them a message: everything above (greeting, length/API-key
+    # gates, the scenario short-circuit just above) is free and stays
+    # ungated. `penny_allowance` folds the user's tier limit and this
+    # month's top-ups (app.core.subscription) against
+    # app.core.llm.monthly_usage's real distinct-message-id count — a
+    # `limit` of None means the tier is unlimited, so only a finite,
+    # exhausted allowance ever raises here.
+    #
+    # Fails OPEN, not closed: a lookup failure here (a transient Mongo
+    # hiccup, an unexpected shape) must never turn into a blocked question
+    # for a legitimate user — that would be a materially worse outcome than
+    # occasionally letting one extra message through uncounted. Mirrors the
+    # rest of this codebase's "never let metering take down the feature it
+    # meters" discipline (see app.core.llm.record_llm_usage's own docstring).
+    try:
+        allowance = await penny_allowance(uid)
+    except Exception:
+        logger.exception("can_i: penny_allowance check failed for %s, allowing the question through", uid)
+        allowance = None
+    if allowance is not None and allowance["limit"] is not None and allowance["used"] >= allowance["limit"]:
+        raise HTTPException(402, detail={
+            "code": "PENNY_LIMIT_REACHED",
+            "used": allowance["used"],
+            "limit": allowance["limit"],
+            "resets_on": allowance["resets_on"],
+            "tier": allowance["tier"],
+        })
+
     # ── 6. THE TOOL LOOP — loop-first, not a fallback any more. Every
     # question that isn't a greeting, isn't malformed, and isn't scenario-
     # shaped reaches app.services.penny_agent.run_penny_agent, which owns
@@ -393,13 +424,27 @@ def _weekend_or_week() -> str:
     return "this week" if date.today().weekday() < 3 else "this weekend"
 
 
+def _amount_chip(label: str, amount: float, occasion: str) -> dict:
+    """Shared shape for every amount-bearing suggestion below: the label the
+    user taps PLUS `chip_id`/`params` (owner decision, chip registry round)
+    so the frontend can send the chip straight to POST /penny/chip
+    (app.services.penny_chips's `can_i_amount`) for a deterministic,
+    no-model-call answer instead of round-tripping the label text through
+    the ordinary /can-i loop. Only ever attached to a chip that already has
+    a real £ amount in hand — a chip with no amount (the reassurance pair,
+    the generic cold-start fallbacks) keeps going through the ordinary
+    question path unchanged."""
+    return {"label": label, "chip_id": "can_i_amount", "params": {"amount": amount, "occasion": occasion}}
+
+
 def _headroom_chip(free: float) -> dict | None:
     """Chip A — a round 15-25% (fixed at 20%) of current free, £5-rounded.
     Only offered when free > £20 (seeding rule)."""
     if free <= _CHIP_SPEND_FLOOR:
         return None
     amount = max(5, _round5(free * 0.20))
-    return {"label": f"Can I spend £{amount} {_weekend_or_week()}?"}
+    occasion = _weekend_or_week()
+    return _amount_chip(f"Can I spend £{amount} {occasion}?", amount, occasion)
 
 
 def _scaled_fallback_chip(free: float) -> dict | None:
@@ -411,7 +456,8 @@ def _scaled_fallback_chip(free: float) -> dict | None:
     if free <= _CHIP_SPEND_FLOOR:
         return None
     amount = max(10, _round5(free * 0.20))
-    return {"label": f"Can I spend £{amount} {_weekend_or_week()}?"}
+    occasion = _weekend_or_week()
+    return _amount_chip(f"Can I spend £{amount} {occasion}?", amount, occasion)
 
 
 async def _discretionary_chip_candidate(uid: str, kind_map) -> tuple[str, float] | None:
@@ -530,7 +576,7 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
             candidate = await _discretionary_chip_candidate(uid, kind_map)
             if candidate:
                 cat, typical = candidate
-                chips.append({"label": _chip_b_label(cat, typical)})
+                chips.append(_amount_chip(_chip_b_label(cat, typical), typical, _weekend_or_week()))
         except Exception:
             pass
 
@@ -538,7 +584,9 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
             commitment = await _commitment_chip_candidate(uid)
             if commitment:
                 name, top_up = commitment
-                chips.append({"label": f"Can I put £{top_up:,.0f} extra toward {name}?"})
+                chips.append(_amount_chip(
+                    f"Can I put £{top_up:,.0f} extra toward {name}?", top_up, f"toward {name}",
+                ))
         except Exception:
             pass
 
@@ -546,14 +594,17 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
         if len(chips) < 2:
             seen = {c["label"] for c in chips}
             fallback_chip = _scaled_fallback_chip(free)
-            pool = ([fallback_chip["label"]] if fallback_chip else []) + _FALLBACK_CHIPS
-            for label in pool:
+            # `pool` mixes the one amount-bearing dict (keeps its chip_id/
+            # params) with the plain-string generic fallbacks (no amount to
+            # attach one to, left as label-only exactly as before).
+            pool = ([fallback_chip] if fallback_chip else []) + [{"label": l} for l in _FALLBACK_CHIPS]
+            for chip in pool:
                 if len(chips) >= 2:
                     break
-                if label in seen:
+                if chip["label"] in seen:
                     continue
-                chips.append({"label": label})
-                seen.add(label)
+                chips.append(chip)
+                seen.add(chip["label"])
     else:
         # ── Tight or negative headroom — reassurance, never temptation ──────
         # BLOCKER 2: no headroom/discretionary/commitment-top-up chip below

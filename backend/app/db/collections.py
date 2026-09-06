@@ -87,6 +87,14 @@ shopping_baskets_col    = db["shopping_baskets"]
 subscriptions_col       = db["subscriptions"]
 subscription_usage_col  = db["subscription_usage"]
 
+# Penny message-cap top-ups (see app.core.subscription.penny_allowance) — a
+# purchased (or admin-granted, for testing) top-up of extra Penny messages
+# for one calendar month, additive on top of the user's tier limit for that
+# month only. Doc shape: {user_id, year_month ("YYYY-MM"), messages (int),
+# source: "purchase" | "admin", purchased_at}. No purchase path exists yet;
+# today the only writer is POST /subscription/admin/topup (bot-only).
+penny_topups_col        = db["penny_topups"]
+
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
 

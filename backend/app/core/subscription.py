@@ -7,7 +7,7 @@ Tiers: Statements (free, statement upload only) < Lite < Standard < Connect
 when they have no subscription doc (or an expired/unrecognised one) is
 DEFAULT_TIER (app.core.config), which defaults to "max"."""
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import IntEnum
 from typing import Optional
 
@@ -152,6 +152,57 @@ async def get_subscription(email: str) -> Subscription:
             logger.info("subscription: unrecognised tier '%s' mapped to default tier '%s' for user", stored_name, TIER_NAMES[tier])
 
     return Subscription(tier, doc.get("status", "active"))
+
+
+async def penny_allowance(email: str) -> dict:
+    """This calendar month's Penny message allowance for `email`: the
+    user's tier limit (`penny_messages_per_month`, None = unlimited) plus
+    any purchased/admin top-ups (`penny_topups_col`) for the current UTC
+    year_month, measured against `app.core.llm.monthly_usage`'s distinct-
+    penny-message-id count.
+
+    Returns `{"tier", "limit" (tier limit + this month's top-ups, None
+    when the tier itself is unlimited), "used", "remaining" (None when
+    unlimited), "resets_on" ("YYYY-MM-DD", the 1st of next month UTC),
+    "topup_messages" (this month's top-up total, 0 if none)}`.
+
+    Both cross-module reads (`penny_topups_col`, `monthly_usage`) are
+    imported lazily inside the function, matching this module's own
+    `get_subscription`/`check_connection_limit` convention above, so a
+    test can monkeypatch either module's attribute and have it picked up
+    here without a fresh top-level import cycle."""
+    from app.core.llm import monthly_usage
+    from app.db.collections import penny_topups_col
+
+    sub = await get_subscription(email)
+    tier_limit = sub.limit("penny_messages_per_month")
+
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+
+    topup_messages = 0
+    async for doc in penny_topups_col.find({"user_id": email, "year_month": ym}):
+        topup_messages += int(doc.get("messages") or 0)
+
+    limit = None if tier_limit is None else tier_limit + topup_messages
+
+    usage = await monthly_usage(email, ym)
+    used = int(usage.get("penny_messages") or 0)
+    remaining = None if limit is None else max(0, limit - used)
+
+    if now.month == 12:
+        resets_on = date(now.year + 1, 1, 1)
+    else:
+        resets_on = date(now.year, now.month + 1, 1)
+
+    return {
+        "tier": sub.tier_name,
+        "limit": limit,
+        "used": used,
+        "remaining": remaining,
+        "resets_on": resets_on.isoformat(),
+        "topup_messages": topup_messages,
+    }
 
 
 async def check_connection_limit(email: str) -> None:
