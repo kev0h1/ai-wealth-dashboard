@@ -20,7 +20,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **A10. Web shell for production: a build flag (NEXT_PUBLIC_WEB_PRODUCT=off) that renders a 'Sorted is an app' page with store badges on every product route while /terms, /privacy, the Finexer and Google return pages and the landing page keep working; owner sign-in may stay allowed.** [owner: claude] [priority: p1] [unblocks: Q4]
 - [ ] **A11. Create the API custom domain api.wealth.auriqltd.co.uk on the Railway web service and the DNS record, so the apps call Railway directly instead of the Vercel /api rewrite.** [owner: kevin] [priority: p1] [unblocks: Q4]
 - [ ] **A12. Point mobile builds at the API domain: build:mobile:prod base and the Codemagic prod variable become https://api.wealth.auriqltd.co.uk, add the domain to CORS, keep the Finexer return URL on the web domain.** [owner: claude] [priority: p1] [unblocks: Q4]
-- [ ] **A13. Switch Vercel's Production Branch from main to release before the first merge into main; then confirm so the docs branch can be merged.** [owner: kevin] [priority: p1] [unblocks: Q7]
+- [x] **A13. Switch Vercel's Production Branch from main to release before the first merge into main; then confirm so the docs branch can be merged.** [owner: kevin] [priority: p1] [unblocks: Q7] (done 2026-09-06)
 
 ## B. Penny cost, tiers and billing
 
