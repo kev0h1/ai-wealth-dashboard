@@ -581,16 +581,16 @@ def test_repo_root_is_resolved_fresh_not_cached_at_import(monkeypatch, tmp_path)
 
 def test_state_review_round_trip_parses_and_renders_branch():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
-    doc.set_state("A1", "review", branch="item/A1-first-item")
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
     line = doc.lines[doc.items["A1"].line_no]
-    assert "[state: review: item/A1-first-item]" in line
+    assert "[state: review: feature-A1-first-item]" in line
     assert doc.items["A1"].state == "review"
-    assert doc.items["A1"].branch == "item/A1-first-item"
+    assert doc.items["A1"].branch == "feature-A1-first-item"
 
     reparsed = backlog.TodoDoc.parse(doc.text())
     assert reparsed.items["A1"].state == "review"
-    assert reparsed.items["A1"].branch == "item/A1-first-item"
-    assert reparsed.items["A1"].to_dict()["branch"] == "item/A1-first-item"
+    assert reparsed.items["A1"].branch == "feature-A1-first-item"
+    assert reparsed.items["A1"].to_dict()["branch"] == "feature-A1-first-item"
 
 
 def test_state_review_without_branch_raises():
@@ -601,7 +601,7 @@ def test_state_review_without_branch_raises():
 
 def test_state_review_then_blocked_clears_branch():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
-    doc.set_state("A1", "review", branch="item/A1-first-item")
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
     doc.set_state("A1", "blocked", reason="integration conflict with main; rebase the branch")
     line = doc.lines[doc.items["A1"].line_no]
     assert "[state: blocked:" in line
@@ -611,7 +611,7 @@ def test_state_review_then_blocked_clears_branch():
 
 def test_mark_done_from_review_clears_state_and_branch():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
-    doc.set_state("A1", "review", branch="item/A1-first-item")
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
     doc.set_done("A1", True, commit="deadbee")
     line = doc.lines[doc.items["A1"].line_no]
     assert "[state:" not in line
@@ -623,23 +623,23 @@ def test_public_set_review_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
     item, committed = backlog.set_review(
-        "A1", "item/A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root
+        "A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root
     )
     assert committed is True
     assert item["state"] == "review"
-    assert item["branch"] == "item/A1-first-item"
+    assert item["branch"] == "feature-A1-first-item"
     commit_call = mock_git.call_args_list[1]
-    assert "backlog: A1 sent to review (item/A1-first-item) by claude" in commit_call.args[0]
+    assert "backlog: A1 sent to review (feature-A1-first-item) by claude" in commit_call.args[0]
 
 
 def test_list_output_shows_review_branch(paths, mock_git, capsys):
     todo_path, compliance_path = paths
     repo_root = todo_path.parent
-    backlog.set_review("A1", "item/A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
     snapshot = backlog.load(todo_path=todo_path, compliance_path=compliance_path)
     a1 = next(i for i in snapshot.items() if i["id"] == "A1")
     assert a1["state"] == "review"
-    assert a1["branch"] == "item/A1-first-item"
+    assert a1["branch"] == "feature-A1-first-item"
 
 
 # ---------------------------------------------------------------------
@@ -747,7 +747,7 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
     assert not (REPO_ROOT / "TODO.md.tmp0").exists()
 
     review_result = subprocess.run(
-        [sys.executable, str(SCRIPTS_BACKLOG), "review", new_id, "--branch", "item/A4-cli-added-item"],
+        [sys.executable, str(SCRIPTS_BACKLOG), "review", new_id, "--branch", "feature-A4-cli-added-item"],
         cwd=other_cwd,
         env=env,
         capture_output=True,
@@ -756,7 +756,7 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
     )
     assert review_result.returncode == 0, review_result.stderr
     saved = (board_root / "TODO.md").read_text(encoding="utf-8")
-    assert "[state: review: item/A4-cli-added-item]" in saved
+    assert "[state: review: feature-A4-cli-added-item]" in saved
 
     list_result = subprocess.run(
         [sys.executable, str(SCRIPTS_BACKLOG), "list"],
@@ -767,4 +767,4 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
         timeout=30,
     )
     assert list_result.returncode == 0, list_result.stderr
-    assert "review:item/A4-cli-added-item" in list_result.stdout
+    assert "review:feature-A4-cli-added-item" in list_result.stdout

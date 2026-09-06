@@ -8,8 +8,12 @@
 # UAT runs. Sessions never edit files there directly (except the board,
 # which scripts/backlog.py already writes only from the shared tree) — they
 # work in a worktree this script creates under /root/worktrees/<name>, on a
-# branch named item/<ID>-<slug>. scripts/integrate.py later merges finished
-# branches back into the shared tree's main and rebuilds/restarts UAT.
+# branch named feature-<ID>[-slug] (slug appended only when one is given or
+# derivable from the item's title). scripts/integrate.py later merges
+# finished branches back into the shared tree's main and rebuilds/restarts
+# UAT. Older sessions may still have worktrees/branches from before this
+# convention, named item/<ID>-<slug> — `list`/`abandon` still recognise
+# those so they can be cleaned up.
 #
 # Usage:
 #   scripts/session.sh start <ID> [slug] [--title "New item title"]
@@ -27,12 +31,13 @@ usage() {
   cat <<'EOF'
 Usage:
   scripts/session.sh start <ID> [slug] [--title "New item title"]
-      Create a worktree + branch item/<ID>-<slug> for backlog item <ID>,
-      symlink node_modules/.venv into it, mark the item in-progress, and
-      print the worktree path. If <ID> doesn't exist yet, pass --title to
-      create it first (it is added to the section matching <ID>'s leading
-      letter; the id actually used is whatever scripts/backlog.py add
-      allocates, printed by this command).
+      Create a worktree + branch feature-<ID>[-slug] for backlog item <ID>
+      (the slug is appended only when you pass one, or one can be derived
+      from the item's title), symlink node_modules/.venv into it, mark the
+      item in-progress, and print the worktree path. If <ID> doesn't exist
+      yet, pass --title to create it first (it is added to the section
+      matching <ID>'s leading letter; the id actually used is whatever
+      scripts/backlog.py add allocates, printed by this command).
 
   scripts/session.sh finish <ID>
       Run inside the worktree for <ID>: backend tests, frontend typecheck,
@@ -69,8 +74,13 @@ require_shared_clean() {
 }
 
 find_worktree_for_id() {
+  # Matches the current feature-<ID>[-slug] naming as well as the older
+  # item-<ID>-<slug> naming, so list/finish/abandon still find worktrees
+  # created before this convention changed.
   local id="$1"
-  find "$WORKTREES_ROOT" -maxdepth 1 -type d -name "item-${id}-*" 2>/dev/null | head -1
+  find "$WORKTREES_ROOT" -maxdepth 1 -type d \
+    \( -name "feature-${id}" -o -name "feature-${id}-*" -o -name "item-${id}-*" \) \
+    2>/dev/null | head -1
 }
 
 item_title() {
@@ -136,11 +146,14 @@ cmd_start() {
 
   if [[ -z "$slug" ]]; then
     slug="$(derive_slug "$existing_title")"
-    [[ -n "$slug" ]] || slug="item"
   fi
 
-  local branch="item/${id}-${slug}"
-  local worktree_dir="$WORKTREES_ROOT/item-${id}-${slug}"
+  local branch="feature-${id}"
+  local worktree_dir="$WORKTREES_ROOT/feature-${id}"
+  if [[ -n "$slug" ]]; then
+    branch="${branch}-${slug}"
+    worktree_dir="${worktree_dir}-${slug}"
+  fi
 
   if [[ -e "$worktree_dir" ]]; then
     err "worktree already exists at $worktree_dir"

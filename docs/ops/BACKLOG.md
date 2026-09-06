@@ -24,10 +24,11 @@ A TODO.md item line looks like this:
   optional). Marking an item done clears any state tag; reopening it
   clears the done marker and leaves the state at to do.
 - `[state: in-progress]`, `[state: blocked: <reason>]` or
-  `[state: review: item/<ID>-<slug>]` is the workflow state. Absent means
-  to do. It is meaningless once the item is done (the checkbox wins). The
-  `review` state and its branch are set by `scripts/session.sh finish`
-  and consumed by `scripts/integrate.py` — see "Branch per item" below.
+  `[state: review: feature-<ID>-<slug>]` is the workflow state. Absent
+  means to do. It is meaningless once the item is done (the checkbox
+  wins). The `review` state and its branch are set by
+  `scripts/session.sh finish` and consumed by `scripts/integrate.py` —
+  see "Branch per item" below.
 - `[owner: kevin]` or `[owner: claude]` says who is doing the work.
 - `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
   priority. Absent means `p3` — the tag is only written for `p1`/`p2`, the
@@ -92,7 +93,7 @@ backend/.venv/bin/python scripts/backlog.py list
 backend/.venv/bin/python scripts/backlog.py add A "New item title" --owner claude
 backend/.venv/bin/python scripts/backlog.py start <id>
 backend/.venv/bin/python scripts/backlog.py block <id> "<reason>"
-backend/.venv/bin/python scripts/backlog.py review <id> --branch item/<id>-<slug>
+backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug>
 backend/.venv/bin/python scripts/backlog.py todo <id>
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
@@ -200,10 +201,17 @@ integrate step folds finished branches back into `main` on a schedule.
   `release` is a separate, deliberate step (not part of this workflow) —
   ask Kevin before touching it.
 - A session that picks up backlog item `<ID>` works only inside a git
-  worktree at `/root/worktrees/item-<ID>-<slug>`, on a branch named
-  `item/<ID>-<slug>`, created off `origin/main`. It never edits files in
-  the shared tree, and never restarts a UAT service from the worktree —
-  UAT only ever changes when integrate merges the branch.
+  worktree at `/root/worktrees/feature-<ID>[-slug]`, on a branch named
+  `feature-<ID>[-slug]` (the slug is appended only when one is given or
+  can be derived from the item's title; e.g. `feature-A2` or
+  `feature-A2-pin-login`), created off `origin/main`. It never edits
+  files in the shared tree, and never restarts a UAT service from the
+  worktree — UAT only ever changes when integrate merges the branch.
+  Worktrees/branches from before this convention may still exist named
+  `item/<ID>-<slug>`; `scripts/session.sh list`/`abandon` still recognise
+  those so they can be cleaned up, and `scripts/integrate.py` merges a
+  recorded branch regardless of its prefix (it only warns if the branch
+  doesn't start with `feature-<ID>` for that item's id).
 - The board (`TODO.md`, `docs/compliance/...`) is edited **only** in the
   shared tree, only through `scripts/backlog.py` (unchanged from the rest
   of this doc). A worktree's own checked-out copy of those files is not
@@ -223,8 +231,9 @@ scripts/session.sh list
 ```
 
 - `start` verifies the shared tree is clean (or only has untracked files),
-  fetches, derives a branch name (`item/<ID>-<slug>`, slug from the item's
-  title if you don't give one), creates the worktree + branch off
+  fetches, derives a branch name (`feature-<ID>[-slug]`, slug from the
+  item's title if you don't give one and one can be derived; omitted
+  entirely if not), creates the worktree + branch off
   `origin/main`, symlinks `frontend/node_modules`,
   `capacitor-spike/node_modules` and `backend/.venv` in from the shared
   tree (so you don't reinstall anything per worktree), checks that
@@ -240,8 +249,8 @@ scripts/session.sh list
   once, after merging, rather than every session building its own copy of
   the frontend). It refuses if the worktree is dirty or either check
   fails. On success it pushes the branch and calls
-  `scripts/backlog.py review <ID> --branch item/<ID>-<slug>`, which is the
-  new `[state: review: item/<ID>-<slug>]` tag integrate looks for.
+  `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
+  the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
 - `abandon` deletes the worktree and its local branch and resets the item
   to to-do with a note, for a session that didn't pan out.
 
@@ -255,8 +264,11 @@ backend/.venv/bin/python scripts/integrate.py --loop 600
 
 Refuses unless the shared tree is on `main` and clean apart from
 untracked files, and takes a lock file so two passes never overlap. For
-every board item in `review` with a branch, in id order: fetch, then
-`git merge --no-ff origin/<branch>`. A conflict aborts that one merge and
+every board item in `review` with a branch, in id order: fetch, warn (but
+do not block) if the recorded branch doesn't start with `feature-<ID>`
+for that item's id, then `git merge --no-ff origin/<branch>` regardless —
+a branch is merged whatever its name is, the check just catches likely
+copy-paste mistakes early. A conflict aborts that one merge and
 blocks the item with a reason ("integration conflict with main; rebase
 the branch") — a real problem for the owning session to fix, not
 integrate's to solve. After a clean merge it runs the backend suite,

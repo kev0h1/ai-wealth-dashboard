@@ -10,16 +10,20 @@ Run from the shared tree with its venv:
 For each board item in state `review` with a branch (see
 `scripts/session.sh finish`), in id order, this:
 
-  1. `git merge --no-ff origin/<branch>`. On conflict: abort the merge and
+  1. Warns (but does not block) if the recorded branch doesn't start with
+     `feature-<ID>` for that item's id — branches are named
+     `feature-<ID>[-slug]`, but a branch is merged regardless of its
+     prefix (older sessions may still record `item/<ID>-<slug>`).
+  2. `git merge --no-ff origin/<branch>`. On conflict: abort the merge and
      block the item with a reason instead of touching main further.
-  2. Runs the backend test suite. If `frontend/` or `shared/` changed in the
+  3. Runs the backend test suite. If `frontend/` or `shared/` changed in the
      merge, `npm run build` + restart `wealth-frontend`; if `backend/`
      changed, restart `wealth-api` (+ `wealth-worker` if
      `backend/app/workers` changed); then checks both health endpoints.
-  3. On any failure in step 2: `git reset --hard ORIG_HEAD`, restart
+  4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
      services again from the restored tree, and block the item with the
      first 300 characters of the failure.
-  4. On success: `git push origin main`, mark the item done with the merge
+  5. On success: `git push origin main`, mark the item done with the merge
      commit, delete the remote branch, and remove the worktree (if any).
 
 Never runs two passes concurrently (a lock file under the repo root gates
@@ -207,11 +211,30 @@ def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
         print(f"warning: service restore after rollback also failed: {exc}", file=sys.stderr)
 
 
+def _warn_if_branch_name_unexpected(item_id: str, branch: str) -> None:
+    """Branches are named feature-<ID>[-slug] (see docs/ops/BACKLOG.md
+    "Branch per item"). Older sessions may still send in item/<ID>-<slug>
+    branches; either way integrate merges whatever branch is recorded on
+    the item, it just warns here when the name doesn't match what that
+    item's id would produce, since that's usually a copy-paste mistake
+    (the wrong item's branch) rather than a naming-convention holdout."""
+    expected = f"feature-{item_id}"
+    if branch == expected or branch.startswith(f"{expected}-"):
+        return
+    print(
+        f"warning: {item_id} has branch {branch!r}, which doesn't start with "
+        f"{expected!r}; merging it anyway, but double-check this is the right branch",
+        file=sys.stderr,
+    )
+
+
 def _integrate_one(item: dict) -> tuple[str, str]:
     """Returns (result, detail): result is 'merged', 'blocked', or 'skipped'."""
     item_id = item["id"]
     branch = item["branch"]
     title = item["title"]
+
+    _warn_if_branch_name_unexpected(item_id, branch)
 
     rc, _ = _sh(["git", "rev-parse", "--verify", f"origin/{branch}"])
     if rc != 0:
