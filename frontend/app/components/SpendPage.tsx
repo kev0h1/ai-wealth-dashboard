@@ -588,8 +588,10 @@ export default function SpendPage() {
   }, [searchParams, miscategorisedLoaded, reviewTotal, miscategorisedCount, pairCount, router]);
 
   useEffect(() => {
+    // "statements" is the new free tier (statement upload only, no open
+    // banking) — everything above it counts as isPro for this hint gate.
     api.getSubscription()
-      .then(s => setIsPro(s.tier !== "free"))
+      .then(s => setIsPro(s.tier !== "statements"))
       .catch(() => setIsPro(true));
   }, []);
 

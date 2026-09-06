@@ -1,4 +1,12 @@
-"""Subscription tiers, feature limits, and FastAPI gate dependencies."""
+"""Subscription tiers and feature limits (data only, no enforcement beyond
+connection limits). See CLAUDE.md "Codex design round" section for the
+retirement of the old free/pro/premium/family tiers.
+
+Tiers: Statements (free, statement upload only) < Lite < Standard < Connect
+< Max. Nobody should be restricted before launch — the tier a user gets
+when they have no subscription doc (or an expired/unrecognised one) is
+DEFAULT_TIER (app.core.config), which defaults to "max"."""
+import logging
 from datetime import datetime, timezone
 from enum import IntEnum
 from typing import Optional
@@ -7,77 +15,111 @@ from fastapi import Depends, HTTPException
 
 from app.core.auth import current_user
 
+logger = logging.getLogger(__name__)
+
 
 class Tier(IntEnum):
+    STATEMENTS = 0   # free: statement upload only, no open banking
+    LITE = 1
+    STANDARD = 2
+    CONNECT = 3
+    MAX = 4
+
+    # --- Backward-compatible aliases (TEMPORARY — see bottom-of-file note) --
+    # Several files outside this task's ownership boundary still reference
+    # Tier.PRO / Tier.PREMIUM / Tier.FAMILY, in some cases as a
+    # `Depends(require_tier(Tier.PRO))` default value evaluated at import
+    # time — deleting these names outright crash-loops the whole API on
+    # boot (import chain: main.py -> routers -> categories.py /
+    # savings_insights.py). Aliasing keeps every one of those attribute
+    # lookups working and resolving to a sane new tier without editing
+    # those files. Remove once they are migrated off the old names.
     FREE = 0
-    PRO = 1
-    PREMIUM = 2
-    FAMILY = 3
+    PRO = 2
+    PREMIUM = 4
+    FAMILY = 4
 
 
-TIER_NAMES = {Tier.FREE: "free", Tier.PRO: "pro", Tier.PREMIUM: "premium", Tier.FAMILY: "family"}
+TIER_NAMES = {
+    Tier.STATEMENTS: "statements",
+    Tier.LITE:       "lite",
+    Tier.STANDARD:   "standard",
+    Tier.CONNECT:    "connect",
+    Tier.MAX:        "max",
+}
 TIER_BY_NAME = {v: k for k, v in TIER_NAMES.items()}
 
-TIER_PRICES = {
-    "pro":     {"monthly": 5.99,  "annual": 47.99},
-    "premium": {"monthly": 9.99,  "annual": 79.99},
-    "family":  {"monthly": 14.99, "annual": 119.99},
+TIER_PRICES_GBP = {
+    "statements": 0.0,
+    "lite":       5.99,
+    "standard":   9.99,
+    "connect":    12.99,
+    "max":        16.99,
 }
+
+PENNY_TOPUP = {"messages": 100, "price_gbp": 2.99}
 
 # None = unlimited
 TIER_LIMITS = {
-    Tier.FREE: {
-        "max_connections":             2,
+    Tier.STATEMENTS: {
+        "open_banking":                False,
+        "max_banks":                   0,
+        "max_accounts":                0,
+        "refresh":                     "on_upload",
+        "penny_messages_per_month":    10,
+        "mcp_tool_calls_per_month":    0,
         "history_days":                90,
-        "max_budget_categories":       5,
-        "ai_chat_messages_per_month":  5,
-        "receipt_scans_per_month":     5,
-        "savings_insights":            False,
-        "debt_plan_creation":          False,
-        "investment_tracking":         False,
-        "custom_categories":           False,
-        "challenges":                  False,
-        "export":                      False,
+        "statement_uploads_per_month": 3,
     },
-    Tier.PRO: {
-        "max_connections":             None,
-        "history_days":                365,
-        "max_budget_categories":       None,
-        "ai_chat_messages_per_month":  50,
-        "receipt_scans_per_month":     None,
-        "savings_insights":            True,
-        "debt_plan_creation":          True,
-        "investment_tracking":         False,
-        "custom_categories":           True,
-        "challenges":                  True,
-        "export":                      True,
+    Tier.LITE: {
+        "open_banking":                True,
+        "max_banks":                   3,
+        "max_accounts":                None,
+        "refresh":                     "daily",
+        "penny_messages_per_month":    40,
+        "mcp_tool_calls_per_month":    0,
+        "history_days":                180,
+        "statement_uploads_per_month": None,
     },
-    Tier.PREMIUM: {
-        "max_connections":             None,
+    Tier.STANDARD: {
+        "open_banking":                True,
+        "max_banks":                   None,
+        "max_accounts":                20,
+        "refresh":                     "4h",
+        "penny_messages_per_month":    150,
+        "mcp_tool_calls_per_month":    0,
         "history_days":                None,
-        "max_budget_categories":       None,
-        "ai_chat_messages_per_month":  None,
-        "receipt_scans_per_month":     None,
-        "savings_insights":            True,
-        "debt_plan_creation":          True,
-        "investment_tracking":         True,
-        "custom_categories":           True,
-        "challenges":                  True,
-        "export":                      True,
+        "statement_uploads_per_month": None,
     },
-    Tier.FAMILY: {
-        "max_connections":             None,
+    Tier.CONNECT: {
+        "open_banking":                True,
+        "max_banks":                   None,
+        "max_accounts":                20,
+        "refresh":                     "4h",
+        "penny_messages_per_month":    150,
+        "mcp_tool_calls_per_month":    2000,
         "history_days":                None,
-        "max_budget_categories":       None,
-        "ai_chat_messages_per_month":  None,
-        "receipt_scans_per_month":     None,
-        "savings_insights":            True,
-        "debt_plan_creation":          True,
-        "investment_tracking":         True,
-        "custom_categories":           True,
-        "challenges":                  True,
-        "export":                      True,
+        "statement_uploads_per_month": None,
     },
+    Tier.MAX: {
+        "open_banking":                True,
+        "max_banks":                   None,
+        "max_accounts":                None,
+        "refresh":                     "priority",
+        "penny_messages_per_month":    400,
+        "mcp_tool_calls_per_month":    5000,
+        "history_days":                None,
+        "statement_uploads_per_month": None,
+    },
+}
+
+# Legacy stored tier names map onto the new tiers for anyone with an existing
+# subscription doc. "free" resolves to whatever DEFAULT_TIER is configured as
+# (looked up lazily in get_subscription to avoid a stale import-time value).
+_LEGACY_TIER_MAP = {
+    "pro":     Tier.STANDARD,
+    "premium": Tier.MAX,
+    "family":  Tier.MAX,
 }
 
 
@@ -91,129 +133,127 @@ class Subscription:
     def tier_name(self) -> str:
         return TIER_NAMES[self.tier]
 
-    def allows(self, feature: str) -> bool:
-        val = self.limits.get(feature)
-        return bool(val) if isinstance(val, bool) else val is not None or True
-
     def limit(self, key: str) -> Optional[int]:
         return self.limits.get(key)
 
 
+def _default_tier() -> Tier:
+    from app.core.config import DEFAULT_TIER
+    return TIER_BY_NAME.get(DEFAULT_TIER.strip().lower(), Tier.MAX)
+
+
 async def get_subscription(email: str) -> Subscription:
     from app.db.collections import subscriptions_col
+
+    default_tier = _default_tier()
     doc = await subscriptions_col.find_one({"user_id": email})
     if not doc or doc.get("status") == "expired":
-        return Subscription(Tier.FREE)
+        return Subscription(default_tier)
+
     expires_at = doc.get("expires_at")
     if expires_at and expires_at < datetime.now(timezone.utc):
-        return Subscription(Tier.FREE)
-    tier = TIER_BY_NAME.get(doc.get("tier", "free"), Tier.FREE)
+        return Subscription(default_tier)
+
+    stored_name = (doc.get("tier") or "").strip().lower()
+    if stored_name in TIER_BY_NAME:
+        tier = TIER_BY_NAME[stored_name]
+    elif stored_name in _LEGACY_TIER_MAP:
+        tier = _LEGACY_TIER_MAP[stored_name]
+        logger.info("subscription: legacy tier '%s' mapped to '%s' for user", stored_name, TIER_NAMES[tier])
+    else:
+        tier = default_tier
+        if stored_name == "free":
+            logger.info("subscription: legacy tier 'free' mapped to default tier '%s' for user", TIER_NAMES[tier])
+        elif stored_name:
+            logger.info("subscription: unrecognised tier '%s' mapped to default tier '%s' for user", stored_name, TIER_NAMES[tier])
+
     return Subscription(tier, doc.get("status", "active"))
 
 
-def require_tier(min_tier: Tier):
-    """FastAPI dependency factory — raises 402 if user tier is below min_tier."""
-    async def _dep(user: dict = Depends(current_user)) -> Subscription:
-        sub = await get_subscription(user["email"])
-        if sub.tier < min_tier:
+async def check_connection_limit(email: str) -> None:
+    """Raise 402 if the user's tier's bank or account cap is exceeded.
+
+    `max_banks` counts completed TrueLayer connections, connected Finexer
+    consents, and Yapily consents. `max_accounts` counts `accounts_col`
+    docs for the user. Either cap being None means unlimited. With the
+    default tier at max, this is a no-op today."""
+    from app.db.collections import (
+        accounts_col, connections_col, finexer_consents_col, yapily_consents_col,
+    )
+
+    sub = await get_subscription(email)
+    max_banks = sub.limit("max_banks")
+    max_accounts = sub.limit("max_accounts")
+
+    if max_banks is not None:
+        tl_count = await connections_col.count_documents({"user_id": email, "access_token": {"$exists": True}})
+        finexer_count = await finexer_consents_col.count_documents({"user_id": email, "status": "connected"})
+        yap_count = await yapily_consents_col.count_documents({"user_id": email})
+        bank_count = tl_count + finexer_count + yap_count
+        if bank_count >= max_banks:
             raise HTTPException(
                 status_code=402,
                 detail={
-                    "code": "UPGRADE_REQUIRED",
+                    "code": "CONNECTION_LIMIT_REACHED",
                     "current_tier": sub.tier_name,
-                    "required_tier": TIER_NAMES[min_tier],
-                    "message": f"This feature requires a {TIER_NAMES[min_tier].title()} subscription.",
+                    "limit": max_banks,
+                    "kind": "banks",
+                    "message": f"Your {sub.tier_name.title()} plan allows up to {max_banks} connected banks.",
                 },
             )
-        return sub
+
+    if max_accounts is not None:
+        account_count = await accounts_col.count_documents({"user_id": email})
+        if account_count >= max_accounts:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "CONNECTION_LIMIT_REACHED",
+                    "current_tier": sub.tier_name,
+                    "limit": max_accounts,
+                    "kind": "accounts",
+                    "message": f"Your {sub.tier_name.title()} plan allows up to {max_accounts} connected accounts.",
+                },
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEMPORARY compatibility shims — DO NOT build on these, DO NOT re-add real
+# enforcement to them. This tier-retirement task's brief was to delete
+# require_tier / check_ai_chat_limit / increment_ai_chat_usage /
+# check_scan_limit outright, but they are still imported at module scope by
+# files outside this task's ownership boundary (all contain OpenRouter
+# calls, or belong to a concurrent LLM-refactor task): app/routers/chat.py,
+# app/routers/can_i.py, app/routers/scenario.py, app/routers/baskets.py,
+# app/routers/savings_insights.py, app/routers/categories.py,
+# app/services/penny_tools.py. Two of those (categories.py,
+# savings_insights.py) evaluate `Depends(require_tier(Tier.PRO))` as a
+# function-default at IMPORT time, so deleting these names crash-loops the
+# entire API on boot, not just a handful of tests.
+#
+# These shims exist purely to keep the app importable while that is true.
+# They are no-ops by design — consistent with "nobody should be restricted
+# before launch" — never enforce anything, and should be deleted the moment
+# the files above drop these imports.
+def require_tier(min_tier: "Tier"):
+    """No-op replacement for the old FastAPI dependency factory — resolves
+    the caller's subscription but never raises 402."""
+    async def _dep(user: dict = Depends(current_user)) -> Subscription:
+        return await get_subscription(user["email"])
     return _dep
 
 
-async def check_connection_limit(email: str) -> None:
-    """Raise 402 if Free-tier user has hit their 2-connection cap."""
-    from app.db.collections import (
-        connections_col, yapily_consents_col, subscriptions_col,
-    )
-    sub = await get_subscription(email)
-    cap = sub.limit("max_connections")
-    if cap is None:
-        return
-    # Only count completed OAuth flows — pending/abandoned records don't have access_token
-    tl_count  = await connections_col.count_documents({"user_id": email, "access_token": {"$exists": True}})
-    yap_count = await yapily_consents_col.count_documents({"user_id": email})
-    if tl_count + yap_count >= cap:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "CONNECTION_LIMIT_REACHED",
-                "current_tier": sub.tier_name,
-                "limit": cap,
-                "message": f"Free plan allows {cap} connected accounts. Upgrade to Pro for unlimited connections.",
-            },
-        )
-
-
 async def check_ai_chat_limit(email: str) -> None:
-    """Raise 402 if user has exhausted their monthly AI chat quota."""
-    from app.db.collections import subscription_usage_col
-    sub = await get_subscription(email)
-    cap = sub.limit("ai_chat_messages_per_month")
-    if cap is None:
-        return
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    doc = await subscription_usage_col.find_one({"user_id": email, "year_month": ym})
-    used = (doc or {}).get("ai_chat_messages", 0)
-    if used >= cap:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "AI_CHAT_LIMIT_REACHED",
-                "current_tier": sub.tier_name,
-                "limit": cap,
-                "used": used,
-                "message": f"You've used all {cap} AI chat messages for this month. Upgrade to Pro for 50, or Premium for unlimited.",
-            },
-        )
+    return None
 
 
 async def increment_ai_chat_usage(email: str) -> None:
-    from app.db.collections import subscription_usage_col
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    await subscription_usage_col.update_one(
-        {"user_id": email, "year_month": ym},
-        {"$inc": {"ai_chat_messages": 1}, "$set": {"user_id": email, "year_month": ym}},
-        upsert=True,
-    )
+    return None
 
 
 async def check_scan_limit(email: str) -> None:
-    """Raise 402 if Free-tier user has hit their monthly receipt scan cap."""
-    from app.db.collections import subscription_usage_col
-    sub = await get_subscription(email)
-    cap = sub.limit("receipt_scans_per_month")
-    if cap is None:
-        return
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    doc = await subscription_usage_col.find_one({"user_id": email, "year_month": ym})
-    used = (doc or {}).get("receipt_scans", 0)
-    if used >= cap:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "SCAN_LIMIT_REACHED",
-                "current_tier": sub.tier_name,
-                "limit": cap,
-                "used": used,
-                "message": f"You've used all {cap} receipt scans for this month. Upgrade to Pro for unlimited scanning.",
-            },
-        )
+    return None
 
 
 async def increment_scan_usage(email: str) -> None:
-    from app.db.collections import subscription_usage_col
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    await subscription_usage_col.update_one(
-        {"user_id": email, "year_month": ym},
-        {"$inc": {"receipt_scans": 1}, "$set": {"user_id": email, "year_month": ym}},
-        upsert=True,
-    )
+    return None

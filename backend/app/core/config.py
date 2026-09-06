@@ -27,6 +27,11 @@ ALLOWED_EMAILS      = set(_raw_allowed_emails)
 PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
 SESSION_MAX_AGE     = 7 * 24 * 3600
 
+# Subscription tier a user gets when they have no subscription doc (or an
+# expired/unrecognised one) — see app.core.subscription. Nobody should be
+# restricted before launch, so this defaults to the top tier.
+DEFAULT_TIER        = os.getenv("DEFAULT_TIER", "max")
+
 _GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
 
 

@@ -8,7 +8,6 @@ from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
 from app.core.config import TAVILY_API_KEY
-from app.core.subscription import Tier, require_tier
 from app.db.collections import investment_accounts_col, investment_holdings_col, investment_notes_col
 from app.services.pdf import extract_pdf_text, llm_parse_investment_statement, llm_parse_contract_note
 from app.services.investment_prices import refresh_account_prices
@@ -98,7 +97,7 @@ async def _extract_and_parse_note(file: UploadFile, password: str) -> tuple[str,
 
 
 @router.get("/investment/accounts")
-async def get_investment_accounts(user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def get_investment_accounts(user: dict = Depends(current_user)):
     uid  = user["email"]
     accs = await investment_accounts_col.find({"user_id": uid}).sort("updated_at", -1).to_list(None)
     return [await _investment_display(a) for a in accs]
@@ -109,7 +108,6 @@ async def investment_upload(
     file: UploadFile,
     password: str = Form(default=""),
     user: dict = Depends(current_user),
-    _sub=Depends(require_tier(Tier.PREMIUM)),
 ):
     uid      = user["email"]
     content  = await file.read()
@@ -230,7 +228,6 @@ async def upload_contract_note(
     file: UploadFile,
     password: str = Form(default=""),
     user: dict = Depends(current_user),
-    _sub=Depends(require_tier(Tier.PREMIUM)),
 ):
     uid             = user["email"]
     _raw_text, parsed = await _extract_and_parse_note(file, password)
@@ -323,7 +320,6 @@ async def upload_contract_note_global(
     file: UploadFile,
     password: str = Form(default=""),
     user: dict = Depends(current_user),
-    _sub=Depends(require_tier(Tier.PREMIUM)),
 ):
     """Upload a contract note without specifying an account.
 
@@ -449,7 +445,7 @@ async def upload_contract_note_global(
 
 
 @router.get("/investment/accounts/{account_id}/notes")
-async def list_contract_notes(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def list_contract_notes(account_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
@@ -478,7 +474,7 @@ async def list_contract_notes(account_id: str, user: dict = Depends(current_user
 
 
 @router.delete("/investment/notes/{note_id}")
-async def delete_contract_note(note_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def delete_contract_note(note_id: str, user: dict = Depends(current_user)):
     uid  = user["email"]
     note = await investment_notes_col.find_one({"_id": note_id, "user_id": uid})
     if not note:
@@ -494,7 +490,7 @@ async def delete_contract_note(note_id: str, user: dict = Depends(current_user),
 
 
 @router.get("/investment/accounts/{account_id}/holdings")
-async def get_investment_holdings(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def get_investment_holdings(account_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
@@ -513,7 +509,7 @@ async def get_investment_holdings(account_id: str, user: dict = Depends(current_
 
 
 @router.delete("/investment/accounts/{account_id}")
-async def delete_investment_account(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def delete_investment_account(account_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:
@@ -525,7 +521,7 @@ async def delete_investment_account(account_id: str, user: dict = Depends(curren
 
 
 @router.post("/investment/accounts/{account_id}/refresh")
-async def refresh_investment_prices(account_id: str, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PREMIUM))):
+async def refresh_investment_prices(account_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     acc = await investment_accounts_col.find_one({"_id": account_id, "user_id": uid})
     if not acc:

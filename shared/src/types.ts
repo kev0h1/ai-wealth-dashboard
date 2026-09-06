@@ -600,42 +600,37 @@ export interface BillLabel {
   is_skip: boolean;
 }
 
-export type SubscriptionTier = "free" | "pro" | "premium" | "family";
+export type SubscriptionTier = "statements" | "lite" | "standard" | "connect" | "max";
 
 export interface SubscriptionLimits {
-  max_connections: number | null;
+  open_banking: boolean;
+  max_banks: number | null;
+  max_accounts: number | null;
+  refresh: string;
+  penny_messages_per_month: number | null;
+  mcp_tool_calls_per_month: number | null;
   history_days: number | null;
-  max_budget_categories: number | null;
-  ai_chat_messages_per_month: number | null;
-  receipt_scans_per_month: number | null;
+  statement_uploads_per_month: number | null;
 }
 
-export interface SubscriptionFeatures {
-  savings_insights: boolean;
-  debt_plan_creation: boolean;
-  investment_tracking: boolean;
-  custom_categories: boolean;
-  challenges: boolean;
-  export: boolean;
+export interface SubscriptionTopup {
+  messages: number;
+  price_gbp: number;
 }
 
 export interface SubscriptionUsage {
-  ai_chat_messages: number;
-  receipt_scans: number;
-}
-
-export interface TierPrice {
-  monthly: number;
-  annual: number;
+  year_month: string;
+  penny_messages: number;
+  cost_usd: number;
 }
 
 export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
+  prices_gbp: Record<string, number>;
+  topup: SubscriptionTopup;
   limits: SubscriptionLimits;
-  features: SubscriptionFeatures;
   usage: SubscriptionUsage;
-  prices: Record<string, TierPrice>;
 }
 
 export interface GrowVerdict {
