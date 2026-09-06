@@ -226,6 +226,8 @@ To run the production variant, start a Codemagic build and pick
 workflow dropdown, or `--workflow ios-capacitor-prod` via the Codemagic
 API/CLI) instead of the default `ios-capacitor`.
 
+Both workflows build the app iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), because Capacitor's iOS template targets iPhone and iPad by default and that would require iPad screenshots at App Store review for an app that is not adapted for iPad.
+
 ### Build tag
 
 The small whisper on the login and biometric-lock screens (for example

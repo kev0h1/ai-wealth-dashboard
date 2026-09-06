@@ -12,8 +12,8 @@
 #                         `--workflow ios-capacitor-prod`) to produce the
 #                         production TestFlight build used as Q5 compliance
 #                         evidence and for the real App Store release.
-# Every other step (Capacitor sync, entitlements, signing, IPA, publish) is
-# identical between the two — they share one script list, one ios_signing
+# Every other step (Capacitor sync, device family, entitlements, signing,
+# IPA, publish) is identical between the two — they share one script list, one ios_signing
 # block, and one publishing/artifacts config via YAML anchors (`&name` /
 # `*name` / `<<:`); only the `MOBILE_TARGET` env var and the workflow `name`
 # differ. The shared "Build web" step itself reads MOBILE_TARGET at runtime
@@ -132,6 +132,30 @@ workflows:
           # Brand app icons (cap add ios resets AppIcon.appiconset to Capacitor stock icons)
           bash scripts/apply-icons.sh
           npx cap sync ios
+      - &step_iphone_only
+        name: Target iPhone only (TARGETED_DEVICE_FAMILY = 1)
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
+          # Capacitor's iOS template targets both iPhone and iPad
+          # (TARGETED_DEVICE_FAMILY = "1,2"), which means App Store Connect
+          # requires iPad screenshots at review even though this app is not
+          # adapted for iPad. Force iPhone-only (1) on both build
+          # configurations so the app is scoped correctly and iPad
+          # screenshots stop being required.
+          sed -i '' -e 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' -e 's/TARGETED_DEVICE_FAMILY = 2;/TARGETED_DEVICE_FAMILY = 1;/g' App.xcodeproj/project.pbxproj
+          COUNT=$(grep -c 'TARGETED_DEVICE_FAMILY = 1;' App.xcodeproj/project.pbxproj)
+          echo "TARGETED_DEVICE_FAMILY = 1; count: $COUNT"
+          # Fail loud if Capacitor's template ever changes its device-family
+          # syntax so the substitution silently no-ops instead of quietly
+          # reintroducing an iPad-targeted build.
+          if [ "$COUNT" -eq 0 ]; then
+            echo "ERROR: TARGETED_DEVICE_FAMILY = 1 not found after substitution, Capacitor's template may have changed"
+            exit 1
+          fi
+          # Tidy up the now-irrelevant iPad orientation key; harmless once the
+          # family is iPhone-only, but there's no reason to keep it.
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" App/Info.plist || true
       - &step_register_scheme
         name: Register wealthdash URL scheme + Face ID + push background mode + export compliance
         script: |
@@ -379,6 +403,7 @@ workflows:
     scripts:
       - *step_build_web
       - *step_capacitor_sync
+      - *step_iphone_only
       - *step_register_scheme
       - *step_apple_signin
       - *step_push_entitlement
