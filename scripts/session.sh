@@ -168,6 +168,12 @@ cmd_start() {
   log "creating worktree $worktree_dir on branch $branch (from origin/main)..."
   git -C "$SHARED_TREE" worktree add "$worktree_dir" -b "$branch" origin/main
 
+  # frontend/node_modules is symlinked wholesale from the shared tree below,
+  # so npm's own node_modules/@wealth/shared symlink resolves to the shared
+  # tree's shared/, not this worktree's. @wealth/shared is carved out of
+  # that via frontend/tsconfig.json paths ("@wealth/shared" -> the current
+  # checkout's ../shared/src), which tsc and Next both honour, so edits to
+  # this worktree's shared/src are visible here without any extra linking.
   log "linking node_modules and .venv from the shared tree..."
   [[ -d "$worktree_dir/frontend" ]] && ln -s "$SHARED_TREE/frontend/node_modules" "$worktree_dir/frontend/node_modules"
   [[ -d "$worktree_dir/capacitor-spike" ]] && ln -s "$SHARED_TREE/capacitor-spike/node_modules" "$worktree_dir/capacitor-spike/node_modules"

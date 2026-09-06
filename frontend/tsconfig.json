@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@wealth/shared": ["../shared/src/index.ts"],
+      "@wealth/shared/*": ["../shared/src/*"]
     }
   },
   "include": [
