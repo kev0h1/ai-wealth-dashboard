@@ -25,6 +25,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-06, claude): Vercel production branch is release; docs branch fast-forwarded into main at cb9e1c1 on 2026-09-06
 - [ ] **A14. Own bank picker for Finexer: reuse BankPickerSheet in Finexer mode so the user picks the bank in our design and lands straight on Finexer's consent screen with the provider preselected; Finexer accounts reconnect through the Finexer link too.** [owner: claude] [priority: p1] [state: in-progress] [unblocks: Q5]
 - [ ] **A15. Dependency upgrades from the 2026-09-06 audit: frontend next 16.2.4 to 16.3.4 (nanoid, postcss, sharp highs) and backend aiohttp, pillow, cryptography, starlette, pyasn1, python-multipart, idna, click; upgrade, run the suite, restart UAT, re-audit and update SECURITY.md.** [owner: claude] [priority: p2] [unblocks: Q11]
+  - note (2026-09-06, claude): Opened from A2's audit (2026-09-06). Counts and fix versions are in SECURITY.md section 2, Dependency audit log.
 
 ## B. Penny cost, tiers and billing
 
