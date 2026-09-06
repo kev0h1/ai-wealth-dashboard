@@ -980,6 +980,17 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
                 "original_date": b.get("original_date"),
                 "edited": b.get("edited", False),
                 "rule_label": b.get("rule_label"),
+                # Destination of a MOVEMENT-kind occurrence (self-transfer or
+                # card repayment) -- None for every other bill. Passed through
+                # verbatim from `_build_cashflow_response` so a caller (e.g.
+                # penny_chips.py's home_payday_due) can name WHERE a movement
+                # is going without a second engine call. See the doctrine on
+                # `card_dest_account_id`/`dest_account_id` in analytics.py's
+                # `_serialise_pattern` for why these are two separate pairs.
+                "dest_account_name": b.get("dest_account_name"),
+                "dest_account_bank": b.get("dest_account_bank"),
+                "card_dest_account_name": b.get("card_dest_account_name"),
+                "card_dest_account_bank": b.get("card_dest_account_bank"),
             }
             for b in bills[:10]
         ],

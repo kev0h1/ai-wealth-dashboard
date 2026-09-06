@@ -1071,6 +1071,54 @@ def test_get_upcoming_bills_enrichment_fields_present(monkeypatch):
     assert bill["rule_label"] == "Monthly on the 1st"
 
 
+def test_get_upcoming_bills_passes_through_movement_destination_fields(monkeypatch):
+    # B2: penny_chips.py's home_payday_due chip names a card-repayment/self-
+    # transfer movement using its destination, so the tool must forward the
+    # four destination fields `_build_cashflow_response` puts on a MOVEMENT
+    # occurrence, and default them to None for a bill with no destination
+    # (e.g. an ordinary commitment/discretionary bill) rather than KeyError.
+    async def fake_load_cache(uid):
+        return {"recurring_spend": []}
+
+    monkeypatch.setattr(penny_tools_module, "_load_cashflow_cache", fake_load_cache)
+
+    async def fake_build_response(cached, uid=None):
+        return {
+            "upcoming_bills": [
+                {
+                    "name": "AMERICAN EXPRESS 3766-824849-32000", "amount": 100.0,
+                    "expected_date": "2026-09-01", "days_away": 4, "kind": "movement",
+                    "card_dest_account_name": "American Express", "card_dest_account_bank": "Amex",
+                },
+                {
+                    "name": "KEVIN MAINGI CREDIT VIA MOBILE - PY", "amount": 50.0,
+                    "expected_date": "2026-09-02", "days_away": 5, "kind": "movement",
+                    "dest_account_name": "Monzo Savings", "dest_account_bank": "Monzo",
+                },
+                {
+                    "name": "Council Tax", "amount": 150.0,
+                    "expected_date": "2026-09-01", "days_away": 4, "kind": "commitment",
+                },
+            ],
+            "upcoming_income": [],
+        }
+
+    monkeypatch.setattr(penny_tools_module, "_build_cashflow_response", fake_build_response)
+
+    result = asyncio.run(execute_tool("kevin", "get_upcoming_bills", {}))
+    card_bill, transfer_bill, ordinary_bill = result["upcoming_bills"]
+    assert card_bill["card_dest_account_name"] == "American Express"
+    assert card_bill["card_dest_account_bank"] == "Amex"
+    assert card_bill["dest_account_name"] is None
+    assert transfer_bill["dest_account_name"] == "Monzo Savings"
+    assert transfer_bill["dest_account_bank"] == "Monzo"
+    assert transfer_bill["card_dest_account_name"] is None
+    assert ordinary_bill["dest_account_name"] is None
+    assert ordinary_bill["dest_account_bank"] is None
+    assert ordinary_bill["card_dest_account_name"] is None
+    assert ordinary_bill["card_dest_account_bank"] is None
+
+
 def test_get_insights_enrichment_fields_present(monkeypatch):
     docs = [{
         # category: energy is a structured (push) category — _serialize_insight

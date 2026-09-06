@@ -61,7 +61,18 @@ logger = logging.getLogger(__name__)
 # cleaned — that text can still carry the user's own name or bank plumbing
 # with no merchant identity to recover (the "KEVIN MAINGI CREDIT VIA MOBILE"
 # case above cleans to "kevin maingi credit via mobile", not an improvement).
-# It gets a fixed, honest, kind-based phrase instead.
+#
+# B2 (2026-09-06): the engine usually knows WHERE a movement is actually
+# going -- `_build_cashflow_response` (app.routers.analytics) now passes
+# through `card_dest_account_name` (the card being repaid, e.g. "American
+# Express") and `dest_account_name` (a learned self-transfer destination,
+# e.g. "Monzo Savings") on the occurrence, straight from `_serialise_pattern`.
+# Those are the USER'S OWN account display names/labels, not bank settlement
+# narratives, so unlike `raw_name` they may be shown verbatim -- but they
+# still go through the same long-digit-run/reference-token guards belt-and-
+# braces, in case a user ever labels an account with something reference-
+# shaped. When neither destination is known, it falls back to the fixed,
+# honest, kind-based phrase exactly as before.
 _KIND_FALLBACK_LABEL = {
     "movement": "a card or account payment",
     "commitment": "a bill",
@@ -70,15 +81,58 @@ _KIND_FALLBACK_LABEL = {
 _LONG_DIGIT_RUN_RE = re.compile(r"\d{6,}")
 _REF_TOKEN_RE = re.compile(r"[*#]")
 
+# Display-only alias for known truncated payment-processor descriptors that
+# `canonical_merchant_key` cleans to something a customer wouldn't recognise
+# -- Squarespace's own narratives arrive as "SQSP* WORKSP#239622742 DUBLIN 8",
+# and stripping the `SQSP*` processor prefix (categorisation.py's
+# `canonical_merchant_key`) leaves "worksp", the truncated remnant of its
+# product name "Workspaces". This is a DISPLAY swap only, applied after the
+# engine's own merchant-identity transform runs -- it is not a categorisation
+# rule and must never be read by anything in app.services.categorisation
+# (ENGINE.md: categorisation is engine-owned, this module only phrases what
+# the engine already decided).
+_DISPLAY_ALIASES: dict[str, str] = {
+    "worksp": "Squarespace",
+}
 
-def _clean_bill_display_name(raw_name: str | None, kind: str | None) -> str:
+
+def _safe_display(name: str | None) -> str:
+    """`name`, stripped, or "" if it trips the same reference-token/long-
+    digit-run guard raw settlement narratives are checked against. Shared by
+    the movement-destination path below -- account display names are user-
+    chosen labels, but are still run through this rather than trusted
+    blindly."""
+    name = (name or "").strip()
+    if not name or _LONG_DIGIT_RUN_RE.search(name) or _REF_TOKEN_RE.search(name):
+        return ""
+    return name
+
+
+def _movement_display_name(bill: dict) -> str:
+    """Name a "movement" occurrence (card repayment / self-transfer) using
+    the destination's own account display name when the engine knows it, per
+    the B2 doctrine above. Falls back to the fixed kind-based phrase when
+    there is no known destination, or the name it has doesn't pass
+    `_safe_display`."""
+    card_name = _safe_display(bill.get("card_dest_account_name"))
+    if card_name:
+        return f"{card_name} card payment"
+    dest_name = _safe_display(bill.get("dest_account_name"))
+    if dest_name:
+        return f"Transfer to {dest_name}"
+    return _KIND_FALLBACK_LABEL["movement"]
+
+
+def _clean_bill_display_name(raw_name: str | None, kind: str | None, bill: dict | None = None) -> str:
     """A customer-readable name for one upcoming-bill occurrence — never the
     raw settlement narrative. See the module-level comment above this
-    function for the doctrine."""
+    function for the doctrine. `bill` is the full occurrence dict (only used
+    for `kind == "movement"`, to look up a known destination display name);
+    callers that don't have it (or aren't naming a movement) can omit it."""
     if kind == "movement":
-        return _KIND_FALLBACK_LABEL["movement"]
+        return _movement_display_name(bill or {})
     key = canonical_merchant_key((raw_name or "").strip())
-    display = key.title() if key else ""
+    display = _DISPLAY_ALIASES.get(key) or (key.title() if key else "")
     if not display or _LONG_DIGIT_RUN_RE.search(display) or _REF_TOKEN_RE.search(display):
         display = _KIND_FALLBACK_LABEL.get(kind, "a payment")
     return display
@@ -254,7 +308,7 @@ async def _chip_home_payday_due(uid: str, params: dict | None) -> dict:
     total = sum((b.get("amount") or {}).get("raw") or 0.0 for b in due)
     named = []
     for b in due[:3]:
-        name = _clean_bill_display_name(b.get("name"), b.get("kind"))
+        name = _clean_bill_display_name(b.get("name"), b.get("kind"), b)
         amt = (b.get("amount") or {}).get("formatted") or ""
         days_away = b.get("days_away")
         day_text = f"in {_plural(days_away, 'day')}" if isinstance(days_away, int) else "soon"
