@@ -435,11 +435,117 @@ def test_tax_self_assessment_insufficient_data_is_honest(monkeypatch):
     assert "isn't on file yet" in result["answer"]
 
 
-def test_tax_fallback_chips_return_llm_kind_with_no_answer():
-    for chip_id in ("tax_pension_carry_forward", "tax_salary_sacrifice", "tax_gift_aid"):
-        result = _run(answer_chip(UID, chip_id, None))
-        assert result == {"chip_id": chip_id, "kind": "llm"}
-        assert "answer" not in result
+def _fake_execute_tool_with_tax(tax_result: dict):
+    """Fakes get_tax_position with the given fixture while still routing
+    `explain` lookups through the real registry (pure dict lookup, no DB),
+    so the B3 registry chips below get real registry prose plus a
+    controlled personal figure."""
+    async def fake_execute_tool(uid, name, args):
+        if name == "explain":
+            return await real_execute_tool(uid, name, args)
+        assert name == "get_tax_position"
+        return tax_result
+    return fake_execute_tool
+
+
+def test_tax_pension_carry_forward_uses_registry_and_own_contributions(monkeypatch):
+    tax_result = {
+        "pension_contributions_this_year": {"raw": 8000.0, "formatted": "£8,000"},
+        "adjusted_net_income": {"raw": 70000.0, "formatted": "£70,000"},
+        "has_child_benefit": False,
+    }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", _fake_execute_tool_with_tax(tax_result))
+
+    result = _run(answer_chip(UID, "tax_pension_carry_forward", None))
+    assert result["kind"] == "engine"
+    assert "carry forward" in result["answer"].lower()
+    assert "£60,000" in result["answer"]
+    assert "£8,000" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_pension_carry_forward_insufficient_data_is_honest(monkeypatch):
+    monkeypatch.setattr(
+        penny_chips_module, "execute_tool", _fake_execute_tool_with_tax({"insufficient_data": True}),
+    )
+    result = _run(answer_chip(UID, "tax_pension_carry_forward", None))
+    assert result["kind"] == "engine"
+    assert "Settings" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_salary_sacrifice_uses_registry_and_own_adjusted_income_above_taper(monkeypatch):
+    tax_result = {
+        "adjusted_net_income": {"raw": 120000.0, "formatted": "£120,000"},
+        "pension_contributions_this_year": {"raw": 5000.0, "formatted": "£5,000"},
+        "has_child_benefit": False,
+    }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", _fake_execute_tool_with_tax(tax_result))
+
+    result = _run(answer_chip(UID, "tax_salary_sacrifice", None))
+    assert result["kind"] == "engine"
+    assert "£120,000" in result["answer"]
+    assert "taper" in result["answer"].lower()
+    _assert_house_style(result["answer"])
+
+
+def test_tax_salary_sacrifice_below_taper_states_it_does_not_apply(monkeypatch):
+    tax_result = {
+        "adjusted_net_income": {"raw": 40000.0, "formatted": "£40,000"},
+        "pension_contributions_this_year": {"raw": 2000.0, "formatted": "£2,000"},
+        "has_child_benefit": False,
+    }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", _fake_execute_tool_with_tax(tax_result))
+
+    result = _run(answer_chip(UID, "tax_salary_sacrifice", None))
+    assert "£40,000" in result["answer"]
+    assert "doesn't affect you" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_salary_sacrifice_insufficient_data_is_honest(monkeypatch):
+    monkeypatch.setattr(
+        penny_chips_module, "execute_tool", _fake_execute_tool_with_tax({"insufficient_data": True}),
+    )
+    result = _run(answer_chip(UID, "tax_salary_sacrifice", None))
+    assert "Settings" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_gift_aid_uses_registry_and_flags_child_benefit(monkeypatch):
+    tax_result = {
+        "adjusted_net_income": {"raw": 65000.0, "formatted": "£65,000"},
+        "has_child_benefit": True,
+    }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", _fake_execute_tool_with_tax(tax_result))
+
+    result = _run(answer_chip(UID, "tax_gift_aid", None))
+    assert result["kind"] == "engine"
+    assert "£65,000" in result["answer"]
+    assert "Child Benefit" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_gift_aid_below_thresholds_states_no_effect(monkeypatch):
+    tax_result = {
+        "adjusted_net_income": {"raw": 40000.0, "formatted": "£40,000"},
+        "has_child_benefit": False,
+    }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", _fake_execute_tool_with_tax(tax_result))
+
+    result = _run(answer_chip(UID, "tax_gift_aid", None))
+    assert "£40,000" in result["answer"]
+    assert "below the levels" in result["answer"]
+    _assert_house_style(result["answer"])
+
+
+def test_tax_gift_aid_insufficient_data_is_honest(monkeypatch):
+    monkeypatch.setattr(
+        penny_chips_module, "execute_tool", _fake_execute_tool_with_tax({"insufficient_data": True}),
+    )
+    result = _run(answer_chip(UID, "tax_gift_aid", None))
+    assert "Settings" in result["answer"]
+    _assert_house_style(result["answer"])
 
 
 # ── 8. can_i_amount — same verdict word as the ordinary can-I tool path ───
