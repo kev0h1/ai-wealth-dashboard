@@ -73,7 +73,10 @@ done
 # backend's own root). The web-facing domain (wealth.auriqltd.co.uk) is
 # unaffected by this and keeps hosting the Finexer OAuth return URL — that
 # redirect always goes back to a real browser context, never the app.
-(cd "$SCRATCH" && MOBILE_EXPORT=1 NEXT_PUBLIC_API_URL="${MOBILE_API_BASE:-https://uat.wealth.auriqltd.co.uk/api}" next build)
+# NEXT_PUBLIC_WEB_PRODUCT is forced "on" here (backlog A10's web-only-shell
+# flag) so a mobile export can never be built locked, regardless of what's
+# set in the calling environment.
+(cd "$SCRATCH" && MOBILE_EXPORT=1 NEXT_PUBLIC_WEB_PRODUCT=on NEXT_PUBLIC_API_URL="${MOBILE_API_BASE:-https://uat.wealth.auriqltd.co.uk/api}" next build)
 
 # Copy the export output back to the real, expected location (frontend/out —
 # see capacitor-spike/ANDROID_PUSH.md step 4: `cp -r out/* ../capacitor-spike/www/`,

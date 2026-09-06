@@ -278,7 +278,7 @@ export default function AccountsPage() {
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
-  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [showBankPicker, setShowBankPicker] = useState<null | "truelayer" | "finexer">(null);
   // Header Variant B: the four/three "add" actions condense into one primary
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -595,25 +595,27 @@ export default function AccountsPage() {
       const raw = localStorage.getItem("reconnect_expected");
       if (raw) {
         try {
-          const expected = JSON.parse(raw) as { provider: string; account_number: string; sort_code: string | null };
+          const expected = JSON.parse(raw) as { provider: string; account_id: string; last4: string | null };
           localStorage.removeItem("reconnect_expected");
-          const masked = (n: string) => `••••${(n ?? "").slice(-4)}`;
+          const masked = (last4: string) => `••••${last4 ?? ""}`;
           const providerAccts = accs.filter(a =>
             a.provider.toUpperCase() === expected.provider.toUpperCase() &&
             a.status === "connected" &&
             !!a.account_number
           );
           // Only warn if the account we set out to reconnect is genuinely missing
-          // from what came back (match on full number or last-4, since a bank can
-          // legitimately have several accounts under one connection).
+          // from what came back (match on account id first, falling back to
+          // last-4, since a bank can legitimately have several accounts under
+          // one connection).
           const expectedPresent = providerAccts.some(a =>
-            a.account_number === expected.account_number ||
-            masked(a.account_number as string) === masked(expected.account_number)
+            a.id === expected.account_id ||
+            (expected.last4 && (a.account_number as string).slice(-4) === expected.last4)
           );
           if (providerAccts.length > 0 && !expectedPresent) {
-            const got = providerAccts.map(a => masked(a.account_number as string)).join(", ");
+            const got = providerAccts.map(a => masked((a.account_number as string).slice(-4))).join(", ");
+            const expectedLabel = expected.last4 ? masked(expected.last4) : "that account";
             setReconnectWarning(
-              `We couldn't find your ${expected.provider} account ${masked(expected.account_number)} in what was reconnected (found ${got}). If this is wrong, remove it and reconnect again.`
+              `We couldn't find your ${expected.provider} account ${expectedLabel} in what was reconnected (found ${got}). If this is wrong, remove it and reconnect again.`
             );
           }
         } catch { /* ignore parse errors */ }
@@ -890,15 +892,18 @@ export default function AccountsPage() {
 
   async function handleReconnect(providerId?: string, account?: Account) {
     try {
-      // Save expected account details so we can validate after OAuth return
+      // Save the connection id and a masked last-4 (never the full account
+      // number or sort code) so we can validate after OAuth return.
       if (account?.account_number) {
         localStorage.setItem("reconnect_expected", JSON.stringify({
           provider: account.provider,
-          account_number: account.account_number,
-          sort_code: account.sort_code ?? null,
+          account_id: account.id,
+          last4: account.account_number.slice(-4),
         }));
       }
-      const { auth_url } = await api.connectLink(providerId);
+      const { auth_url } = (account as (Account & { source?: string }) | undefined)?.source === "finexer"
+        ? await api.finexerConnectLink(providerId)
+        : await api.connectLink(providerId);
       window.location.href = auth_url;
     } catch {
       alert("Failed to start reconnection. Please try again.");
@@ -2503,7 +2508,7 @@ export default function AccountsPage() {
                       tutorialId="tutorial-add-bank"
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker(true); }}
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
                     />
                     <AddMenuItem
                       tutorialId="tutorial-add-statement"
@@ -2526,15 +2531,7 @@ export default function AccountsPage() {
                     <AddMenuItem
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Finexer (beta)"
-                      onClick={async () => {
-                        setAddMenuOpen(false);
-                        try {
-                          const { auth_url } = await api.finexerConnectLink();
-                          window.location.href = auth_url;
-                        } catch {
-                          // no-op; user stays on page
-                        }
-                      }}
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
                     />
                   </>
                 ) : (
@@ -2714,7 +2711,7 @@ export default function AccountsPage() {
                 {region === "UK" ? (
                   <div className="flex flex-col gap-2 items-center">
                     <button
-                      onClick={() => setShowBankPicker(true)}
+                      onClick={() => setShowBankPicker("truelayer")}
                       className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
                     >
                       <Plus size={16} />
@@ -3523,7 +3520,7 @@ export default function AccountsPage() {
       )}
 
       {showBankPicker && (
-        <BankPickerSheet onClose={() => setShowBankPicker(false)} />
+        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
       )}
 
       {modals}

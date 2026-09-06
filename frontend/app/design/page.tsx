@@ -15,6 +15,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "app-only",
+    name: "app-only",
+    description:
+      "Web-product lock shell (backlog A10): what every product route renders when NEXT_PUBLIC_WEB_PRODUCT=off and the session isn't the owner's, real components/AppOnlyPage.tsx, no fixtures · Owner sign-in is live (swaps in LoginScreen) but harmless on this route",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "penny-usage-ring",
     name: "penny-usage-ring",
     description:

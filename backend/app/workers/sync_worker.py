@@ -23,6 +23,7 @@ from app.services.notifications import notif_pref
 from app.db.collections import investment_accounts_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
+from app.services.retention import run_retention_sweep
 
 logger = logging.getLogger(__name__)
 
@@ -430,6 +431,18 @@ async def task_refresh_investment_prices(ctx):
             logger.exception("investment price refresh: version bump failed for %s", uid)
 
 
+async def task_retention_sweep(ctx):
+    """Nightly retention sweep (SECURITY.md section 6): removes bank
+    connections/consents whose consent ended more than 30 days ago and that
+    the user never pressed Disconnect for, and erases whole accounts that
+    have gone 12 months with no sign-in. Both delegate to
+    app.services.retention, the same routines the user-initiated
+    disconnect/delete-account endpoints call."""
+    summary = await run_retention_sweep()
+    logger.info("retention sweep: %s", summary)
+    return summary
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
@@ -437,7 +450,7 @@ class WorkerSettings:
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
-                 task_consent_watch]
+                 task_consent_watch, task_retention_sweep]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -446,6 +459,9 @@ class WorkerSettings:
         cron(task_period_digests, hour=7, minute=0, run_at_startup=False),
         # 08:15 UK morning: nudge dead/expiring bank connections to reconnect.
         cron(task_consent_watch, hour=8, minute=15, run_at_startup=False),
+        # 03:30 UTC nightly: enforces SECURITY.md section 6 (connections 30
+        # days after consent ends, dormant accounts after 12 months).
+        cron(task_retention_sweep, hour=3, minute=30, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

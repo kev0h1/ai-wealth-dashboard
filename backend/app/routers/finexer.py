@@ -1,6 +1,7 @@
 """Finexer auth + consent callback endpoints."""
 import asyncio
 import secrets
+import time
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -19,11 +20,31 @@ from app.services.finexer_sync import (
 
 router = APIRouter(tags=["finexer"])
 
+# In-process cache for the provider list — it barely ever changes and the
+# picker can open several times per session, so we don't want to re-page
+# Finexer's /providers endpoint (64 items across several calls) on every
+# open. TTL only, no invalidation hook; an empty fetch (Finexer down) is
+# never cached so the next open retries instead of sticking on empty.
+_PROVIDERS_CACHE_TTL = 3600  # seconds
+_providers_cache: list[dict] = []
+_providers_cache_at: float = 0.0
+
 
 @router.get("/auth/finexer/providers")
 async def finexer_providers(user: dict = Depends(current_user)):
-    """Return all AIS-capable Finexer providers for the bank picker."""
-    return await list_providers()
+    """Return all AIS-capable Finexer providers for the bank picker, sorted
+    by name and cached in-process for an hour."""
+    global _providers_cache, _providers_cache_at
+    now = time.monotonic()
+    if _providers_cache and (now - _providers_cache_at) < _PROVIDERS_CACHE_TTL:
+        return _providers_cache
+
+    providers = await list_providers()
+    if providers:
+        providers = sorted(providers, key=lambda p: (p.get("name") or "").lower())
+        _providers_cache = providers
+        _providers_cache_at = now
+    return providers
 
 
 @router.get("/auth/finexer/link")

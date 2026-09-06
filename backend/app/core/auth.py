@@ -16,9 +16,20 @@ async def current_user(request: Request) -> dict:
         return {"email": "kevin.maingi12@gmail.com", "name": "Bot"}
     try:
         data = serializer.loads(token, max_age=SESSION_MAX_AGE)
-        return data if isinstance(data, dict) else {"email": "unknown", "name": ""}
+        result = data if isinstance(data, dict) else {"email": "unknown", "name": ""}
     except (SignatureExpired, BadSignature):
         raise HTTPException(401, "Session expired")
+
+    # Back the dormant-account sweep's 12-month clock (SECURITY.md section
+    # 6): stamp_activity is throttled to ~once per 6h per user and swallows
+    # its own errors, so a DB hiccup here can never fail this request.
+    try:
+        from app.services.retention import stamp_activity
+        await stamp_activity(result.get("email"))
+    except Exception:
+        pass
+
+    return result
 
 
 async def auth_middleware(request: Request, call_next):

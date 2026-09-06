@@ -185,6 +185,30 @@ Phase 1's explicit Apple linking already used.
 
 Leave `NEXT_PUBLIC_API_URL` unset — it defaults to `/api`, which the rewrite proxies.
 
+### Web product flag
+
+`NEXT_PUBLIC_WEB_PRODUCT=off` turns the deployed web build into an
+app-download page: every product route renders "Sorted is an app" with
+store badges instead of the real dashboard, for any visitor who isn't
+signed in as the owner (`PRIMARY_EMAIL`, see `backend/app/core/config.py`).
+The owner can still sign in and use the full product on the web.
+
+Set this on the **Vercel production project** only. Leave it unset on UAT
+(this VPS) so the whole team keeps testing the real app there, and never set
+it for a mobile build — `frontend/scripts/build-mobile.sh` already forces
+`NEXT_PUBLIC_WEB_PRODUCT=on` on its own `next build`, so a Capacitor export
+can never ship locked regardless of what's in the environment that invokes
+it.
+
+`/terms`, `/privacy`, the design previews (`/design/*`), and the
+OAuth/webhook return routes (`app/auth/*/callback/route.ts`) stay reachable
+either way — they don't go through the product gate at all.
+
+Optional companion vars, read by `components/StoreBadges.tsx`
+(`frontend/lib/webProduct.ts`): `NEXT_PUBLIC_APP_STORE_URL` and
+`NEXT_PUBLIC_PLAY_STORE_URL`. Leave unset until the store listings exist —
+the badge renders a "coming soon" placeholder instead of a dead link.
+
 ## Mobile — Codemagic TestFlight builds
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a

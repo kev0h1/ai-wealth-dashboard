@@ -536,19 +536,21 @@ export default function HomePage() {
 
   const expiredProviders = useMemo(() => {
     const seen = new Set<string>();
-    const result: { provider: string; provider_id?: string }[] = [];
+    const result: { provider: string; provider_id?: string; source?: string }[] = [];
     for (const a of accounts) {
       if (a.status === "expired" && !seen.has(a.provider)) {
         seen.add(a.provider);
-        result.push({ provider: a.provider, provider_id: a.provider_id });
+        result.push({ provider: a.provider, provider_id: a.provider_id, source: (a as Account & { source?: string }).source });
       }
     }
     return result;
   }, [accounts]);
 
-  async function handleReconnect(providerId?: string) {
+  async function handleReconnect(providerId?: string, source?: string) {
     try {
-      const { auth_url } = await api.connectLink(providerId);
+      const { auth_url } = source === "finexer"
+        ? await api.finexerConnectLink(providerId)
+        : await api.connectLink(providerId);
       window.location.href = auth_url;
     } catch {}
   }
