@@ -16,8 +16,11 @@ For each board item in state `review` with a branch (see
      prefix (older sessions may still record `item/<ID>-<slug>`).
   2. `git merge --no-ff origin/<branch>`. On conflict: abort the merge and
      block the item with a reason instead of touching main further.
-  3. Runs the backend test suite. If `frontend/` or `shared/` changed in the
-     merge, `npm run build` + restart `wealth-frontend`; if `backend/`
+  3. Reinstalls dependencies if the merge changed a lockfile (`pip install`
+     into the shared venv if `backend/requirements.txt` changed, `npm ci` in
+     `frontend/` if `frontend/package-lock.json` or `package.json` changed),
+     then runs the backend test suite. If `frontend/` or `shared/` changed in
+     the merge, `npm run build` + restart `wealth-frontend`; if `backend/`
      changed, restart `wealth-api` (+ `wealth-worker` if
      `backend/app/workers` changed); then checks both health endpoints.
   4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
@@ -143,6 +146,27 @@ def _systemctl_restart(service: str) -> None:
         raise IntegrateError(f"systemctl restart {service} failed:\n{out}")
 
 
+def _install_dependencies(changed: set[str]) -> None:
+    """Reinstall dependencies before building/testing when the merge bumped
+    a lockfile, so the shared venv / node_modules never run stale against
+    the merged code (see docs/ops/BACKLOG.md "Integrate")."""
+    if "backend/requirements.txt" in changed:
+        print("installing backend dependencies (backend/requirements.txt changed)")
+        venv_pip = REPO_ROOT / "backend" / ".venv" / "bin" / "pip"
+        rc, out = _sh(
+            [str(venv_pip), "install", "-q", "-r", "requirements.txt"],
+            cwd=REPO_ROOT / "backend",
+            timeout=900,
+        )
+        if rc != 0:
+            raise IntegrateError(f"pip install -r requirements.txt failed:\n{out}")
+    if "frontend/package-lock.json" in changed or "frontend/package.json" in changed:
+        print("installing frontend dependencies (frontend/package-lock.json or package.json changed)")
+        rc, out = _sh(["npm", "ci"], cwd=REPO_ROOT / "frontend", timeout=900)
+        if rc != 0:
+            raise IntegrateError(f"npm ci failed:\n{out}")
+
+
 def _restart_services(changed: set[str]) -> None:
     frontend_or_shared = any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed)
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
@@ -204,7 +228,13 @@ def _block(item_id: str, reason: str) -> None:
 
 def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
     _sh(["git", "reset", "--hard", "ORIG_HEAD"])
+    # The reset above restores requirements.txt / package-lock.json to their
+    # pre-merge contents, but does not touch a venv or node_modules that
+    # _install_dependencies may have already updated for the merged
+    # versions — reinstall against the reverted tree so they match the
+    # restored lockfiles again before restarting services.
     try:
+        _install_dependencies(changed)
         _restart_services(changed)
         _wait_and_check_health()
     except IntegrateError as exc:
@@ -257,6 +287,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     changed = _changed_paths(f"{pre_sha}..HEAD")
 
     try:
+        _install_dependencies(changed)
         _run_backend_tests()
         _restart_services(changed)
         _wait_and_check_health()
