@@ -367,7 +367,7 @@ def _setup(monkeypatch, doc, *, generated_content=_NOT_EXPECTED):
     async def fake_verified(user_id, existing):
         return None
 
-    async def fake_content(category_key, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by):
         # Default (`_NOT_EXPECTED`): a doc that genuinely has no
         # `_regen_reason` (steady state, valid content_valid_until, no
         # material change) must never call generation at all — fails

@@ -15,7 +15,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.llm import openrouter_chat
 from app.core.subscription import check_scan_limit, increment_scan_usage
 from app.db.collections import shopping_baskets_col
 
@@ -116,13 +116,11 @@ def _serialize(doc: dict) -> dict:
     }
 
 
-async def _extract_receipt(image_uri: str) -> dict:
+async def _extract_receipt(image_uri: str, uid: str) -> dict:
     """Call the vision LLM and return parsed {shop, purchased_at, currency, total, items}."""
     async with httpx.AsyncClient(timeout=60) as http:
-        r = await http.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            json={
+        r = await openrouter_chat(
+            {
                 "model": VISION_MODEL,
                 "max_tokens": 2000,
                 "temperature": 0,
@@ -133,8 +131,8 @@ async def _extract_receipt(image_uri: str) -> dict:
                         {"type": "image_url", "image_url": {"url": image_uri}},
                     ]},
                 ],
-                "provider": OPENROUTER_PROVIDER_PREFS,
             },
+            user_id=uid, pipeline="receipt", client=http,
         )
     data = r.json()
     if "choices" not in data:
@@ -160,7 +158,7 @@ async def scan_receipt(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "Missing image")
     await check_scan_limit(user["email"])
 
-    parsed = await _extract_receipt(_data_uri(image))
+    parsed = await _extract_receipt(_data_uri(image), user["email"])
     items = _clean_items(parsed.get("items"))
     if not items:
         raise HTTPException(422, "No items found, make sure the whole receipt is in shot.")

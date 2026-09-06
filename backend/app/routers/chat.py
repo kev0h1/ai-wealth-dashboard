@@ -16,7 +16,8 @@ function; nothing currently calls it.
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 
 import httpx
@@ -127,12 +128,10 @@ Answer in 2-3 sentences. Bold key numbers. No bullet lists unless listing 3+ ite
 Write in plain, human punctuation: no em-dashes (—) or en-dashes (–); use a comma, a full stop, or a plain conjunction instead. A plain hyphen is fine only inside a compound word or a range."""
 
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
-            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
-                  "messages": [{"role": "system", "content": system}] + messages,
-                  "provider": OPENROUTER_PROVIDER_PREFS},
+        r = await openrouter_chat(
+            {"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
+             "messages": [{"role": "system", "content": system}] + messages},
+            user_id=uid, pipeline="tax_chat", client=client,
         )
     if r.status_code != 200:
         raise HTTPException(500, "AI unavailable")

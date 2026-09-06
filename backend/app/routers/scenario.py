@@ -24,7 +24,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.core.subscription import check_ai_chat_limit, increment_ai_chat_usage
 from app.services.cashflow import monthly_cashflow_cached
 from app.services.copy_style import house_style as _house_style
@@ -265,7 +266,7 @@ def _parse_json_items(raw: str) -> list[dict] | None:
     return [i for i in items if isinstance(i, dict)]
 
 
-async def _extract_items_llm(question: str, today: date) -> list[dict] | None:
+async def _extract_items_llm(question: str, today: date, uid: str) -> list[dict] | None:
     """Returns None on ANY failure (network, non-200, malformed reply) so
     the caller can degrade to a clarify response rather than a 500 — the
     extraction step is allowed to fail softly since nothing has been
@@ -273,10 +274,8 @@ async def _extract_items_llm(question: str, today: date) -> list[dict] | None:
     system_prompt = _EXTRACTION_SYSTEM_PROMPT_TEMPLATE.format(today=today.isoformat())
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
-                json={
+            r = await openrouter_chat(
+                {
                     "model": "anthropic/claude-haiku-4-5",
                     "max_tokens": 500,
                     "temperature": 0,
@@ -284,8 +283,8 @@ async def _extract_items_llm(question: str, today: date) -> list[dict] | None:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": question},
                     ],
-                    "provider": OPENROUTER_PROVIDER_PREFS,
                 },
+                user_id=uid, pipeline="scenario", client=client,
             )
     except Exception:
         return None
@@ -319,7 +318,7 @@ async def parse_question(uid: str, question: str) -> dict:
     delivered, so nothing is charged, on either caller's path.
     """
     today = date.today()
-    raw_items = await _extract_items_llm(question, today)
+    raw_items = await _extract_items_llm(question, today, uid)
     if raw_items is None:
         # Extraction call itself failed (network/non-200/unparsable reply)
         # — no usage counted, nothing was actually delivered.
@@ -483,17 +482,15 @@ def _build_headline_facts(payload: dict) -> dict:
     return facts
 
 
-async def _compose_headline_llm(payload: dict) -> str | None:
+async def _compose_headline_llm(payload: dict, uid: str) -> str | None:
     if not OPENROUTER_API_KEY:
         return None
     facts = _build_headline_facts(payload)
     system_prompt = _HEADLINE_SYSTEM_PROMPT.format(facts=json.dumps(facts, default=str))
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
-                json={
+            r = await openrouter_chat(
+                {
                     "model": "anthropic/claude-haiku-4-5",
                     "max_tokens": 120,
                     "temperature": 0,
@@ -501,8 +498,8 @@ async def _compose_headline_llm(payload: dict) -> str | None:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": "Summarise this scenario's impact in one sentence."},
                     ],
-                    "provider": OPENROUTER_PROVIDER_PREFS,
                 },
+                user_id=uid, pipeline="scenario", client=client,
             )
         if r.status_code != 200:
             return None
@@ -747,7 +744,7 @@ async def scenario_run(body: dict, user: dict = Depends(current_user)):
         # made.
         headline = _lumpy_headline(items, payload)
     else:
-        headline = await _compose_headline_llm(payload)
+        headline = await _compose_headline_llm(payload, uid)
         if headline:
             await increment_ai_chat_usage(uid)
             headline = _house_style(headline)

@@ -158,7 +158,7 @@ def _setup(monkeypatch, *, mobile_doc, mobile_triggered_by, generated_content=_U
 
     calls = {"content": 0}
 
-    async def fake_content(category_key, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by):
         calls["content"] += 1
         if generated_content is _UNSET:
             return {"title": "New title", "body": "New body", "savings_estimate": "£30/mo"}

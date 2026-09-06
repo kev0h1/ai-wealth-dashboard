@@ -71,7 +71,7 @@ def _setup(monkeypatch, *, applicable, triggered_by_map, existing_docs=()):
 
     calls: list[str] = []
 
-    async def fake_content(category_key, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by):
         calls.append(category_key)
         return {"title": f"{category_key} title", "body": f"{category_key} body", "savings_estimate": None}
 

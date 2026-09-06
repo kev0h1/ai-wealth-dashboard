@@ -36,7 +36,8 @@ from datetime import datetime, date as _date
 
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.db.collections import recurring_judge_col
 
 logger = logging.getLogger(__name__)
@@ -163,18 +164,16 @@ def _build_prompt(series: dict, acct: dict | None) -> str:
     )
 
 
-async def _call_llm_judge(series: dict, acct: dict | None) -> dict | None:
+async def _call_llm_judge(series: dict, acct: dict | None, uid: str) -> dict | None:
     if not OPENROUTER_API_KEY:
         return None
     prompt = _build_prompt(series, acct)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={"model": _MODEL, "max_tokens": 250,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": _MODEL, "max_tokens": 250,
+                 "messages": [{"role": "user", "content": prompt}]},
+                user_id=uid, pipeline="recurring_judge", client=client,
             )
         if r.status_code != 200:
             return None
@@ -232,7 +231,7 @@ async def judge_suspect_series(uid: str, series_list: list[dict], account_map: d
 
     async def _judge_one(s: dict, sig: str) -> dict | None:
         acct = account_map.get(s.get("account_id") or "") if account_map else None
-        result = await _call_llm_judge(s, acct)
+        result = await _call_llm_judge(s, acct, uid)
         if result is None:
             return None
         doc = {

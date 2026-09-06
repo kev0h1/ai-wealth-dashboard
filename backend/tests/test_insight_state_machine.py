@@ -380,7 +380,7 @@ def test_incoherence_d_push_category_content_survives_a_refresh_pass_untouched(m
     async def fake_verified(user_id, existing):
         return None
 
-    async def fake_content(category_key, user_context, triggered_by):
+    async def fake_content(category_key, user_id, user_context, triggered_by):
         # Simulate a generation failure (e.g. Tavily quota exhausted) — the
         # exact condition under which old content must NOT be blanked.
         return None

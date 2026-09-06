@@ -211,3 +211,15 @@ linked_identities_col   = db["linked_identities"]
 # after a sync so the next request opens warm even after an API process
 # restart, which the old pure in-memory cache could never survive.
 response_cache_col      = db["response_cache"]
+
+# Per-user/pipeline OpenRouter usage metering (see app/core/llm.py's
+# `openrouter_chat`/`record_llm_usage`/`monthly_usage`) — every model call
+# in the app now goes through that shared client, which writes one doc per
+# request here: {user_id, pipeline, model, prompt_tokens, cached_tokens,
+# completion_tokens, cost_usd, latency_ms, ts, year_month, message_id
+# (penny only — one user message can span several tool-calling rounds,
+# each its own doc, all sharing the same message_id so cost/usage can be
+# rolled up per MESSAGE rather than per round)}. Indexed (user_id,
+# year_month) for the monthly-usage rollup the /subscription surface reads,
+# and (ts) for time-boxed debugging queries.
+llm_usage_col           = db["llm_usage"]

@@ -61,11 +61,12 @@ import json
 import logging
 import re
 import time
+import uuid
 from datetime import date
 
 import httpx
 
-from app.core.config import APP_URL, OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.llm import openrouter_chat
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
@@ -400,19 +401,56 @@ async def run_penny_agent(
         prefs = None
     consented = bool(prefs and prefs.get("penny_agent_consent"))
     # Always offered — see the flow-fix note above. `consented` is still
-    # used below, at DISPATCH time, as the actual gate.
+    # used below, at DISPATCH time, as the actual gate. TOOL_SCHEMAS and
+    # PROPOSE_TOOL_SCHEMAS are both module-level list literals in
+    # penny_tools.py, so this concatenation is the same list, in the same
+    # order, on every call — required for the prompt-cache breakpoint below
+    # to actually hit (Anthropic caches the prefix up to the breakpoint in
+    # the order tools -> system -> messages, so a reordered tool list would
+    # silently invalidate the cache every request).
     tools = TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
     today = date.today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
-    system_prompt = _SYSTEM_PROMPT + _WRITE_TOOLS_ADDENDUM + date_grounding
 
-    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    # Prompt caching (2026-09): the static system prompt (rules + write-tools
+    # addendum, ~8,500 tokens together with the tool schemas above — comfortably
+    # over every Claude model's minimum cacheable length) carries an Anthropic
+    # `cache_control` breakpoint. Anthropic caches everything up to and
+    # including this breakpoint — the tool schemas AND this text block — so
+    # every round of every question after the first one anywhere in the
+    # process gets a cache hit on the (identical, unchanging) tools+system
+    # prefix. `date_grounding` is a SEPARATE content block placed AFTER the
+    # cached one, deliberately uncached: it embeds today's date, which
+    # changes daily and would otherwise force a fresh (uncached) prefix
+    # write on the first request of every new day. Nothing else volatile
+    # (user id, thread id, screen name) lives in the system message at all —
+    # those are folded into the per-call user message by
+    # `_build_user_content` instead, which was already true before this
+    # change and is what keeps the cached block static across every user.
+    messages: list[dict] = [{
+        "role": "system",
+        "content": [
+            {
+                "type": "text",
+                "text": _SYSTEM_PROMPT + _WRITE_TOOLS_ADDENDUM,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {"type": "text", "text": date_grounding},
+        ],
+    }]
     for entry in (history or []):
         role = entry.get("role") if isinstance(entry, dict) else None
         content = entry.get("content") if isinstance(entry, dict) else None
         if role in ("user", "assistant") and isinstance(content, str):
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": _build_user_content(question, screen, context)})
+
+    # One id per USER MESSAGE (i.e. per call to run_penny_agent), shared by
+    # every OpenRouter round the loop below makes for it — see app.core.llm's
+    # monthly_usage, which counts distinct penny message_ids rather than
+    # rounds, since one question can cost several rounds (tool calls) but is
+    # still one "message" from the user's/billing's point of view.
+    message_id = str(uuid.uuid4())
 
     async def _loop() -> dict | None:
         """The actual model-call/tool-call cycle, isolated so the caller can
@@ -446,14 +484,11 @@ async def run_penny_agent(
                     "max_tokens": _MAX_TOKENS,
                     "temperature": 0,
                     "messages": messages,
-                    "provider": OPENROUTER_PROVIDER_PREFS,
                     "tools": tools,
                     "tool_choice": "none" if force_final else "auto",
                 }
-                r = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
-                    json=payload,
+                r = await openrouter_chat(
+                    payload, user_id=uid, pipeline="penny", client=client, message_id=message_id,
                 )
                 if r.status_code != 200:
                     logger.warning("penny_agent: OpenRouter HTTP %s for %s", r.status_code, uid)

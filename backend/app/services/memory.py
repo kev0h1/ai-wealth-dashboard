@@ -4,7 +4,8 @@ import json
 from datetime import datetime
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.db.collections import episodic_memory_col
 
 
@@ -23,13 +24,10 @@ async def extract_episodic_memory(uid: str, conversation: list) -> None:
             + "\n".join(f"{m['role'].upper()}: {m['content']}" for m in conversation[-10:])
         )
         async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                         "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 200,
-                      "messages": [{"role": "user", "content": extraction_prompt}],
-                      "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "anthropic/claude-haiku-4-5", "max_tokens": 200,
+                 "messages": [{"role": "user", "content": extraction_prompt}]},
+                user_id=uid, pipeline="memory", client=client,
             )
         if r.status_code != 200:
             return

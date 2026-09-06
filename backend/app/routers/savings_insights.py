@@ -14,7 +14,8 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY, APP_URL
+from app.core.config import OPENROUTER_API_KEY, TAVILY_API_KEY
+from app.core.llm import openrouter_chat
 from app.core.subscription import Tier, require_tier
 from app.services.categories import (
     BUILTIN_CATEGORY_KINDS, COMMITMENT, DISCRETIONARY, get_category_kinds, kind_of,
@@ -1434,6 +1435,7 @@ async def _find_triggered_transactions(user_id: str, category_key: str) -> list[
 
 async def _generate_savings_insight_content(
     category_key: str,
+    user_id: str,
     user_context: Optional[dict] = None,
     triggered_by: Optional[list[dict]] = None,
 ) -> Optional[dict]:
@@ -1657,13 +1659,11 @@ async def _generate_savings_insight_content(
         parsed = None
         async with httpx.AsyncClient(timeout=30) as client:
             try:
-                r = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": APP_URL},
-                    json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 220,
-                          "messages": [{"role": "user", "content": attempt_prompt}],
-                          "response_format": {"type": "json_object"},
-                          "provider": OPENROUTER_PROVIDER_PREFS},
+                r = await openrouter_chat(
+                    {"model": "anthropic/claude-haiku-4-5", "max_tokens": 220,
+                     "messages": [{"role": "user", "content": attempt_prompt}],
+                     "response_format": {"type": "json_object"}},
+                    user_id=user_id, pipeline="savings_insights", client=client,
                 )
                 if r.status_code == 200:
                     raw = r.json()["choices"][0]["message"]["content"].strip()
@@ -1836,7 +1836,7 @@ async def _refresh_single_insight(user_id: str, category_key: str, user_context:
         existing_doc = await savings_insights_col.find_one({"user_id": user_id, "category": category_key})
         user_context = existing_doc.get("user_context") if existing_doc else None
     triggered_by = await _find_triggered_transactions(user_id, category_key)
-    content = await _generate_savings_insight_content(category_key, user_context, triggered_by)
+    content = await _generate_savings_insight_content(category_key, user_id, user_context, triggered_by)
     if not content or not content.get("body"):
         return
     title          = content["title"]
@@ -2066,7 +2066,7 @@ async def _refresh_savings_insights_for_user(user_id: str) -> None:
             continue
 
         stored_context = existing.get("user_context") if existing else None
-        content        = await _generate_savings_insight_content(cat_key, stored_context, triggered_by)
+        content        = await _generate_savings_insight_content(cat_key, user_id, stored_context, triggered_by)
         if not content or not content.get("body"):
             # Generation failed (e.g. Tavily quota exhausted) but the fresh
             # triggered_by is still correct and free — persist it so stored

@@ -90,7 +90,7 @@ def test_tavily_non_200_logs_warning_with_status_and_category(monkeypatch, caplo
         result = _run(_generate_savings_insight_content("gym", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("tavily HTTP 503" in m and "category=gym" in m for m in warnings)
 
 
@@ -102,7 +102,7 @@ def test_tavily_timeout_logs_warning(monkeypatch, caplog):
         result = _run(_generate_savings_insight_content("energy", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("tavily timeout" in m and "category=energy" in m for m in warnings)
 
 
@@ -121,7 +121,7 @@ def test_llm_non_200_logs_warning_with_status_and_attempt(monkeypatch, caplog):
         result = _run(_generate_savings_insight_content("eating_out", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("LLM HTTP 500" in m and "category=eating_out" in m and "attempt=0" in m for m in warnings)
 
 
@@ -140,7 +140,7 @@ def test_llm_timeout_logs_warning(monkeypatch, caplog):
         result = _run(_generate_savings_insight_content("eating_out", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("LLM timeout" in m and "category=eating_out" in m for m in warnings)
 
 
@@ -160,7 +160,7 @@ def test_llm_unparseable_json_logs_warning(monkeypatch, caplog):
         result = _run(_generate_savings_insight_content("eating_out", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("not valid JSON" in m and "category=eating_out" in m for m in warnings)
 
 
@@ -173,7 +173,7 @@ def test_missing_tavily_key_logs_warning_and_never_calls_openrouter(monkeypatch,
         result = _run(_generate_savings_insight_content("mobile", None, None))
 
     assert result is None
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert any("TAVILY_API_KEY not configured" in m and "category=mobile" in m for m in warnings)
 
 
@@ -195,5 +195,5 @@ def test_successful_generation_emits_no_warnings(monkeypatch, caplog):
 
     assert result is not None
     assert result["title"] == "x"
-    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING" and r.name == "app.routers.savings_insights"]
     assert warnings == []

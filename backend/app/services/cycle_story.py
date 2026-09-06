@@ -17,7 +17,8 @@ from typing import Any
 
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, APP_URL
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.db.collections import (
     transactions_col,
     accounts_col,
@@ -465,7 +466,7 @@ async def compute_cycle_story(uid: str, period_start: date, period_end: date, pr
     }
 
 
-async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> dict:
+async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict, uid: str | None = None) -> dict:
     """Call the LLM to narrate the six story sections."""
     period_str = f"{period.get('start')} to {period.get('end')}"
 
@@ -587,13 +588,8 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
     if OPENROUTER_API_KEY:
         try:
             async with httpx.AsyncClient(timeout=30) as http:
-                r = await http.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "HTTP-Referer": APP_URL,
-                    },
-                    json={
+                r = await openrouter_chat(
+                    {
                         "model": "anthropic/claude-haiku-4-5",
                         "max_tokens": 600,
                         "temperature": 0.4,
@@ -601,8 +597,8 @@ async def narrate_cycle_story(facts: dict, traits: list[dict], period: dict) -> 
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        "provider": OPENROUTER_PROVIDER_PREFS,
                     },
+                    user_id=uid, pipeline="cycle_story", client=http,
                 )
             data = r.json()
             raw_text = data["choices"][0]["message"]["content"].strip()
@@ -719,7 +715,7 @@ async def get_cycle_story(uid: str, which: str = "current", preview_close: bool 
             return {"status": "no_data", "period": period_meta}
 
         traits = facts.get("self_facts", {}).get("traits", [])
-        narrative = await narrate_cycle_story(facts, traits, period_meta)
+        narrative = await narrate_cycle_story(facts, traits, period_meta, uid)
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -820,7 +816,7 @@ async def get_cycle_story(uid: str, which: str = "current", preview_close: bool 
         return early_result
 
     traits = facts.get("self_facts", {}).get("traits", [])
-    narrative = await narrate_cycle_story(facts, traits, period_meta)
+    narrative = await narrate_cycle_story(facts, traits, period_meta, uid)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     result = {

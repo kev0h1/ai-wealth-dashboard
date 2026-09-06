@@ -4,7 +4,8 @@ from datetime import datetime
 
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS, TAVILY_API_KEY
+from app.core.config import TAVILY_API_KEY
+from app.core.llm import openrouter_chat
 from app.db.collections import investment_accounts_col, investment_holdings_col
 
 logger = logging.getLogger(__name__)
@@ -50,16 +51,13 @@ async def refresh_account_prices(acc: dict) -> dict:
                     f"Search results:\n{snippets}\n\n"
                     f"Return ONLY a JSON number (e.g. 289.95) or null if the price cannot be determined. No other text."
                 )
-                lr = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                    json={
+                lr = await openrouter_chat(
+                    {
                         "model": "google/gemini-2.5-flash",
                         "messages": [{"role": "user", "content": price_prompt}],
                         "temperature": 0,
-                        "provider": OPENROUTER_PROVIDER_PREFS,
                     },
-                    timeout=30,
+                    user_id=None, pipeline="investment_prices", timeout=30,
                 )
                 if lr.status_code != 200:
                     new_total += stmt_val

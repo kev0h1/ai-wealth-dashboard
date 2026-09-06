@@ -72,7 +72,7 @@ async def mpesa_upload(
     if not raw_text.strip():
         raise HTTPException(422, "Could not extract text from file")
 
-    rows = await llm_parse_mpesa(raw_text)
+    rows = await llm_parse_mpesa(raw_text, uid)
     if not isinstance(rows, list):
         raise HTTPException(422, "LLM did not return a list of transactions")
 
@@ -189,7 +189,7 @@ async def statement_upload(
     if not raw_text.strip():
         raise HTTPException(422, "Could not extract text from file")
 
-    parsed         = await llm_parse_statement(raw_text)
+    parsed         = await llm_parse_statement(raw_text, uid)
     bank_name      = str(parsed.get("bank_name") or "Unknown Bank")
     account_number = str(parsed.get("account_number") or "")
     currency       = str(parsed.get("currency") or "KES")

@@ -7,7 +7,7 @@ import os
 from fastapi import HTTPException
 import httpx
 
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.llm import openrouter_chat
 
 
 async def extract_pdf_text(content: bytes, password: str = "") -> str:
@@ -30,7 +30,7 @@ async def extract_pdf_text(content: bytes, password: str = "") -> str:
         os.unlink(tmp_path)
 
 
-async def llm_parse_mpesa(text: str) -> list[dict]:
+async def llm_parse_mpesa(text: str, uid: str | None = None) -> list[dict]:
     prompt = (
         "You are a financial data extraction assistant. Below is raw text from an M-Pesa "
         "statement (Safaricom Kenya mobile money). Extract ALL transactions and return ONLY "
@@ -46,10 +46,9 @@ async def llm_parse_mpesa(text: str) -> list[dict]:
     )
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                user_id=uid, pipeline="pdf_statement", client=client,
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -66,7 +65,7 @@ async def llm_parse_mpesa(text: str) -> list[dict]:
         raise HTTPException(422, f"LLM parsing failed: {e}")
 
 
-async def llm_parse_statement(text: str) -> dict:
+async def llm_parse_statement(text: str, uid: str | None = None) -> dict:
     prompt = (
         "You are a financial data extraction assistant for bank statements.\n"
         "Analyze this bank statement text and return ONLY a single valid JSON object — "
@@ -100,10 +99,9 @@ async def llm_parse_statement(text: str) -> dict:
     )
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                user_id=uid, pipeline="pdf_statement", client=client,
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -123,7 +121,7 @@ async def llm_parse_statement(text: str) -> dict:
         raise HTTPException(422, f"LLM parsing failed: {e}")
 
 
-async def llm_parse_investment_statement(text: str) -> dict:
+async def llm_parse_investment_statement(text: str, uid: str | None = None) -> dict:
     prompt = (
         "You are a financial data extraction assistant. Below is raw text from an investment account statement "
         "(e.g. Vanguard ISA, Wealthify, Hargreaves Lansdown, Fidelity, AJ Bell, etc.).\n"
@@ -157,10 +155,9 @@ async def llm_parse_investment_statement(text: str) -> dict:
     )
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                user_id=uid, pipeline="pdf_statement", client=client,
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:
@@ -180,7 +177,7 @@ async def llm_parse_investment_statement(text: str) -> dict:
         raise HTTPException(422, f"LLM investment parsing failed: {e}")
 
 
-async def llm_parse_contract_note(text: str) -> dict:
+async def llm_parse_contract_note(text: str, uid: str | None = None) -> dict:
     prompt = (
         "You are a financial data extraction assistant. Below is raw text from an investment contract note "
         "(a per-trade confirmation issued by a broker or fund platform — e.g. Vanguard, Hargreaves Lansdown, "
@@ -208,10 +205,9 @@ async def llm_parse_contract_note(text: str) -> dict:
     )
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0, "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": prompt}], "temperature": 0},
+                user_id=uid, pipeline="pdf_statement", client=client,
             )
         resp_data = r.json()
         if r.status_code != 200 or "choices" not in resp_data:

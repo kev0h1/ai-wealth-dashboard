@@ -8,8 +8,8 @@ import httpx
 from pymongo.errors import DuplicateKeyError
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
-from app.core.subscription import Tier, require_tier
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.db.collections import (
     behaviour_portrait_col,
     cashflow_cache_col,
@@ -70,7 +70,7 @@ async def get_categories(user: dict = Depends(current_user)):
 
 
 @router.post("/categories")
-async def add_category(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+async def add_category(body: dict, user: dict = Depends(current_user)):
     uid  = user["email"]
     name = clean_name(body.get("name", ""))
     if not name or len(name) > 40:
@@ -239,7 +239,7 @@ async def get_rules(user: dict = Depends(current_user)):
 
 
 @router.post("/rules/parse")
-async def parse_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+async def parse_rule(body: dict, user: dict = Depends(current_user)):
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "No text provided")
@@ -255,13 +255,10 @@ async def parse_rule(body: dict, user: dict = Depends(current_user), _sub=Depend
     if not OPENROUTER_API_KEY:
         raise HTTPException(503, "AI not configured")
     async with httpx.AsyncClient(timeout=15) as http:
-        r = await http.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                     "HTTP-Referer": "https://wealth.auriqltd.co.uk"},
-            json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 100,
-                  "messages": [{"role": "user", "content": prompt}],
-                  "provider": OPENROUTER_PROVIDER_PREFS},
+        r = await openrouter_chat(
+            {"model": "anthropic/claude-haiku-4-5", "max_tokens": 100,
+             "messages": [{"role": "user", "content": prompt}]},
+            user_id=user["email"], pipeline="categories_rule", client=http,
         )
     if r.status_code != 200:
         raise HTTPException(502, "AI request failed")
@@ -283,7 +280,7 @@ async def parse_rule(body: dict, user: dict = Depends(current_user), _sub=Depend
 
 
 @router.post("/rules")
-async def add_rule(body: dict, user: dict = Depends(current_user), _sub=Depends(require_tier(Tier.PRO))):
+async def add_rule(body: dict, user: dict = Depends(current_user)):
     uid         = user["email"]
     description = (body.get("description") or "").strip()
     pattern     = (body.get("pattern") or "").strip()

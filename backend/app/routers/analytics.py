@@ -15,7 +15,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import OPENROUTER_API_KEY, OPENROUTER_PROVIDER_PREFS
+from app.core.config import OPENROUTER_API_KEY
+from app.core.llm import openrouter_chat
 from app.core.models import KPIResponse, Insight
 from app.db.collections import (
     accounts_col, transactions_col, yapily_accounts_col, yapily_transactions_col,
@@ -349,12 +350,10 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "anthropic/claude-haiku-4-5", "max_tokens": 400,
+                 "messages": [{"role": "user", "content": prompt}]},
+                user_id=user_id, pipeline="money_shape", client=client,
             )
         if r.status_code != 200:
             return []
@@ -2795,12 +2794,10 @@ async def preview_rule(body: dict, user: dict = Depends(current_user)):
     _soft_error = {"ok": False, "error": "Couldn't understand that, try something like 'every Sunday' or 'last Friday of the month'"}
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "provider": OPENROUTER_PROVIDER_PREFS},
+            r = await openrouter_chat(
+                {"model": "anthropic/claude-haiku-4-5", "max_tokens": 300,
+                 "messages": [{"role": "user", "content": prompt}]},
+                user_id=uid, pipeline="cashflow_rule_preview", client=client,
             )
         if r.status_code != 200:
             return _soft_error

@@ -917,8 +917,13 @@ def test_run_penny_agent_system_prompt_carries_write_tools_addendum_regardless_o
 
         system_msg = client.calls[0]["messages"][0]
         assert system_msg["role"] == "system"
-        assert "propose_create_allocation" in system_msg["content"]
-        assert "unavailable" not in system_msg["content"].lower()
+        # Prompt caching (2026-09): the system message is now a list of
+        # content blocks (static, cached rules+addendum first; the volatile
+        # date-grounding block second) rather than one plain string — see
+        # app.services.penny_agent.run_penny_agent's own comment on why.
+        system_text = "".join(block["text"] for block in system_msg["content"])
+        assert "propose_create_allocation" in system_text
+        assert "unavailable" not in system_text.lower()
 
 
 def test_run_penny_agent_consent_required_when_propose_tool_attempted_without_consent(monkeypatch):
