@@ -55,7 +55,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 ## E. Platform and scaling (from the pricing doc, section 6)
 
 - [ ] **E1. Atlas M0 to M10** [owner: kevin] [priority: p2] before real users; M20 or M30 by 10,000. Kevin actions in Atlas; agent updates connection string in env.
-- [ ] **E2. Railway Pro and replicas** [owner: claude] once D4 is done; spread the 4-hourly reconcile across the window and check Finexer rate limits (10,000 connections is about 42 syncs a minute).
+- [ ] **E2. Railway Pro and replicas** [owner: claude] [priority: p2] once D4 is done; spread the 4-hourly reconcile across the window and check Finexer rate limits (10,000 connections is about 42 syncs a minute).
 - [x] **E3. Vercel Pro** [owner: kevin] already in place (verified 2026-09-06), nothing to do. (done 2026-09-06)
 - [ ] **E4. Backup restore test** [owner: kevin] documented with a date (Q13).
 
