@@ -56,7 +56,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **D1. Enable open sign-up on UAT** [owner: kevin] [priority: p2] by adding `OPEN_SIGNUP=true` to `backend/.env` on the VPS and restarting `wealth-api`, then test: new Google account, new Apple account with Hide My Email, dot-variant Gmail lands in the same account, explicit link claims an automatic link. Keep prod off until launch.
 - [ ] **D2. Reviewer path.** [owner: kevin] [priority: p1] Store review needs a working sign-in without the allow list: either `OPEN_SIGNUP=true` on prod at review time, or a demo account added to `ALLOWED_EMAILS`. Decide and document in the review notes.
 - [x] **D3. Orphaned relay accounts.** [owner: claude] [priority: p2] When an explicit link claims an automatic relay link, the empty account keyed by the relay email stays behind. Add a sweep or delete it at link time when it has no connections (reuse the account-deletion routine; never delete an account with data). (done 2026-09-07, fc2243c9413d047bad60de10aa841f67d4335677)
-- [ ] **D4. Rate limiting and mobile login state for replicas.** [owner: claude] [priority: p2] `routers/auth.py` `_pending` dict and the in-memory rate limiter assume one process. Move both to Redis before running more than one Railway replica.
+- [ ] **D4. Rate limiting and mobile login state for replicas.** [owner: claude] [priority: p2] [state: in-progress] `routers/auth.py` `_pending` dict and the in-memory rate limiter assume one process. Move both to Redis before running more than one Railway replica.
 
 ## E. Platform and scaling (from the pricing doc, section 6)
 
