@@ -89,3 +89,4 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-06, kevin): Board write-side smoke test
 - [ ] **H4. Prune stale git worktrees on the VPS left by earlier sessions (git worktree prune, then remove directories whose branches are merged), without touching worktrees of live sessions.** [owner: claude] [priority: p2]
 - [x] **H5. Branch naming: feature branches are named feature-<ID>[-slug]; update session.sh, integrate.py, backlog docs and CLAUDE.md** [owner: claude] (done 2026-09-06, 68f568279ec58d8dd7c3db1263fcd73ff624b215)
+- [ ] **H6. Worktree sessions typecheck against the shared tree's shared/ package: frontend/node_modules is symlinked from the shared tree and node_modules/@wealth/shared resolves to /root/ai-wealth-dashboard/shared, so edits to a worktree's shared/src/types.ts are invisible to tsc there; make session.sh link or map @wealth/shared to the worktree's own shared/ directory.** [owner: claude]
