@@ -153,12 +153,28 @@ migrated **encrypted tokens decrypt** — the TOKEN_KEY proof), trigger a sync
 | `TAVILY_API_KEY` | from `backend/.env` | savings insights |
 | `LOGODEV_TOKEN` | from `backend/.env` | merchant logos |
 | `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist |
+| `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
 | `MONO_*`, `YAPILY_*` | from `backend/.env` | only if using the Kenya region |
 | `SENTRY_DSN` | optional | error monitoring |
 
 **Do NOT set** `PORT` (Railway injects it). Do not set the secret *file* paths —
 env vars take precedence and the files are excluded from the image.
+
+### Sign-up mode
+
+`OPEN_SIGNUP` controls whether new accounts can be created at all. Default
+`false` (unset) keeps registration restricted to `ALLOWED_EMAILS` — unchanged
+behaviour, the safe default until public launch. Set `true` to let any
+verified Google or Apple identity create an account. Either way, sign-in
+resolves through one identity path (`app/core/identity.py`): a verified
+email's first-seen spelling is remembered (Gmail dot-insensitive) so later
+sign-ins with a different dot spelling land on the same account, and an
+Apple Hide My Email relay sign-in auto-links to the account it created so a
+later explicit link (Settings → linked identities) can claim/re-point it.
+New accounts and auto-links created this way are recorded as alias/link
+documents in the `linked_identities` Mongo collection, same collection
+Phase 1's explicit Apple linking already used.
 
 ## Frontend env vars (Vercel)
 

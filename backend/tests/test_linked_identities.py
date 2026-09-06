@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from jwt.algorithms import RSAAlgorithm
 
+import app.core.identity as identity_module
 import app.routers.auth as auth_module
 from app.core.config import APPLE_BUNDLE_ID
 
@@ -129,8 +130,14 @@ class _FakeCol:
 
 @pytest.fixture()
 def fake_col(monkeypatch):
+    # apple_native() now resolves through app.core.identity.resolve_signin_email
+    # rather than querying linked_identities_col itself (see identity.py),
+    # so both modules' own imported reference to the collection must be
+    # patched to the SAME fake instance, or the two code paths would see
+    # inconsistent state.
     col = _FakeCol()
     monkeypatch.setattr(auth_module, "linked_identities_col", col)
+    monkeypatch.setattr(identity_module, "linked_identities_col", col)
     return col
 
 

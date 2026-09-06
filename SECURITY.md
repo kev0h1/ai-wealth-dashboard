@@ -21,7 +21,7 @@ AURIQ LTD processes UK consumers' bank account and transaction data, obtained wi
 |------|---------|
 | Bank token storage | Access/refresh tokens encrypted at rest with Fernet (AES); encryption key held only in environment/secret files, never in source control. |
 | Secrets | All secrets injected via environment or git-ignored key files. `.env`, session/token/webhook/VAPID/APNs keys are git-ignored and never committed. |
-| Authentication | Signed, time-limited session tokens (7-day expiry) verified on every request; access restricted to an email allowlist. |
+| Authentication | Signed, time-limited session tokens (7-day expiry) verified on every request; sign-in only via Google or Apple verified identities; registration is restricted to an email allow list until public launch (OPEN_SIGNUP flag). |
 | Transport security | TLS in transit; HTTPS terminated by managed platforms (Vercel/Railway) and MongoDB Atlas. |
 | Network | Managed-platform firewalls, application-level rate limiting on auth/webhook routes, restricted CORS, and IP allow-listing of production API keys where supported (incl. Finexer). |
 | Data store | MongoDB Atlas, access-controlled, hosted in a UK/EU region. |

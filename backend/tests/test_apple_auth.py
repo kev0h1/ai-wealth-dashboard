@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from jwt.algorithms import RSAAlgorithm
 
+import app.core.identity as identity_module
 import app.routers.auth as auth_module
 from app.core.config import APPLE_BUNDLE_ID
 
@@ -77,10 +78,22 @@ class _NoLinkCol:
     async def find_one(self, query=None, projection=None):
         return None
 
+    async def update_one(self, filt, update, upsert=False):
+        # Alias/auto-link persistence (app.core.identity.resolve_signin_email
+        # step e) is a no-op here — this file only cares about the sign-in
+        # result, not what gets written to linked_identities_col.
+        return None
+
 
 @pytest.fixture(autouse=True)
 def _patch_linked_identities(monkeypatch):
-    monkeypatch.setattr(auth_module, "linked_identities_col", _NoLinkCol())
+    # apple_native() now resolves through app.core.identity.resolve_signin_email
+    # rather than querying linked_identities_col itself, so the fake must be
+    # installed on BOTH module namespaces that hold their own imported
+    # reference to the same collection object.
+    fake = _NoLinkCol()
+    monkeypatch.setattr(auth_module, "linked_identities_col", fake)
+    monkeypatch.setattr(identity_module, "linked_identities_col", fake)
 
 
 def test_valid_token_issues_session():

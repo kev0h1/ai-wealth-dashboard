@@ -14,8 +14,9 @@ from app.core.config import (
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     APPLE_BUNDLE_ID, APPLE_SERVICES_ID,
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
-    resolve_allowed_email, mask_email,
+    mask_email,
 )
+from app.core.identity import resolve_signin_email
 from app.db.collections import linked_identities_col
 from itsdangerous import SignatureExpired, BadSignature
 
@@ -100,11 +101,9 @@ async def google_native(body: dict):
     email = info.get("email", "").lower()
     if not email:
         raise HTTPException(401, "Auth failed")
-    allowed = resolve_allowed_email(email)
-    if not allowed:
-        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-native", mask_email(email))
+    email = await resolve_signin_email("google-native", email)
+    if email is None:
         raise HTTPException(403, "Access denied")
-    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": info.get("name", "")})
     return {"session_token": session_token, "ok": True}
@@ -181,46 +180,26 @@ async def apple_native(body: dict):
     address. Without linking, a user who signs in with Google using their
     real email and later signs in with Apple using a relay address would
     get two distinct accounts (or, on a restricted allow list, a flat 403).
-    To avoid that, the token's `sub` claim (Apple's stable, non-rotating
-    per-user identifier) is looked up in `linked_identities_col` FIRST; a
-    match resolves straight to the linked account's email, bypassing the
-    fresh-claim allow-list check entirely (linking already proved that
-    account owns this identity). Only when there is no link does this fall
-    back to the original claim-email + allow-list flow. See
-    /auth/identities/apple for how a link is created.
+    To avoid that, resolve_signin_email() looks the token's `sub` claim
+    (Apple's stable, non-rotating per-user identifier) up in
+    `linked_identities_col` FIRST; a match resolves straight to the linked
+    account's email, bypassing the fresh-claim allow-list check entirely
+    (linking already proved that account owns this identity). Only when
+    there is no link does it fall back to the claim-email + allow-list (or
+    OPEN_SIGNUP) flow, auto-recording a link for next time. See
+    /auth/identities/apple for how an explicit link is created.
     """
     identity_token = body.get("identityToken")
     claims = await _verify_apple_identity_token(identity_token)
 
     sub = claims.get("sub")
-    link = await linked_identities_col.find_one({"_id": f"apple:{sub}"}) if sub else None
-
-    if link:
-        email = link["user_id"]
-        allowed = resolve_allowed_email(email)
-        if not allowed:
-            # The allow list changed since this link was created (e.g. the
-            # linked account was removed from ALLOWED_EMAILS) — refuse just
-            # like an unlinked sign-in would, rather than trusting the
-            # stale linked value.
-            logging.warning(
-                "Sign-in refused by allow list: provider=%s email=%s relay=%s",
-                "apple-native-linked", mask_email(email), claims.get("is_private_email"),
-            )
-            raise HTTPException(403, "Access denied")
-        email = allowed
-    else:
-        email = (claims.get("email") or "").lower()
-        if not email:
-            raise HTTPException(401, "Auth failed")
-        allowed = resolve_allowed_email(email)
-        if not allowed:
-            logging.warning(
-                "Sign-in refused by allow list: provider=%s email=%s relay=%s",
-                "apple-native", mask_email(email), claims.get("is_private_email"),
-            )
-            raise HTTPException(403, "Access denied")
-        email = allowed
+    email_claim = (claims.get("email") or "").lower()
+    if not email_claim:
+        raise HTTPException(401, "Auth failed")
+    relay = str(claims.get("is_private_email")).lower() == "true"
+    email = await resolve_signin_email("apple-native", email_claim, subject=sub, relay=relay)
+    if email is None:
+        raise HTTPException(403, "Access denied")
 
     name = body.get("fullName") or email.split("@")[0]
     session_token = serializer.dumps({"email": email, "name": name})
@@ -239,6 +218,7 @@ async def list_linked_identities(user: dict = Depends(current_user)):
         linked.append({
             "provider": "apple",
             "relay": bool(doc.get("relay")),
+            "auto": bool(doc.get("auto", False)),
             "email_masked": mask_email(doc.get("email_at_link", "")),
             "linked_at": linked_at.isoformat() if isinstance(linked_at, datetime) else None,
         })
@@ -255,8 +235,14 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
 
     Re-linking the same sub to the same account is a no-op refresh (updates
     email_at_link/relay/linked_at in case those drifted). Linking a sub
-    already linked to a DIFFERENT account is refused (409) rather than
-    silently reassigning someone else's linked identity.
+    already linked to a DIFFERENT account is refused (409) — UNLESS that
+    existing link was automatic (`auto: True`, created by resolve_signin_email()
+    the first time this Apple identity signed in with OPEN_SIGNUP on), in
+    which case an explicit link from a different account is allowed to
+    re-point it: an automatic link is a best-guess placeholder, not a claim,
+    so a later explicit link should win. Every link created or updated by
+    this endpoint is stored with `auto: False`, since reaching this endpoint
+    at all means the account owner explicitly asked for the link.
     """
     identity_token = body.get("identityToken")
     claims = await _verify_apple_identity_token(identity_token)
@@ -267,7 +253,7 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
 
     doc_id = f"apple:{sub}"
     existing = await linked_identities_col.find_one({"_id": doc_id})
-    if existing and existing.get("user_id") != user["email"]:
+    if existing and existing.get("user_id") != user["email"] and not existing.get("auto"):
         raise HTTPException(409, "This Apple ID is linked to another account")
 
     email_at_link = (claims.get("email") or "").lower()
@@ -284,6 +270,7 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
             "user_id": user["email"],
             "email_at_link": email_at_link,
             "relay": relay,
+            "auto": False,
             "linked_at": datetime.now(timezone.utc),
         }},
         upsert=True,
@@ -415,11 +402,9 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
     email    = userinfo.get("email", "").lower()
     if not email:
         return finish("error:auth_failed")
-    allowed = resolve_allowed_email(email)
-    if not allowed:
-        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-mobile", mask_email(email))
+    email = await resolve_signin_email("google-mobile", email)
+    if email is None:
         return finish("error:access_denied")
-    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return finish(f"token:{session_token}")
@@ -458,11 +443,9 @@ async def google_callback(code: str = None, error: str = None):
     email    = userinfo.get("email", "").lower()
     if not email:
         return RedirectResponse(f"{APP_URL}/?error=auth_failed")
-    allowed = resolve_allowed_email(email)
-    if not allowed:
-        logging.warning("Sign-in refused by allow list: provider=%s email=%s", "google-web", mask_email(email))
+    email = await resolve_signin_email("google-web", email)
+    if email is None:
         return RedirectResponse(f"{APP_URL}/?error=access_denied")
-    email = allowed
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return RedirectResponse(f"{APP_URL}/?token={urllib.parse.quote(session_token, safe='')}")

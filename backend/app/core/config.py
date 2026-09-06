@@ -83,6 +83,19 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 APPLE_BUNDLE_ID     = os.getenv("APPLE_BUNDLE_ID", "co.uk.auriqltd.sorted")
 APPLE_SERVICES_ID   = os.getenv("APPLE_SERVICES_ID", "")
 
+# Phase 2 of the allow-list work (see app/core/identity.py): default false
+# keeps registration restricted to ALLOWED_EMAILS (today's behaviour,
+# unchanged). Set true to let any verified Google/Apple identity create an
+# account — the identity resolver still runs first (Gmail dot-insensitive
+# aliasing, Apple relay auto-linking) so the same person always lands in the
+# same account either way.
+OPEN_SIGNUP = os.getenv("OPEN_SIGNUP", "false").strip().lower() in ("1", "true", "yes")
+
+
+def is_signup_open() -> bool:
+    return OPEN_SIGNUP
+
+
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):
     SESSION_SECRET = s
