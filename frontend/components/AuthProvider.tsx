@@ -109,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // "seen" flags — none of these carry financial figures. See the
     // logout audit for the full list and reasoning.
     try {
-      localStorage.removeItem("reconnect_expected"); // holds a real account number + sort code
+      localStorage.removeItem("reconnect_expected"); // holds a provider, an account id, and a masked last-4 only
       localStorage.removeItem("wd_bracket"); // income tax bracket
       localStorage.removeItem(PAYDAY_DOT_CACHE_KEY); // payday-window boolean derived from the user's pay period
       localStorage.removeItem("wd_insight_badge"); // count derived from the user's insights
