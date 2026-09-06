@@ -17,6 +17,7 @@ export interface Account {
   logo_url?: string;
   bg_colors?: string[];
   apr?: number | null;
+  source?: "truelayer" | "finexer" | string;
 }
 
 export type ManualAccountType = "savings" | "current" | "credit_card";

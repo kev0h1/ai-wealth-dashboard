@@ -24,11 +24,11 @@
 import { ChevronDown } from "lucide-react";
 import { BankBadge, bankKey, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
 
-export type ReconnectProvider = { provider: string; provider_id?: string };
+export type ReconnectProvider = { provider: string; provider_id?: string; source?: string };
 
 interface ReconnectStripProps {
   providers: ReconnectProvider[];
-  onReconnect: (providerId?: string) => void;
+  onReconnect: (providerId?: string, source?: string) => void;
 }
 
 // Neutral fallback for a provider name BANK_META doesn't recognise yet —
@@ -63,7 +63,7 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
   if (n === 0) return null;
 
   if (n === 1) {
-    const { provider_id } = providers[0];
+    const { provider_id, source } = providers[0];
     const meta = providerMeta(providers[0]);
     return (
       <div className="glass-card rounded-2xl p-4 flex items-center gap-3">
@@ -73,7 +73,7 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
         </span>
         <button
           type="button"
-          onClick={() => onReconnect(provider_id)}
+          onClick={() => onReconnect(provider_id, source)}
           className="flex-shrink-0 min-h-[44px] -my-2 flex items-center px-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
         >
           Reconnect
@@ -114,7 +114,7 @@ export default function ReconnectStrip({ providers, onReconnect }: ReconnectStri
               </span>
               <button
                 type="button"
-                onClick={() => onReconnect(p.provider_id)}
+                onClick={() => onReconnect(p.provider_id, p.source)}
                 className="flex-shrink-0 min-h-[44px] -my-2 flex items-center px-2 text-[13px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg"
               >
                 Reconnect

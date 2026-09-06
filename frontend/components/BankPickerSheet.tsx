@@ -17,9 +17,11 @@ interface BankPickerSheetProps {
   onClose: () => void;
   /** Called the moment a bank is selected and OAuth is about to open. */
   onConnecting?: () => void;
+  /** Which provider's bank list + connect link to use. Defaults to TrueLayer. */
+  provider?: "truelayer" | "finexer";
 }
 
-export default function BankPickerSheet({ onClose, onConnecting }: BankPickerSheetProps) {
+export default function BankPickerSheet({ onClose, onConnecting, provider = "truelayer" }: BankPickerSheetProps) {
   useLockBodyScroll();
   useSheetOpen();
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -31,11 +33,12 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    api.truelayerProviders()
-      .then(setBanks)
+    const fetchProviders = provider === "finexer" ? api.finexerProviders() : api.truelayerProviders();
+    fetchProviders
+      .then(list => setBanks([...list].sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => setError("Failed to load banks"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [provider]);
 
   // Push the sheet above the on-screen keyboard in mobile WebViews.
   // visualViewport.height shrinks when the keyboard appears; window.innerHeight does not.
@@ -59,7 +62,9 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
     setConnecting(bank.id);
     setError(null);
     try {
-      const { auth_url } = await api.connectLink(bank.id);
+      const { auth_url } = provider === "finexer"
+        ? await api.finexerConnectLink(bank.id)
+        : await api.connectLink(bank.id);
       // In the React Native WebView, open OAuth in the native browser so banks
       // that redirect to their own app (e.g. Starling) work correctly.
       onConnecting?.();
@@ -94,7 +99,7 @@ export default function BankPickerSheet({ onClose, onConnecting }: BankPickerShe
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Add a Bank</h2>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              Secure open banking · Powered by TrueLayer
+              {provider === "finexer" ? "Secure open banking · Powered by Finexer" : "Secure open banking · Powered by TrueLayer"}
             </p>
           </div>
           <button
