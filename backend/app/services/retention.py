@@ -18,8 +18,10 @@ of evidence someone actually is dormant/expired is not evidence they are.
 import logging
 from datetime import datetime, timedelta
 
+from app.core.config import mask_email
 from app.db.collections import (
     connections_col, accounts_col, finexer_consents_col, user_profiles_col,
+    linked_identities_col,
 )
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
 
@@ -28,6 +30,25 @@ logger = logging.getLogger(__name__)
 # SECURITY.md section 6 periods.
 _DORMANT_AFTER = timedelta(days=365)
 _CONNECTION_GRACE = timedelta(days=30)
+
+# Apple Hide My Email relay addresses always live on this domain (see
+# app/core/identity.py). D3: the bar for "this looks like an orphaned relay
+# placeholder account" starts with the uid actually being one of these.
+_RELAY_DOMAIN = "@privaterelay.appleid.com"
+
+# Every collection that counts as "this account has data" for
+# erase_orphaned_relay_account's guard below: every provider's
+# connection/consent doc, every provider's account doc, and every
+# provider's transaction rows. Looked up fresh from app.db.collections by
+# name (see account_has_data) rather than bound at import time, same
+# reasoning as erase_user's own dir()-based sweep.
+_ACCOUNT_DATA_COLLECTIONS = (
+    "connections_col", "finexer_consents_col", "yapily_consents_col", "mono_connections_col",
+    "accounts_col", "statement_accounts_col", "mpesa_accounts_col", "manual_accounts_col",
+    "mono_accounts_col", "yapily_accounts_col", "investment_accounts_col",
+    "transactions_col", "statement_transactions_col", "mpesa_transactions_col",
+    "mono_transactions_col", "yapily_transactions_col", "manual_transactions_col",
+)
 
 # Activity-stamp throttle: `current_user` (app.core.auth) calls stamp_activity
 # on every authenticated request — this keeps it to at most one Mongo write
@@ -56,6 +77,134 @@ async def erase_user(uid: str) -> dict[str, int]:
         if count:
             removed[attr.removesuffix("_col")] = count
     return removed
+
+
+async def account_has_data(uid: str) -> bool:
+    """True if `uid` owns any connection, consent, account, or transaction
+    row anywhere (TrueLayer, Finexer, Yapily, Mono, M-Pesa, statement
+    upload, manual, or investment) — the bar erase_orphaned_relay_account
+    below refuses to cross ("never delete an account with data").
+
+    Looked up fresh from app.db.collections by name each call (like
+    erase_user's own dir()-based sweep), so a test that patches a subset of
+    collections there sees the same fakes rather than this module's own
+    bound names."""
+    from app.db import collections as _cols
+    for name in _ACCOUNT_DATA_COLLECTIONS:
+        col = getattr(_cols, name)
+        if await col.count_documents({"user_id": uid}, limit=1):
+            return True
+    return False
+
+
+async def erase_orphaned_relay_account(relay_uid: str, *, claimed_by: str) -> dict | None:
+    """Erase the empty placeholder account left behind at `relay_uid` once
+    an explicit Apple-identity link re-points its automatic link to a
+    different account, or once sweep_orphaned_relay_accounts finds one that
+    was re-pointed some other way.
+
+    `relay_uid` is an Apple Hide My Email relay address
+    (`...@privaterelay.appleid.com`) that resolve_signin_email() (see
+    app/core/identity.py) used as an account id on a relay sign-in's first
+    Apple sign-in with OPEN_SIGNUP on — it owns an `email:<key>` alias doc
+    and an `apple:<sub>` link doc marked `auto: True`. `link_apple_identity`
+    (see routers/auth.py) is allowed to re-point an auto link to a
+    different, already-authenticated account; once it does, the relay
+    account itself is just an empty husk with nothing pointing at it.
+
+    Refuses (returns None, logs at INFO) unless ALL of:
+      - `relay_uid` actually ends with the Hide My Email domain — this
+        routine must never be reachable for an ordinary account, no matter
+        what caller passes in;
+      - `relay_uid != claimed_by` — claiming your own placeholder is not an
+        orphan;
+      - no `apple:*` identity doc still has `user_id == relay_uid` — if one
+        does, the placeholder is still claimed by something, orphaned or
+        not;
+      - account_has_data(relay_uid) is False — never delete an account with
+        data, no matter how it got created.
+
+    On success: delete every `email:*` alias doc keyed to `relay_uid`
+    (resolve_signin_email's own alias record for it), call
+    erase_user(relay_uid) for everything else, log at WARNING with masked
+    emails, and return the removed-counts dict (erase_user's own dict, plus
+    a `linked_identities` count for the alias doc(s) just removed). Returns
+    None on any refusal above.
+    """
+    if not relay_uid.endswith(_RELAY_DOMAIN):
+        logger.info(
+            "erase_orphaned_relay_account: %s is not a relay address, skipping",
+            mask_email(relay_uid),
+        )
+        return None
+    if relay_uid == claimed_by:
+        logger.info(
+            "erase_orphaned_relay_account: %s claimed by itself, skipping",
+            mask_email(relay_uid),
+        )
+        return None
+
+    still_linked = await linked_identities_col.find_one({"provider": "apple", "user_id": relay_uid})
+    if still_linked:
+        logger.info(
+            "erase_orphaned_relay_account: %s still has an apple identity link, skipping",
+            mask_email(relay_uid),
+        )
+        return None
+
+    if await account_has_data(relay_uid):
+        logger.info(
+            "erase_orphaned_relay_account: %s has account data, refusing to erase",
+            mask_email(relay_uid),
+        )
+        return None
+
+    identity_removed = await linked_identities_col.delete_many({"provider": "email", "user_id": relay_uid})
+    removed = await erase_user(relay_uid)
+    if identity_removed.deleted_count:
+        removed["linked_identities"] = removed.get("linked_identities", 0) + identity_removed.deleted_count
+    logger.warning(
+        "erase_orphaned_relay_account: erased orphaned relay account %s (claimed by %s) removed=%s",
+        mask_email(relay_uid), mask_email(claimed_by), removed,
+    )
+    return removed
+
+
+async def sweep_orphaned_relay_accounts(now: datetime | None = None) -> dict:
+    """Sweep for orphaned relay placeholders that already exist (leftovers
+    from before link_apple_identity's own inline cleanup shipped, or any
+    that slipped through it, e.g. because the cleanup's try/except only
+    logs).
+
+    For every `email:*` alias doc whose `user_id` is a relay address, if no
+    `apple:*` doc still points at that `user_id` (it was re-pointed
+    elsewhere) attempt erase_orphaned_relay_account (the `!= claimed_by`
+    guard there still holds using a "sweep" sentinel, since a relay address
+    can never legitimately equal that string). `now` is accepted for
+    symmetry with the other sweeps in this file but unused — this sweep
+    isn't time-gated, its guards are "still claimed" / "has data" rather
+    than an age cutoff.
+    """
+    removed = 0
+    skipped = 0
+    docs = await linked_identities_col.find(
+        {"provider": "email"}, {"_id": 1, "user_id": 1}
+    ).to_list(None)
+    for doc in docs:
+        uid = doc.get("user_id")
+        if not uid or not uid.endswith(_RELAY_DOMAIN):
+            continue
+        try:
+            result = await erase_orphaned_relay_account(uid, claimed_by="sweep")
+        except Exception:
+            skipped += 1
+            logger.exception("sweep_orphaned_relay_accounts: failed to erase %s", mask_email(uid))
+            continue
+        if result is not None:
+            removed += 1
+        else:
+            skipped += 1
+    return {"relay_orphans_removed": removed, "relay_orphans_skipped": skipped}
 
 
 async def disconnect_connection(uid: str, connection_id: str) -> dict | None:
@@ -215,7 +364,8 @@ async def run_retention_sweep(now: datetime | None = None) -> dict:
     now = now or datetime.utcnow()
     conn_result = await sweep_expired_connections(now)
     user_result = await sweep_dormant_users(now)
-    summary = {**conn_result, **user_result}
+    relay_result = await sweep_orphaned_relay_accounts(now)
+    summary = {**conn_result, **user_result, **relay_result}
     logger.info("run_retention_sweep: %s", summary)
     return summary
 

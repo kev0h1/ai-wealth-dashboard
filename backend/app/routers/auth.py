@@ -18,6 +18,7 @@ from app.core.config import (
 )
 from app.core.identity import resolve_signin_email
 from app.db.collections import linked_identities_col
+from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
 
 router = APIRouter(tags=["auth"])
@@ -248,6 +249,18 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
     so a later explicit link should win. Every link created or updated by
     this endpoint is stored with `auto: False`, since reaching this endpoint
     at all means the account owner explicitly asked for the link.
+
+    D3: when this claims an automatic link away from a DIFFERENT account
+    (the `auto: True` re-point case above), that other account is very
+    often nothing but the empty relay-email placeholder resolve_signin_email()
+    created the first time this Apple identity ever signed in — a real
+    account never had a reason to exist there. Once the re-point above
+    lands, that placeholder has nothing pointing at it any more, so this
+    also tries to erase it via erase_orphaned_relay_account(), which
+    refuses on its own if the account isn't actually an empty relay
+    placeholder (not a relay address, or it has real data). That cleanup
+    running in a try/except that only logs: it must never turn a
+    successful link into a failed request.
     """
     identity_token = body.get("identityToken")
     claims = await _verify_apple_identity_token(identity_token)
@@ -260,6 +273,12 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
     existing = await linked_identities_col.find_one({"_id": doc_id})
     if existing and existing.get("user_id") != user["email"] and not existing.get("auto"):
         raise HTTPException(409, "This Apple ID is linked to another account")
+
+    reclaimed_from = (
+        existing.get("user_id")
+        if existing and existing.get("auto") and existing.get("user_id") != user["email"]
+        else None
+    )
 
     email_at_link = (claims.get("email") or "").lower()
     # Apple encodes this claim as the string "true"/"false" (like
@@ -281,7 +300,20 @@ async def link_apple_identity(body: dict, user: dict = Depends(current_user)):
         upsert=True,
     )
     logging.info("Linked apple identity to %s relay=%s", mask_email(user["email"]), relay)
-    return {"ok": True, "provider": "apple", "relay": relay, "email_masked": mask_email(email_at_link)}
+
+    orphan_removed = False
+    if reclaimed_from:
+        try:
+            orphan_removed = await erase_orphaned_relay_account(reclaimed_from, claimed_by=user["email"]) is not None
+        except Exception:
+            logging.warning(
+                "link_apple_identity: orphan cleanup failed for %s", mask_email(reclaimed_from), exc_info=True,
+            )
+
+    return {
+        "ok": True, "provider": "apple", "relay": relay,
+        "email_masked": mask_email(email_at_link), "orphan_removed": orphan_removed,
+    }
 
 
 @router.delete("/auth/identities/apple")

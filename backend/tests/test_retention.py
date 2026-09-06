@@ -101,6 +101,10 @@ class FakeCol:
                 return _DeleteResult(1)
         return _DeleteResult(0)
 
+    async def count_documents(self, filt, limit=None):
+        n = sum(1 for d in self.docs.values() if _matches(d, filt))
+        return min(n, limit) if limit is not None else n
+
     async def update_one(self, filt, update, upsert=False):
         self.update_calls += 1
         target = None
@@ -327,13 +331,158 @@ def test_run_retention_sweep_calls_both_sweeps(monkeypatch):
         calls.append("users")
         return {"users_erased": 0}
 
+    async def fake_relay_sweep(now=None):
+        calls.append("relay")
+        return {"relay_orphans_removed": 0, "relay_orphans_skipped": 0}
+
     monkeypatch.setattr(retention, "sweep_expired_connections", fake_conn_sweep)
     monkeypatch.setattr(retention, "sweep_dormant_users", fake_user_sweep)
+    monkeypatch.setattr(retention, "sweep_orphaned_relay_accounts", fake_relay_sweep)
 
     result = asyncio.run(retention.run_retention_sweep(now=NOW))
 
-    assert calls == ["connections", "users"]
-    assert result == {"connections_removed": 0, "users_erased": 0}
+    assert calls == ["connections", "users", "relay"]
+    assert result == {
+        "connections_removed": 0, "users_erased": 0,
+        "relay_orphans_removed": 0, "relay_orphans_skipped": 0,
+    }
+
+
+# ── account_has_data / erase_orphaned_relay_account (D3) ───────────────────
+
+RELAY = "abc123@privaterelay.appleid.com"
+
+
+def test_account_has_data_true_when_any_data_collection_matches(monkeypatch):
+    accounts = FakeCol([{"_id": "a1", "user_id": RELAY}])
+    _patch_all_collections(monkeypatch, {"accounts_col": accounts})
+    assert asyncio.run(retention.account_has_data(RELAY)) is True
+
+
+def test_account_has_data_false_when_nothing_matches(monkeypatch):
+    _patch_all_collections(monkeypatch, {})
+    assert asyncio.run(retention.account_has_data(RELAY)) is False
+
+
+def test_erase_orphaned_relay_account_refuses_non_relay_address(monkeypatch):
+    identities = FakeCol([{"_id": "email:real@example.com", "provider": "email", "user_id": "real@example.com"}])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.erase_orphaned_relay_account("real@example.com", claimed_by="someone@example.com"))
+
+    assert result is None
+    assert "email:real@example.com" in identities.docs
+
+
+def test_erase_orphaned_relay_account_refuses_self_claim(monkeypatch):
+    identities = FakeCol([{"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY}])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.erase_orphaned_relay_account(RELAY, claimed_by=RELAY))
+
+    assert result is None
+    assert f"email:{RELAY}" in identities.docs
+
+
+def test_erase_orphaned_relay_account_refuses_when_still_linked(monkeypatch):
+    identities = FakeCol([
+        {"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY},
+        {"_id": "apple:sub-1", "provider": "apple", "user_id": RELAY, "auto": True},
+    ])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.erase_orphaned_relay_account(RELAY, claimed_by="real@example.com"))
+
+    assert result is None
+    assert f"email:{RELAY}" in identities.docs
+
+
+def test_erase_orphaned_relay_account_refuses_when_it_has_data(monkeypatch):
+    identities = FakeCol([{"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY}])
+    connections = FakeCol([{"_id": "conn-1", "user_id": RELAY}])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities, "connections_col": connections})
+
+    result = asyncio.run(retention.erase_orphaned_relay_account(RELAY, claimed_by="real@example.com"))
+
+    assert result is None
+    assert f"email:{RELAY}" in identities.docs
+
+
+def test_erase_orphaned_relay_account_erases_the_empty_placeholder(monkeypatch):
+    identities = FakeCol([
+        {"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY},
+        {"_id": "apple:sub-1", "provider": "apple", "user_id": "real@example.com", "auto": False},
+    ])
+    profiles = FakeCol([{"_id": RELAY, "last_active_at": NOW}])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities, "user_profiles_col": profiles})
+
+    result = asyncio.run(retention.erase_orphaned_relay_account(RELAY, claimed_by="real@example.com"))
+
+    assert result is not None
+    assert f"email:{RELAY}" not in identities.docs
+    assert "apple:sub-1" in identities.docs
+    assert RELAY not in profiles.docs
+
+
+# ── sweep_orphaned_relay_accounts ───────────────────────────────────────────
+
+def test_sweep_orphaned_relay_removes_reclaimed_placeholder(monkeypatch):
+    identities = FakeCol([
+        {"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY},
+        {"_id": "apple:sub-1", "provider": "apple", "user_id": "real@example.com", "auto": False},
+    ])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.sweep_orphaned_relay_accounts())
+
+    assert result == {"relay_orphans_removed": 1, "relay_orphans_skipped": 0}
+    assert f"email:{RELAY}" not in identities.docs
+    assert "apple:sub-1" in identities.docs
+
+
+def test_sweep_orphaned_relay_keeps_still_linked_account(monkeypatch):
+    identities = FakeCol([
+        {"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY},
+        {"_id": "apple:sub-1", "provider": "apple", "user_id": RELAY, "auto": True},
+    ])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.sweep_orphaned_relay_accounts())
+
+    assert result == {"relay_orphans_removed": 0, "relay_orphans_skipped": 1}
+    assert f"email:{RELAY}" in identities.docs
+
+
+def test_sweep_orphaned_relay_keeps_account_with_data(monkeypatch):
+    identities = FakeCol([{"_id": f"email:{RELAY}", "provider": "email", "user_id": RELAY}])
+    accounts = FakeCol([{"_id": "acc-1", "user_id": RELAY}])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities, "accounts_col": accounts})
+
+    result = asyncio.run(retention.sweep_orphaned_relay_accounts())
+
+    assert result == {"relay_orphans_removed": 0, "relay_orphans_skipped": 1}
+    assert f"email:{RELAY}" in identities.docs
+
+
+def test_sweep_orphaned_relay_ignores_non_relay_email_docs(monkeypatch):
+    identities = FakeCol([
+        {"_id": "email:someone@gmail.com", "provider": "email", "user_id": "someone@gmail.com"},
+    ])
+    monkeypatch.setattr(retention, "linked_identities_col", identities)
+    _patch_all_collections(monkeypatch, {"linked_identities_col": identities})
+
+    result = asyncio.run(retention.sweep_orphaned_relay_accounts())
+
+    assert result == {"relay_orphans_removed": 0, "relay_orphans_skipped": 0}
+    assert "email:someone@gmail.com" in identities.docs
 
 
 # ── stamp_activity throttling ───────────────────────────────────────────────

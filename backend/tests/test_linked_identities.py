@@ -33,6 +33,7 @@ from jwt.algorithms import RSAAlgorithm
 
 import app.core.identity as identity_module
 import app.routers.auth as auth_module
+import app.services.retention as retention_module
 from app.core.config import APPLE_BUNDLE_ID
 
 KID = "test-key-1"
@@ -175,6 +176,121 @@ def test_link_non_relay_email_stores_relay_false(fake_col):
     result = _run(auth_module.link_apple_identity({"identityToken": token}, _user()))
     assert result["relay"] is False
     assert fake_col.docs[0]["relay"] is False
+
+
+# ── D3: claiming an auto relay link cleans up the empty placeholder ────────
+#
+# These exercise the real erase_orphaned_relay_account/erase_user via
+# app.services.retention, so `fake_col` (already patched onto auth_module and
+# identity_module) is also patched onto retention_module's own bound
+# `linked_identities_col` — the same in-memory doc list all three modules
+# read/write during the call. erase_user's own dir()-based sweep is stubbed
+# out with a call-recording fake rather than letting it walk the ~70 real
+# `*_col` attributes on app.db.collections, and account_has_data is stubbed
+# per test to control the "has data" guard without wiring up every provider
+# collection here (that guard has its own dedicated tests in
+# test_retention.py).
+
+RELAY_EMAIL = "abc123xyz@privaterelay.appleid.com"
+RELAY_SUB = "000123.relaysub.5678"
+
+
+def _seed_auto_relay_link(fake_col, *, relay_email=RELAY_EMAIL, sub=RELAY_SUB):
+    fake_col.docs.append({
+        "_id": f"apple:{sub}", "provider": "apple", "subject": sub,
+        "user_id": relay_email, "auto": True, "relay": True,
+        "email_at_link": relay_email,
+    })
+    fake_col.docs.append({
+        "_id": f"email:{relay_email}", "provider": "email",
+        "subject": relay_email, "user_id": relay_email,
+    })
+
+
+def test_explicit_link_erases_empty_relay_placeholder(fake_col, monkeypatch):
+    _seed_auto_relay_link(fake_col)
+    monkeypatch.setattr(retention_module, "linked_identities_col", fake_col)
+
+    erase_calls: list = []
+
+    async def fake_erase_user(uid):
+        erase_calls.append(uid)
+        return {"user_profiles": 1}
+
+    async def fake_has_data(uid):
+        return False
+
+    monkeypatch.setattr(retention_module, "erase_user", fake_erase_user)
+    monkeypatch.setattr(retention_module, "account_has_data", fake_has_data)
+
+    token = _make_token()  # same sub as the seeded auto link, relay email claim
+    result = _run(auth_module.link_apple_identity({"identityToken": token}, _user("kevin.maingi12@gmail.com")))
+
+    assert result["orphan_removed"] is True
+    assert erase_calls == [RELAY_EMAIL]
+    assert not any(d["_id"] == f"email:{RELAY_EMAIL}" for d in fake_col.docs)
+    apple_doc = next(d for d in fake_col.docs if d["_id"] == f"apple:{RELAY_SUB}")
+    assert apple_doc["user_id"] == "kevin.maingi12@gmail.com"
+    assert apple_doc["auto"] is False
+
+
+def test_explicit_link_does_not_erase_relay_account_with_data(fake_col, monkeypatch):
+    _seed_auto_relay_link(fake_col)
+    monkeypatch.setattr(retention_module, "linked_identities_col", fake_col)
+
+    erase_calls: list = []
+
+    async def fake_erase_user(uid):
+        erase_calls.append(uid)
+        return {"user_profiles": 1}
+
+    async def fake_has_data(uid):
+        return True  # e.g. a live TrueLayer connection under the relay account
+
+    monkeypatch.setattr(retention_module, "erase_user", fake_erase_user)
+    monkeypatch.setattr(retention_module, "account_has_data", fake_has_data)
+
+    token = _make_token()
+    result = _run(auth_module.link_apple_identity({"identityToken": token}, _user("kevin.maingi12@gmail.com")))
+
+    assert result["orphan_removed"] is False
+    assert erase_calls == []
+    # The relay account's alias doc is untouched — it still owns real data.
+    assert any(d["_id"] == f"email:{RELAY_EMAIL}" for d in fake_col.docs)
+    apple_doc = next(d for d in fake_col.docs if d["_id"] == f"apple:{RELAY_SUB}")
+    assert apple_doc["user_id"] == "kevin.maingi12@gmail.com"
+
+
+def test_explicit_link_reclaiming_non_relay_auto_link_never_erases(fake_col, monkeypatch):
+    # An auto Apple link to a non-relay email (e.g. a real Apple ID email
+    # that happened to auto-resolve to its own account first) re-pointed by
+    # an explicit link from a different account — the account behind it is
+    # an ordinary account, not a Hide My Email placeholder, so cleanup must
+    # never even attempt to touch it.
+    other_email = "someone@icloud.com"
+    sub = "000999.othersub.0000"
+    fake_col.docs.append({
+        "_id": f"apple:{sub}", "provider": "apple", "subject": sub,
+        "user_id": other_email, "auto": True, "relay": False,
+        "email_at_link": other_email,
+    })
+    monkeypatch.setattr(retention_module, "linked_identities_col", fake_col)
+
+    erase_calls: list = []
+
+    async def fake_erase_user(uid):
+        erase_calls.append(uid)
+        return {}
+
+    monkeypatch.setattr(retention_module, "erase_user", fake_erase_user)
+
+    token = _make_token(sub=sub, email=other_email, is_private_email="false")
+    result = _run(auth_module.link_apple_identity({"identityToken": token}, _user("kevin.maingi12@gmail.com")))
+
+    assert result["orphan_removed"] is False
+    assert erase_calls == []
+    apple_doc = next(d for d in fake_col.docs if d["_id"] == f"apple:{sub}")
+    assert apple_doc["user_id"] == "kevin.maingi12@gmail.com"
 
 
 # ── apple_native resolves through the link first ────────────────────────────
