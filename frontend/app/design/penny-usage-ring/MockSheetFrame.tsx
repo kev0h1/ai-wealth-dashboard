@@ -10,12 +10,17 @@
 // that fires an authenticated suggestions fetch on mount — none of which
 // this route needs or can satisfy (no auth here, /design/* is exempt).
 // Markup, class names and pixel geometry below are copied 1:1 from the two
-// real files (header: icon size 28px/rounded-xl, close button
-// 36px-visual/44px-tap, subordinate link row, `border-b` divider at the
-// same inset; composer: 44px input pill + 44px gradient send circle +
-// the disclaimer line) specifically so a chosen ring/meter treatment can be
-// ported straight back into those two files without re-deriving any of
-// this by eye.
+// real files (header: icon size 28px, close button 36px-visual/44px-tap,
+// subordinate link row, `border-b` divider at the same inset; composer:
+// 44px input pill + 44px gradient send circle + the disclaimer line)
+// specifically so a chosen ring/meter treatment can be ported straight back
+// into those two files without re-deriving any of this by eye. ONE
+// deliberate departure from that 1:1 copy: the real header avatar chip is
+// `rounded-xl` (a rounded square), but every avatar in this preview is
+// drawn as a perfect circle instead (Kevin's 2026-09-06 correction, after
+// the close-up screenshot showed a circular ring around a square avatar
+// reading as an unsymmetrical squircle). If A2 ships, PennySheet.tsx's
+// avatar chip needs the matching `rounded-full` change, not just the ring.
 //
 // Three modes, selected by `variant`:
 // - "avatarRing"    Variant A2 (revised 2026-09-06 after Kevin's phone
@@ -47,12 +52,14 @@ import { BRAND_GRADIENT } from "@/lib/brand";
 import MoreMessagesSheet from "./MoreMessagesSheet";
 import { usageFraction, usageIsAmber, USAGE_RESET_DATE, type UsageData, type UsageState } from "./fixtures";
 
-// Real header geometry (components/PennySheet.tsx): the avatar chip is a
-// 28px rounded-xl square. Everything below is DERIVED from that one number
-// plus the brief's own ring spec (radius = avatar radius + 3px, 2px stroke)
-// so the ring and the avatar can only ever share one centre — see
-// AvatarRingButton's own comment for why derivation, not eyeballed
-// placement, is what actually fixes the concentricity bug.
+// Real header geometry (components/PennySheet.tsx): the avatar chip is
+// 28px. Rendered here as a circle, not production's `rounded-xl` square
+// (see this file's header comment for why). Everything below is DERIVED
+// from that one 28px number plus the brief's own ring spec (radius =
+// avatar radius + 3px, 2px stroke), so the ring and the avatar can only
+// ever share one centre. See AvatarRingButton's own comment for why
+// derivation, not eyeballed placement, is what actually fixes the
+// concentricity bug.
 const AVATAR_SIZE = 28;
 const RING_STROKE = 2;
 const RING_RADIUS = AVATAR_SIZE / 2 + 3; // 17
@@ -74,8 +81,18 @@ const AVATAR_OFFSET = (RING_BOX - AVATAR_SIZE) / 2; // 4 — same on all four si
  * (2) "round line caps... read as a squircle" — `strokeLinecap="round"` is
  *     gone; both circles use the default `butt` cap explicitly, so the
  *     stroke ends flush at its mathematical start/end point instead of
- *     bulging a half-stroke-width past it (visible as a bump against the
- *     avatar's straight-edged rounded-xl corners at low fill levels).
+ *     bulging a half-stroke-width past it.
+ * (3) A second, separate contributor to the same "squircle" complaint,
+ *     found from the first 4x close-up screenshot (2026-09-06): a truly
+ *     circular ring drawn around a `rounded-xl` (rounded-square) avatar
+ *     reads as unsymmetrical even though the two shapes share a
+ *     mathematical centre, because a circle's edge sits a fixed distance
+ *     from that centre while a square's does not (corner further out than
+ *     midpoint-of-side). Fixed by rendering the avatar itself as a perfect
+ *     circle (`borderRadius: "9999px"` below, matching the plain avatar's
+ *     `rounded-full` in Header), so the gap between avatar edge and ring
+ *     (2px: ring inner edge at radius 16, avatar edge at radius 14) is
+ *     identical all the way round rather than only at four points.
  */
 function AvatarRingButton({
   state,
@@ -154,7 +171,7 @@ function AvatarRingButton({
               width: AVATAR_SIZE,
               height: AVATAR_SIZE,
               background: BRAND_GRADIENT,
-              borderRadius: 8,
+              borderRadius: "9999px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -220,7 +237,7 @@ function Header({
 
   const plainAvatar = (
     <span
-      className="rounded-xl flex items-center justify-center flex-shrink-0"
+      className="rounded-full flex items-center justify-center flex-shrink-0"
       style={{ background: BRAND_GRADIENT, width: AVATAR_SIZE, height: AVATAR_SIZE }}
     >
       <PennyMark size={13} className="text-white" />

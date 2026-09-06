@@ -150,7 +150,7 @@ function Inner() {
             <SectionHeading
               letter="A2"
               title="Avatar ring, refined"
-              caption="A ring drawn concentric with the Penny avatar (fixed geometry, square caps — see Kevin's 2026-09-06 phone review). Tap the avatar to crossfade the header title itself to the usage line for ~2.5s; no extra row. At Cap, the composer disables and offers a 'Get more messages' link on the disclaimer's own row."
+              caption="A ring drawn concentric with the Penny avatar, fixed geometry and square caps per Kevin's 2026-09-06 phone review. Tap the avatar to crossfade the header title itself to the usage line for ~2.5s; no extra row. At Cap, the composer disables and offers a 'Get more messages' link on the disclaimer's own row."
               recommended
             />
             <MockSheetFrame variant="avatarRing" state={state} data={data} tapped={tapped} initialSheetOpen={sheetFlag || state === "cap"} />
