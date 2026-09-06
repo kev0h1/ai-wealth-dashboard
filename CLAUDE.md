@@ -23,14 +23,14 @@ Working tree on `docs/mobile-porting-checkpoint` carries this round uncommitted.
 
 Open after this round (see session notes, not doctrine): dead `PlansDock` / `CommitmentCards` / `computeDebtRow` / `computeGrowRow` still defined in `PlanningPage.tsx`; duplicated fetch path in `lib/useAllTransactions.ts`; DESIGN.md still describes the retired gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card.
 
-## Jira sync
+## Backlog
 
-`TODO.md` and the Finexer compliance doc each mirror a Jira issue once `(SRT-12)` or `Jira: SRT-40` is written next to the item. See `docs/ops/JIRA.md` for full setup and command reference. When a session starts, blocks on, or finishes a backlog item, run the matching command instead of editing only the markdown:
+`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model. When a session starts, blocks on, or finishes a backlog item, run the matching command instead of editing the markdown by hand:
 
 ```bash
-backend/.venv/bin/python scripts/jira_sync.py start <item-id>
-backend/.venv/bin/python scripts/jira_sync.py block <item-id> "<reason>"
-backend/.venv/bin/python scripts/jira_sync.py done <item-id> --commit <sha>
+backend/.venv/bin/python scripts/backlog.py start <item-id>
+backend/.venv/bin/python scripts/backlog.py block <item-id> "<reason>"
+backend/.venv/bin/python scripts/backlog.py done <item-id> --commit <sha>
 ```
 
 ## Scope restriction — CRITICAL

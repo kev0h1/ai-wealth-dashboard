@@ -1,4 +1,5 @@
 import { getToken } from "./auth";
+import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
   Account, Transaction, MonoAccount, MpesaAccount, KPIs, Insight,
   SavingsInsight, WorkflowStep, WorkflowDef, ChallengeProgress, Challenge,
@@ -1377,7 +1378,8 @@ export function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// Private go-live readiness page (/ops/go-live) — see backend/app/routers/ops.py.
+// Private go-live readiness board (/ops/go-live) — see
+// backend/app/routers/ops.py + backend/app/services/backlog.py.
 export type GoLiveDoc = { markdown: string; updated_at: string };
 export type GoLiveResponse = {
   files: {
@@ -1385,8 +1387,17 @@ export type GoLiveResponse = {
     compliance?: GoLiveDoc;
     pricing?: GoLiveDoc;
   };
-  jira_base_url: string | null;
+  items: GoLiveItem[];
+  questions: GoLiveQuestion[];
 };
+export type GoLiveActionResponse = GoLiveResponse & { committed: boolean };
+export type GoLiveItemAction =
+  | { action: "done"; commit?: string }
+  | { action: "reopen" }
+  | { action: "start" }
+  | { action: "block"; reason: string }
+  | { action: "note"; text: string }
+  | { action: "owner"; owner: GoLiveOwner };
 
 // A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)
 // otherwise hangs indefinitely and pages spin forever waiting on Promise.all.
@@ -2974,7 +2985,14 @@ export const api = {
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
 
-  // Private go-live readiness page (/ops/go-live) — owner-only, reads
-  // TODO.md and docs/ straight from the repo; see backend/app/routers/ops.py.
+  // Private go-live readiness board (/ops/go-live) — owner-only, reads and
+  // writes TODO.md and the compliance doc straight from the repo through
+  // backend/app/services/backlog.py; see backend/app/routers/ops.py. Every
+  // write returns the full refreshed GET payload plus `committed` so the
+  // page re-renders from truth instead of guessing at the new state.
   getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
+  goLiveItemAction: (itemId: string, body: GoLiveItemAction) =>
+    post<GoLiveActionResponse>(`/ops/go-live/items/${encodeURIComponent(itemId)}`, body),
+  goLiveQuestionStatus: (q: string, status: GoLiveQuestion["status"]) =>
+    post<GoLiveActionResponse>(`/ops/go-live/questions/${encodeURIComponent(q)}`, { status }),
 };

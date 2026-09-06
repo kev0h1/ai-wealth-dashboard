@@ -1,22 +1,27 @@
-"""Private go-live readiness page — renders TODO.md and the Finexer
-questionnaire/pricing docs from the repo root for Kevin only.
+"""Private go-live readiness board — renders and edits TODO.md and the
+Finexer questionnaire/pricing docs from the repo root, for Kevin only.
 
-The markdown files are the source of truth; this router only reads and
-returns them (no editing endpoint). Restricted to the account owner because
-the backlog and the compliance answers are not for every allow-listed
-tester. Content must never be served as static HTML (fetchable
-unauthenticated) — it goes through the normal session-gated API instead,
-same as every other endpoint (see app.core.auth.current_user /
+The markdown files stay the source of truth; this router reads them (GET)
+and, through `app.services.backlog`, writes them (POST) with an atomic
+write + file lock + best-effort git commit/push of just the file that
+changed. See `docs/ops/BACKLOG.md` for the model. Restricted to the
+account owner because the backlog and the compliance answers are not for
+every allow-listed tester. Content must never be served as static HTML
+(fetchable unauthenticated) — it goes through the normal session-gated API
+instead, same as every other endpoint (see app.core.auth.current_user /
 auth_middleware).
 """
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL
+from app.services import backlog
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -45,24 +50,9 @@ def _repo_root() -> Path:
     return candidate
 
 
-def _read_jira_base_url(root: Path) -> str | None:
-    """Reads only the JIRA_BASE_URL line out of `.jira.env` if that file
-    exists (see scripts/jira_sync.py, docs/ops/JIRA.md). That URL is not a
-    secret — it is the same value Kevin's browser is pointed at to open a
-    Jira issue — so it is safe to return here, unlike the rest of that
-    file (email, API token), which is never read by this endpoint."""
-    path = root / ".jira.env"
-    try:
-        if not path.is_file():
-            return None
-        for raw_line in path.read_text(encoding="utf-8").splitlines():
-            stripped = raw_line.strip()
-            if stripped.startswith("JIRA_BASE_URL="):
-                value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
-                return value or None
-    except OSError:
-        return None
-    return None
+def _require_owner(user: dict) -> None:
+    if (user.get("email") or "").strip().lower() != PRIMARY_EMAIL:
+        raise HTTPException(403, "Not authorised")
 
 
 def _read_doc(root: Path, relpath: str) -> dict | None:
@@ -77,15 +67,118 @@ def _read_doc(root: Path, relpath: str) -> dict | None:
     return {"markdown": markdown, "updated_at": updated_at}
 
 
-@router.get("/go-live")
-async def go_live(user: dict = Depends(current_user)):
-    if (user.get("email") or "").strip().lower() != PRIMARY_EMAIL:
-        raise HTTPException(403, "Not authorised")
+def _load_items(todo_path: Path) -> list[dict]:
+    if not todo_path.is_file():
+        return []
+    try:
+        doc = backlog.TodoDoc.load(todo_path)
+    except OSError:
+        return []
+    return [doc.items[item_id].to_dict() for item_id in sorted(doc.items)]
 
+
+def _load_questions(compliance_path: Path) -> list[dict]:
+    if not compliance_path.is_file():
+        return []
+    try:
+        doc = backlog.ComplianceDoc.load(compliance_path)
+    except OSError:
+        return []
+    return [doc.question_dict(q_id) for q_id in sorted(doc.questions)]
+
+
+async def _go_live_payload(user: dict) -> dict:
+    _require_owner(user)
     root = _repo_root()
     files: dict[str, dict] = {}
     for key, relpath in _FILES.items():
         doc = _read_doc(root, relpath)
         if doc is not None:
             files[key] = doc
-    return {"files": files, "jira_base_url": _read_jira_base_url(root)}
+    return {
+        "files": files,
+        "items": _load_items(root / _FILES["todo"]),
+        "questions": _load_questions(root / _FILES["compliance"]),
+    }
+
+
+@router.get("/go-live")
+async def go_live(user: dict = Depends(current_user)):
+    return await _go_live_payload(user)
+
+
+class ItemActionRequest(BaseModel):
+    action: Literal["done", "reopen", "start", "block", "note", "owner"]
+    reason: Optional[str] = None
+    text: Optional[str] = None
+    owner: Optional[Literal["kevin", "claude"]] = None
+    commit: Optional[str] = None
+
+
+class QuestionStatusRequest(BaseModel):
+    status: Literal["ready", "needs-kevin", "blocked-deploy", "submitted"]
+
+
+# The page is owner-only end to end (see _require_owner below), so every
+# write it makes is attributed to Kevin regardless of which session's
+# browser sent it.
+_PAGE_ACTOR = "kevin"
+
+
+@router.post("/go-live/items/{item_id}")
+async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict = Depends(current_user)):
+    _require_owner(user)
+    root = _repo_root()
+    todo_path = root / _FILES["todo"]
+
+    try:
+        if body.action == "done":
+            _, committed = backlog.set_done(
+                item_id, True, commit=body.commit, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "reopen":
+            _, committed = backlog.set_done(item_id, False, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        elif body.action == "start":
+            _, committed = backlog.set_state(
+                item_id, "in-progress", actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "block":
+            if not body.reason:
+                raise HTTPException(400, "reason is required to block an item")
+            _, committed = backlog.set_state(
+                item_id, "blocked", reason=body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "note":
+            if not body.text:
+                raise HTTPException(400, "text is required to add a note")
+            _, committed = backlog.add_note(item_id, body.text, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        elif body.action == "owner":
+            if not body.owner:
+                raise HTTPException(400, "owner is required")
+            _, committed = backlog.set_owner(item_id, body.owner, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        else:  # unreachable given the Literal type, kept for clarity
+            raise HTTPException(400, f"unknown action: {body.action}")
+    except backlog.BacklogError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    payload = await _go_live_payload(user)
+    payload["committed"] = committed
+    return payload
+
+
+@router.post("/go-live/questions/{q}")
+async def go_live_question_status(q: str, body: QuestionStatusRequest, user: dict = Depends(current_user)):
+    _require_owner(user)
+    root = _repo_root()
+    compliance_path = root / _FILES["compliance"]
+
+    try:
+        _, committed = backlog.set_question_status(
+            q, body.status, actor=_PAGE_ACTOR, compliance_path=compliance_path, repo_root=root
+        )
+    except backlog.BacklogError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    payload = await _go_live_payload(user)
+    payload["committed"] = committed
+    return payload

@@ -12,7 +12,6 @@ backend/.session_secret
 backend/.vapid_private_key
 backend/.webhook_secret
 backend/.token_key
-.jira.env
 backend/.finexer_webhook_secret
 backend/.finexer_webhook_signing_secret
 backend/.apns_auth_key.p8
@@ -72,3 +71,7 @@ mobile/node_modules/
 design-review/
 
 frontend/.screens/
+
+# Backlog write-lock — runtime artifact from backend/app/services/backlog.py
+# and scripts/backlog.py, never content.
+.backlog.lock
