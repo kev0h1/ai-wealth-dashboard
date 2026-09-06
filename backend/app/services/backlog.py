@@ -90,6 +90,8 @@ GIT_TIMEOUT = 15
 ITEM_STATES = ("todo", "in-progress", "blocked", "review")
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude")
+PRIORITIES = ("p1", "p2", "p3")
+DEFAULT_PRIORITY = "p3"
 
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
@@ -98,8 +100,14 @@ ITEM_RE = re.compile(
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude)\]")
 STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review)(?::\s*([^\]]*))?\]")
+PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
+UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
 DONE_SUFFIX_RE = re.compile(r"\(done\s+(\d{4}-\d{2}-\d{2})(?:,\s*([^)]+))?\)\s*$")
 NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude)\): (.*)$")
+
+
+def _parse_unblocks(raw: str) -> list[str]:
+    return [q.strip() for q in raw.split(",") if q.strip()]
 
 QUESTION_HEADING_RE = re.compile(r"^## (Q\d+) (.+)$")
 STATUS_LINE_RE = re.compile(r"^Status:\s*(ready|needs-kevin|blocked-deploy|submitted)\s*$")
@@ -212,6 +220,8 @@ class BacklogItem:
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
     branch: Optional[str] = None  # set when state == "review"
+    priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
+    unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
 
     def to_dict(self) -> dict:
         state = "done" if self.done else self.state
@@ -227,6 +237,8 @@ class BacklogItem:
             "done_at": self.done_at,
             "commit": self.commit,
             "notes": [n.to_dict() for n in self.notes],
+            "priority": self.priority,
+            "unblocks": list(self.unblocks),
         }
 
 
@@ -247,6 +259,18 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
     if owner_m:
         owner = owner_m.group(1)
         tail = OWNER_RE.sub("", tail, count=1)
+
+    priority = DEFAULT_PRIORITY
+    priority_m = PRIORITY_RE.search(tail)
+    if priority_m:
+        priority = priority_m.group(1)
+        tail = PRIORITY_RE.sub("", tail, count=1)
+
+    unblocks: list[str] = []
+    unblocks_m = UNBLOCKS_RE.search(tail)
+    if unblocks_m:
+        unblocks = _parse_unblocks(unblocks_m.group(1))
+        tail = UNBLOCKS_RE.sub("", tail, count=1)
 
     state = "todo"
     reason: Optional[str] = None
@@ -277,6 +301,8 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         line_no=line_no,
         raw_line=raw_line,
         branch=branch if state == "review" else None,
+        priority=priority,
+        unblocks=unblocks,
     )
 
 
@@ -287,6 +313,8 @@ def _render_item_line(item: BacklogItem) -> str:
     segments: list[str] = []
     if item.owner:
         segments.append(f"[owner: {item.owner}]")
+    if item.priority and item.priority != DEFAULT_PRIORITY:
+        segments.append(f"[priority: {item.priority}]")
     if not item.done and item.state and item.state != "todo":
         if item.state == "blocked":
             segments.append(f"[state: blocked: {item.reason or ''}]")
@@ -294,6 +322,8 @@ def _render_item_line(item: BacklogItem) -> str:
             segments.append(f"[state: review: {item.branch or ''}]")
         else:
             segments.append(f"[state: {item.state}]")
+    if item.unblocks:
+        segments.append(f"[unblocks: {', '.join(item.unblocks)}]")
     if item.text:
         segments.append(item.text)
     if item.done:
@@ -445,6 +475,20 @@ class TodoDoc:
         self._rewrite(item)
         return item
 
+    def set_priority(self, item_id: str, priority: str) -> BacklogItem:
+        if priority not in PRIORITIES:
+            raise BacklogError(f"invalid priority: {priority!r} (must be one of {PRIORITIES})")
+        item = self.item(item_id)
+        item.priority = priority
+        self._rewrite(item)
+        return item
+
+    def set_unblocks(self, item_id: str, questions: list[str]) -> BacklogItem:
+        item = self.item(item_id)
+        item.unblocks = [q.strip() for q in questions if q.strip()]
+        self._rewrite(item)
+        return item
+
     def add_note(self, item_id: str, text: str, actor: str) -> BacklogItem:
         item = self.item(item_id)
         note_line = f"  - note ({today_str()}, {actor}): {text}"
@@ -563,7 +607,26 @@ class Backlog:
         return [self.todo.items[item_id].to_dict() for item_id in sorted(self.todo.items)]
 
     def questions(self) -> list[dict]:
-        return [self.compliance.question_dict(q_id) for q_id in sorted(self.compliance.questions)]
+        unblocked_by = unblocked_by_index(self.todo.items.values())
+        questions = []
+        for q_id in sorted(self.compliance.questions):
+            q = self.compliance.question_dict(q_id)
+            q["unblocked_by"] = unblocked_by.get(q_id, [])
+            questions.append(q)
+        return questions
+
+
+def unblocked_by_index(items: "Iterator[BacklogItem] | list[BacklogItem]") -> dict[str, list[str]]:
+    """Reverse index from question id to the sorted list of item ids whose
+    `unblocks` tag names that question — used to annotate each question
+    with `unblocked_by` so the board can show "Unblocked by A1, A2"."""
+    index: dict[str, list[str]] = {}
+    for item in items:
+        for q_id in item.unblocks:
+            index.setdefault(q_id, []).append(item.item_id)
+    for q_id in index:
+        index[q_id] = sorted(index[q_id])
+    return index
 
 
 def load(todo_path: Optional[Path] = None, compliance_path: Optional[Path] = None) -> Backlog:
@@ -672,6 +735,47 @@ def set_owner(
         doc.save(resolved_path)
     committed = _git_commit_and_push(
         [resolved_path], f"backlog: {item_id} owner set to {owner} by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
+
+
+def set_priority(
+    item_id: str,
+    priority: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.set_priority(item_id, priority)
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} priority set to {priority} by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
+
+
+def set_unblocks(
+    item_id: str,
+    questions: list[str],
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.set_unblocks(item_id, questions)
+        doc.save(resolved_path)
+    label = ", ".join(item.unblocks) if item.unblocks else "none"
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} unblocks set to {label} by {actor}", resolved_root
     )
     return item.to_dict(), committed
 

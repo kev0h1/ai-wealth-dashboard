@@ -32,6 +32,11 @@ Commands:
     reopen <id>                         Untick a done item.
     note <id> "<text>"                  Add a dated note under an item.
     owner <id> kevin|claude             Change who owns an item.
+    priority <id> p1|p2|p3             Set an item's priority (defaults to
+                                        p3 when the tag is absent).
+    unblocks <id> Q5,Q6                 Set the questions an item unblocks
+                                        (comma-separated ids; empty string
+                                        clears the tag).
     status Q7 ready|needs-kevin|blocked-deploy|submitted
                                         Set a questionnaire question's status.
 
@@ -71,16 +76,16 @@ def _state_display(item: dict) -> str:
 
 def cmd_list(args: argparse.Namespace) -> None:
     snapshot = backlog.load()
-    print(f"{'id':<6} {'owner':<7} {'state':<28} {'done_at':<12} {'title'}")
+    print(f"{'id':<6} {'owner':<7} {'pri':<4} {'state':<28} {'done_at':<12} {'unblocks':<14} {'title'}")
     for item in snapshot.items():
         print(
-            f"{item['id']:<6} {item['owner'] or '-':<7} {_state_display(item):<28} "
-            f"{item['done_at'] or '-':<12} {item['title']}"
+            f"{item['id']:<6} {item['owner'] or '-':<7} {item['priority']:<4} {_state_display(item):<28} "
+            f"{item['done_at'] or '-':<12} {', '.join(item['unblocks']) or '-':<14} {item['title']}"
         )
     print()
-    print(f"{'q':<5} {'status':<15} {'title'}")
+    print(f"{'q':<5} {'status':<15} {'unblocked_by':<14} {'title'}")
     for q in snapshot.questions():
-        print(f"{q['q']:<5} {q['status']:<15} {q['title']}")
+        print(f"{q['q']:<5} {q['status']:<15} {', '.join(q['unblocked_by']) or '-':<14} {q['title']}")
 
 
 def cmd_add(args: argparse.Namespace) -> None:
@@ -130,6 +135,17 @@ def cmd_note(args: argparse.Namespace) -> None:
 
 def cmd_owner(args: argparse.Namespace) -> None:
     result, committed = backlog.set_owner(args.item_id, args.owner, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_priority(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_priority(args.item_id, args.priority, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_unblocks(args: argparse.Namespace) -> None:
+    questions = [q.strip() for q in args.questions.split(",") if q.strip()]
+    result, committed = backlog.set_unblocks(args.item_id, questions, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -203,6 +219,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_owner.add_argument("owner", choices=["kevin", "claude"])
     add_actor(p_owner)
     p_owner.set_defaults(func=cmd_owner)
+
+    p_priority = sub.add_parser("priority", help="Set an item's priority.")
+    p_priority.add_argument("item_id")
+    p_priority.add_argument("priority", choices=["p1", "p2", "p3"])
+    add_actor(p_priority)
+    p_priority.set_defaults(func=cmd_priority)
+
+    p_unblocks = sub.add_parser(
+        "unblocks", help="Set the comma-separated questions an item unblocks (empty string clears)."
+    )
+    p_unblocks.add_argument("item_id")
+    p_unblocks.add_argument("questions", help="e.g. 'Q5,Q6' or '' to clear.")
+    add_actor(p_unblocks)
+    p_unblocks.set_defaults(func=cmd_unblocks)
 
     p_status = sub.add_parser("status", help="Set a questionnaire question's status.")
     p_status.add_argument("item_id")

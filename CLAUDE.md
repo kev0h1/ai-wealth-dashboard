@@ -39,7 +39,11 @@ scripts/session.sh abandon <item-id>
 backend/.venv/bin/python scripts/backlog.py start <item-id>
 backend/.venv/bin/python scripts/backlog.py block <item-id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py done <item-id> --commit <sha>
+backend/.venv/bin/python scripts/backlog.py priority <item-id> p1|p2|p3
+backend/.venv/bin/python scripts/backlog.py unblocks <item-id> Q5,Q6
 ```
+
+Items also carry `priority` (`p1`/`p2`/`p3`, defaults to `p3` when unset) and `unblocks` (the compliance-questionnaire question ids an item is gating, e.g. `Q5,Q6`); pass an empty string to `unblocks` to clear it. `/ops/go-live` shows the reverse index on each question ("Unblocked by A1, A2") and has an owner/priority/state filter bar plus a List/Board (kanban) view — see `docs/ops/BACKLOG.md`.
 
 ## Scope restriction — CRITICAL
 

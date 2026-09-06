@@ -15,7 +15,7 @@ they can never drift from each other.
 A TODO.md item line looks like this:
 
 ```
-- [ ] **A1. Title.** [owner: claude] [state: in-progress] Description text.
+- [ ] **A1. Title.** [owner: claude] [priority: p1] [state: in-progress] [unblocks: Q5, Q6] Description text.
   - note (2026-09-06, kevin): a note about A1.
 ```
 
@@ -29,6 +29,15 @@ A TODO.md item line looks like this:
   `review` state and its branch are set by `scripts/session.sh finish`
   and consumed by `scripts/integrate.py` — see "Branch per item" below.
 - `[owner: kevin]` or `[owner: claude]` says who is doing the work.
+- `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
+  priority. Absent means `p3` — the tag is only written for `p1`/`p2`, the
+  same way `[state: ...]` is only written when the state isn't `todo`.
+- `[unblocks: Q5, Q6]` names the compliance-questionnaire question ids
+  this item is gating (comma-separated `Qn`). Absent or empty means the
+  item doesn't unblock any question. Each named question gets an
+  `unblocked_by` reverse index (`["A1", "A2"]`, sorted) computed from every
+  item's `unblocks` tag — that's what the board's "Unblocked by A1, A2"
+  line on a question card reads from.
 - Indented `- note (date, actor): text` sub-bullets sit directly under the
   item line, oldest first.
 
@@ -52,6 +61,10 @@ either file. It exposes:
 - `add_item(section, title, owner=None, actor="claude")` — allocates the
   next id in `section` and appends it as a new to-do item.
 - `set_owner(item_id, owner, actor="claude")`
+- `set_priority(item_id, priority, actor="claude")` — `priority` is `"p1"`,
+  `"p2"` or `"p3"`.
+- `set_unblocks(item_id, questions, actor="claude")` — `questions` is a
+  list of question ids (`["Q5", "Q6"]`); an empty list clears the tag.
 - `add_note(item_id, text, actor="claude")`
 - `set_question_status(q_id, status, actor="kevin")`
 
@@ -85,8 +98,14 @@ backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
 backend/.venv/bin/python scripts/backlog.py note <id> "<text>"
 backend/.venv/bin/python scripts/backlog.py owner <id> kevin|claude
+backend/.venv/bin/python scripts/backlog.py priority <id> p1|p2|p3
+backend/.venv/bin/python scripts/backlog.py unblocks <id> Q5,Q6
 backend/.venv/bin/python scripts/backlog.py status Q7 ready|needs-kevin|blocked-deploy|submitted
 ```
+
+`priority` defaults to `p3` when never set. `unblocks` takes a
+comma-separated list of question ids (`Q5,Q6`); pass an empty string
+(`unblocks <id> ""`) to clear it.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should
@@ -102,16 +121,52 @@ under `/root/worktrees/<branch>` — see "Branch per item" below.
 
 ## The page
 
-`frontend/app/ops/go-live/page.tsx` is the same board in the browser.
+`frontend/app/ops/go-live/page.tsx` is the same board in the browser,
+split into components under `frontend/app/ops/go-live/` (`FilterBar.tsx`,
+`ListView.tsx`, `BoardView.tsx`, `ItemMenu.tsx`, `ItemDetailSheet.tsx`,
+`QuestionsSection.tsx`, `HeaderHero.tsx`, `Badges.tsx`) once priorities,
+unblocks, filters and a kanban view made the single-file version too long.
 `GET /ops/go-live` (owner-only, `backend/app/routers/ops.py`) returns the
-raw markdown plus the parsed `items` and `questions` so the page never
-re-parses anything itself. `POST /ops/go-live/items/{id}` and
-`POST /ops/go-live/questions/{q}` make the same writes the CLI does,
-always attributed to `kevin` (the page is owner-only end to end), and
+raw markdown plus the parsed `items` (each with `priority` and
+`unblocks`) and `questions` (each with `unblocked_by`) so the page never
+re-parses anything itself. `POST /ops/go-live/items/{id}` accepts the
+same actions as the CLI's mutators, including `priority` (body
+`{priority}`) and `unblocks` (body `{questions: [...]}`, `[]` clears);
+`POST /ops/go-live/questions/{q}` sets a question's status. Both always
+attribute the write to `kevin` (the page is owner-only end to end), and
 return the full refreshed GET payload plus `committed`. The page replaces
 its state from that response rather than guessing, and shows a quiet
 "Saved" or "Saved to file, git commit failed" line when `committed` is
 false.
+
+A sticky filter bar sits under the header: owner (All / Kevin / Claude),
+priority chips (P1/P2/P3, multi-select), state chips (Open / In progress
+/ Blocked / In review / Done — "Open" means not done), a search box, and
+a List/Board view toggle. All of it persists together under one
+localStorage key (`wd_go_live_filters`, see `lib/goLive.ts`). The filters
+apply to both views and to the questionnaire section: a question is shown
+when its own status falls in the selected state chips, or — once an owner
+is selected — when one of the items unblocking it (its `unblocked_by`)
+has that owner, so narrowing to "Claude" still surfaces the questions his
+open work is gating.
+
+List view is the original layout (sections as collapsible cards, items as
+rows) plus a priority pill and "unblocks Q5, Q6" tags on each item, and a
+"Unblocked by A1, A2" line on each question card whose ids scroll to that
+item's row. The item's "more actions" menu gained "Priority" (three-way)
+and "Unblocks…" (a comma-separated inline field) alongside Start/Block/
+Note. Board view is a kanban: columns To do / In progress / Blocked / In
+review / Done, swimlanes by section or owner (a "Lanes: Section | Owner"
+switch), each lane collapsible with per-column counts and a horizontally
+scrolling row of columns (the lane label stays put). Cards show the id in
+mono, a two-line-clamped title, an owner-initial chip, the priority pill,
+unblocks tags and a note count; tapping one opens `ItemDetailSheet.tsx`, a
+popover with the same controls as the list row (done, reopen, start,
+block with reason, note, owner, priority, unblocks). There is no
+drag-and-drop — every state change goes through a control, same as list
+view. The header hero keeps the overall done/total count and adds three
+figures computed from the whole (unfiltered) board: P1 items still open,
+blocked items, and items in review.
 
 ## The shared working tree caveat
 

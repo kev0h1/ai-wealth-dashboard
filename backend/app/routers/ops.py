@@ -77,14 +77,25 @@ def _load_items(todo_path: Path) -> list[dict]:
     return [doc.items[item_id].to_dict() for item_id in sorted(doc.items)]
 
 
-def _load_questions(compliance_path: Path) -> list[dict]:
+def _load_questions(compliance_path: Path, items: list[dict]) -> list[dict]:
     if not compliance_path.is_file():
         return []
     try:
         doc = backlog.ComplianceDoc.load(compliance_path)
     except OSError:
         return []
-    return [doc.question_dict(q_id) for q_id in sorted(doc.questions)]
+    unblocked_by: dict[str, list[str]] = {}
+    for item in items:
+        for q_id in item.get("unblocks") or []:
+            unblocked_by.setdefault(q_id, []).append(item["id"])
+    for q_id in unblocked_by:
+        unblocked_by[q_id] = sorted(unblocked_by[q_id])
+    questions = []
+    for q_id in sorted(doc.questions):
+        q = doc.question_dict(q_id)
+        q["unblocked_by"] = unblocked_by.get(q_id, [])
+        questions.append(q)
+    return questions
 
 
 async def _go_live_payload(user: dict) -> dict:
@@ -95,10 +106,11 @@ async def _go_live_payload(user: dict) -> dict:
         doc = _read_doc(root, relpath)
         if doc is not None:
             files[key] = doc
+    items = _load_items(root / _FILES["todo"])
     return {
         "files": files,
-        "items": _load_items(root / _FILES["todo"]),
-        "questions": _load_questions(root / _FILES["compliance"]),
+        "items": items,
+        "questions": _load_questions(root / _FILES["compliance"], items),
     }
 
 
@@ -108,11 +120,13 @@ async def go_live(user: dict = Depends(current_user)):
 
 
 class ItemActionRequest(BaseModel):
-    action: Literal["done", "reopen", "start", "block", "note", "owner"]
+    action: Literal["done", "reopen", "start", "block", "note", "owner", "priority", "unblocks"]
     reason: Optional[str] = None
     text: Optional[str] = None
     owner: Optional[Literal["kevin", "claude"]] = None
     commit: Optional[str] = None
+    priority: Optional[Literal["p1", "p2", "p3"]] = None
+    questions: Optional[list[str]] = None
 
 
 class QuestionStatusRequest(BaseModel):
@@ -156,6 +170,18 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
             if not body.owner:
                 raise HTTPException(400, "owner is required")
             _, committed = backlog.set_owner(item_id, body.owner, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        elif body.action == "priority":
+            if not body.priority:
+                raise HTTPException(400, "priority is required")
+            _, committed = backlog.set_priority(
+                item_id, body.priority, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "unblocks":
+            if body.questions is None:
+                raise HTTPException(400, "questions is required")
+            _, committed = backlog.set_unblocks(
+                item_id, body.questions, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
         else:  # unreachable given the Literal type, kept for clarity
             raise HTTPException(400, f"unknown action: {body.action}")
     except backlog.BacklogError as exc:

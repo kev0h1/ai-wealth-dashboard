@@ -116,6 +116,11 @@ def test_parses_items_owners_state_and_notes():
     assert doc.items["A1"].section == "A"
     assert doc.items["B1"].section == "B"
 
+    # No priority/unblocks tags present anywhere in the fixture: default to
+    # p3 and an empty unblocks list.
+    assert a1.priority == "p3"
+    assert a1.unblocks == []
+
 
 def test_parses_questions_and_status():
     doc = backlog.ComplianceDoc.parse(COMPLIANCE_FIXTURE)
@@ -188,6 +193,113 @@ def test_set_owner_round_trip_and_rejects_unknown_owner():
     assert "[owner: kevin]" in doc.lines[doc.items["A1"].line_no]
     with pytest.raises(backlog.BacklogError):
         doc.set_owner("A1", "nobody")
+
+
+def test_parses_priority_and_unblocks_tags():
+    doc = backlog.TodoDoc.parse(
+        "## A. Section A heading\n\n"
+        "- [ ] **A1. First item.** [owner: claude] [priority: p1] [unblocks: Q5, Q6] Some text.\n"
+    )
+    a1 = doc.items["A1"]
+    assert a1.priority == "p1"
+    assert a1.unblocks == ["Q5", "Q6"]
+    assert a1.text == "Some text."
+
+
+def test_priority_defaults_to_p3_when_tag_absent():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    assert doc.items["A1"].priority == "p3"
+
+
+def test_set_priority_round_trip_and_rejects_unknown_priority():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_priority("A1", "p1")
+    assert doc.items["A1"].priority == "p1"
+    assert "[priority: p1]" in doc.lines[doc.items["A1"].line_no]
+
+    # p3 is the default and is never rendered as an explicit tag.
+    doc.set_priority("A1", "p3")
+    assert "[priority:" not in doc.lines[doc.items["A1"].line_no]
+    assert doc.items["A1"].priority == "p3"
+
+    with pytest.raises(backlog.BacklogError):
+        doc.set_priority("A1", "p9")
+
+
+def test_set_unblocks_round_trip_and_empty_clears():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_unblocks("A1", ["Q5", "Q6"])
+    assert doc.items["A1"].unblocks == ["Q5", "Q6"]
+    assert "[unblocks: Q5, Q6]" in doc.lines[doc.items["A1"].line_no]
+
+    doc.set_unblocks("A1", [])
+    assert doc.items["A1"].unblocks == []
+    assert "[unblocks:" not in doc.lines[doc.items["A1"].line_no]
+
+
+def test_priority_and_unblocks_round_trip_preserves_other_tags():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress")
+    doc.set_priority("A1", "p1")
+    doc.set_unblocks("A1", ["Q5", "Q6"])
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[owner: claude]" in line
+    assert "[priority: p1]" in line
+    assert "[state: in-progress]" in line
+    assert "[unblocks: Q5, Q6]" in line
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    a1 = reparsed.items["A1"]
+    assert a1.owner == "claude"
+    assert a1.priority == "p1"
+    assert a1.state == "in-progress"
+    assert a1.unblocks == ["Q5", "Q6"]
+
+
+def test_unblocked_by_index_and_questions_reverse_index():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_unblocks("A1", ["Q5", "Q6"])
+    doc.set_unblocks("A3", ["Q5"])
+    index = backlog.unblocked_by_index(doc.items.values())
+    assert index["Q5"] == ["A1", "A3"]
+    assert index["Q6"] == ["A1"]
+    assert "Q1" not in index
+
+
+def test_public_set_priority(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_priority("A1", "p1", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    assert item["priority"] == "p1"
+    assert committed is True
+    assert "backlog: A1 priority set to p1 by claude" in mock_git.call_args_list[1].args[0]
+
+
+def test_public_set_unblocks(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_unblocks(
+        "A1", ["Q5", "Q6"], actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert item["unblocks"] == ["Q5", "Q6"]
+    assert committed is True
+    assert "backlog: A1 unblocks set to Q5, Q6 by claude" in mock_git.call_args_list[1].args[0]
+
+    mock_git.reset_mock()
+    item, committed = backlog.set_unblocks("A1", [], actor="claude", todo_path=todo_path, repo_root=repo_root)
+    assert item["unblocks"] == []
+    assert "backlog: A1 unblocks set to none by claude" in mock_git.call_args_list[1].args[0]
+
+
+def test_load_questions_include_unblocked_by(paths, mock_git):
+    todo_path, compliance_path = paths
+    repo_root = todo_path.parent
+    backlog.set_unblocks("A1", ["Q1", "Q2"], actor="claude", todo_path=todo_path, repo_root=repo_root)
+    snapshot = backlog.load(todo_path=todo_path, compliance_path=compliance_path)
+    q1 = next(q for q in snapshot.questions() if q["q"] == "Q1")
+    q3 = next(q for q in snapshot.questions() if q["q"] == "Q3")
+    assert q1["unblocked_by"] == ["A1"]
+    assert q3["unblocked_by"] == []
 
 
 def test_add_note_appends_after_existing_notes_and_keeps_other_items_intact():

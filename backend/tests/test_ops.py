@@ -220,6 +220,68 @@ def test_item_action_note_and_owner(tmp_path, monkeypatch, mock_git):
     asyncio.run(_run())
 
 
+def test_item_action_priority_and_unblocks(tmp_path, monkeypatch, mock_git):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+    user = {"email": "kevin.maingi12@gmail.com"}
+
+    async def _run():
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="priority", priority="p1"), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["priority"] == "p1"
+
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="unblocks", questions=["Q1"]), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["unblocks"] == ["Q1"]
+        q1 = next(q for q in result["questions"] if q["q"] == "Q1")
+        assert q1["unblocked_by"] == ["H3"]
+
+        # Clearing with an empty list removes the tag and the reverse index entry.
+        result = await ops.go_live_item_action(
+            "H3", ItemActionRequest(action="unblocks", questions=[]), user=user
+        )
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["unblocks"] == []
+        q1 = next(q for q in result["questions"] if q["q"] == "Q1")
+        assert q1["unblocked_by"] == []
+
+    asyncio.run(_run())
+
+
+def test_item_action_priority_without_value_is_400(tmp_path, monkeypatch, mock_git):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+
+    async def _run():
+        with pytest.raises(HTTPException) as exc_info:
+            await ops.go_live_item_action(
+                "H3", ItemActionRequest(action="priority"), user={"email": "kevin.maingi12@gmail.com"}
+            )
+        assert exc_info.value.status_code == 400
+
+    asyncio.run(_run())
+
+
+def test_go_live_items_and_questions_default_priority_and_empty_unblocks(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _write_repo(tmp_path)
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+
+    async def _run():
+        result = await ops.go_live(user={"email": "kevin.maingi12@gmail.com"})
+        assert result["items"][0]["priority"] == "p3"
+        assert result["items"][0]["unblocks"] == []
+        assert result["questions"][0]["unblocked_by"] == []
+
+    asyncio.run(_run())
+
+
 def test_item_action_unknown_item_id_is_404(tmp_path, monkeypatch, mock_git):
     monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
     _write_repo(tmp_path)

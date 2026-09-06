@@ -1397,7 +1397,9 @@ export type GoLiveItemAction =
   | { action: "start" }
   | { action: "block"; reason: string }
   | { action: "note"; text: string }
-  | { action: "owner"; owner: GoLiveOwner };
+  | { action: "owner"; owner: GoLiveOwner }
+  | { action: "priority"; priority: "p1" | "p2" | "p3" }
+  | { action: "unblocks"; questions: string[] };
 
 // A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)
 // otherwise hangs indefinitely and pages spin forever waiting on Promise.all.
