@@ -48,7 +48,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **C5. Store listings.** [owner: claude] [priority: p2] App Store: screenshots for 6.9 and 6.5 inch, description, keywords, support URL, App Privacy labels, age rating, review notes with a demo account (needs D2). Play: Data safety form, feature graphic 1024x500 (does not exist), screenshots. Icon master: `capacitor-spike/assets/icon.png`.
 - [ ] **C6. Housekeeping in the portals.** [owner: kevin] Remove the "Sorted by Auriq - Demised" App Store Connect record, delete provisioning profile "Sorted AppStore A", consider revoking the manually created iOS Distribution certificate (only Codemagic's API-key certificate should remain), remove the old `co.uk.auriqltd.wealth` App ID and Firebase Android app.
 - [ ] **C7. Apple relay email.** [owner: claude] Not needed until the backend sends email; if outbound email is ever added, register the sending domain in Sign in with Apple for Email Communication.
-- [ ] **C8. Codemagic: add a production workflow variant (build:mobile:prod) alongside the UAT one so a TestFlight build against the production backend can be produced for Q5 evidence and for release.** [owner: claude] [priority: p1] [state: review: feature-C8-codemagic-prod] [unblocks: Q5]
+- [ ] **C8. Codemagic: add a production workflow variant (build:mobile:prod) alongside the UAT one so a TestFlight build against the production backend can be produced for Q5 evidence and for release.** [owner: claude] [priority: p1] [state: blocked: integration conflict with main; rebase the branch] [unblocks: Q5]
 
 ## D. Identity and sign-up
 
