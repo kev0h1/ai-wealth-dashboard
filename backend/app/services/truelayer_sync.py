@@ -65,10 +65,20 @@ async def get_valid_token(connection_id: str) -> Optional[str]:
             },
         )
         if r.status_code == 200:
-            await connections_col.update_one({"_id": connection_id}, {"$unset": {"needs_reauth": ""}})
+            await connections_col.update_one(
+                {"_id": connection_id},
+                {"$unset": {"needs_reauth": "", "needs_reauth_at": ""}},
+            )
             await save_connection(connection_id, r.json())
             return r.json()["access_token"]
-    await connections_col.update_one({"_id": connection_id}, {"$set": {"needs_reauth": True}})
+    # needs_reauth_at: stamp only the FIRST time this connection goes dead —
+    # every retried refresh after that must not keep pushing the clock back,
+    # or the retention sweep's (app.services.retention) 30-day grace period
+    # would never elapse for a connection that keeps trying and failing.
+    update: dict = {"needs_reauth": True}
+    if not conn.get("needs_reauth_at"):
+        update["needs_reauth_at"] = datetime.utcnow()
+    await connections_col.update_one({"_id": connection_id}, {"$set": update})
     return None
 
 

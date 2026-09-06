@@ -28,6 +28,7 @@ from app.services import response_cache
 from app.routers.analytics import compute_and_cache_cashflow
 from app.services.planned import settle_planned_expenses
 from app.services.account_cascade import cascade_account_deletion, purge_user_exclusions
+from app.services.retention import disconnect_connection as _disconnect_connection
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -249,42 +250,16 @@ async def sync_history(user: dict = Depends(current_user)):
 
 @router.delete("/connections/{connection_id}")
 async def delete_connection(connection_id: str, user: dict = Depends(current_user)):
+    """Disconnect one bank connection/consent (TrueLayer or Finexer).
+
+    The actual work lives in app.services.retention.disconnect_connection so
+    the nightly expired-consent sweep (SECURITY.md section 6) runs the exact
+    same routine."""
     uid = user["email"]
-
-    # ── TrueLayer path ────────────────────────────────────────────────────────
-    conn = await connections_col.find_one({"_id": connection_id, "user_id": uid})
-    if conn:
-        account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id}, {"_id": 1})]
-        await cascade_account_deletion(uid, account_ids)
-        # The connection is dying: its resurrection guards die with it.
-        await purge_user_exclusions(
-            uid, sorted(set(account_ids) | set(conn.get("excluded_accounts") or []))
-        )
-        await connections_col.delete_one({"_id": connection_id})
-        return {"deleted": connection_id, "accounts_removed": len(account_ids)}
-
-    # ── Finexer path ──────────────────────────────────────────────────────────
-    consent = await _finexer_consents_col.find_one({"_id": connection_id, "user_id": uid})
-    if consent:
-        account_ids = [d["_id"] async for d in accounts_col.find({"connection_id": connection_id, "user_id": uid}, {"_id": 1})]
-        await cascade_account_deletion(uid, account_ids)
-        # The consent is dying: its resurrection guards die with it.
-        await purge_user_exclusions(
-            uid, sorted(set(account_ids) | set(consent.get("excluded_accounts") or []))
-        )
-        # Best-effort remote revoke (non-fatal)
-        try:
-            from app.services.finexer_sync import _client as _fx_client
-            async with _fx_client() as fxc:
-                rv = await fxc.delete(f"/consents/{connection_id}")
-                if rv.status_code not in (200, 204, 404):
-                    logger.warning("Finexer revoke %s returned HTTP %s", connection_id, rv.status_code)
-        except Exception:
-            logger.warning("Finexer revoke failed for consent %s (non-fatal)", connection_id, exc_info=True)
-        await _finexer_consents_col.delete_one({"_id": connection_id})
-        return {"deleted": connection_id, "accounts_removed": len(account_ids)}
-
-    raise HTTPException(404, "Connection not found")
+    result = await _disconnect_connection(uid, connection_id)
+    if result is None:
+        raise HTTPException(404, "Connection not found")
+    return result
 
 
 @router.delete("/accounts/{account_id}")

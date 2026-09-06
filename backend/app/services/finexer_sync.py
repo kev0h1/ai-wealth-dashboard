@@ -302,13 +302,20 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             remote_status = consent_doc.get("status")
             # Always persist what the remote told us, even when we're about
             # to bail below — a stale local "authorized" must not linger.
+            update_fields = {
+                "status":      remote_status,
+                "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
+                "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
+            }
+            # Stamp the moment the status actually changed away from
+            # "authorized" (local_consent was verified authorized above), so
+            # the retention sweep (app.services.retention) has a timestamp to
+            # measure the 30-day grace period from.
+            if remote_status != local_consent.get("status"):
+                update_fields["status_changed_at"] = datetime.utcnow()
             await finexer_consents_col.update_one(
                 {"_id": consent_id},
-                {"$set": {
-                    "status":      remote_status,
-                    "expiry_date": _parse_iso_utc(consent_doc.get("expiry_date")),
-                    "renewed_at":  _parse_iso_utc(consent_doc.get("renewed_at")),
-                }},
+                {"$set": update_fields},
             )
             if remote_status != "authorized":
                 logger.warning(
@@ -324,7 +331,9 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
                 consent_id, cr.status_code,
             )
             await finexer_consents_col.update_one(
-                {"_id": consent_id}, {"$set": {"status": "revoked"}},
+                {"_id": consent_id},
+                # status_changed_at: see the retention-sweep note above.
+                {"$set": {"status": "revoked", "status_changed_at": datetime.utcnow()}},
             )
             await _mark_finexer_accounts_expired(consent_id)
             return [], 0
