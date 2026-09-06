@@ -22,7 +22,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **A12. Point mobile builds at the API domain: build:mobile:prod base and the Codemagic prod variable become https://api.wealth.auriqltd.co.uk, add the domain to CORS, keep the Finexer return URL on the web domain.** [owner: claude] [priority: p1] [unblocks: Q4]
 - [x] **A13. Switch Vercel's Production Branch from main to release before the first merge into main; then confirm so the docs branch can be merged.** [owner: kevin] [priority: p1] [unblocks: Q7] (done 2026-09-06)
   - note (2026-09-06, claude): Vercel production branch is release; docs branch fast-forwarded into main at cb9e1c1 on 2026-09-06
-- [ ] **A14. Own bank picker for Finexer: reuse BankPickerSheet in Finexer mode so the user picks the bank in our design and lands straight on Finexer's consent screen with the provider preselected; Finexer accounts reconnect through the Finexer link too.** [owner: claude] [priority: p1]
+- [ ] **A14. Own bank picker for Finexer: reuse BankPickerSheet in Finexer mode so the user picks the bank in our design and lands straight on Finexer's consent screen with the provider preselected; Finexer accounts reconnect through the Finexer link too.** [owner: claude] [priority: p1] [unblocks: Q5]
 
 ## B. Penny cost, tiers and billing
 
