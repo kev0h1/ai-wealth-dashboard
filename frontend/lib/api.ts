@@ -1385,6 +1385,7 @@ export type GoLiveResponse = {
     compliance?: GoLiveDoc;
     pricing?: GoLiveDoc;
   };
+  jira_base_url: string | null;
 };
 
 // A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)

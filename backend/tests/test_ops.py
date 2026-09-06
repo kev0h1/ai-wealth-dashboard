@@ -76,3 +76,31 @@ def test_go_live_email_match_is_case_insensitive(tmp_path, monkeypatch):
         assert "todo" in result["files"]
 
     asyncio.run(_run())
+
+
+def test_go_live_jira_base_url_read_from_jira_env(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    (tmp_path / "TODO.md").write_text("# Backlog\n", encoding="utf-8")
+    (tmp_path / ".jira.env").write_text(
+        "JIRA_BASE_URL=https://auriqltd.atlassian.net\nJIRA_EMAIL=kevin@example.com\nJIRA_API_TOKEN=secret\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+
+    async def _run():
+        result = await ops.go_live(user={"email": "kevin.maingi12@gmail.com"})
+        assert result["jira_base_url"] == "https://auriqltd.atlassian.net"
+
+    asyncio.run(_run())
+
+
+def test_go_live_jira_base_url_none_without_jira_env(tmp_path, monkeypatch):
+    monkeypatch.setattr(ops, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    (tmp_path / "TODO.md").write_text("# Backlog\n", encoding="utf-8")
+    monkeypatch.setattr(ops, "_repo_root", lambda: tmp_path)
+
+    async def _run():
+        result = await ops.go_live(user={"email": "kevin.maingi12@gmail.com"})
+        assert result["jira_base_url"] is None
+
+    asyncio.run(_run())

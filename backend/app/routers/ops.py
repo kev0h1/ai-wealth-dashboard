@@ -45,6 +45,26 @@ def _repo_root() -> Path:
     return candidate
 
 
+def _read_jira_base_url(root: Path) -> str | None:
+    """Reads only the JIRA_BASE_URL line out of `.jira.env` if that file
+    exists (see scripts/jira_sync.py, docs/ops/JIRA.md). That URL is not a
+    secret — it is the same value Kevin's browser is pointed at to open a
+    Jira issue — so it is safe to return here, unlike the rest of that
+    file (email, API token), which is never read by this endpoint."""
+    path = root / ".jira.env"
+    try:
+        if not path.is_file():
+            return None
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            stripped = raw_line.strip()
+            if stripped.startswith("JIRA_BASE_URL="):
+                value = stripped.split("=", 1)[1].strip().strip('"').strip("'")
+                return value or None
+    except OSError:
+        return None
+    return None
+
+
 def _read_doc(root: Path, relpath: str) -> dict | None:
     path = root / relpath
     try:
@@ -68,4 +88,4 @@ async def go_live(user: dict = Depends(current_user)):
         doc = _read_doc(root, relpath)
         if doc is not None:
             files[key] = doc
-    return {"files": files}
+    return {"files": files, "jira_base_url": _read_jira_base_url(root)}

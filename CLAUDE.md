@@ -23,6 +23,16 @@ Working tree on `docs/mobile-porting-checkpoint` carries this round uncommitted.
 
 Open after this round (see session notes, not doctrine): dead `PlansDock` / `CommitmentCards` / `computeDebtRow` / `computeGrowRow` still defined in `PlanningPage.tsx`; duplicated fetch path in `lib/useAllTransactions.ts`; DESIGN.md still describes the retired gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card.
 
+## Jira sync
+
+`TODO.md` and the Finexer compliance doc each mirror a Jira issue once `(SRT-12)` or `Jira: SRT-40` is written next to the item. See `docs/ops/JIRA.md` for full setup and command reference. When a session starts, blocks on, or finishes a backlog item, run the matching command instead of editing only the markdown:
+
+```bash
+backend/.venv/bin/python scripts/jira_sync.py start <item-id>
+backend/.venv/bin/python scripts/jira_sync.py block <item-id> "<reason>"
+backend/.venv/bin/python scripts/jira_sync.py done <item-id> --commit <sha>
+```
+
 ## Scope restriction — CRITICAL
 
 **Only run commands within `/root/ai-wealth-dashboard/`.**

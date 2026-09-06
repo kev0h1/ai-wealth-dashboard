@@ -2,7 +2,7 @@
 // stay the source of truth (other sessions edit TODO.md and the compliance
 // doc directly) — this only reads and shapes them for display, no editing.
 
-export type GoLiveStatus = "ready" | "needs-kevin" | "blocked-deploy" | "unknown";
+export type GoLiveStatus = "ready" | "needs-kevin" | "blocked-deploy" | "submitted" | "unknown";
 
 export type GoLiveQuestion = {
   id: string; // "Q1"
@@ -11,10 +11,14 @@ export type GoLiveQuestion = {
   status: GoLiveStatus;
   answer: string; // fenced ```text block content, trimmed
   kevinMarkers: string[];
+  /** Jira issue key from a `Jira: SRT-40` tag on the Status line, once
+   *  `scripts/jira_sync.py bootstrap` has created it. See docs/ops/JIRA.md. */
+  jiraKey?: string;
 };
 
 /** Parses `docs/compliance/finexer-agent-controls-2026-09.md` into its 13
- *  `## Qn ...` sections. Each section carries a `Status: <status>` line and
+ *  `## Qn ...` sections. Each section carries a `Status: <status>` line
+ *  (optionally suffixed `Jira: SRT-40` once jira_sync.py has synced it) and
  *  a fenced ```text answer block, per the format the compliance doc uses. */
 export function parseComplianceMarkdown(markdown: string): GoLiveQuestion[] {
   const questions: GoLiveQuestion[] = [];
@@ -29,15 +33,18 @@ export function parseComplianceMarkdown(markdown: string): GoLiveQuestion[] {
     const end = i + 1 < matches.length ? (matches[i + 1].index ?? markdown.length) : markdown.length;
     const body = markdown.slice(start, end);
 
-    const statusMatch = body.match(/^Status:\s*(ready|needs-kevin|blocked-deploy)\s*$/m);
+    const statusMatch = body.match(
+      /^Status:\s*(ready|needs-kevin|blocked-deploy|submitted)(?:\s+Jira:\s*([A-Z][A-Z0-9]*-\d+))?\s*$/m
+    );
     const status: GoLiveStatus = (statusMatch?.[1] as GoLiveStatus) ?? "unknown";
+    const jiraKey = statusMatch?.[2] || undefined;
 
     const fenceMatch = body.match(/```text\n([\s\S]*?)```/);
     const answer = fenceMatch ? fenceMatch[1].trim() : "";
 
     const kevinMarkers = [...answer.matchAll(/\[KEVIN:[^\]]*\]/g)].map((m) => m[0]);
 
-    questions.push({ id, title: `${id} ${shortTitle}`, shortTitle, status, answer, kevinMarkers });
+    questions.push({ id, title: `${id} ${shortTitle}`, shortTitle, status, answer, kevinMarkers, jiraKey });
   }
   return questions;
 }
@@ -52,7 +59,13 @@ export function stripKevinMarkers(answer: string): string {
     .trim();
 }
 
-export type GoLiveTodoItem = { text: string; done: boolean };
+export type GoLiveTodoItem = {
+  text: string;
+  done: boolean;
+  /** Jira issue key from a trailing `(SRT-12)` tag, once
+   *  `scripts/jira_sync.py bootstrap` has created it. See docs/ops/JIRA.md. */
+  jiraKey?: string;
+};
 export type GoLiveTodoSection = { id: string; title: string; items: GoLiveTodoItem[] };
 
 /** Parses TODO.md into its `## ` sections, each holding `- [ ]` / `- [x]`
@@ -73,7 +86,12 @@ export function parseTodoMarkdown(markdown: string): GoLiveTodoSection[] {
     const itemRe = /^- \[( |x|X)\]\s+(.*)$/gm;
     let itemMatch: RegExpExecArray | null;
     while ((itemMatch = itemRe.exec(body)) !== null) {
-      items.push({ done: itemMatch[1].toLowerCase() === "x", text: itemMatch[2].trim() });
+      const rawText = itemMatch[2].trim();
+      const keyMatch = rawText.match(/\(([A-Z][A-Z0-9]*-\d+)\)/);
+      // The key renders as its own tag (see JiraKeyTag in the page), so
+      // strip it out of the body text instead of showing it twice.
+      const text = keyMatch ? rawText.replace(keyMatch[0], "").replace(/\s{2,}/g, " ").trim() : rawText;
+      items.push({ done: itemMatch[1].toLowerCase() === "x", text, jiraKey: keyMatch?.[1] });
     }
 
     const idMatch = title.match(/^([A-Z])\./);

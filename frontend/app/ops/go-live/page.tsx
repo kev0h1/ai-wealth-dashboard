@@ -29,8 +29,30 @@ const STATUS_LABEL: Record<GoLiveStatus, string> = {
   ready: "Ready",
   "needs-kevin": "Needs Kevin",
   "blocked-deploy": "Blocked on deploy",
+  submitted: "Submitted",
   unknown: "Unknown",
 };
+
+/** Small "(SRT-12)" tag next to an item or question. Links to the Jira
+ *  issue when the backend has a jira_base_url (from `.jira.env`, see
+ *  GET /ops/go-live); otherwise renders as plain text since there is
+ *  nowhere useful to link to yet. */
+function JiraKeyTag({ jiraKey, jiraBaseUrl }: { jiraKey?: string; jiraBaseUrl: string | null }) {
+  if (!jiraKey) return null;
+  if (jiraBaseUrl) {
+    return (
+      <a
+        href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${jiraKey}`}
+        target="_blank"
+        rel="noreferrer"
+        className="money ml-1.5 shrink-0 text-[11px] font-semibold text-indigo-600 underline underline-offset-2 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+      >
+        {jiraKey}
+      </a>
+    );
+  }
+  return <span className="money ml-1.5 shrink-0 text-[11px] font-semibold text-slate-400 dark:text-slate-500">{jiraKey}</span>;
+}
 
 function formatUpdatedAt(iso: string): string {
   try {
@@ -67,18 +89,19 @@ function SummaryChip({ label, count, amber }: { label: string; count: number; am
 function QuestionnaireSummary({ questions }: { questions: GoLiveQuestion[] }) {
   const counts = questions.reduce<Record<GoLiveStatus, number>>(
     (acc, q) => ({ ...acc, [q.status]: (acc[q.status] ?? 0) + 1 }),
-    { ready: 0, "needs-kevin": 0, "blocked-deploy": 0, unknown: 0 }
+    { ready: 0, "needs-kevin": 0, "blocked-deploy": 0, submitted: 0, unknown: 0 }
   );
   return (
     <div className="flex flex-wrap gap-2">
       <SummaryChip label="Ready" count={counts.ready} amber={false} />
       <SummaryChip label="Needs Kevin" count={counts["needs-kevin"]} amber={counts["needs-kevin"] > 0} />
       <SummaryChip label="Blocked on deploy" count={counts["blocked-deploy"]} amber={counts["blocked-deploy"] > 0} />
+      <SummaryChip label="Submitted" count={counts.submitted} amber={false} />
     </div>
   );
 }
 
-function QuestionCard({ question }: { question: GoLiveQuestion }) {
+function QuestionCard({ question, jiraBaseUrl }: { question: GoLiveQuestion; jiraBaseUrl: string | null }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const charCount = question.answer.length;
@@ -99,7 +122,10 @@ function QuestionCard({ question }: { question: GoLiveQuestion }) {
     <div className="glass-card rounded-2xl p-4">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold text-pretty text-slate-800 dark:text-slate-100">{question.title}</h3>
-        <StatusPill status={question.status} />
+        <span className="flex shrink-0 items-center">
+          <StatusPill status={question.status} />
+          <JiraKeyTag jiraKey={question.jiraKey} jiraBaseUrl={jiraBaseUrl} />
+        </span>
       </div>
 
       <p className={`money mt-2 text-[11px] font-semibold ${overLimit ? "text-amber-600 dark:text-amber-400" : "text-slate-400 dark:text-slate-500"}`}>
@@ -160,23 +186,38 @@ const inlineMdComponents: Components = {
   ),
 };
 
-function TodoItemRow({ item }: { item: { text: string; done: boolean } }) {
+function TodoItemRow({
+  item,
+  jiraBaseUrl,
+}: {
+  item: { text: string; done: boolean; jiraKey?: string };
+  jiraBaseUrl: string | null;
+}) {
   const Icon = item.done ? SquareCheck : Square;
   return (
     <li className="flex items-start gap-2.5 py-1.5">
       <Icon size={16} className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       <span
-        className={`text-sm leading-6 text-pretty ${
+        className={`flex flex-wrap items-baseline text-sm leading-6 text-pretty ${
           item.done ? "text-slate-400 line-through dark:text-slate-500" : "text-slate-700 dark:text-slate-200"
         }`}
       >
         <ReactMarkdown components={inlineMdComponents}>{item.text}</ReactMarkdown>
+        <JiraKeyTag jiraKey={item.jiraKey} jiraBaseUrl={jiraBaseUrl} />
       </span>
     </li>
   );
 }
 
-function TodoSectionCard({ section, defaultOpen }: { section: GoLiveTodoSection; defaultOpen: boolean }) {
+function TodoSectionCard({
+  section,
+  defaultOpen,
+  jiraBaseUrl,
+}: {
+  section: GoLiveTodoSection;
+  defaultOpen: boolean;
+  jiraBaseUrl: string | null;
+}) {
   const total = section.items.length;
   const done = section.items.filter((item) => item.done).length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -197,7 +238,7 @@ function TodoSectionCard({ section, defaultOpen }: { section: GoLiveTodoSection;
       </div>
       <ul className="mt-3 divide-y divide-slate-100 dark:divide-white/10">
         {section.items.map((item, idx) => (
-          <TodoItemRow key={idx} item={item} />
+          <TodoItemRow key={idx} item={item} jiraBaseUrl={jiraBaseUrl} />
         ))}
       </ul>
     </details>
@@ -244,6 +285,7 @@ export default function GoLivePage() {
     () => (data?.files.pricing ? splitMarkdownIntoSegments(data.files.pricing.markdown) : []),
     [data]
   );
+  const jiraBaseUrl = data?.jira_base_url ?? null;
 
   if (forbidden) {
     return (
@@ -298,7 +340,7 @@ export default function GoLivePage() {
             </div>
             <div className="space-y-3">
               {questions.map((q) => (
-                <QuestionCard key={q.id} question={q} />
+                <QuestionCard key={q.id} question={q} jiraBaseUrl={jiraBaseUrl} />
               ))}
             </div>
           </section>
@@ -309,7 +351,7 @@ export default function GoLivePage() {
             <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Backlog</h2>
             <div className="space-y-3">
               {todoSections.map((section, idx) => (
-                <TodoSectionCard key={section.id} section={section} defaultOpen={idx === 0} />
+                <TodoSectionCard key={section.id} section={section} defaultOpen={idx === 0} jiraBaseUrl={jiraBaseUrl} />
               ))}
             </div>
           </section>
