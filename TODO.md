@@ -4,7 +4,7 @@ Working rules for any session picking an item: branch `docs/mobile-porting-check
 
 Context documents: `docs/compliance/finexer-agent-controls-2026-09.md` (due diligence answers, `[KEVIN]` markers), `docs/pricing/tiering-unit-economics-mcp-2026-09.md` (tier table, unit economics, scaling, MCP design), `PENNY_TOOLS.md`, `SECURITY.md`, `PRIVACY.md`, `TERMS.md`, `DEPLOY.md`.
 
-Jira: every item mirrors a Jira issue; the key is appended to the item as `(SRT-12)` once created. Use `scripts/jira_sync.py` (see docs/ops/JIRA.md) to start, block, or finish an item so both the board and this file move together. Never edit only one side.
+Board: the private page /ops/go-live on UAT reads and edits these files. Sessions use `scripts/backlog.py` (`start`, `block`, `done <id> --commit <sha>`, `note`) so the file, the page and git history stay one thing. Never tick by hand.
 
 ## A. Finexer go-live blockers (target 2026-10-01)
 
@@ -75,3 +75,4 @@ Jira: every item mirrors a Jira issue; the key is appended to the item as `(SRT-
 - [ ] **H1. Firebase config history.** [owner: kevin] `capacitor-spike/google-services.json` was tracked until 2026-09-05 and an old copy with the Android API key remains in git history. Decision: restrict the key to the Android package in Google Cloud console rather than rewrite history. Kevin.
 - [ ] **H2. Retired Expo project `mobile/`.** [owner: claude] `sync-shared.sh` still writes into `mobile/lib/shared/`; either delete the directory or stop syncing to it.
 - [ ] **H3. `docs/compliance` and `docs/pricing`** [owner: claude] are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
+  - note (2026-09-06, kevin): Board write-side smoke test
