@@ -226,6 +226,21 @@ To run the production variant, start a Codemagic build and pick
 workflow dropdown, or `--workflow ios-capacitor-prod` via the Codemagic
 API/CLI) instead of the default `ios-capacitor`.
 
+### Build tag
+
+The small whisper on the login and biometric-lock screens (for example
+`build 2026-09-07 9763f81`, or `build 2026-09-07 9763f81 #42` on a Codemagic
+build) is derived automatically at build time, not hand-edited. It is the
+UTC build date plus the git short SHA, with the CI build number appended
+when one exists. On Vercel and UAT, `frontend/next.config.ts` computes it
+from `VERCEL_GIT_COMMIT_SHA` or a local `git rev-parse --short HEAD`. On
+Codemagic and local Android APK builds, `frontend/scripts/build-mobile.sh`
+computes it before its rsync step (the mobile build runs from a scratch copy
+with no `.git`), preferring `git rev-parse` when available and falling back
+to Codemagic's `CM_COMMIT`, with `BUILD_NUMBER` appended when set. Any
+environment can override the whole thing by setting `NEXT_PUBLIC_BUILD_TAG`
+explicitly before the build runs.
+
 ## GitHub Actions secrets (backups)
 
 `BACKUP_MONGO_URI`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`.

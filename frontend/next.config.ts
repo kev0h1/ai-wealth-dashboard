@@ -1,6 +1,49 @@
 import type { NextConfig } from "next";
+import { execSync } from "child_process";
 
 const BACKEND = process.env.BACKEND_URL || "http://localhost:8000";
+
+// Derives the login/biometric-lock build tag (see frontend/lib/buildTag.ts)
+// at config-load time, i.e. before `next build` starts compiling, so it can
+// be inlined via `env:` below as NEXT_PUBLIC_BUILD_TAG. Resolution order:
+//   1. NEXT_PUBLIC_BUILD_TAG already set in the environment — used verbatim
+//      (lets any environment override the derivation outright).
+//   2. Short SHA: VERCEL_GIT_COMMIT_SHA (Vercel) or CM_COMMIT (Codemagic),
+//      first 7 chars, else `git rev-parse --short HEAD` run from this
+//      file's own directory (works for UAT's in-tree `npm run build`; not
+//      used by the mobile static export, which builds from a rsync'd
+//      scratch dir with no .git — build-mobile.sh precomputes the tag and
+//      exports NEXT_PUBLIC_BUILD_TAG before that build starts, so case 1
+//      above wins there instead), else "nogit" if all of that fails.
+//   3. BUILD_NUMBER (Codemagic's auto-incrementing build counter), appended
+//      as "#<n>" when set.
+// Final shape: "build 2026-09-07 9763f81" or "build 2026-09-07 9763f81 #42".
+function resolveBuildTag(): string {
+  if (process.env.NEXT_PUBLIC_BUILD_TAG) {
+    return process.env.NEXT_PUBLIC_BUILD_TAG;
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+
+  let sha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.CM_COMMIT || "";
+  if (!sha) {
+    try {
+      sha = execSync("git rev-parse --short HEAD", {
+        cwd: __dirname,
+        stdio: ["ignore", "pipe", "ignore"],
+      })
+        .toString()
+        .trim();
+    } catch {
+      sha = "";
+    }
+  }
+  sha = sha ? sha.slice(0, 7) : "nogit";
+
+  const buildNumber = process.env.BUILD_NUMBER ? ` #${process.env.BUILD_NUMBER}` : "";
+
+  return `build ${date} ${sha}${buildNumber}`;
+}
 
 // Capacitor/mobile static export: Next's `output: 'export'` does not support
 // rewrites() or redirects(), so both are disabled when MOBILE_EXPORT is set.
@@ -11,6 +54,9 @@ const nextConfig: NextConfig = {
   // Vercel builds natively (it sets VERCEL=1); "standalone" is only for the
   // self-hosted `next start` path and can break Vercel builds, so opt out there.
   output: MOBILE_EXPORT ? "export" : process.env.VERCEL ? undefined : "standalone",
+  env: {
+    NEXT_PUBLIC_BUILD_TAG: resolveBuildTag(),
+  },
   transpilePackages: ["@wealth/shared"],
   async rewrites() {
     if (MOBILE_EXPORT) return [];

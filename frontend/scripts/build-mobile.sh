@@ -28,6 +28,27 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# Precompute the login/biometric-lock build tag (see frontend/lib/buildTag.ts)
+# HERE, before the rsync below. `next.config.ts` normally derives this itself
+# at config-load time via `git rev-parse --short HEAD`, but that rsync
+# deliberately excludes .git/ (see the big comment above), so `git
+# rev-parse` would fail inside the scratch dir. Computing it here, from the
+# real repo, and exporting NEXT_PUBLIC_BUILD_TAG makes next.config.ts's
+# resolver pick it up verbatim (its case 1) inside the scratch build.
+# Codemagic's checkout does have .git, so `git rev-parse` still works there
+# too; CM_COMMIT is only a fallback if git itself isn't available.
+if [ -z "${NEXT_PUBLIC_BUILD_TAG:-}" ]; then
+  BUILD_DATE="$(date -u +%F)"
+  CM_COMMIT="${CM_COMMIT:-}"
+  BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo "${CM_COMMIT:0:7}")"
+  BUILD_SHA="${BUILD_SHA:-nogit}"
+  if [ -n "${BUILD_NUMBER:-}" ]; then
+    export NEXT_PUBLIC_BUILD_TAG="build ${BUILD_DATE} ${BUILD_SHA} #${BUILD_NUMBER}"
+  else
+    export NEXT_PUBLIC_BUILD_TAG="build ${BUILD_DATE} ${BUILD_SHA}"
+  fi
+fi
+
 SCRATCH="$(pwd)/.mobile-build"
 
 rm -rf "$SCRATCH"
