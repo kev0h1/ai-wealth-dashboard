@@ -1996,7 +1996,7 @@ export const api = {
   insights: () => get<Insight[]>("/insights"),
   truelayerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/truelayer/providers"),
   connectLink: (provider?: string) => get<{ auth_url: string }>(`/auth/truelayer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
-  finexerProviders: () => get<{ id: string; name: string; logo: string }[]>("/auth/finexer/providers"),
+  finexerProviders: () => get<{ id: string; name: string; logo: string; bg_colors?: string[] }[]>("/auth/finexer/providers"),
   finexerConnectLink: (provider?: string) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>

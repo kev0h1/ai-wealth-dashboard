@@ -278,7 +278,7 @@ export default function AccountsPage() {
     searchParams.get("tab") === "Investments" ? "Investments" : "Banks"
   );
   const [showMpesaUpload, setShowMpesaUpload] = useState(false);
-  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [showBankPicker, setShowBankPicker] = useState<null | "truelayer" | "finexer">(null);
   // Header Variant B: the four/three "add" actions condense into one primary
   // button that opens this menu — same handlers/routes, just one entry point.
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -901,7 +901,9 @@ export default function AccountsPage() {
           last4: account.account_number.slice(-4),
         }));
       }
-      const { auth_url } = await api.connectLink(providerId);
+      const { auth_url } = (account as (Account & { source?: string }) | undefined)?.source === "finexer"
+        ? await api.finexerConnectLink(providerId)
+        : await api.connectLink(providerId);
       window.location.href = auth_url;
     } catch {
       alert("Failed to start reconnection. Please try again.");
@@ -2506,7 +2508,7 @@ export default function AccountsPage() {
                       tutorialId="tutorial-add-bank"
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker(true); }}
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
                     />
                     <AddMenuItem
                       tutorialId="tutorial-add-statement"
@@ -2529,15 +2531,7 @@ export default function AccountsPage() {
                     <AddMenuItem
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Finexer (beta)"
-                      onClick={async () => {
-                        setAddMenuOpen(false);
-                        try {
-                          const { auth_url } = await api.finexerConnectLink();
-                          window.location.href = auth_url;
-                        } catch {
-                          // no-op; user stays on page
-                        }
-                      }}
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
                     />
                   </>
                 ) : (
@@ -2717,7 +2711,7 @@ export default function AccountsPage() {
                 {region === "UK" ? (
                   <div className="flex flex-col gap-2 items-center">
                     <button
-                      onClick={() => setShowBankPicker(true)}
+                      onClick={() => setShowBankPicker("truelayer")}
                       className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all text-white font-semibold px-5 py-3 rounded-xl text-sm"
                     >
                       <Plus size={16} />
@@ -3526,7 +3520,7 @@ export default function AccountsPage() {
       )}
 
       {showBankPicker && (
-        <BankPickerSheet onClose={() => setShowBankPicker(false)} />
+        <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
       )}
 
       {modals}
