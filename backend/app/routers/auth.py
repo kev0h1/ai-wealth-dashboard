@@ -17,6 +17,7 @@ from app.core.config import (
     mask_email,
 )
 from app.core.identity import resolve_signin_email
+from app.core.pending_login import _pop_pending, _store_pending
 from app.db.collections import linked_identities_col
 from app.services.retention import erase_orphaned_relay_account
 from itsdangerous import SignatureExpired, BadSignature
@@ -45,17 +46,9 @@ async def _get_apple_jwks() -> dict:
 # Chrome Custom Tabs won't launch an app-scheme redirect (wealthdash://) from a
 # server redirect without a user gesture, so the mobile app can't reliably get
 # the token back via a deep link. Instead the app opens login with a one-time
-# `state` id and polls for the result; the callback stashes it here keyed by
-# state. Single uvicorn worker, so an in-memory dict is sufficient.
-_PENDING_TTL = 300
-_pending: dict[str, tuple[str, float]] = {}
-
-
-def _store_pending(state: str, value: str) -> None:
-    now = time.time()
-    _pending[state] = (value, now + _PENDING_TTL)
-    for k in [k for k, (_, exp) in _pending.items() if exp < now]:
-        _pending.pop(k, None)
+# `state` id and polls for the result; the callback stashes it via
+# `_store_pending` keyed by state. Redis-backed (app.core.pending_login) so
+# this works across Railway replicas, not a single uvicorn worker.
 
 
 @router.post("/auth/session/validate")
@@ -359,20 +352,18 @@ async def google_auth_mobile(state: str = ""):
 
 @router.get("/auth/mobile/poll")
 async def mobile_poll(state: str):
-    entry = _pending.get(state)
-    if not entry or entry[1] < time.time():
-        _pending.pop(state, None)
+    value = await _pop_pending(state)
+    if value is None:
         return {"status": "pending"}
-    value, _ = _pending.pop(state)
     kind, _, payload = value.partition(":")
     return {"status": kind, **({"token": payload} if kind == "token" else {"error": payload})}
 
 
 @router.get("/auth/google/mobile-callback")
 async def google_mobile_callback(code: str = None, error: str = None, state: str = ""):
-    def finish(value: str) -> HTMLResponse:
+    async def finish(value: str) -> HTMLResponse:
         if state:
-            _store_pending(state, value)
+            await _store_pending(state, value)
         ok = value.startswith("token:")
         if ok:
             heading = "Signed in"
@@ -409,7 +400,7 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
 """)
 
     if error or not code:
-        return finish("error:auth_failed")
+        return await finish("error:auth_failed")
 
     redirect_uri = f"{APP_URL}/api/auth/google/mobile-callback"
     async with httpx.AsyncClient() as client:
@@ -424,7 +415,7 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
             },
         )
     if not token_resp.is_success:
-        return finish("error:token_exchange_failed")
+        return await finish("error:token_exchange_failed")
 
     access_token = token_resp.json().get("access_token")
     async with httpx.AsyncClient() as client:
@@ -433,18 +424,18 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
             headers={"Authorization": f"Bearer {access_token}"},
         )
     if not userinfo_resp.is_success:
-        return finish("error:userinfo_failed")
+        return await finish("error:userinfo_failed")
 
     userinfo = userinfo_resp.json()
     email    = userinfo.get("email", "").lower()
     if not email:
-        return finish("error:auth_failed")
+        return await finish("error:auth_failed")
     email = await resolve_signin_email("google-mobile", email)
     if email is None:
-        return finish("error:access_denied")
+        return await finish("error:access_denied")
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
-    return finish(f"token:{session_token}")
+    return await finish(f"token:{session_token}")
 
 
 @router.get("/auth/google/callback")

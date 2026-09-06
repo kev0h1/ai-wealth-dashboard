@@ -37,7 +37,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     path = request.url.path
     if path.startswith("/auth/") or path.startswith("/webhooks/") or path.startswith("/logo/"):
-        if limited := check_rate_limit(request):
+        if limited := await check_rate_limit(request):
             return limited
         return await call_next(request)
     if path in {"/health", "/docs", "/openapi.json", "/redoc"}:
