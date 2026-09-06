@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.4 — last reviewed 2026-08-14. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.6 — last reviewed 2026-09-06. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -30,6 +30,15 @@ AURIQ LTD processes UK consumers' bank account and transaction data, obtained wi
 | Monitoring | Platform logs (Vercel/Railway/Atlas) and optional application error monitoring (Sentry). |
 
 Detailed operational security notes live in `CLAUDE.md`, `DEPLOY.md`, and `ADR.md`.
+
+### Dependency audit log
+
+| Date | Surface | Tool | Result | Action |
+|------|---------|------|--------|--------|
+| 2026-09-06 | Frontend (`frontend/`) | `npm audit` | 8 advisories total across all dependencies (1 low, 7 high, 0 critical); 4 high in production dependencies only (`npm audit --omit=dev`: nanoid, next, postcss, sharp), the remaining 1 low and 3 high are dev-only tooling (`@babel/core`, `brace-expansion`, `browserslist`, `js-yaml`). | Recorded, not upgraded this pass. The next/postcss/sharp fixes require a Next.js major/minor jump (16.2.4 to 16.3.4) and were left for a dedicated upgrade item so the release isn't blocked. |
+| 2026-09-06 | Backend (`backend/`, via a throwaway venv, not the shared `backend/.venv`) | `pip-audit` | 57 known advisories (44 unique, pip-audit reports some IDs twice) across 8 packages: `aiohttp` 3.13.5, `click` 8.3.2, `cryptography` 46.0.7, `idna` 3.11, `pillow` 12.2.0, `pyasn1` 0.6.3, `python-multipart` 0.0.29, `starlette` 1.0.0. `pip-audit`'s OSV backend does not assign severity ratings; every advisory has a fix version available. | Recorded, not upgraded this pass. Follow-up item needed to review and upgrade these packages, `backend/.venv` is shared with the live UAT service so upgrades are done deliberately with a restart and verification, not as part of this audit-recording task. |
+
+Dependency audits are re-run before each production release.
 
 ## 3. Incident classification
 
@@ -129,4 +138,5 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.2 | 2026-08-09 | Added GDPR compliance section (draft). |
 | 1.3 | 2026-08-09 | Documented privacy notice & consent-withdrawal process (draft; page not yet published). |
 | 1.4 | 2026-08-14 | Recorded ICO registration; drafted Privacy Policy and Terms & Conditions. |
-| 1.5 | 2026-09-06 | Automated retention sweeps (connections 30 days after consent ends, dormant accounts after 12 months). |
+| 1.5 | 2026-09-06 | Removed legacy PIN login; masked reconnect state; first recorded dependency audit. |
+| 1.6 | 2026-09-06 | Automated retention sweeps (connections 30 days after consent ends, dormant accounts after 12 months). |

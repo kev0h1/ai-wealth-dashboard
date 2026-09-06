@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin } from "@/lib/nativeAuth";
 import { BUILD_TAG } from "@/lib/buildTag";
+import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
 
 interface LoginScreenProps {
   error?: string | null;
@@ -98,8 +99,13 @@ export default function LoginScreen({ error }: LoginScreenProps) {
           )}
         </div>
 
+        {/* Regulatory disclosure (Q6/A9) — single source of truth in lib/regulatoryCopy.ts */}
+        <p className="mt-8 px-4 text-center text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+          {AGENT_DISCLOSURE}
+        </p>
+
         {/* Whisper build tag — see lib/buildTag.ts for why this exists. */}
-        <p className="mt-6 text-center text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
+        <p className="mt-3 text-center text-[10px] text-slate-400/70 dark:text-slate-500/60 tracking-wide">
           {BUILD_TAG}
         </p>
       </div>

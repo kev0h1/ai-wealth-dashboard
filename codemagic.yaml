@@ -84,9 +84,10 @@ workflows:
         script: |
           cd frontend
           npm ci
-          # TESTING PHASE: pointed at UAT — for a prod release, restore
-          # `npm run build:mobile:prod` (see git blame). This mirrors the
-          # local-APK convention: npm run build:mobile with no
+          # This workflow builds against UAT. For a production TestFlight
+          # build (Q5 evidence / release), run `npm run build:mobile:prod`
+          # instead, which bakes https://api.wealth.auriqltd.co.uk. This
+          # mirrors the local-APK convention: npm run build:mobile with no
           # MOBILE_API_BASE override falls back to UAT
           # (https://uat.wealth.auriqltd.co.uk/api) inside
           # frontend/scripts/build-mobile.sh, same as Android APK builds.
