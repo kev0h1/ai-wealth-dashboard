@@ -236,7 +236,11 @@ scripts/session.sh list
   entirely if not), creates the worktree + branch off
   `origin/main`, symlinks `frontend/node_modules`,
   `capacitor-spike/node_modules` and `backend/.venv` in from the shared
-  tree (so you don't reinstall anything per worktree), checks that
+  tree (so you don't reinstall anything per worktree), with `@wealth/shared`
+  exempted from that symlink via `frontend/tsconfig.json` `paths`, which
+  point `tsc` and Next straight at the current checkout's own `shared/src`
+  so edits to a worktree's `shared/` are visible there without a reinstall,
+  checks that
   `import app` in the worktree's `backend/` resolves to the worktree's own
   package rather than the shared tree's, marks the item in-progress on the
   board, and prints the worktree path plus the rules above. If `<ID>`
