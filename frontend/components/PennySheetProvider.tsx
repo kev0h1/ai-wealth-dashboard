@@ -55,6 +55,8 @@
 // requires being called "inside" it any more.
 
 import { useSyncExternalStore } from "react";
+import { api } from "@/lib/api";
+import type { SubscriptionInfo } from "@/lib/api";
 import PennySheet from "./PennySheet";
 
 export type PennyAskContext = {
@@ -150,6 +152,140 @@ export function usePennySheet(): {
 export function usePennySheetState(): SheetState & { open: typeof open; close: typeof close } {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   return { ...snap, open, close };
+}
+
+// ── PENNY USAGE (2026-09-06, usage ring round) — the sheet header's ring
+// (PennySheet.tsx) and the composer's resting state (PennyConversation.tsx)
+// both need the same /subscription usage figures, but live in different
+// components with no ref/context wired between them — same shape of problem
+// `sheetState` above already solved for open/closed, so this reuses that
+// exact module-level-singleton + useSyncExternalStore pattern rather than
+// inventing a second mechanism. One fetch, shared everywhere; no consumer
+// re-fetches its own copy. ──────────────────────────────────────────────
+
+export type PennyUsage = {
+  /** Last successful GET /subscription response, or null before the first
+   * fetch (or if every fetch so far has failed) — consumers treat null the
+   * same as "no ring yet" / "composer never rests" (see `capped` below,
+   * which is independently derived, so a stale/missing `info` alone can
+   * never wrongly rest the composer). */
+  info: SubscriptionInfo | null;
+  /** Whether Penny's composer should be in its resting state right now.
+   * True either because the last /subscription fetch showed
+   * `usage.penny_remaining === 0` on a capped tier, OR because a live
+   * POST /can-i just rejected with 402 PENNY_LIMIT_REACHED (see
+   * `markPennyLimitReached` below) — the two sources can disagree for a
+   * moment (the 402 is always the freshest truth, `info` only catches up on
+   * the next refresh), so this is its own field rather than derived fresh
+   * from `info` on every read. */
+  capped: boolean;
+  /** ISO date (YYYY-MM-DD) the allowance next resets, from whichever of the
+   * two sources above last set `capped`. Null only when nothing has ever
+   * reported one. */
+  resetsOn: string | null;
+};
+
+let usage: PennyUsage = { info: null, capped: false, resetsOn: null };
+const usageListeners = new Set<() => void>();
+function notifyUsage() {
+  usageListeners.forEach((l) => l());
+}
+function subscribeUsage(listener: () => void): () => void {
+  usageListeners.add(listener);
+  return () => { usageListeners.delete(listener); };
+}
+function getUsageSnapshot(): PennyUsage {
+  return usage;
+}
+
+/** Fetches GET /subscription and republishes the result to every
+ * usePennyUsage() subscriber. Fire-and-forget by design (every call site —
+ * PennySheet.tsx on open, PennyConversation.tsx after a model-answered
+ * message — treats this as decorative, same as the existing
+ * canISuggestions() convention elsewhere in this feature); a failure just
+ * leaves the previous snapshot in place rather than surfacing an error the
+ * ring/composer have no good way to show anyway. Always trusts a SUCCESSFUL
+ * response over any earlier `markPennyLimitReached` call, including
+ * clearing `capped` back to false when the fresh figures say the user is no
+ * longer at the limit (a top-up, a tier change, or simply next month's
+ * reset having already happened). */
+export function refreshPennyUsage(): Promise<void> {
+  return api.getSubscription()
+    .then((info) => {
+      const limit = info.usage?.penny_limit;
+      const remaining = info.usage?.penny_remaining;
+      usage = {
+        info,
+        capped: limit != null && remaining === 0,
+        resetsOn: info.usage?.penny_resets_on ?? null,
+      };
+      notifyUsage();
+    })
+    .catch(() => { /* keep the last known snapshot */ });
+}
+
+/** Called from PennyConversation.tsx's `ask()` catch block the moment
+ * api.canI() rejects with a PennyLimitError (lib/api.ts) — flips the
+ * composer to resting IMMEDIATELY, without waiting on a fresh
+ * /subscription round-trip that would just confirm what the 402 already
+ * said. `info` is left untouched (whatever the last successful fetch was)
+ * since this 402 doesn't carry the full SubscriptionInfo shape, only the
+ * four usage fields already on PennyLimitError. */
+export function markPennyLimitReached(detail: { used: number; limit: number; resets_on: string; tier: string }): void {
+  usage = { info: usage.info, capped: true, resetsOn: detail.resets_on };
+  notifyUsage();
+}
+
+export function usePennyUsage(): PennyUsage {
+  return useSyncExternalStore(subscribeUsage, getUsageSnapshot, getUsageSnapshot);
+}
+
+/** "YYYY-MM-DD" -> "1 Oct" (en-GB, day + short month) for the resting
+ * composer's placeholder and MoreMessagesSheet's own copy — one formatter so
+ * the two surfaces can't drift into different date styles. Falls back to
+ * the raw ISO string on an unparseable date rather than throwing, and to
+ * "next month" when there's no date at all yet (composer resting before the
+ * very first /subscription fetch has resolved). */
+export function formatPennyResetDate(iso: string | null): string {
+  if (!iso) return "next month";
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// ── MORE MESSAGES SHEET (2026-09-06) — a small nested overlay opened from
+// TWO different components (the header's usage-ring crossfade in
+// PennySheet.tsx, and the composer's "Get more messages" link in
+// PennyConversation.tsx), same cross-component-trigger problem `sheetState`
+// above exists to solve, so it gets the identical minimal treatment: a
+// boolean singleton, not a second Context. Rendered by PennySheet.tsx as an
+// overlay ON the existing floating panel (see that file for the exact
+// markup), closed by its own header control, a backdrop tap, or either
+// trigger re-firing. ──────────────────────────────────────────────────────
+
+let moreMessagesOpen = false;
+const moreMessagesListeners = new Set<() => void>();
+function notifyMoreMessages() {
+  moreMessagesListeners.forEach((l) => l());
+}
+function subscribeMoreMessages(listener: () => void): () => void {
+  moreMessagesListeners.add(listener);
+  return () => { moreMessagesListeners.delete(listener); };
+}
+function getMoreMessagesSnapshot(): boolean {
+  return moreMessagesOpen;
+}
+
+export function openMoreMessagesSheet(): void {
+  moreMessagesOpen = true;
+  notifyMoreMessages();
+}
+export function closeMoreMessagesSheet(): void {
+  moreMessagesOpen = false;
+  notifyMoreMessages();
+}
+export function useMoreMessagesSheet(): boolean {
+  return useSyncExternalStore(subscribeMoreMessages, getMoreMessagesSnapshot, getMoreMessagesSnapshot);
 }
 
 export function PennySheetProvider({ children }: { children: React.ReactNode }) {

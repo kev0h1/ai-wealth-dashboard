@@ -130,7 +130,15 @@ import PennyMark from "@/components/PennyMark";
 import PennyConversation from "@/components/PennyConversation";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { getPennyScreenConfig } from "@/lib/pennyScreenConfig";
-import { usePennySheetState } from "./PennySheetProvider";
+import {
+  usePennySheetState,
+  usePennyUsage,
+  refreshPennyUsage,
+  useMoreMessagesSheet,
+  openMoreMessagesSheet,
+  closeMoreMessagesSheet,
+} from "./PennySheetProvider";
+import MoreMessagesSheet from "@/components/MoreMessagesSheet";
 // `screenForPathname` — the same route -> screen mapping BottomNav.tsx's
 // own nav uses, and Sidebar.tsx's desktop trigger already reuses from here
 // too (one source of truth for "which route means which screen" — see that
@@ -212,6 +220,140 @@ function KeyboardInsetGate({ onChange }: { onChange: (inset: number) => void }) 
   useEffect(() => { onChange(inset); }, [inset, onChange]);
   useEffect(() => () => onChange(0), [onChange]);
   return null;
+}
+
+// ── PENNY USAGE RING (2026-09-06) — ported from the approved design preview
+// (app/design/penny-usage-ring/MockSheetFrame.tsx, variant A2, revised
+// 2026-09-06 after Kevin's phone review — see that file's own header
+// comment for the two problems that revision fixed: concentricity and the
+// squircle-reading avatar). Geometry constants are DERIVED, not eyeballed —
+// the ring radius is the avatar radius plus a fixed 3px gap, so the ring and
+// the avatar can only ever share one centre; see AvatarRingButton's own
+// comment for why the avatar is drawn as a <foreignObject> CHILD of the
+// same <svg> the ring circles live in, rather than a sibling positioned by
+// a second, independent layout pass. ─────────────────────────────────────
+const RING_AVATAR_SIZE = 28; // matches this header's existing avatar chip
+const RING_STROKE = 2;
+const RING_RADIUS = RING_AVATAR_SIZE / 2 + 3; // 17
+const RING_BOX = (RING_RADIUS + RING_STROKE / 2) * 2; // 36
+const RING_AVATAR_OFFSET = (RING_BOX - RING_AVATAR_SIZE) / 2; // 4
+
+/** The header avatar, now also the message-allowance ring's tap target.
+ * Tapping crossfades the header TITLE (not this button) to the usage line
+ * — see CrossfadeTitle below — so this button's own only visual state is
+ * `aria-pressed`. No ring at all when `limit` is null (an uncapped tier):
+ * see the design preview's UsageRing doctrine for why an uncapped tier
+ * draws nothing rather than an empty or full circle. Never red at any fill
+ * level (DESIGN.md's Red Is Risk Rule) — amber from 80% used through Cap,
+ * the Penny gradient below that. */
+function AvatarRingButton({
+  used,
+  limit,
+  revealed,
+  onTap,
+}: {
+  used: number;
+  limit: number | null;
+  revealed: boolean;
+  onTap: () => void;
+}) {
+  const hasRing = limit != null;
+  const pct = limit != null && limit > 0 ? Math.max(0, Math.min(1, used / limit)) : 0;
+  const amber = pct >= 0.8;
+  const circumference = 2 * Math.PI * RING_RADIUS;
+  const dashOffset = circumference * (1 - pct);
+  const cx = RING_BOX / 2;
+  const cy = RING_BOX / 2;
+
+  return (
+    <button
+      type="button"
+      onClick={onTap}
+      aria-pressed={revealed}
+      aria-label="Toggle Penny message allowance"
+      className="relative flex-shrink-0 flex items-center justify-center rounded-full active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      // 44px tap target via padding (not margin), with a matching negative
+      // margin pulling the flow footprint back down to the ring's own 36px
+      // visual size — same optical-correction idiom the close button below
+      // already uses (`-m-2.5`).
+      style={{ width: RING_BOX + 8, height: RING_BOX + 8, margin: -4, padding: 4 }}
+    >
+      <svg width={RING_BOX} height={RING_BOX} viewBox={`0 0 ${RING_BOX} ${RING_BOX}`} aria-hidden="true">
+        <defs>
+          <linearGradient id="penny-avatar-ring" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#4f46e5" />
+            <stop offset="100%" stopColor="#7c3aed" />
+          </linearGradient>
+        </defs>
+        {hasRing && (
+          <>
+            {/* Track — 12% alpha slate hairline. */}
+            <circle cx={cx} cy={cy} r={RING_RADIUS} fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth={RING_STROKE} />
+            {/* Progress — starts at 12 o'clock (native SVG start is 3
+                o'clock; rotating -90deg about the shared centre moves it),
+                fills clockwise as dashoffset shrinks. Butt caps, not round
+                (round caps against a rounded-square avatar is exactly what
+                read as a squircle in the first review pass). */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={RING_RADIUS}
+              fill="none"
+              stroke={amber ? "#f59e0b" : "url(#penny-avatar-ring)"}
+              strokeWidth={RING_STROKE}
+              strokeLinecap="butt"
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              transform={`rotate(-90 ${cx} ${cy})`}
+            />
+          </>
+        )}
+        {/* Avatar — a CHILD of this same <svg>, positioned at
+            RING_AVATAR_OFFSET on both axes (derived from the same RING_BOX
+            the circles above share), not a sibling laid out by a second,
+            independent algorithm — this is what makes concentricity
+            structural rather than coincidental. `rounded-full` equivalent
+            (`borderRadius: "9999px"`) rather than the header's previous
+            `rounded-xl` chip: a circular ring around a rounded-SQUARE
+            avatar reads as unsymmetrical even when the two shapes share a
+            centre (a circle's edge sits a fixed distance from centre, a
+            square's corner does not). */}
+        <foreignObject x={RING_AVATAR_OFFSET} y={RING_AVATAR_OFFSET} width={RING_AVATAR_SIZE} height={RING_AVATAR_SIZE}>
+          <div
+            {...{ xmlns: "http://www.w3.org/1999/xhtml" }}
+            style={{
+              width: RING_AVATAR_SIZE,
+              height: RING_AVATAR_SIZE,
+              background: BRAND_GRADIENT,
+              borderRadius: "9999px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <PennyMark size={13} className="text-white" />
+          </div>
+        </foreignObject>
+      </svg>
+    </button>
+  );
+}
+
+/** Crossfades the header title between "Ask Penny" and the usage line, both
+ * occupying the same grid cell so the swap never shifts layout — ported
+ * verbatim from the design preview's own CrossfadeTitle. */
+function CrossfadeTitle({ base, alt, revealed }: { base: string; alt: string; revealed: boolean }) {
+  const shared = "text-[16px] font-bold text-slate-900 dark:text-slate-100 truncate transition-opacity duration-200";
+  return (
+    <span className="inline-grid" style={{ display: "grid" }}>
+      <span style={{ gridArea: "1 / 1" }} className={`${shared} ${revealed ? "opacity-0" : "opacity-100"}`} aria-hidden={revealed}>
+        {base}
+      </span>
+      <span style={{ gridArea: "1 / 1" }} className={`${shared} ${revealed ? "opacity-100" : "opacity-0"}`} aria-hidden={!revealed}>
+        {alt}
+      </span>
+    </span>
+  );
 }
 
 export default function PennySheet() {
@@ -310,6 +452,42 @@ export default function PennySheet() {
   // file's header comment, point 5, for why the hook itself can't just be
   // called unconditionally in this component's body.
   const [keyboardInset, setKeyboardInset] = useState(0);
+
+  // ── PENNY USAGE RING state (2026-09-06) ───────────────────────────────
+  const usage = usePennyUsage();
+  const moreMessagesOpen = useMoreMessagesSheet();
+  const [usageRevealed, setUsageRevealed] = useState(false);
+  // Auto-revert ~2.5s after the title crossfades to the usage line, same
+  // duration as the approved design preview. Re-tapping cancels the pending
+  // timer and schedules a fresh one (the cleanup below runs before the next
+  // effect body).
+  useEffect(() => {
+    if (!usageRevealed) return;
+    const t = setTimeout(() => setUsageRevealed(false), 2500);
+    return () => clearTimeout(t);
+  }, [usageRevealed]);
+  // Fetch /subscription whenever the sheet opens — shared with the
+  // composer's resting state via the PennySheetProvider singleton (see that
+  // file's own comment on why this lives there rather than in local state).
+  useEffect(() => {
+    if (isOpen) refreshPennyUsage();
+  }, [isOpen]);
+  /** First tap reveals the usage line in the title; a SECOND tap while
+   * already revealed opens the More Messages sheet instead of just hiding
+   * it again — this is what makes "tap the title while it shows the count"
+   * (the brief's own words) an actual door to that sheet, not only a
+   * toggle. Letting the 2.5s auto-revert run its course without a second
+   * tap still just hides the count, same as the design preview. */
+  function handleAvatarTap() {
+    if (usageRevealed) {
+      setUsageRevealed(false);
+      openMoreMessagesSheet();
+    } else {
+      setUsageRevealed(true);
+    }
+  }
+  const pennyLimit = usage.info?.usage.penny_limit ?? null;
+  const pennyUsed = usage.info?.usage.penny_messages ?? 0;
 
   if (!mounted) return null;
 
@@ -458,7 +636,12 @@ export default function PennySheet() {
           role="dialog"
           aria-modal="true"
           aria-label="Ask Penny"
-          className="mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"
+          // `relative` (added 2026-09-06) — the More Messages sheet
+          // (below, from PennySheetProvider's own moreMessagesOpen
+          // singleton) renders as an `absolute inset-0` overlay ON this
+          // panel, same convention as the design preview's own
+          // MockSheetFrame — it needs a positioned ancestor to size against.
+          className="relative mx-auto w-full max-w-[420px] glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] flex flex-col transition-[margin] duration-100 origin-bottom lg:origin-bottom-right"
           // Capped to 65dvh — a compact popover, not a page. The panel is a
           // flex column with an indefinite (auto) main size, so it already
           // sizes to its own content (header + chip row + thread +
@@ -544,13 +727,18 @@ export default function PennySheet() {
           <div className="flex-shrink-0 pt-3">
             <div className="flex items-center justify-between gap-2 px-5">
               <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className="rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: BRAND_GRADIENT, width: 28, height: 28 }}
-                >
-                  <PennyMark size={13} className="text-white" />
-                </span>
-                <h2 className="text-[16px] font-bold text-slate-900 dark:text-slate-100 truncate">Ask Penny</h2>
+                {/* Avatar + usage ring (2026-09-06, /design/penny-usage-ring
+                    variant A2, approved) — replaces the old plain
+                    `rounded-xl` chip. See AvatarRingButton's own comment for
+                    the geometry and why the avatar is now drawn circular. */}
+                <AvatarRingButton used={pennyUsed} limit={pennyLimit} revealed={usageRevealed} onTap={handleAvatarTap} />
+                <h2 className="min-w-0">
+                  <CrossfadeTitle
+                    base="Ask Penny"
+                    alt={pennyLimit == null ? "No monthly limit" : `${pennyUsed} of ${pennyLimit} messages`}
+                    revealed={usageRevealed}
+                  />
+                </h2>
               </div>
               <button
                 type="button"
@@ -631,6 +819,15 @@ export default function PennySheet() {
               `overflow-y-auto` scrolling instead of the whole sheet
               growing without bound. */}
           {hasOpened && <PennyConversation inSheet askContext={ctx} askSeq={openSeq} className="flex-1 min-h-0" />}
+
+          {/* More Messages sheet (2026-09-06) — an overlay ON this same
+              panel (not a second portal/sheet), opened from the avatar-ring
+              crossfade above (second tap while revealed) or the composer's
+              own "Get more messages" link (PennyConversation.tsx). Shared
+              open/closed state (PennySheetProvider's moreMessagesOpen
+              singleton) is what lets both of those different components
+              open the identical overlay — see that file's own comment. */}
+          {moreMessagesOpen && <MoreMessagesSheet onClose={closeMoreMessagesSheet} />}
         </div>
       </div>
 

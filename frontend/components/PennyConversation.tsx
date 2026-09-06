@@ -113,14 +113,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Send, Loader2, X, ChevronRight } from "lucide-react";
-import { api, CanIOffer, CanISuggestionChip, PennyProposal, ScenarioItem } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, PennyLimitError, PennyProposal, ScenarioItem } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import MoneyText from "@/components/MoneyText";
 import ChatMarkdown from "@/components/ChatMarkdown";
 import type { PennyAskContext } from "@/components/PennySheetProvider";
-import { usePennySheet } from "@/components/PennySheetProvider";
+import {
+  usePennySheet,
+  usePennyUsage,
+  refreshPennyUsage,
+  markPennyLimitReached,
+  formatPennyResetDate,
+  openMoreMessagesSheet,
+} from "@/components/PennySheetProvider";
 import { getPennyScreenConfig, type PennyChip } from "@/lib/pennyScreenConfig";
 
 const BG = BRAND_GRADIENT;
@@ -1102,6 +1109,12 @@ export default function PennyConversation({
   const [chips, setChips] = useState<CanISuggestionChip[]>([]);
   const [dismissedChips, setDismissedChips] = useState<Set<string>>(new Set());
   const [placeholder, setPlaceholder] = useState(DEFAULT_PLACEHOLDER);
+  // Penny message-allowance usage (2026-09-06) — shared with the sheet
+  // header's ring via PennySheetProvider's module-level singleton (see that
+  // file's own comment); this component never fetches /subscription
+  // itself, only reads and reacts to `capped`.
+  const usage = usePennyUsage();
+  const atCap = usage.capped;
   const inputRef = useRef<HTMLInputElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
   // The sheet's own scroll container (inSheet mode only) — this component
@@ -1130,6 +1143,15 @@ export default function PennyConversation({
   // as silently dropping a question the user (or a caller on their behalf)
   // explicitly asked to be submitted — see `send()`.
   const summaryConsumedRef = useRef(false);
+  // Whether the calm "you've used all your Penny messages" notice has
+  // already been shown this session (2026-09-06, usage ring round) — a
+  // plain forever-once ref, same class as `summaryConsumedRef` above: the
+  // composer disables itself the moment the first 402 lands (see
+  // `usePennyUsage().capped`), so a second one reaching this catch block at
+  // all is already an edge case (a race between two in-flight asks), and
+  // repeating the notice bubble on every one of those would be noise, not
+  // information. See `ask()`'s catch block below.
+  const capNoticeShownRef = useRef(false);
   // Monotonic counter for message ids — a plain ref (not Math.random() or
   // Date.now()) so it's deterministic and SSR-safe. See the `id` field
   // comment on the Msg union above for why every message needs one.
@@ -1316,8 +1338,43 @@ export default function PennyConversation({
         lastActivityAt: Date.now(),
       }));
       setOffer(res.offer ?? null);
-    } catch {
-      setError(true);
+      // Every path through this try block is a real model-answered message
+      // (a scenario/consent/proposal/explainer/verdict — the deterministic
+      // chip path, api.pennyChip, never reaches `ask()` at all except on its
+      // own LLM fallback, which lands here same as a typed question). See
+      // PennySheetProvider.tsx's refreshPennyUsage for why this is
+      // fire-and-forget and shared with the header ring/resting composer
+      // rather than local state.
+      refreshPennyUsage();
+    } catch (e) {
+      if (e instanceof PennyLimitError) {
+        // The monthly cap — flip the composer to resting immediately (see
+        // markPennyLimitReached's own comment) rather than the generic
+        // ErrorRetry bubble a plain network/server error gets; a "try
+        // again" invite makes no sense when trying again would just 402
+        // again. Chips answered through api.pennyChip stay free and
+        // tappable regardless (PennyConversation's chip handlers never
+        // call `ask()` unless the chip itself falls back to an LLM
+        // round-trip, in which case hitting the same cap here is correct).
+        markPennyLimitReached({ used: e.used, limit: e.limit, resets_on: e.resets_on, tier: e.tier });
+        if (!capNoticeShownRef.current) {
+          capNoticeShownRef.current = true;
+          const noticeMsg: AssistantMsg = {
+            id: newMsgId(),
+            role: "assistant",
+            kind: "verdict",
+            headline: `You have used all your Penny messages for this month. Quick questions from the chips still work, and your allowance resets on ${formatPennyResetDate(e.resets_on)}.`,
+            degraded: true,
+          };
+          setBucket(bucketScreen, (prev) => ({
+            ...prev,
+            messages: capMessages([...prev.messages, noticeMsg]),
+            lastActivityAt: Date.now(),
+          }));
+        }
+      } else {
+        setError(true);
+      }
     } finally {
       setLoading(false);
       // Refocusing the composer here used to happen synchronously right
@@ -1402,6 +1459,65 @@ export default function PennyConversation({
     if (!last || last.role !== "user") return;
     const history = buildHistory(current.slice(0, -1));
     ask(last.content, history);
+  }
+
+  /** A "cheap" chip — one carrying a `chipId` (lib/pennyScreenConfig.tsx's
+   * config `ask` chips) or a `chip_id` (the personalised can-i suggestions'
+   * own field) — answered through POST /penny/chip instead of the ordinary
+   * api.canI() LLM round-trip `send()` uses. Shows the user's bubble
+   * immediately (same as `send()`), then either:
+   * - renders the engine's own `answer` verbatim as a normal (unmarked)
+   *   assistant bubble, same VerdictBubble shell every other plain-text
+   *   Penny reply uses, degraded so no bold verdict headline overstates a
+   *   quick fact; or
+   * - falls back to the ordinary `ask()` round-trip (same as `send()` would
+   *   have done) on a `kind: "llm"` response, a 404 (the backend doesn't
+   *   know this chip id yet — an older/rolling deploy), or any other
+   *   failure — "fall back gracefully" per this feature's own contract.
+   *
+   * Deliberately does NOT call `refreshPennyUsage()` on the engine-answered
+   * path: chip answers never cost a Penny message, so there is nothing new
+   * to refresh. The LLM-fallback path calls the ordinary `ask()`, which
+   * already refreshes usage itself on success (see that function's own
+   * comment) — this function doesn't need to duplicate that. */
+  function sendChip(chipId: string, label: string, params?: Record<string, unknown>) {
+    if (loading) return;
+    const sendScreen = askContext?.screen;
+    const bucketScreen: PennyAskContext["screen"] = sendScreen ?? "other";
+    // Captured BEFORE the user turn below is appended, same reasoning as
+    // `send()`'s own `history` — `ask()` (the fallback path) only ever
+    // appends the ANSWER, never the question, so its history must exclude
+    // the turn this function is about to add itself.
+    const priorMessages = bucketsRef.current[bucketScreen].messages;
+    const history = buildHistory(priorMessages);
+    setBucket(bucketScreen, (prev) => ({
+      messages: capMessages([...prev.messages, { id: newMsgId(), role: "user" as const, content: label }]),
+      askedLabels: new Set(prev.askedLabels).add(label),
+      lastActivityAt: Date.now(),
+    }));
+    setInput("");
+    setOffer(null);
+    setError(false);
+    setLoading(true);
+    api.pennyChip(chipId, params, sendScreen)
+      .then((res) => {
+        if (!res || res.kind === "llm") {
+          ask(label, history);
+          return;
+        }
+        setBucket(bucketScreen, (prev) => ({
+          ...prev,
+          messages: capMessages([
+            ...prev.messages,
+            { id: newMsgId(), role: "assistant" as const, kind: "verdict" as const, headline: res.answer ?? "", degraded: true },
+          ]),
+          lastActivityAt: Date.now(),
+        }));
+        setLoading(false);
+      })
+      .catch(() => {
+        ask(label, history);
+      });
   }
 
   // ── AGENT MODE v1 — proposal Confirm/Cancel and the consent gate's
@@ -1726,9 +1842,12 @@ export default function PennyConversation({
     (c) => c.kind === "link" || (!askedLabels.has(c.q) && !dismissedChips.has(c.q))
   );
   // Chip row, merged in a deliberate priority order — free answers first:
-  //   1. deterministic ask chips (PennyChip.deterministic === true, e.g.
-  //      PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK) — answered by the backend with
-  //      NO LLM call, the cheapest and fastest thing on offer, so they lead.
+  //   1. chip-answered ask chips (PennyChip.chipId set, e.g.
+  //      PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK) — answered through POST
+  //      /penny/chip with NO LLM call and no cost against the monthly
+  //      allowance (2026-09-06, replacing the old `deterministic` boolean —
+  //      see that field's own removal comment in lib/pennyScreenConfig.tsx),
+  //      the cheapest and fastest thing on offer, so they lead.
   //   2. link chips — zero LLM, zero network, pure client-side navigation;
   //      not quite as "free" as a deterministic answer (they leave the
   //      conversation rather than answering inline) but still cost nothing
@@ -1754,11 +1873,11 @@ export default function PennyConversation({
   // there. `inSheet` alone decides which cap applies since a given
   // component instance is only ever one mode for its whole lifetime.
   const chipCap = inSheet ? 6 : 3;
-  const deterministicAskChips = visibleConfigChips.filter((c) => c.kind === "ask" && c.deterministic);
+  const chipAnsweredAskChips = visibleConfigChips.filter((c) => c.kind === "ask" && c.chipId);
   const linkChips = visibleConfigChips.filter((c) => c.kind === "link");
-  const llmAskChips = visibleConfigChips.filter((c) => c.kind === "ask" && !c.deterministic);
+  const llmAskChips = visibleConfigChips.filter((c) => c.kind === "ask" && !c.chipId);
   const personalisedSuggestions = screenConfig.personalisedChips
-    ? visibleChips.map((c) => ({ source: "personalised" as const, label: c.label }))
+    ? visibleChips.map((c) => ({ source: "personalised" as const, label: c.label, chip_id: c.chip_id, params: c.params }))
     : [];
   // DEDUPE (owner screenshot, 2026-08-25: "Still due?" sitting right next to
   // "What's still due before payday?" in the chip row — the same question,
@@ -1784,10 +1903,10 @@ export default function PennyConversation({
     return true;
   });
   const allChips: (
-    | { source: "personalised"; label: string }
+    | { source: "personalised"; label: string; chip_id?: string; params?: Record<string, unknown> }
     | (PennyChip & { source: "config" })
   )[] = [
-    ...deterministicAskChips.map((c) => ({ ...c, source: "config" as const })),
+    ...chipAnsweredAskChips.map((c) => ({ ...c, source: "config" as const })),
     ...linkChips.map((c) => ({ ...c, source: "config" as const })),
     ...llmAskChips.map((c) => ({ ...c, source: "config" as const })),
     ...dedupedPersonalisedSuggestions,
@@ -1820,6 +1939,13 @@ export default function PennyConversation({
   // over this render's `input`/`loading`/`placeholder` state and
   // `inputRef`; only one shell ever mounts it at a time, so there's no
   // duplicate-instance risk.
+  // Resting-state placeholder (2026-09-06, usage ring round) — the
+  // capped-tier equivalent of `placeholder` above, taking over the input
+  // entirely rather than competing with the seeded-from-suggestions text.
+  // Chips stay tappable regardless (they render outside this input, and a
+  // `chipId` chip's own `sendChip` never touches `loading`/`atCap` disabling
+  // — see that function's own comment).
+  const restingPlaceholder = `Penny is resting until ${formatPennyResetDate(usage.resetsOn)}`;
   const composerContent = (
     <>
       <div className="flex items-center gap-2">
@@ -1829,15 +1955,15 @@ export default function PennyConversation({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send(input)}
-          placeholder={placeholder}
+          placeholder={atCap ? restingPlaceholder : placeholder}
           aria-label="Ask Penny a spending question"
           maxLength={160}
-          disabled={loading}
-          className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300"
+          disabled={loading || atCap}
+          className="flex-1 min-h-[44px] text-sm bg-slate-50 dark:bg-slate-700 dark:text-slate-100 rounded-full px-4 py-2 outline-none border border-slate-200 dark:border-slate-600 focus:border-violet-300 disabled:opacity-60"
         />
         <button
           onClick={() => send(input)}
-          disabled={!input.trim() || loading}
+          disabled={!input.trim() || loading || atCap}
           aria-label="Ask Penny"
           className="flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 text-white active:scale-95 transition-transform"
           style={{ background: BG }}
@@ -1845,9 +1971,30 @@ export default function PennyConversation({
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
-      <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 mt-1.5">
-        General information, not regulated financial advice.
-      </p>
+      {/* Disclaimer + (sheet mode, at-cap only) "Get more messages" link on
+          the SAME row (2026-09-06, matching the approved design preview's
+          own A2 composer) — no new row added just for the cap state. Full
+          width when there's no link, so this is a no-op layout change for
+          every other state. */}
+      <div className="flex items-center justify-between gap-2 mt-1.5">
+        <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 min-w-0">
+          General information, not regulated financial advice.
+        </p>
+        {inSheet && atCap && (
+          <button
+            type="button"
+            onClick={openMoreMessagesSheet}
+            className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-dotted underline-offset-2 whitespace-nowrap flex items-center justify-center"
+            // 44px tap target via padding + a compensating negative margin
+            // (same idiom as SuggestionChip's own dismiss-X, and the design
+            // preview's identical link), so this doesn't grow the row's
+            // visual height beyond the disclaimer text's own line height.
+            style={{ minHeight: 44, minWidth: 44, padding: "14px 4px", margin: "-14px -4px -14px 0" }}
+          >
+            Get more messages
+          </button>
+        )}
+      </div>
     </>
   );
   // Full-page mode's own floating surface (see the comment above for why it
@@ -1971,7 +2118,11 @@ export default function PennyConversation({
                   <SuggestionChip
                     key={`top-personalised-${c.label}`}
                     label={full}
-                    onTap={() => setInput(full)}
+                    // `chip_id` (2026-09-06, e.g. "can_i_amount") answers
+                    // for free through POST /penny/chip — see `sendChip`'s
+                    // own comment. A suggestion without one keeps today's
+                    // behaviour exactly: populate the composer, don't send.
+                    onTap={() => (c.chip_id ? sendChip(c.chip_id, full, c.params) : setInput(full))}
                   />
                 );
               }
@@ -1988,7 +2139,12 @@ export default function PennyConversation({
                 <SuggestionChip
                   key={`top-config-ask-${c.q}`}
                   label={c.label}
-                  onTap={() => setInput(c.q)}
+                  // A `chipId` chip answers immediately (free, no LLM) —
+                  // see `sendChip`. Every other `ask` chip keeps today's
+                  // populate-the-composer behaviour (an LLM round-trip is
+                  // real cost, so it stays one tap away from a deliberate
+                  // send rather than firing on the chip tap itself).
+                  onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : setInput(c.q))}
                 />
               );
             })}
@@ -2119,7 +2275,9 @@ export default function PennyConversation({
                 <SuggestionChip
                   key={`personalised-${c.label}`}
                   label={c.label}
-                  onTap={() => send(c.label)}
+                  // `chip_id` (2026-09-06) answers for free via
+                  // api.pennyChip — see `sendChip`'s own comment.
+                  onTap={() => (c.chip_id ? sendChip(c.chip_id, c.label, c.params) : send(c.label))}
                   onDismiss={() => setDismissedChips((prev) => new Set(prev).add(c.label))}
                 />
               );
@@ -2141,7 +2299,9 @@ export default function PennyConversation({
               <SuggestionChip
                 key={`config-ask-${c.q}`}
                 label={c.label}
-                onTap={() => send(c.q)}
+                // A `chipId` chip answers for free via `sendChip`; every
+                // other `ask` chip keeps the ordinary LLM `send()`.
+                onTap={() => (c.chipId ? sendChip(c.chipId, c.label) : send(c.q))}
                 onDismiss={() => setDismissedChips((prev) => new Set(prev).add(c.q))}
               />
             );

@@ -622,6 +622,18 @@ export interface SubscriptionUsage {
   year_month: string;
   penny_messages: number;
   cost_usd: number;
+  /** Penny usage ring / resting-composer fields (2026-09-06). Optional so a
+   *  client running against an older backend that doesn't send these yet
+   *  degrades gracefully (no ring, composer never rests). `penny_limit:
+   *  null` means an uncapped tier — render no ring at all, never an empty
+   *  or full one. */
+  penny_limit?: number | null;
+  penny_remaining?: number | null;
+  /** ISO date (YYYY-MM-DD) the monthly allowance next resets. */
+  penny_resets_on?: string;
+  /** Messages added this month via a one-off top-up, on top of the tier's
+   *  own monthly allowance. */
+  penny_topup_messages?: number;
 }
 
 export interface SubscriptionInfo {

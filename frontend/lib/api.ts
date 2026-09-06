@@ -814,12 +814,58 @@ export type CanIOffer = {
 
 /** GET /can-i/suggestions — persistent, personalised chips for the bounded
  * Penny oracle conversation + prompt bar. Backend contract (may not be live
- * yet — every call site degrades to an empty/omitted read). */
-export type CanISuggestionChip = { label: string };
+ * yet — every call site degrades to an empty/omitted read).
+ *
+ * `chip_id`/`params` (2026-09-06, Penny usage ring round) let a personalised
+ * suggestion be answered for free through POST /penny/chip instead of a full
+ * /can-i round-trip — currently only `chip_id: "can_i_amount"` with
+ * `params: { amount, occasion }`. Both optional: a suggestion without a
+ * `chip_id` behaves exactly as before (populates/sends as free text). See
+ * PennyConversation.tsx's `sendChip`. */
+export type CanISuggestionChip = { label: string; chip_id?: string; params?: Record<string, unknown> };
 export type CanISuggestions = {
   chips: CanISuggestionChip[];
   context_line: string;
 };
+
+/** POST /penny/chip response (2026-09-06). `kind` tells the caller how this
+ * was answered:
+ * - "engine"/"explain": `answer` is a ready-to-render string, no LLM call
+ *   was made — see PennyConversation.tsx's `sendChip`, which renders it as
+ *   a normal (unmarked) assistant bubble.
+ * - "llm": the backend has no free answer for this chip; the caller falls
+ *   back to an ordinary api.canI() round-trip with the chip's own label as
+ *   the typed question.
+ * `facts` is opaque/unused today, typed loosely so a future chip can carry
+ * structured data without another type change here. */
+export type PennyChipResponse = {
+  chip_id: string;
+  kind: "engine" | "explain" | "llm";
+  answer?: string;
+  facts?: Record<string, unknown>;
+};
+
+/** Thrown by api.canI on a 402 with `detail.code === "PENNY_LIMIT_REACHED"`
+ * — the monthly Penny message cap (see /subscription's `usage.penny_limit`/
+ * `penny_remaining`). Callers should catch this specifically (`instanceof
+ * PennyLimitError`) to flip the composer into its resting state and record
+ * the fresh usage figures, rather than showing the generic ErrorRetry
+ * bubble a plain network/server error gets. Still an `Error` subclass, so a
+ * caller that doesn't know about this type sees an ordinary rejection. */
+export class PennyLimitError extends Error {
+  readonly code = "PENNY_LIMIT_REACHED" as const;
+  readonly used: number;
+  readonly limit: number;
+  readonly resets_on: string;
+  readonly tier: string;
+  constructor(detail: { used: number; limit: number; resets_on: string; tier: string }) {
+    super("Penny message limit reached for this month");
+    this.used = detail.used;
+    this.limit = detail.limit;
+    this.resets_on = detail.resets_on;
+    this.tier = detail.tier;
+  }
+}
 
 /** POST /can-i response. `headline`/`facts`/`out_of_scope` are additive —
  * an older backend returns only `reply`/`offer`, and callers must degrade
@@ -2005,8 +2051,61 @@ export const api = {
    * conversation can reference "this page" and the backend needs to know
    * what that page is each time, not just at the start. See
    * PennyConversation.tsx's `ask()`/`send()` for the call site. */
-  canI: (question: string, history?: Array<{ role: "user" | "assistant"; content: string }>, context?: string, screen?: string) =>
-    post<CanIResponse>("/can-i", { question, history, context, screen }),
+  // A hand-rolled fetch, not the plain `post<T>` helper: a 402 here carries
+  // a STRUCTURED `detail` object (`{code, used, limit, resets_on, tier}`),
+  // not the human string every other `detail` on this file is. `post<T>`'s
+  // generic `throw new Error(`${status} ${statusText}`)` would lose that
+  // shape entirely, and PennyConversation.tsx's resting-composer flow needs
+  // it (see PennyLimitError above) to know the limit/reset date without a
+  // second round-trip to /subscription.
+  canI: async (
+    question: string,
+    history?: Array<{ role: "user" | "assistant"; content: string }>,
+    context?: string,
+    screen?: string
+  ): Promise<CanIResponse> => {
+    const res = await fetch(`${API_BASE}/can-i`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ question, history, context, screen }),
+    });
+    if (res.status === 402) {
+      let detail: unknown = null;
+      try {
+        detail = (await res.json())?.detail;
+      } catch {
+        /* body wasn't JSON — fall through to the generic error below */
+      }
+      if (detail && typeof detail === "object" && (detail as { code?: string }).code === "PENNY_LIMIT_REACHED") {
+        throw new PennyLimitError(detail as { used: number; limit: number; resets_on: string; tier: string });
+      }
+      throw new Error("402 Payment Required");
+    }
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
+  // POST /penny/chip — cheap, engine-answered chip questions (see
+  // lib/pennyScreenConfig.tsx's `chipId` and CanISuggestionChip's `chip_id`
+  // above). Never counts against the Penny message allowance. Returns
+  // `null` on a 404 (unknown chip id — an older/rolling backend, or a chip
+  // id this frontend build knows about that the deployed API doesn't yet)
+  // so every call site can fall back to an ordinary api.canI() round-trip
+  // the same way a `kind: "llm"` response asks them to. See
+  // PennyConversation.tsx's `sendChip`.
+  pennyChip: async (
+    chip_id: string,
+    params?: Record<string, unknown>,
+    screen?: string
+  ): Promise<PennyChipResponse | null> => {
+    const res = await fetch(`${API_BASE}/penny/chip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ chip_id, params, screen }),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  },
   // Confirmed (possibly user-edited) "what if" scenario items -> full
   // deterministic projection + one LLM-composed headline. See
   // backend/app/routers/scenario.py's /scenario/run for the validation and

@@ -20,15 +20,19 @@
 //   would just be noise competing with it.
 //
 // Two chip kinds (PennyChip below):
-// - `ask`: submits `q` through PennyConversation's existing `send()`, same
-//   LLM round-trip as typing the question by hand. `deterministic: true`
-//   documents (informational only, no UI difference yet) that the backend
-//   answers this WITHOUT an LLM call — currently the greeting path, the
-//   payday-status path (PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK below), and the
-//   saving-vs-investing explainer (`planning` entry below). Domain
-//   questions (spend/planning/debt) are NOT deterministic even though
-//   their headline is engine-derived: the reply is still one LLM phrasing
-//   call over that headline.
+// - `ask`: a chip carrying a `chipId` (2026-09-06, Penny usage ring round —
+//   see PennyChip's own comment for why this replaced the old
+//   `deterministic` boolean) is answered for free through POST /penny/chip
+//   (PennyConversation.tsx's `sendChip`) — currently the payday-status path
+//   (PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK below), the saving-vs-investing/
+//   Lifetime ISA explainers (`planning` entry below) and the four tax
+//   explainers (`tax` entry below). A `kind: "llm"` response, or a 404 (the
+//   backend hasn't shipped that chip id yet), falls back to the ordinary
+//   LLM round-trip below. An `ask` chip with NO `chipId` always goes through
+//   that ordinary round-trip (PennyConversation's `send()`), same as typing
+//   the question by hand — every domain question (spend/planning/debt) stays
+//   in this class even though its headline is engine-derived: the reply is
+//   still one LLM phrasing call over that headline.
 // - `link`: pure client-side navigation, zero LLM, zero network — the
 //   owner's "deterministic where possible" made literal for the cases that
 //   don't need Penny's judgement at all, just a door to where the answer
@@ -55,8 +59,23 @@
 import type { PennyAskContext } from "@/components/PennySheetProvider";
 
 export type PennyChip =
-  | { kind: "ask"; label: string; q: string; deterministic?: boolean; short?: string }
+  | { kind: "ask"; label: string; q: string; chipId?: string; short?: string }
   | { kind: "link"; label: string; href: string; short?: string };
+// `deterministic` — REMOVED (2026-09-06, Penny usage ring round). It was
+// only ever an ordering hint ("this chip's reply costs no LLM call, put it
+// first") with no other reader anywhere. `chipId` replaces it and does more:
+// a chip carrying one is answered through POST /penny/chip
+// (PennyConversation.tsx's `sendChip`), which is both the new free-chip
+// wiring AND, incidentally, the same "cheap, so lead with it" signal the old
+// flag gave the chip-row ordering in PennyConversation.tsx — see that file's
+// `chipAnsweredAskChips` filter, which now keys off `!!c.chipId` instead of
+// `c.deterministic`. Every chip that used to carry `deterministic: true`
+// keeps the same effective priority by carrying a `chipId` instead; a chip
+// that never had the flag (the tax explainers, the two Spend "how am I
+// doing" reassurance chips) gaining a `chipId` here is a genuine behaviour
+// change, not a rename — those now also answer for free and rank alongside
+// the old deterministic set. See the report this shipped with for the full
+// id list and which screen each lives on.
 // `short` — DEPRECATED, no longer read anywhere (2026-08-25, REVERTED: the
 // compact chip-row label added the same day for "a horizontally scrollable
 // row at the top ... summarised"). Owner screenshot found the actual bug
@@ -99,14 +118,14 @@ const PAYDAY_STATUS_ASK: PennyChip = {
   kind: "ask",
   label: "How am I doing until payday?",
   q: "How am I doing until payday?",
-  deterministic: true,
+  chipId: "home_payday_status",
   short: "Until payday?",
 };
 const PAYDAY_DUE_ASK: PennyChip = {
   kind: "ask",
   label: "What's still due before payday?",
   q: "What's still due before payday?",
-  deterministic: true,
+  chipId: "home_payday_due",
   short: "Still due?",
 };
 
@@ -147,8 +166,8 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
       // mechanics, not a verdict on the user's own transactions, so
       // they're answered without an LLM call. `deterministic: true`
       // documents that, same as the payday chips above.
-      { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", deterministic: true, short: "Saving vs investing?" },
-      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", deterministic: true },
+      { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", chipId: "planning_saving_vs_investing", short: "Saving vs investing?" },
+      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", chipId: "planning_lifetime_isa" },
       { kind: "link", label: "Cards and debt", href: "/cards" },
       { kind: "link", label: "This pay period", href: "/upcoming" },
     ],
@@ -162,13 +181,13 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
   spend: {
     headerLinks: DEFAULT_HEADER_LINKS,
     chips: [
-      { kind: "ask", label: "Where did my money go this month?", q: "Where did my money go this month?", short: "Where'd it go?" },
-      { kind: "ask", label: "Am I spending more than usual?", q: "Am I spending more than usual?", short: "Spending more?" },
-      // Fixed, backend-deterministic explainer (2026-08-26) — same class as
+      { kind: "ask", label: "Where did my money go this month?", q: "Where did my money go this month?", chipId: "spend_where_money_went", short: "Where'd it go?" },
+      { kind: "ask", label: "Am I spending more than usual?", q: "Am I spending more than usual?", chipId: "spend_more_than_usual", short: "Spending more?" },
+      // Fixed, backend-answered explainer (2026-08-26) — same class as
       // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above and the `planning` entry's
       // saving-vs-investing chip above: general mechanics, not a verdict on
       // the user's own transactions, so it's answered without an LLM call.
-      { kind: "ask", label: "How do categories work?", q: "How do categories work?", deterministic: true },
+      { kind: "ask", label: "How do categories work?", q: "How do categories work?", chipId: "spend_how_categories_work" },
       // Was a blunt "Fix a category" link straight to /transactions — the
       // owner's actual complaint (his screenshot: the Spend page's own "N
       // transfers to review" banner opens a same-transfer-pairs review
@@ -191,10 +210,10 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     // only from that page's own row. LLM explainers (ExplainerBubble), not
     // deterministic.
     chips: [
-      { kind: "ask", label: "How does pension carry-forward work?", q: "How does pension carry-forward work?", short: "Carry-forward?" },
-      { kind: "ask", label: "What counts as salary sacrifice?", q: "What counts as salary sacrifice?", short: "Salary sacrifice?" },
-      { kind: "ask", label: "Do I need to register for self-assessment?", q: "Do I need to register for self-assessment?", short: "Self-assessment?" },
-      { kind: "ask", label: "How does Gift Aid reduce my tax?", q: "How does Gift Aid reduce my tax?", short: "Gift Aid?" },
+      { kind: "ask", label: "How does pension carry-forward work?", q: "How does pension carry-forward work?", chipId: "tax_pension_carry_forward", short: "Carry-forward?" },
+      { kind: "ask", label: "What counts as salary sacrifice?", q: "What counts as salary sacrifice?", chipId: "tax_salary_sacrifice", short: "Salary sacrifice?" },
+      { kind: "ask", label: "Do I need to register for self-assessment?", q: "Do I need to register for self-assessment?", chipId: "tax_self_assessment", short: "Self-assessment?" },
+      { kind: "ask", label: "How does Gift Aid reduce my tax?", q: "How does Gift Aid reduce my tax?", chipId: "tax_gift_aid", short: "Gift Aid?" },
       // "What is the Marriage Allowance?" chip added then removed same day
       // (2026-08-27, back to the established 4-chip comfortable max): the
       // four explainers above are personalised to the user's own tax
@@ -245,16 +264,18 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
     // real, separate route. Those two questions live on the `debt` entry
     // below instead; Grow gets its own domain's questions.
     chips: [
-      { kind: "ask", label: "Am I saving enough?", q: "Am I saving enough?", short: "Saving enough?" },
+      { kind: "ask", label: "Am I saving enough?", q: "Am I saving enough?", chipId: "grow_saving_enough", short: "Saving enough?" },
       // Owner decision, 2026-08-25: "Should I be investing instead of
       // saving?" invited a personal investment recommendation, the actual
       // FCA perimeter — relabelled to a general-mechanics question and
       // routed backend-side (can_i.py's _is_saving_vs_investing_question)
-      // to a FIXED, deterministic, general-information explainer, never the
-      // LLM. `deterministic: true` documents that, same as the payday chips
-      // above.
-      { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", deterministic: true, short: "Saving vs investing?" },
-      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?", deterministic: true },
+      // to a FIXED, general-information explainer, never the LLM. Same
+      // question as the `planning` entry's own copy above (this entry is
+      // unreachable dead code, see this block's own header comment) — left
+      // without a `chipId` here since nothing can ever tap it; the live
+      // `planning` entry above carries `chipId: "planning_saving_vs_investing"`.
+      { kind: "ask", label: "Saving vs investing, how does it work?", q: "Saving vs investing, how does it work?", short: "Saving vs investing?" },
+      { kind: "ask", label: "What is a Lifetime ISA?", q: "What is a Lifetime ISA?" },
       { kind: "link", label: "Your plan", href: "/planning" },
     ],
     personalisedChips: false,
@@ -281,9 +302,11 @@ const CONFIGS: Record<Exclude<ConfigScreenKey, "other">, ScreenConfig> = {
   accounts: {
     headerLinks: DEFAULT_HEADER_LINKS,
     chips: [
-      // Fixed, backend-deterministic explainer, same class as
-      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above.
-      { kind: "ask", label: "How do I add an ISA?", q: "How do I add an ISA?", deterministic: true },
+      // Fixed, backend-answered explainer, same class as
+      // PAYDAY_STATUS_ASK/PAYDAY_DUE_ASK above. No `chipId` (not one of the
+      // ids the 2026-09-06 usage-ring round contracted for) — still an
+      // ordinary LLM ask chip until a matching backend chip id exists.
+      { kind: "ask", label: "How do I add an ISA?", q: "How do I add an ISA?" },
       // No "Your accounts" link chip here — the user is already ON that
       // page, so it would be a link back to itself. Mirror is the sensible
       // next door instead (same choice Home's header row makes).
