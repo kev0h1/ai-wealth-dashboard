@@ -1,0 +1,75 @@
+# Sorted backlog (written 2026-09-06)
+
+Working rules for any session picking an item: branch `docs/mobile-porting-checkpoint`; UAT is this VPS (`systemctl restart wealth-api` / `wealth-worker` / `wealth-frontend` after `npm run build`); production is Vercel + Railway and is NOT touched by restarts here. Never commit `backend/.env` or any key file. Fable plans, Sonnet agents edit and commit, commit trailers `Co-Authored-By: Claude <model> <noreply@anthropic.com>`. No em dashes in user-facing copy. Design changes go through Kevin as coded variants on `/design/*` before touching production components. Tick items here as they land; add the commit hash.
+
+Context documents: `docs/compliance/finexer-agent-controls-2026-09.md` (due diligence answers, `[KEVIN]` markers), `docs/pricing/tiering-unit-economics-mcp-2026-09.md` (tier table, unit economics, scaling, MCP design), `PENNY_TOOLS.md`, `SECURITY.md`, `PRIVACY.md`, `TERMS.md`, `DEPLOY.md`.
+
+## A. Finexer go-live blockers (target 2026-10-01)
+
+- [ ] **A1. Production deploy of this branch.** Prod is 160+ commits behind: `/terms` and `/privacy` 404, `/api/docs` open, no Finexer webhook receiver, old bundle id defaults, no linked identities, no tiers or metering. Steps: merge to `main` (Vercel auto-deploys the frontend), `railway up --service ai-wealth-dashboard --ci` and `railway up --service worker --ci` (needs acceptEdits mode), then set new Railway env vars (`FINEXER_WEBHOOK_SIGNING_SECRET`, `APNS_BUNDLE_ID=co.uk.auriqltd.sorted`, `APPLE_BUNDLE_ID` if set, `DEFAULT_TIER=max`, leave `OPEN_SIGNUP` unset). Verify each changed endpoint on prod with a minted token, not just `/health`. Owner: Kevin approves, agent executes. Blocks A2, A3, A4, Q5/Q6/Q7/Q10/Q11 answers.
+- [ ] **A2. Close the two open security items.** (a) `frontend/components/LoginOverlay.tsx` and `frontend/app/login/page.tsx`: dead legacy PIN login with a hardcoded PIN in source; delete both and any route/link to them. (b) `reconnect_expected` in localStorage holds a real account number and sort code; store only the connection id or a masked form. Then run a dependency audit (`npm audit` in frontend, `pip-audit` or `safety` in backend/.venv) and record the date and result in `SECURITY.md`. Needed for Q11.
+- [ ] **A3. Retention sweeps.** `SECURITY.md` section 6 and `PRIVACY.md` section 8 promise two automated sweeps that do not exist: dormant accounts deleted after 12 months of inactivity, and a connection's data deleted 30 days after consent withdrawal or expiry if the user never pressed Disconnect. Build one nightly arq cron in `backend/app/workers/sync_worker.py` that reuses the existing account-deletion routine (`routers/profile.py` DELETE /account) and the existing disconnect routine. Tests with fake collections. Needed for Q10; remove the "to be implemented" note from SECURITY.md.
+- [ ] **A4. In-app agent disclosure line.** Q6 asks where customers are told AURIQ LTD acts as Finexer's agent. Add one line at the bank-connect step and the sign-in footer: "Account information is provided by Finexer LTD, authorised by the FCA. AURIQ LTD acts as Finexer's agent." Wording depends on A9 (FRN). Design: quiet caption, not a card.
+- [ ] **A5. FRN wording on the legal pages.** Until the FCA register shows AURIQ LTD, `frontend/content/terms.md` section 2 and `privacy.md` section 1 say "registered agent" in the present tense. Interim text is drafted in the compliance doc under Q6. Kevin confirms with Finexer which wording to publish; keep `TERMS.md`/`PRIVACY.md` at the root byte-identical with `frontend/content/*`. `PRIVACY.pdf` and `TERMS.pdf` at the root are stale and cannot be regenerated on this VPS.
+- [ ] **A6. Screenshots and recording for Q5 and Q6** on production after A1: sign-in, connect bank, Finexer consent, bank auth, return, accounts and transactions, disconnect, delete account, plus the terms and privacy disclosure sections. Kevin captures.
+- [ ] **A7. Penetration test.** Now: run OWASP ZAP baseline against UAT and fix findings. Before public launch: CREST manual test of web app, API and both mobile shells (UK market 2026: about £3,750 to £8,000, 5 to 7 days; Precursor Security publishes from £3,750). Kevin books; record the scheduled date in Q11.
+- [ ] **A8. Kevin-only inputs for the questionnaire:** insurance details (Q12), last backup restore test date or run one (Q13), Penny agent mode timing (recommend: not before approval, Q2 says not live), confirm nothing else changed in the onboarding data-sharing list (Q9).
+- [ ] **A9. Play Console record.** Organisation account for AURIQ LTD (D-U-N-S), create app "Sorted", package `co.uk.auriqltd.sorted` fixed by first upload, Finance category, financial-features declaration (personal finance management), privacy URL `https://wealth.auriqltd.co.uk/privacy`. Needs an Android release signing config and AAB build (see C2). Gives the Q4 Play URL.
+
+## B. Penny cost, tiers and billing
+
+- [ ] **B1. Shorten the grow cache.** `GET /grow` caches up to 6 h, `GET /safe-to-spend` 90 s, so Planning and Home can show different figures for the same gap (£1,053.91 vs £749 seen 2026-09-06). Align the grow cache TTL to the safe-to-spend one or invalidate it on sync.
+- [ ] **B2. Bill display names in the due-list chip.** `services/penny_chips.py` `home_payday_due` prints "a card or account payment" for card repayments and own-transfers. Use the destination card or account display name ("American Express card payment"). Squarespace lines clean to "Worksp"; consider a merchant alias.
+- [ ] **B3. Tax chips still on the model.** `tax_pension_carry_forward`, `tax_salary_sacrifice`, `tax_gift_aid` return `kind: "llm"` and count as messages. Add registry entries (verified, general explanation) plus the user's own figure where the tax engine exposes one. Registry doctrine in `PENNY_TOOLS.md`.
+- [ ] **B4. Settings usage row.** Show "Penny messages used 37 of 150, resets 1 Oct" in Settings under Sign-in methods, from `GET /subscription`.
+- [ ] **B5. Billing.** Stripe subscriptions on the web first (`prices_gbp` in `core/subscription.py`), then App Store and Play subscription products, then the £2.99 top-up as a consumable in-app purchase writing `penny_topups`. Wire the "Available soon" rows in `components/MoreMessagesSheet.tsx`. Vercel must move from Hobby to Pro before charging anyone (Hobby forbids commercial use).
+- [ ] **B6. Statements-only free tier path.** Tier `statements` has `open_banking: False` and `statement_uploads_per_month: 3`; nothing enforces either yet. Gate bank connect and count uploads (PDF parser in `services/pdf.py`, pipeline `pdf_statement` in `llm_usage`).
+- [ ] **B7. Lite refresh cadence.** Tier `lite` says `refresh: "daily"`; the 4-hourly reconcile cron syncs everyone. Make the cron respect the tier's cadence.
+- [ ] **B8. OpenRouter organisation account.** Move from Kevin's personal account to an AURIQ LTD organisation with per-environment keys and spend limits; keep `data_collection: deny`; file their data processing terms for the sub-processor record. Kevin creates the account; agent rotates keys in env (never in git).
+- [ ] **B9. Cost dashboard.** Bot-only `GET /admin/llm-usage?month=` aggregating `llm_usage` by pipeline and by user, so real AI cost per user replaces the estimates in the pricing doc.
+
+## C. Store publishing
+
+- [ ] **C1. iOS rebuild** via Codemagic `ios-capacitor` to pick up the ring, chips, cap and Apple linking. Then Kevin links Apple from Settings once (Sign-in methods, Link Apple ID) so Hide My Email signs into his account.
+- [ ] **C2. Android release signing and AAB.** `capacitor-spike/android/app/build.gradle` has no release signingConfig and no upload keystore; Play needs an AAB. Generate an upload keystore (kept out of git, path documented in DEPLOY.md), add the release config, `./gradlew bundleRelease`. Rebuild the debug APK to UAT too (`/var/www/wealth-downloads/wealth.apk`).
+- [ ] **C3. Build tag.** `frontend/lib/buildTag.ts` is a hand-edited constant ("build 2026-08-18c"). Derive it from the git short SHA or CI build number at build time.
+- [ ] **C4. iPhone-only target.** Capacitor targets iPad by default, which means iPad screenshots at review. Set `TARGETED_DEVICE_FAMILY` to iPhone in the Codemagic plist/pbxproj step.
+- [ ] **C5. Store listings.** App Store: screenshots for 6.9 and 6.5 inch, description, keywords, support URL, App Privacy labels, age rating, review notes with a demo account (needs D2). Play: Data safety form, feature graphic 1024x500 (does not exist), screenshots. Icon master: `capacitor-spike/assets/icon.png`.
+- [ ] **C6. Housekeeping in the portals.** Remove the "Sorted by Auriq - Demised" App Store Connect record, delete provisioning profile "Sorted AppStore A", consider revoking the manually created iOS Distribution certificate (only Codemagic's API-key certificate should remain), remove the old `co.uk.auriqltd.wealth` App ID and Firebase Android app.
+- [ ] **C7. Apple relay email.** Not needed until the backend sends email; if outbound email is ever added, register the sending domain in Sign in with Apple for Email Communication.
+
+## D. Identity and sign-up
+
+- [ ] **D1. Enable open sign-up on UAT** by adding `OPEN_SIGNUP=true` to `backend/.env` on the VPS and restarting `wealth-api`, then test: new Google account, new Apple account with Hide My Email, dot-variant Gmail lands in the same account, explicit link claims an automatic link. Keep prod off until launch.
+- [ ] **D2. Reviewer path.** Store review needs a working sign-in without the allow list: either `OPEN_SIGNUP=true` on prod at review time, or a demo account added to `ALLOWED_EMAILS`. Decide and document in the review notes.
+- [ ] **D3. Orphaned relay accounts.** When an explicit link claims an automatic relay link, the empty account keyed by the relay email stays behind. Add a sweep or delete it at link time when it has no connections (reuse the account-deletion routine; never delete an account with data).
+- [ ] **D4. Rate limiting and mobile login state for replicas.** `routers/auth.py` `_pending` dict and the in-memory rate limiter assume one process. Move both to Redis before running more than one Railway replica.
+
+## E. Platform and scaling (from the pricing doc, section 6)
+
+- [ ] **E1. Atlas M0 to M10** before real users; M20 or M30 by 10,000. Kevin actions in Atlas; agent updates connection string in env.
+- [ ] **E2. Railway Pro and replicas** once D4 is done; spread the 4-hourly reconcile across the window and check Finexer rate limits (10,000 connections is about 42 syncs a minute).
+- [ ] **E3. Vercel Pro** (see B5).
+- [ ] **E4. Backup restore test** documented with a date (Q13).
+
+## F. MCP connector (start after Finexer production approval)
+
+- [ ] **F1. Design sign-off** with Finexer in writing: read-only, user-directed disclosure, masked identifiers, revocation and audit log. Full design in the pricing doc section 7.
+- [ ] **F2. OAuth 2.1 authorisation server** with PKCE and dynamic client registration on the backend; consent page reusing Google or Apple sign-in; token storage with refresh and revocation.
+- [ ] **F3. `/mcp` Streamable HTTP endpoint** exposing `TOOL_SCHEMAS` read tools through `execute_tool`; output masking of account numbers, sort codes, IBANs, consent ids; scopes `accounts:read`, `transactions:read`, `plans:read`, `insights:read`; per-user rate limit and the tier's monthly call allowance (Connect 2,000, Max 5,000); audit log.
+- [ ] **F4. Settings "Connected assistants"** list with client name, last used, revoke.
+- [ ] **F5. Policy updates:** Privacy Policy section "AI assistants you connect", Terms clause, Finexer Q2 and Q9 disclosure.
+
+## G. Design and copy follow-ups
+
+- [ ] **G1. DESIGN.md drift.** Still describes the retired Out-vs-In gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card. Update to the current surface map in `CLAUDE.md`.
+- [ ] **G2. Dead code in `app/planning/PlanningPage.tsx`** (`PlansDock`, `CommitmentCards`, `computeDebtRow`, `computeGrowRow`) and the duplicated fetch path in `lib/useAllTransactions.ts`.
+- [ ] **G3. Design index.** `app/design/page.tsx` now lists `penny-usage-ring`, `planning-plans`, `spend-penny-flow`, `upcoming-plan`; keep it current for every new preview.
+- [ ] **G4. `chat.py` tax explainer prompt** has no product constraints (EIS/SEIS content invites investment-product suggestions) and no temperature; tighten before go-live (Q8 promises it).
+- [ ] **G5. Penny agent mode** (propose-only writes, consent-gated) stays off until Finexer approval; when it ships it is a disclosed change with a privacy update.
+
+## H. Repo hygiene
+
+- [ ] **H1. Firebase config history.** `capacitor-spike/google-services.json` was tracked until 2026-09-05 and an old copy with the Android API key remains in git history. Decision: restrict the key to the Android package in Google Cloud console rather than rewrite history. Kevin.
+- [ ] **H2. Retired Expo project `mobile/`.** `sync-shared.sh` still writes into `mobile/lib/shared/`; either delete the directory or stop syncing to it.
+- [ ] **H3. `docs/compliance` and `docs/pricing`** are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
