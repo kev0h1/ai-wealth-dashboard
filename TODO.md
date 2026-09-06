@@ -84,4 +84,4 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **H3. `docs/compliance` and `docs/pricing`** [owner: claude] are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
   - note (2026-09-06, kevin): Board write-side smoke test
 - [ ] **H4. Prune stale git worktrees on the VPS left by earlier sessions (git worktree prune, then remove directories whose branches are merged), without touching worktrees of live sessions.** [owner: claude] [priority: p2]
-- [ ] **H5. Branch naming: feature branches are named feature-<ID>[-slug]; update session.sh, integrate.py, backlog docs and CLAUDE.md** [owner: claude]
+- [ ] **H5. Branch naming: feature branches are named feature-<ID>[-slug]; update session.sh, integrate.py, backlog docs and CLAUDE.md** [owner: claude] [state: in-progress]
