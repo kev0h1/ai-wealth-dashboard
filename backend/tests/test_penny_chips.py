@@ -175,7 +175,9 @@ def test_home_payday_due_nothing_due_is_honest(monkeypatch):
 
 def test_home_payday_due_never_leaks_raw_bank_descriptors(monkeypatch):
     # The exact three real-world offenders that leaked an account-number-
-    # like fragment (or the user's own name) before this fix.
+    # like fragment (or the user's own name) before this fix. Neither
+    # movement occurrence carries a known destination here, so both must
+    # still fall back to the fixed phrase rather than the raw descriptor.
     async def fake_sts(uid):
         return {"status": "ok", "days_until_payday": 19}
     monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
@@ -201,11 +203,52 @@ def test_home_payday_due_never_leaks_raw_bank_descriptors(monkeypatch):
     _assert_house_style(answer)
 
 
-def test_clean_bill_display_name_movement_never_uses_the_raw_descriptor():
+def test_home_payday_due_movement_with_reference_shaped_destination_falls_back(monkeypatch):
+    # A movement occurrence CAN carry a known destination name, but it must
+    # still be run through the same reference/long-digit guard raw
+    # descriptors get -- a destination name that happens to look like a
+    # reference string is never trusted blindly.
+    async def fake_sts(uid):
+        return {"status": "ok", "days_until_payday": 19}
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+
+    async def fake_execute_tool(uid, name, args):
+        return {
+            "upcoming_bills": [
+                {
+                    "name": "TRANSFER REF 12345678", "amount": {"raw": 200.0, "formatted": "£200"},
+                    "days_away": 1, "kind": "movement", "dest_account_name": "ACC-88495712300",
+                },
+            ],
+        }
+    monkeypatch.setattr(penny_chips_module, "execute_tool", fake_execute_tool)
+
+    result = _run(answer_chip(UID, "home_payday_due", None))
+    answer = result["answer"]
+    assert not re.search(r"\d{6,}", answer), answer
+    assert "a card or account payment" in answer
+    _assert_house_style(answer)
+
+
+def test_clean_bill_display_name_movement_falls_back_with_no_known_destination():
     from app.services.penny_chips import _clean_bill_display_name
 
     assert _clean_bill_display_name("AMERICAN EXPRESS 3766-824849-32000", "movement") == "a card or account payment"
     assert _clean_bill_display_name("KEVIN MAINGI CREDIT VIA MOBILE - PY", "movement") == "a card or account payment"
+
+
+def test_clean_bill_display_name_movement_names_a_card_repayment_destination():
+    from app.services.penny_chips import _clean_bill_display_name
+
+    bill = {"card_dest_account_name": "American Express"}
+    assert _clean_bill_display_name("AMERICAN EXPRESS 3766-824849-32000", "movement", bill) == "American Express card payment"
+
+
+def test_clean_bill_display_name_movement_names_a_self_transfer_destination():
+    from app.services.penny_chips import _clean_bill_display_name
+
+    bill = {"dest_account_name": "Monzo Savings"}
+    assert _clean_bill_display_name("KEVIN MAINGI CREDIT VIA MOBILE - PY", "movement", bill) == "Transfer to Monzo Savings"
 
 
 def test_clean_bill_display_name_uses_the_engines_own_merchant_identity():
@@ -213,6 +256,12 @@ def test_clean_bill_display_name_uses_the_engines_own_merchant_identity():
 
     assert _clean_bill_display_name("NETFLIX.COM 18665797172", "discretionary") == "Netflix"
     assert _clean_bill_display_name("EE LIMITED", "commitment") == "Ee Limited"
+
+
+def test_clean_bill_display_name_squarespace_alias():
+    from app.services.penny_chips import _clean_bill_display_name
+
+    assert _clean_bill_display_name("SQSP* WORKSP#239622742 DUBLIN 8", "discretionary") == "Squarespace"
 
 
 # ── 3. spend_where_money_went ────────────────────────────────────────────

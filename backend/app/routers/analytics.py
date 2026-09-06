@@ -3258,6 +3258,19 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 # leaves both fields None.
                 "dest_account_id":        r.get("dest_account_id") if _occ_kind == MOVEMENT else None,
                 "dest_account_spendable": r.get("dest_account_spendable") if _occ_kind == MOVEMENT else None,
+                # Display name/bank for the two `_serialise_pattern` destination
+                # pairs (self-transfer and card-repayment, kept deliberately
+                # separate -- see the doctrine on `card_dest_account_id` above)
+                # so a caller can name WHERE a movement is going without ever
+                # touching `account_map`/Mongo itself (penny_chips.py's
+                # home_payday_due chip is the first consumer). Same MOVEMENT
+                # gate as the pair above -- these are user-chosen account
+                # labels, not bank settlement narratives, so unlike `name`
+                # they are safe to show verbatim.
+                "dest_account_name":      r.get("dest_account_name") if _occ_kind == MOVEMENT else None,
+                "dest_account_bank":      _bank_label(r.get("dest_account_bank")) if _occ_kind == MOVEMENT else None,
+                "card_dest_account_name": r.get("card_dest_account_name") if _occ_kind == MOVEMENT else None,
+                "card_dest_account_bank": _bank_label(r.get("card_dest_account_bank")) if _occ_kind == MOVEMENT else None,
             })
         # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
         kept = []
