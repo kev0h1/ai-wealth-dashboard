@@ -2,11 +2,17 @@
 
 // TEMPORARY PREVIEW — delete after design review.
 //
-// Three art-direction variants of a Penny message-allowance meter, staged
-// on static mocks of the sheet header (components/PennySheet.tsx), the
-// bottom nav (components/BottomNav.tsx) and the composer
-// (components/PennyConversation.tsx) — see MockSheetFrame.tsx and
-// MockBottomNav.tsx for why those are copied markup, not imports.
+// Penny message-allowance meter, staged on static mocks of the sheet header
+// (components/PennySheet.tsx), the bottom nav (components/BottomNav.tsx)
+// and the composer (components/PennyConversation.tsx) — see
+// MockSheetFrame.tsx and MockBottomNav.tsx for why those are copied markup,
+// not imports.
+//
+// A2 is the RECOMMENDED direction (2026-09-06, after Kevin's phone review of
+// the first round): a ring concentric with the header avatar, no caption
+// row, the usage line living inside the header title itself via a crossfade.
+// B and C are kept only as points of comparison, unchanged from the first
+// round.
 //
 // Deep-linkable: /design/penny-usage-ring?mode=light|dark&state=low|high|cap|unlimited
 //   low       37 of 150 messages used (Standard tier)
@@ -15,12 +21,22 @@
 //   unlimited an uncapped tier — each variant shows how the meter itself
 //             either disappears or reads "no limit" rather than drawing a
 //             ring that can never fill.
+//
+// Two extra flags, NOT `state` values (they combine with any state above,
+// not swap between mutually-exclusive views):
+//   ?tapped=1  renders the A2 header already crossfaded to its usage line,
+//              so a screenshot doesn't need a real click to show it.
+//   ?sheet=1   opens the More Messages sheet as an overlay on top of the A2
+//              mock. It also opens automatically whenever `state=cap`,
+//              since that link only exists in the UI once the tier is
+//              actually capped.
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import MockSheetFrame from "./MockSheetFrame";
 import MockBottomNav from "./MockBottomNav";
-import { USAGE_FIXTURES, USAGE_STATES, type UsageState } from "./fixtures";
+import MoreMessagesSheet from "./MoreMessagesSheet";
+import { USAGE_FIXTURES, USAGE_STATES, USAGE_RESET_DATE, type UsageState } from "./fixtures";
 
 type Mode = "light" | "dark";
 
@@ -58,14 +74,33 @@ function Toolbar({ state, mode }: { state: UsageState; mode: Mode }) {
   );
 }
 
-function SectionHeading({ letter, title, caption }: { letter: string; title: string; caption: string }) {
+function SectionHeading({
+  letter,
+  title,
+  caption,
+  recommended = false,
+}: {
+  letter: string;
+  title: string;
+  caption: string;
+  recommended?: boolean;
+}) {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-500/15 text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
+        <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-indigo-100 dark:bg-indigo-500/15 text-[11px] font-bold text-indigo-600 dark:text-indigo-300">
           {letter}
         </span>
         <h2 className="text-[16px] font-bold text-slate-900 dark:text-white">{title}</h2>
+        {recommended && (
+          // Solid indigo, not the Penny gradient — that gradient is reserved
+          // for Penny's own chrome (the ring/mark inside the mock below),
+          // per DESIGN.md's Penny Gradient Rule. This badge is meta-UI for
+          // the preview index itself, not a surface that ships.
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white bg-indigo-600">
+            Recommended
+          </span>
+        )}
       </div>
       <p className="mt-1 text-[12px] leading-relaxed text-slate-500 dark:text-slate-400">{caption}</p>
     </div>
@@ -77,6 +112,8 @@ function Inner() {
   const rawState = params.get("state");
   const state: UsageState = isState(rawState) ? rawState : "low";
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
+  const tapped = params.get("tapped") === "1";
+  const sheetFlag = params.get("sheet") === "1";
   const data = USAGE_FIXTURES[state];
 
   useEffect(() => {
@@ -94,7 +131,7 @@ function Inner() {
           <div>
             <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Penny usage ring</h1>
             <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              Message-allowance meter · 3 art-direction variants
+              Message-allowance meter · A2 recommended, B/C for comparison
             </p>
             <p className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
               {data.tier} tier ·{" "}
@@ -111,11 +148,12 @@ function Inner() {
 
           <section className="space-y-3">
             <SectionHeading
-              letter="A"
-              title="Avatar ring"
-              caption="A thin ring around the Penny avatar in the sheet header. Tap the avatar to toggle the caption underneath the title (shown here by default)."
+              letter="A2"
+              title="Avatar ring, refined"
+              caption="A ring drawn concentric with the Penny avatar (fixed geometry, square caps — see Kevin's 2026-09-06 phone review). Tap the avatar to crossfade the header title itself to the usage line for ~2.5s; no extra row. At Cap, the composer disables and offers a 'Get more messages' link on the disclaimer's own row."
+              recommended
             />
-            <MockSheetFrame variant="avatarRing" state={state} data={data} />
+            <MockSheetFrame variant="avatarRing" state={state} data={data} tapped={tapped} initialSheetOpen={sheetFlag || state === "cap"} />
           </section>
 
           <section className="space-y-3">
@@ -138,6 +176,17 @@ function Inner() {
               caption="No ring anywhere. A hairline bar sits directly above the composer input with the count right-aligned above it. At Cap, the placeholder changes and sending disables."
             />
             <MockSheetFrame variant="composerMeter" state={state} data={data} />
+          </section>
+
+          <section className="space-y-3">
+            <SectionHeading
+              letter="D"
+              title="More messages sheet"
+              caption={`Reached from A2's 'Get more messages' link once the Standard tier is capped. Two options, priced in mono; quick-chip questions stay free; resets on ${USAGE_RESET_DATE}. Buttons are inert here.`}
+            />
+            <div className="mx-auto w-full max-w-[420px]">
+              <MoreMessagesSheet />
+            </div>
           </section>
         </div>
 

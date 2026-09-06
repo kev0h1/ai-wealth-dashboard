@@ -21,6 +21,11 @@ export const USAGE_FIXTURES: Record<UsageState, UsageData> = {
   unlimited: { used: 214, limit: null, tier: "Unlimited" },
 };
 
+/** Shared across the A2 composer's "Get more messages" link, the overlay
+ * trigger and the standalone More Messages sheet mock (MoreMessagesSheet.tsx)
+ * so the reset date only needs to change in one place. */
+export const USAGE_RESET_DATE = "1 Oct";
+
 export function usageFraction(data: UsageData): number {
   if (data.limit == null || data.limit <= 0) return 0;
   return Math.max(0, Math.min(1, data.used / data.limit));
