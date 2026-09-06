@@ -275,7 +275,9 @@ a branch is merged whatever its name is, the check just catches likely
 copy-paste mistakes early. A conflict aborts that one merge and
 blocks the item with a reason ("integration conflict with main; rebase
 the branch") — a real problem for the owning session to fix, not
-integrate's to solve. After a clean merge it runs the backend suite,
+integrate's to solve. After a clean merge it reinstalls dependencies if the
+merge changed a lockfile (`pip install -r backend/requirements.txt` into the
+shared venv, `npm ci` in `frontend/`), then runs the backend suite,
 rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or
 `shared/` changed, restarts `wealth-api` (and `wealth-worker` if
 `backend/app/workers` changed) if `backend/` changed, and checks both
