@@ -29,7 +29,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 
 ## B. Penny cost, tiers and billing
 
-- [ ] **B1. Shorten the grow cache.** [owner: claude] [priority: p2] [state: in-progress] `GET /grow` caches up to 6 h, `GET /safe-to-spend` 90 s, so Planning and Home can show different figures for the same gap (£1,053.91 vs £749 seen 2026-09-06). Align the grow cache TTL to the safe-to-spend one or invalidate it on sync.
+- [ ] **B1. Shorten the grow cache.** [owner: claude] [priority: p2] [state: review: feature-B1-grow-cache] `GET /grow` caches up to 6 h, `GET /safe-to-spend` 90 s, so Planning and Home can show different figures for the same gap (£1,053.91 vs £749 seen 2026-09-06). Align the grow cache TTL to the safe-to-spend one or invalidate it on sync.
 - [ ] **B2. Bill display names in the due-list chip.** [owner: claude] [priority: p2] `services/penny_chips.py` `home_payday_due` prints "a card or account payment" for card repayments and own-transfers. Use the destination card or account display name ("American Express card payment"). Squarespace lines clean to "Worksp"; consider a merchant alias.
 - [ ] **B3. Tax chips still on the model.** [owner: claude] [priority: p2] `tax_pension_carry_forward`, `tax_salary_sacrifice`, `tax_gift_aid` return `kind: "llm"` and count as messages. Add registry entries (verified, general explanation) plus the user's own figure where the tax engine exposes one. Registry doctrine in `PENNY_TOOLS.md`.
 - [ ] **B4. Settings usage row.** [owner: claude] [priority: p2] Show "Penny messages used 37 of 150, resets 1 Oct" in Settings under Sign-in methods, from `GET /subscription`.
