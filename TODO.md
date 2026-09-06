@@ -75,7 +75,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 
 ## G. Design and copy follow-ups
 
-- [ ] **G1. DESIGN.md drift.** [owner: claude] [state: in-progress] Still describes the retired Out-vs-In gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card. Update to the current surface map in `CLAUDE.md`.
+- [ ] **G1. DESIGN.md drift.** [owner: claude] [state: review: feature-G1-design-md-drift] Still describes the retired Out-vs-In gap line, the old four-tab nav, and the old three-tile Safe-to-Spend card. Update to the current surface map in `CLAUDE.md`.
 - [ ] **G2. Dead code in `app/planning/PlanningPage.tsx`** [owner: claude] (`PlansDock`, `CommitmentCards`, `computeDebtRow`, `computeGrowRow`) and the duplicated fetch path in `lib/useAllTransactions.ts`.
 - [ ] **G3. Design index.** [owner: claude] `app/design/page.tsx` now lists `penny-usage-ring`, `planning-plans`, `spend-penny-flow`, `upcoming-plan`; keep it current for every new preview.
 - [x] **G4. `chat.py` tax explainer prompt** [owner: claude] [priority: p1] [unblocks: Q8] has no product constraints (EIS/SEIS content invites investment-product suggestions) and no temperature; tighten before go-live (Q8 promises it). (done 2026-09-06, e24bd9fbe1ffbf0c1f6ec81b0bdb2bde709c2361)
