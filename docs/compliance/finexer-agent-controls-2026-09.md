@@ -4,11 +4,15 @@ Drafted 2026-09-06 from the codebase, SECURITY.md, PRIVACY.md and TERMS.md. Item
 
 ## Q1 Start date
 
+Status: ready
+
 ```text
 2026-10-01
 ```
 
 ## Q2 Material changes since onboarding
+
+Status: needs-kevin
 
 ```text
 There have been no changes to the business model, ownership, management, target customer base or the AIS-only use of Finexer since onboarding due diligence and the FCA agent application. AURIQ LTD remains founder-operated with the same director(s), serving UK consumers with a personal money management service, with Finexer as the sole open banking provider for UK accounts.
@@ -23,11 +27,15 @@ Developments since onboarding:
 
 ## Q3 AIS only
 
+Status: ready
+
 ```text
 Confirmed. Auriq Ltd's use of Finexer is limited exclusively to Account Information Services. No payment initiation functionality has been introduced, and none will be introduced without Finexer's prior written approval. The application holds no client money, initiates no payments, and provides no funds-transfer capability. Our contracted product under Schedule B is AIS only at £450/month.
 ```
 
 ## Q4 Production website and app details, callback and webhook URLs
+
+Status: ready
 
 ```text
 Production service name: Sorted (by AURIQ LTD).
@@ -49,6 +57,8 @@ We confirm these URLs are final, are used solely by the Sorted service operated 
 
 ## Q5 Customer journey evidence
 
+Status: blocked-deploy
+
 ```text
 Attached: screen recording "sorted-finexer-journey.mp4" and numbered screenshots 01 to 09, captured on the production web application at https://wealth.auriqltd.co.uk. [KEVIN: capture after the production deploy; frames listed below.]
 
@@ -67,6 +77,8 @@ Consent withdrawal initiated at the bank or via Finexer is received by our webho
 
 ## Q6 Regulatory disclosures
 
+Status: blocked-deploy
+
 ```text
 Attached screenshots:
 A. Terms and Conditions, section 2 "Regulatory status" at https://wealth.auriqltd.co.uk/terms: states that AURIQ LTD is not authorised by the FCA in its own right, that account information services are provided through Finexer LTD, an FCA-authorised firm, and that AURIQ LTD acts as a registered agent of Finexer LTD, with a pointer to the FCA Financial Services Register.
@@ -77,6 +89,8 @@ C. In-app bank connection step: the disclosure line shown immediately before the
 ```
 
 ## Q7 Terms and Privacy Policy
+
+Status: blocked-deploy
 
 ```text
 Final published versions:
@@ -96,6 +110,8 @@ Two updates are being made before submission: the Privacy Policy's account-detai
 
 ## Q8 Scope of AI functionality
 
+Status: ready
+
 ```text
 Confirmed. The AI-assisted coaching, budgeting, debt-payoff and savings functionality remains as described at onboarding and has not expanded into personalised recommendations for specific investments, financial products, lenders, debt solutions or any other regulated products or services.
 
@@ -112,6 +128,8 @@ The planned connected assistant feature (Q2) does not change this. Sorted's tool
 ```
 
 ## Q9 AI and third-party processing
+
+Status: ready
 
 ```text
 Confirmed; the arrangements are as described at onboarding, with the additions below.
@@ -130,6 +148,8 @@ Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-i
 
 ## Q10 Retention, deletion and consent withdrawal
 
+Status: blocked-deploy
+
 ```text
 Confirmed; the following controls are implemented and operational in production. [KEVIN: true only after the production deploy.]
 
@@ -143,6 +163,8 @@ Retention: account and transaction data deleted within 30 days of closure, withd
 ```
 
 ## Q11 Security and incident controls, testing
+
+Status: blocked-deploy
 
 ```text
 Confirmed; the controls in our Security and Incident Response Policy are implemented in production: bank tokens encrypted at rest (AES via Fernet) with the key held only in platform secrets; all secrets outside source control; signed, time-limited session tokens verified on every request; sign-in only via verified Google or Apple identities, with registration restricted to an allow list until launch; TLS in transit; restricted CORS; rate limiting on authentication and webhook routes; HMAC signature verification on Finexer webhooks; API documentation and introspection disabled in production; MongoDB Atlas with network access controls; encrypted nightly backups with 30-day retention; platform logging on Vercel, Railway and Atlas.
@@ -158,6 +180,8 @@ Outstanding findings: none rated Critical or High. Two Medium items identified i
 
 ## Q12 Insurance
 
+Status: needs-kevin
+
 ```text
 [KEVIN: attach the policy schedules and complete.]
 Professional Indemnity: insurer ____, policy number ____, period ____ to ____, limit of indemnity £____ per claim.
@@ -165,6 +189,8 @@ Cyber: insurer ____, policy number ____, period ____ to ____, limit £____, incl
 ```
 
 ## Q13 Complaints, continuity, incident reporting
+
+Status: needs-kevin
 
 ```text
 Confirmed.

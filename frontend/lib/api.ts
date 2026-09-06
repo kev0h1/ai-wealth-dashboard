@@ -1377,6 +1377,16 @@ export function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Private go-live readiness page (/ops/go-live) — see backend/app/routers/ops.py.
+export type GoLiveDoc = { markdown: string; updated_at: string };
+export type GoLiveResponse = {
+  files: {
+    todo?: GoLiveDoc;
+    compliance?: GoLiveDoc;
+    pricing?: GoLiveDoc;
+  };
+};
+
 // A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)
 // otherwise hangs indefinitely and pages spin forever waiting on Promise.all.
 // Abort stalled GETs and retry once — GETs are safe to repeat.
@@ -2962,4 +2972,8 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean }>(r)),
+
+  // Private go-live readiness page (/ops/go-live) — owner-only, reads
+  // TODO.md and docs/ straight from the repo; see backend/app/routers/ops.py.
+  getGoLive: () => get<GoLiveResponse>("/ops/go-live"),
 };

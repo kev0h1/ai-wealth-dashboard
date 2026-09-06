@@ -34,7 +34,10 @@ function parseTableCells(line: string): string[] {
     .map((cell) => cell.trim());
 }
 
-function splitMarkdownIntoSegments(markdown: string): Segment[] {
+// Exported so other markdown-rendering surfaces with no GFM table support
+// of their own (e.g. app/ops/go-live) can reuse the same table split/render
+// instead of duplicating it — see the doc comment above.
+export function splitMarkdownIntoSegments(markdown: string): Segment[] {
   const lines = markdown.split("\n");
   const segments: Segment[] = [];
   let buffer: string[] = [];
@@ -68,7 +71,7 @@ function splitMarkdownIntoSegments(markdown: string): Segment[] {
   return segments;
 }
 
-const mdComponents: Components = {
+export const mdComponents: Components = {
   h1: ({ children }) => (
     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2 mt-0">{children}</h1>
   ),
@@ -110,7 +113,7 @@ const mdComponents: Components = {
   ),
 };
 
-function LegalTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+export function LegalTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className="mb-6 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
       <table className="w-full border-collapse text-left text-sm">
