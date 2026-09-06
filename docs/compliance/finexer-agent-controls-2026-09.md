@@ -13,11 +13,12 @@ Drafted 2026-09-06 from the codebase, SECURITY.md, PRIVACY.md and TERMS.md. Item
 ```text
 There have been no changes to the business model, ownership, management, target customer base or the AIS-only use of Finexer since onboarding due diligence and the FCA agent application. AURIQ LTD remains founder-operated with the same director(s), serving UK consumers with a personal money management service, with Finexer as the sole open banking provider for UK accounts.
 
-For completeness we note the following non-material developments:
-1. Distribution channel: in addition to the web application at wealth.auriqltd.co.uk, the same application is now packaged as iOS and Android apps (bundle and package identifier co.uk.auriqltd.sorted). They call the same production backend; no new callback or webhook endpoints were created.
-2. Sign-in: Sign in with Apple has been added alongside Google sign-in, as required by Apple for App Store distribution. Both are identity-only; no additional personal data is collected.
-3. Subscription tiers (free and paid) are defined in the product but no payment processing has been enabled. Bank connection and the account information service itself are and will remain free of charge.
-4. [KEVIN: confirm whether the "Penny agent mode" (proposal-only, consent-gated actions) will be live before 2026-10-01. If yes, describe it here as a change to the AI assistant's capabilities; if no, delete this point.]
+Developments since onboarding:
+1. Distribution: the web application at wealth.auriqltd.co.uk is also packaged as iOS and Android apps (identifier co.uk.auriqltd.sorted), calling the same production backend. No new callback or webhook endpoints.
+2. Sign in with Apple added alongside Google sign-in, as Apple requires for App Store distribution. Identity only; no additional personal data is collected.
+3. Subscription tiers are defined in the product but no payment processing is enabled. Bank connection and the account information service remain free of charge.
+4. Planned, not live: a "connected assistant" feature (an MCP connector, which we discussed with Finexer, who indicated they were open to it). A customer may authorise their own AI assistant, for example Claude or ChatGPT, to read their Sorted data. It is read-only, granted by the customer through an explicit OAuth consent with named scopes, revocable at any time from Settings, and every request is logged and visible to the customer. Responses never include account numbers, sort codes, IBANs, card numbers or provider identifiers. No payment, transfer or data-changing capability is exposed. The AIS arrangement is unchanged: Sorted retrieves account information under Finexer's authorisation and displays or passes it only to the customer or to a recipient the customer nominates. Target: after production approval; we will provide the final design and the privacy policy wording to Finexer before launch.
+[KEVIN: add the date of the MCP discussion with Finexer; confirm Penny agent mode will not be live before 1 October.]
 ```
 
 ## Q3 AIS only
@@ -109,17 +110,18 @@ How this is enforced in the product:
 ## Q9 AI and third-party processing
 
 ```text
-Confirmed; the arrangements are as described at onboarding, with the additions noted at the end.
+Confirmed; the arrangements are as described at onboarding, with the additions below.
 
-Categories of data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's first name (used only to recognise the customer's own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
+Data shared with the AI gateway (OpenRouter, routing to Amazon Bedrock, Google, Anthropic or Microsoft Azure): merchant name, a truncated transaction description, amount and direction, and the customer's first name (only to recognise their own name in transfer descriptions). For the in-app assistant: the customer's question plus the derived figures needed to answer it.
 
-Never shared with AI providers: account numbers, sort codes, IBANs, card numbers, bank access or refresh tokens, Finexer consent or customer identifiers, login credentials, email addresses, dates of birth or addresses.
+Never shared with AI providers: account numbers, sort codes, IBANs, card numbers, bank access or refresh tokens, Finexer consent or customer identifiers, credentials, email addresses, dates of birth or addresses.
 
-No use for training: every AI request is sent with a provider routing preference of "data collection: deny", which restricts routing to providers whose terms exclude retention and training on submitted content.
+No training: every request carries a routing preference of "data collection: deny", restricting routing to providers whose terms exclude retention and training on submitted content.
 
-International transfers: application and database hosting is in the EU (Railway EU West, MongoDB Atlas Frankfurt), covered by UK adequacy. US processing by AI providers is under the UK IDTA or the UK Addendum to the EU SCCs, as stated in Privacy Policy section 7.
+International transfers: hosting is in the EU (Railway EU West, MongoDB Atlas Frankfurt) under UK adequacy; US processing by AI providers is under the UK IDTA or Addendum, as stated in Privacy Policy section 7.
 
-Changes since onboarding: Sign in with Apple added (Apple receives only the sign-in event; we receive a verified email or Apple relay address); Apple and Google push notification services carry only a device token and notification text, never transaction data. [KEVIN: confirm nothing else changed in the list given at onboarding.]
+Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-in event and we receive a verified email or Apple relay address. (2) Apple and Google push services carry only a device token and notification text, never transaction data. (3) Planned, not live: the connected assistant feature described in Q2. The customer's chosen AI provider then receives account information at the customer's own instruction, under the customer's contract with that provider; it is not a sub-processor of ours. Sharing is limited to what the assistant requests through named read-only scopes, identifiers are masked, calls are rate-limited and logged, and access can be revoked at any time. The Privacy Policy will gain a section "AI assistants you connect" before launch.
+[KEVIN: confirm nothing else changed in the list given at onboarding.]
 ```
 
 ## Q10 Retention, deletion and consent withdrawal
