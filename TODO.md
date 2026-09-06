@@ -38,6 +38,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **B7. Lite refresh cadence.** [owner: claude] [priority: p2] Tier `lite` says `refresh: "daily"`; the 4-hourly reconcile cron syncs everyone. Make the cron respect the tier's cadence.
 - [ ] **B8. OpenRouter organisation account.** [owner: kevin] Move from Kevin's personal account to an AURIQ LTD organisation with per-environment keys and spend limits; keep `data_collection: deny`; file their data processing terms for the sub-processor record. Kevin creates the account; agent rotates keys in env (never in git).
 - [ ] **B9. Cost dashboard.** [owner: claude] [priority: p2] Bot-only `GET /admin/llm-usage?month=` aggregating `llm_usage` by pipeline and by user, so real AI cost per user replaces the estimates in the pricing doc.
+- [ ] **B10. Surface tier 402 messages on bank connect: BankPickerSheet and AccountsPage handleConnectBank/handleReconnect discard the error detail, so OPEN_BANKING_NOT_IN_TIER and CONNECTION_LIMIT_REACHED never show their message; render detail.message inline in the sheet.** [owner: claude]
 
 ## C. Store publishing
 
