@@ -87,7 +87,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-06, claude): session abandoned, branch item/H2-shared-sync discarded
 - [ ] **H3. `docs/compliance` and `docs/pricing`** [owner: claude] are committed; keep `[KEVIN]` markers until answered, then remove them before the questionnaire is submitted.
   - note (2026-09-06, kevin): Board write-side smoke test
-- [ ] **H4. Prune stale git worktrees on the VPS left by earlier sessions (git worktree prune, then remove directories whose branches are merged), without touching worktrees of live sessions.** [owner: claude] [priority: p2]
+- [ ] **H4. Prune stale git worktrees on the VPS left by earlier sessions (git worktree prune, then remove directories whose branches are merged), without touching worktrees of live sessions.** [owner: claude] [priority: p2] [state: in-progress]
 - [x] **H5. Branch naming: feature branches are named feature-<ID>[-slug]; update session.sh, integrate.py, backlog docs and CLAUDE.md** [owner: claude] (done 2026-09-06, 68f568279ec58d8dd7c3db1263fcd73ff624b215)
 - [ ] **H6. Worktree sessions typecheck against the shared tree's shared/ package: frontend/node_modules is symlinked from the shared tree and node_modules/@wealth/shared resolves to /root/ai-wealth-dashboard/shared, so edits to a worktree's shared/src/types.ts are invisible to tsc there; make session.sh link or map @wealth/shared to the worktree's own shared/ directory.** [owner: claude]
 - [ ] **H7. integrate.py must reinstall dependencies when the merge changes lockfiles: run npm ci in frontend/ when package-lock.json changed and pip install -r backend/requirements.txt into the shared venv when requirements.txt changed, before the build and restart.** [owner: claude]
