@@ -35,7 +35,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
-    penny_chip, ops,
+    penny_chip, ops, admin_usage,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -126,6 +126,7 @@ for router in [
     money_shape.router,
     penny_chip.router,
     ops.router,
+    admin_usage.router,
 ]:
     app.include_router(router)
 
