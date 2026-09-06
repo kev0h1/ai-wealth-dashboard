@@ -38,27 +38,37 @@ async function fetchAll(force = false): Promise<Transaction[]> {
 
 export function invalidateTransactionsCache() { cache = null; inflight = null; }
 
+// Shared fetch path: try the (possibly cached) fetch, fall back to whatever
+// is already cached (or []) on failure. Both the mount effect and `refresh`
+// call this instead of each re-implementing the same fetch-then-fallback
+// sequence; only the state-setting differs (the effect must skip it once
+// cancelled).
+async function loadWithFallback(force = false): Promise<Transaction[]> {
+  return fetchAll(force).catch(() => cache?.data ?? []);
+}
+
 export function useAllTransactions(enabled = true) {
   const [transactions, setTransactions] = useState<Transaction[]>(cache?.data ?? []);
   const [loading, setLoading] = useState(!cache);
+
   const refresh = useCallback(async (force = false) => {
     setLoading(true);
-    const d = await fetchAll(force).catch(() => cache?.data ?? []);
+    const d = await loadWithFallback(force);
     setTransactions(d);
     setLoading(false);
   }, []);
+
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    fetchAll()
-      .catch(() => cache?.data ?? [])
-      .then((data) => {
-        if (cancelled) return;
-        setTransactions(data);
-        setLoading(false);
-      });
+    loadWithFallback().then((data) => {
+      if (cancelled) return;
+      setTransactions(data);
+      setLoading(false);
+    });
     return () => { cancelled = true; };
   }, [enabled]);
+
   return { transactions, loading: enabled && loading, refresh, setTransactions };
 }
 
