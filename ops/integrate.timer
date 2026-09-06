@@ -1,0 +1,13 @@
+# NOT installed or enabled by default — see docs/ops/BACKLOG.md "Branch per
+# item" for the install steps.
+[Unit]
+Description=Run backlog integrate every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=integrate.service
+Persistent=false
+
+[Install]
+WantedBy=timers.target

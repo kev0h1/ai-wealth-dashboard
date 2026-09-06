@@ -11,9 +11,24 @@ Run with `backend/.venv/bin/python scripts/backlog.py <command> ...`.
 
 Commands:
     list                                Print every item and question.
+    add <section> "<title>" [--owner kevin|claude]
+                                        Add a new item under section heading
+                                        "## <section>. ..." (e.g. A, H) with
+                                        the next free id in that section.
+                                        Prints just the new id on stdout.
     start <id>                          Mark an item in progress.
     block <id> "<reason>"               Mark an item blocked, with a reason.
-    done <id> [--commit <sha>]          Tick an item done.
+    review <id> --branch <name>         Mark an item in review on a branch
+                                        (see docs/ops/BACKLOG.md "Branch per
+                                        item" — scripts/session.sh finish
+                                        calls this once tests are green).
+    todo <id>                           Reset an item to to-do (clears any
+                                        state tag; used by session.sh abandon).
+    done <id> [--commit <sha>] [--merge <sha>]
+                                        Tick an item done. --merge is an
+                                        alias for --commit for the case
+                                        where the id is the merge commit on
+                                        main (scripts/integrate.py uses it).
     reopen <id>                         Untick a done item.
     note <id> "<text>"                  Add a dated note under an item.
     owner <id> kevin|claude             Change who owns an item.
@@ -23,6 +38,12 @@ Commands:
 Every command takes an optional `--actor kevin|claude` (defaults to
 `claude`) that is recorded in the note/commit and attributed as the git
 commit's actor label.
+
+The board's repo root is fixed to `/root/ai-wealth-dashboard` regardless of
+the caller's cwd (see `BACKLOG_ROOT` in `backend/app/services/backlog.py`),
+so this CLI edits the one shared board even when run from a git worktree
+under `/root/worktrees/<branch>`. Set `BACKLOG_ROOT` to point it elsewhere
+(tests only).
 """
 from __future__ import annotations
 
@@ -42,15 +63,33 @@ def _print_result(item_id: str, result: dict, committed: bool) -> None:
         print("  (saved to file; git commit or push failed — see logs)")
 
 
+def _state_display(item: dict) -> str:
+    if item["state"] == "review" and item.get("branch"):
+        return f"review:{item['branch']}"
+    return item["state"]
+
+
 def cmd_list(args: argparse.Namespace) -> None:
     snapshot = backlog.load()
-    print(f"{'id':<6} {'owner':<7} {'state':<12} {'done_at':<12} {'title'}")
+    print(f"{'id':<6} {'owner':<7} {'state':<28} {'done_at':<12} {'title'}")
     for item in snapshot.items():
-        print(f"{item['id']:<6} {item['owner'] or '-':<7} {item['state']:<12} {item['done_at'] or '-':<12} {item['title']}")
+        print(
+            f"{item['id']:<6} {item['owner'] or '-':<7} {_state_display(item):<28} "
+            f"{item['done_at'] or '-':<12} {item['title']}"
+        )
     print()
     print(f"{'q':<5} {'status':<15} {'title'}")
     for q in snapshot.questions():
         print(f"{q['q']:<5} {q['status']:<15} {q['title']}")
+
+
+def cmd_add(args: argparse.Namespace) -> None:
+    result, committed = backlog.add_item(args.section, args.title, owner=args.owner, actor=args.actor)
+    # Print just the new id on stdout so callers (scripts/session.sh) can
+    # capture it directly; everything else goes to stderr.
+    print(result["id"])
+    if not committed:
+        print("(saved to file; git commit or push failed — see logs)", file=sys.stderr)
 
 
 def cmd_start(args: argparse.Namespace) -> None:
@@ -63,8 +102,19 @@ def cmd_block(args: argparse.Namespace) -> None:
     _print_result(args.item_id, result, committed)
 
 
+def cmd_review(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_todo(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_state(args.item_id, "todo", actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
 def cmd_done(args: argparse.Namespace) -> None:
-    result, committed = backlog.set_done(args.item_id, True, commit=args.commit, actor=args.actor)
+    sha = args.commit or args.merge
+    result, committed = backlog.set_done(args.item_id, True, commit=sha, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -101,6 +151,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="Print every item and question.")
     p_list.set_defaults(func=cmd_list)
 
+    p_add = sub.add_parser("add", help="Add a new item under a section heading; prints the new id.")
+    p_add.add_argument("section", help="Section letter, e.g. A or H (must already have a '## <section>.' heading).")
+    p_add.add_argument("title", help="Item title text.")
+    p_add.add_argument("--owner", choices=["kevin", "claude"], default=None)
+    add_actor(p_add)
+    p_add.set_defaults(func=cmd_add)
+
     p_start = sub.add_parser("start", help="Mark an item in progress.")
     p_start.add_argument("item_id")
     add_actor(p_start)
@@ -112,9 +169,21 @@ def build_parser() -> argparse.ArgumentParser:
     add_actor(p_block)
     p_block.set_defaults(func=cmd_block)
 
+    p_review = sub.add_parser("review", help="Mark an item in review on a branch.")
+    p_review.add_argument("item_id")
+    p_review.add_argument("--branch", required=True)
+    add_actor(p_review)
+    p_review.set_defaults(func=cmd_review)
+
+    p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag).")
+    p_todo.add_argument("item_id")
+    add_actor(p_todo)
+    p_todo.set_defaults(func=cmd_todo)
+
     p_done = sub.add_parser("done", help="Tick an item done.")
     p_done.add_argument("item_id")
     p_done.add_argument("--commit", default=None)
+    p_done.add_argument("--merge", default=None, help="Alias for --commit (the integrate merge commit sha).")
     add_actor(p_done)
     p_done.set_defaults(func=cmd_done)
 

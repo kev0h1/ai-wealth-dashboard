@@ -1,0 +1,13 @@
+# NOT installed or enabled by default — see docs/ops/BACKLOG.md "Branch per
+# item" for the install steps. One-shot unit that runs a single integrate
+# pass; ops/integrate.timer fires it every 10 minutes.
+[Unit]
+Description=Backlog integrate — merge reviewed branches into main (one pass)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/ai-wealth-dashboard
+ExecStart=/root/ai-wealth-dashboard/backend/.venv/bin/python /root/ai-wealth-dashboard/scripts/integrate.py --once
+User=root

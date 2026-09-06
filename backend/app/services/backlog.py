@@ -12,11 +12,16 @@ Model on a TODO.md item line:
     - [ ] **A1. Title.** [owner: claude] [state: in-progress] Description text.
       - note (2026-09-06, kevin): a note about A1.
 
-`[state: ...]` is one of `in-progress` or `blocked: <reason>`; absent means
-to do. The checkbox carries done/not-done, independent of the state tag —
-marking an item done clears any state tag. A done item gets a trailing
-`(done 2026-09-06, abc1234)` marker (commit hash optional). Notes are
-indented sub-bullets directly under the item line.
+`[state: ...]` is one of `in-progress`, `blocked: <reason>`, or
+`review: <branch>` (see docs/ops/BACKLOG.md "Branch per item" — a session
+finishing work on a worktree branch sends the item to review with the
+branch name attached, and `scripts/integrate.py` either merges it to `done`
+or bounces it back to `blocked` with the conflict/failure reason); absent
+means to do. The checkbox carries done/not-done, independent of the state
+tag — marking an item done clears any state tag. A done item gets a
+trailing `(done 2026-09-06, abc1234)` marker (commit hash optional, and for
+an integrated item is the merge commit on main). Notes are indented
+sub-bullets directly under the item line.
 
 Questions in the compliance doc keep their existing `## Qn <title>` /
 `Status: <status>` shape; `status` is one of ready, needs-kevin,
@@ -33,6 +38,7 @@ from __future__ import annotations
 
 import fcntl
 import logging
+import os
 import re
 import subprocess
 from contextlib import contextmanager
@@ -43,16 +49,45 @@ from typing import Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
-# backend/app/services/backlog.py -> parents[3] is the repo root (matches
-# backend/app/routers/ops.py's _repo_root(), which also uses parents[3]).
-REPO_ROOT = Path(__file__).resolve().parents[3]
-TODO_PATH = REPO_ROOT / "TODO.md"
-COMPLIANCE_PATH = REPO_ROOT / "docs" / "compliance" / "finexer-agent-controls-2026-09.md"
+
+def _repo_root() -> Path:
+    """The board's repo root is fixed to the shared tree, not wherever this
+    file's checkout happens to live. Every git worktree under
+    /root/worktrees/<branch> (see docs/ops/BACKLOG.md "Branch per item") has
+    its own copy of this very file, so the old `Path(__file__).resolve()
+    .parents[3]` trick resolved to the *worktree* when a session ran the CLI
+    from inside one — silently forking the board instead of editing the one
+    everyone shares. Fixed to `/root/ai-wealth-dashboard` regardless of cwd
+    or `__file__`; override with `BACKLOG_ROOT` for tests or a genuinely
+    different deployment layout. (`backend/app/routers/ops.py` has its own
+    `_repo_root()` for the live API process, which runs from the shared tree
+    only and is unaffected by this.)"""
+    env_root = os.environ.get("BACKLOG_ROOT")
+    if env_root:
+        return Path(env_root)
+    return Path("/root/ai-wealth-dashboard")
+
+
+def _todo_path() -> Path:
+    return _repo_root() / "TODO.md"
+
+
+def _compliance_path() -> Path:
+    return _repo_root() / "docs" / "compliance" / "finexer-agent-controls-2026-09.md"
+
+
+# Snapshots at import time for any external code that still reaches for
+# these names directly. Everything in this module calls _repo_root() /
+# _todo_path() / _compliance_path() fresh instead, so BACKLOG_ROOT and the
+# worktree-vs-shared-tree fix above always apply regardless of import order.
+REPO_ROOT = _repo_root()
+TODO_PATH = _todo_path()
+COMPLIANCE_PATH = _compliance_path()
 
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
-ITEM_STATES = ("todo", "in-progress", "blocked")
+ITEM_STATES = ("todo", "in-progress", "blocked", "review")
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude")
 
@@ -62,7 +97,7 @@ ITEM_RE = re.compile(
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude)\]")
-STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked)(?::\s*([^\]]*))?\]")
+STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review)(?::\s*([^\]]*))?\]")
 DONE_SUFFIX_RE = re.compile(r"\(done\s+(\d{4}-\d{2}-\d{2})(?:,\s*([^)]+))?\)\s*$")
 NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude)\): (.*)$")
 
@@ -169,13 +204,14 @@ class BacklogItem:
     text: str
     owner: Optional[str]
     done: bool
-    state: str  # "todo" | "in-progress" | "blocked" (meaningless once done)
+    state: str  # "todo" | "in-progress" | "blocked" | "review" (meaningless once done)
     reason: Optional[str]
     done_at: Optional[str]
     commit: Optional[str]
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
+    branch: Optional[str] = None  # set when state == "review"
 
     def to_dict(self) -> dict:
         state = "done" if self.done else self.state
@@ -187,6 +223,7 @@ class BacklogItem:
             "owner": self.owner,
             "state": state,
             "reason": self.reason if state == "blocked" else None,
+            "branch": self.branch if state == "review" else None,
             "done_at": self.done_at,
             "commit": self.commit,
             "notes": [n.to_dict() for n in self.notes],
@@ -213,10 +250,15 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
 
     state = "todo"
     reason: Optional[str] = None
+    branch: Optional[str] = None
     state_m = STATE_RE.search(tail)
     if state_m:
         state = state_m.group(1)
-        reason = (state_m.group(2) or "").strip() or None
+        detail = (state_m.group(2) or "").strip() or None
+        if state == "blocked":
+            reason = detail
+        elif state == "review":
+            branch = detail
         tail = STATE_RE.sub("", tail, count=1)
 
     text = re.sub(r"\s{2,}", " ", tail).strip()
@@ -234,6 +276,7 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
+        branch=branch if state == "review" else None,
     )
 
 
@@ -247,6 +290,8 @@ def _render_item_line(item: BacklogItem) -> str:
     if not item.done and item.state and item.state != "todo":
         if item.state == "blocked":
             segments.append(f"[state: blocked: {item.reason or ''}]")
+        elif item.state == "review":
+            segments.append(f"[state: review: {item.branch or ''}]")
         else:
             segments.append(f"[state: {item.state}]")
     if item.text:
@@ -270,7 +315,7 @@ class TodoDoc:
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "TodoDoc":
-        return cls.parse((path or TODO_PATH).read_text(encoding="utf-8"))
+        return cls.parse((path or _todo_path()).read_text(encoding="utf-8"))
 
     @classmethod
     def parse(cls, text: str) -> "TodoDoc":
@@ -305,7 +350,7 @@ class TodoDoc:
         return "\n".join(self.lines)
 
     def save(self, path: Optional[Path] = None) -> None:
-        _atomic_write(path or TODO_PATH, self.text())
+        _atomic_write(path or _todo_path(), self.text())
 
     def item(self, item_id: str) -> BacklogItem:
         try:
@@ -331,14 +376,66 @@ class TodoDoc:
         self._rewrite(item)
         return item
 
-    def set_state(self, item_id: str, state: str, reason: Optional[str] = None) -> BacklogItem:
+    def set_state(
+        self, item_id: str, state: str, reason: Optional[str] = None, branch: Optional[str] = None
+    ) -> BacklogItem:
         if state not in ITEM_STATES:
             raise BacklogError(f"invalid state: {state!r} (must be one of {ITEM_STATES})")
+        if state == "review" and not branch:
+            raise BacklogError("branch is required to set state to review")
         item = self.item(item_id)
         item.state = state
         item.reason = reason if state == "blocked" else None
+        item.branch = branch if state == "review" else None
         self._rewrite(item)
         return item
+
+    def add_item(self, section: str, title: str, owner: Optional[str] = None) -> BacklogItem:
+        """Allocate the next id in `section` and append it as a new to-do
+        item at the end of that section's block (just before the next
+        section heading, or end of file for the last section)."""
+        if section not in self.section_headings:
+            raise BacklogError(f"unknown section: {section!r} (no '## {section}. ...' heading in the board)")
+        if owner is not None and owner not in OWNERS:
+            raise BacklogError(f"invalid owner: {owner!r} (must be one of {OWNERS})")
+
+        existing_nums = [
+            int(m.group(1))
+            for item_id, item in self.items.items()
+            if item.section == section
+            for m in [re.match(rf"^{re.escape(section)}(\d+)$", item_id)]
+            if m
+        ]
+        new_id = f"{section}{max(existing_nums, default=0) + 1}"
+
+        heading_line_no, _ = self.section_headings[section]
+        later_headings = [ln for ln, _ in self.section_headings.values() if ln > heading_line_no]
+        end_line = min(later_headings) if later_headings else len(self.lines)
+
+        insert_at = end_line
+        while insert_at > heading_line_no + 1 and self.lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+
+        new_item = BacklogItem(
+            item_id=new_id,
+            section=section,
+            title=title.strip(),
+            text="",
+            owner=owner,
+            done=False,
+            state="todo",
+            reason=None,
+            done_at=None,
+            commit=None,
+            line_no=insert_at,
+            raw_line="",
+        )
+        self.lines.insert(insert_at, _render_item_line(new_item))
+
+        reparsed = TodoDoc.parse(self.text())
+        self.items = reparsed.items
+        self.section_headings = reparsed.section_headings
+        return self.item(new_id)
 
     def set_owner(self, item_id: str, owner: str) -> BacklogItem:
         if owner not in OWNERS:
@@ -382,7 +479,7 @@ class ComplianceDoc:
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "ComplianceDoc":
-        return cls.parse((path or COMPLIANCE_PATH).read_text(encoding="utf-8"))
+        return cls.parse((path or _compliance_path()).read_text(encoding="utf-8"))
 
     @classmethod
     def parse(cls, text: str) -> "ComplianceDoc":
@@ -418,7 +515,7 @@ class ComplianceDoc:
         return "\n".join(self.lines)
 
     def save(self, path: Optional[Path] = None) -> None:
-        _atomic_write(path or COMPLIANCE_PATH, self.text())
+        _atomic_write(path or _compliance_path(), self.text())
 
     def question(self, q_id: str) -> BacklogQuestion:
         try:
@@ -488,8 +585,8 @@ def set_done(
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    resolved_path = todo_path or TODO_PATH
-    resolved_root = repo_root or REPO_ROOT
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.set_done(item_id, done, commit=commit)
@@ -503,19 +600,59 @@ def set_state(
     item_id: str,
     state: str,
     reason: Optional[str] = None,
+    branch: Optional[str] = None,
     actor: str = "claude",
     *,
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    resolved_path = todo_path or TODO_PATH
-    resolved_root = repo_root or REPO_ROOT
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
-        item = doc.set_state(item_id, state, reason=reason)
+        item = doc.set_state(item_id, state, reason=reason, branch=branch)
         doc.save(resolved_path)
-    action = {"in-progress": "started", "blocked": "blocked", "todo": "reset to to-do"}[state]
+    action = {
+        "in-progress": "started",
+        "blocked": "blocked",
+        "todo": "reset to to-do",
+        "review": f"sent to review ({branch})",
+    }[state]
     committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
+    return item.to_dict(), committed
+
+
+def set_review(
+    item_id: str,
+    branch: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Convenience wrapper over `set_state(..., "review", branch=branch)` —
+    what `scripts/session.sh finish` calls once tests are green and the
+    branch is pushed, and what `scripts/integrate.py` reads back to find
+    the branches waiting to be merged into main."""
+    return set_state(item_id, "review", branch=branch, actor=actor, todo_path=todo_path, repo_root=repo_root)
+
+
+def add_item(
+    section: str,
+    title: str,
+    owner: Optional[str] = None,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.add_item(section, title, owner=owner)
+        doc.save(resolved_path)
+    committed = _git_commit_and_push([resolved_path], f"backlog: {item.item_id} added by {actor}", resolved_root)
     return item.to_dict(), committed
 
 
@@ -527,8 +664,8 @@ def set_owner(
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    resolved_path = todo_path or TODO_PATH
-    resolved_root = repo_root or REPO_ROOT
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.set_owner(item_id, owner)
@@ -547,8 +684,8 @@ def add_note(
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    resolved_path = todo_path or TODO_PATH
-    resolved_root = repo_root or REPO_ROOT
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
         item = doc.add_note(item_id, text, actor)
@@ -565,8 +702,8 @@ def set_question_status(
     compliance_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
 ) -> tuple[dict, bool]:
-    resolved_path = compliance_path or COMPLIANCE_PATH
-    resolved_root = repo_root or REPO_ROOT
+    resolved_path = compliance_path or _compliance_path()
+    resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = ComplianceDoc.load(resolved_path)
         doc.set_status(q_id, status)

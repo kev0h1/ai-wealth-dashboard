@@ -25,9 +25,15 @@ Open after this round (see session notes, not doctrine): dead `PlansDock` / `Com
 
 ## Backlog
 
-`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model. When a session starts, blocks on, or finishes a backlog item, run the matching command instead of editing the markdown by hand:
+`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model, including the state machine (`todo` / `in-progress` / `blocked` / `review` / done) and the `add`/`review`/`todo` commands.
+
+Picking up a backlog item is branch-per-item, not "edit the shared tree directly": a session must run `scripts/session.sh start <ID>` **before touching any code**, then do all its work inside the worktree that command prints (never in `/root/ai-wealth-dashboard` itself), and never restart `wealth-api` / `wealth-worker` / `wealth-frontend` from that worktree — UAT only changes when an integrate pass merges the branch into `main`. Run `scripts/session.sh finish <ID>` once tests are green to push the branch and mark the item in review; `scripts/integrate.py` (run by the coordinator session, or the `integrate.timer` unit if installed — see `docs/ops/BACKLOG.md`) is what actually merges it, rebuilds/restarts UAT, and ticks the board. The board itself (`TODO.md`, `docs/compliance/...`) is still only ever edited from the shared tree via `scripts/backlog.py` — never from inside a worktree:
 
 ```bash
+scripts/session.sh start <item-id> [slug] [--title "New item title"]
+scripts/session.sh finish <item-id>
+scripts/session.sh abandon <item-id>
+
 backend/.venv/bin/python scripts/backlog.py start <item-id>
 backend/.venv/bin/python scripts/backlog.py block <item-id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py done <item-id> --commit <sha>
