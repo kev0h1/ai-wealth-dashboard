@@ -1,6 +1,25 @@
 # Codemagic CI — Capacitor iOS build.
 # The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
 # Capacitor 8 iOS uses Swift Package Manager (no CocoaPods / Podfile).
+#
+# TWO WORKFLOWS, same build pipeline, different backend:
+#   - ios-capacitor:      bakes the UAT API (https://uat.wealth.auriqltd.co.uk/api).
+#                         Use this for day-to-day TestFlight builds while testing.
+#   - ios-capacitor-prod: bakes the production API directly
+#                         (https://api.wealth.auriqltd.co.uk, via `npm run
+#                         build:mobile:prod`). Trigger THIS workflow (Codemagic
+#                         UI: Start new build -> pick workflow, or the API/CLI
+#                         `--workflow ios-capacitor-prod`) to produce the
+#                         production TestFlight build used as Q5 compliance
+#                         evidence and for the real App Store release.
+# Every other step (Capacitor sync, entitlements, signing, IPA, publish) is
+# identical between the two — they share one script list, one ios_signing
+# block, and one publishing/artifacts config via YAML anchors (`&name` /
+# `*name` / `<<:`); only the `MOBILE_TARGET` env var and the workflow `name`
+# differ. The shared "Build web" step itself reads MOBILE_TARGET at runtime
+# ("prod" -> build:mobile:prod, anything else -> build:mobile), so its
+# script text is identical too — it is aliased, not copy-pasted.
+#
 # Setup in the Codemagic UI:
 #   1. App Store Connect API key integration named "AURIQ LTD" (done).
 #   2. Team settings -> Code signing identities: generate the iOS distribution
@@ -22,9 +41,9 @@
 #      Apple at build time, and enabling a capability invalidates the App ID's
 #      existing profiles on Apple's side, which is what forces a fresh one to be
 #      issued. So the next build after this step, run with IOS_PUSH_ENABLED set to
-#      "true" (see the environment.vars block in the ios-capacitor workflow below),
-#      automatically picks up a profile that already includes the entitlement. No
-#      manual profile step is needed. The only manual fallback is deleting a stale
+#      "true" (see each workflow's environment.vars block below), automatically
+#      picks up a profile that already includes the entitlement. No manual
+#      profile step is needed. The only manual fallback is deleting a stale
 #      profile in the Apple portal if Codemagic somehow reuses one instead of
 #      requesting a new one.
 #   4. Apple Developer portal -> Keys: create an APNs Auth Key (recommended over a
@@ -34,8 +53,8 @@
 #      backend directly, hand the .p8 key + Key ID + Team ID to whoever owns the
 #      backend's push-sending code — do NOT commit it to this repo.
 #   6. Once step 3 is done, no separate Codemagic UI env var is needed:
-#      IOS_PUSH_ENABLED is set directly in this file's environment.vars block
-#      (ios-capacitor workflow, below). Flip it there to turn push on or off.
+#      IOS_PUSH_ENABLED is set directly in this file's environment.vars blocks
+#      (both workflows, below). Flip it there to turn push on or off.
 # The `Add Push Notifications entitlement` build step below sets the
 # `aps-environment` key in App.entitlements to "production" and wires it into
 # the freshly-generated Xcode project (ios/ is not committed, `cap add ios`
@@ -52,15 +71,20 @@ workflows:
     name: iOS Capacitor (TestFlight)
     instance_type: mac_mini_m2
     max_build_duration: 60
-    integrations:
+    integrations: &shared_integrations
       app_store_connect: "AURIQ LTD"
     environment:
       xcode: latest
       node: 22
-      ios_signing:
+      ios_signing: &shared_ios_signing
         distribution_type: app_store
         bundle_identifier: co.uk.auriqltd.sorted
       vars:
+        # Selects which API base the shared "Build web" step below bakes in
+        # (see that step's own comment). "uat" (or unset) -> build:mobile,
+        # baking https://uat.wealth.auriqltd.co.uk/api. The ios-capacitor-prod
+        # workflow below sets this to "prod" instead.
+        MOBILE_TARGET: "uat"
         # This enables the aps-environment entitlement and the remote-notification
         # background mode in the build steps below (see "Register wealthdash URL
         # scheme + Face ID + push background mode" and "Add Push Notifications
@@ -80,21 +104,26 @@ workflows:
         # would not match that string comparison.
         IOS_PUSH_ENABLED: "true"
     scripts:
-      - name: Build web (mobile static export)
+      - &step_build_web
+        name: Build web (mobile static export)
         script: |
           cd frontend
           npm ci
-          # This workflow builds against UAT. For a production TestFlight
-          # build (Q5 evidence / release), run `npm run build:mobile:prod`
-          # instead, which bakes https://api.wealth.auriqltd.co.uk. This
-          # mirrors the local-APK convention: npm run build:mobile with no
-          # MOBILE_API_BASE override falls back to UAT
-          # (https://uat.wealth.auriqltd.co.uk/api) inside
-          # frontend/scripts/build-mobile.sh, same as Android APK builds.
-          npm run build:mobile
+          # MOBILE_TARGET (set in this workflow's environment.vars block
+          # above) selects the API base baked into the static export: "prod"
+          # bakes https://api.wealth.auriqltd.co.uk (npm run
+          # build:mobile:prod), anything else (including unset) bakes UAT
+          # (npm run build:mobile) — same fallback as local Android APK
+          # builds, see frontend/scripts/build-mobile.sh.
+          if [ "${MOBILE_TARGET:-uat}" = "prod" ]; then
+            npm run build:mobile:prod
+          else
+            npm run build:mobile
+          fi
           rm -rf "$CM_BUILD_DIR/capacitor-spike/www"
           cp -r out "$CM_BUILD_DIR/capacitor-spike/www"
-      - name: Add + sync Capacitor iOS
+      - &step_capacitor_sync
+        name: Add + sync Capacitor iOS
         script: |
           set -e
           cd "$CM_BUILD_DIR/capacitor-spike"
@@ -103,7 +132,8 @@ workflows:
           # Brand app icons (cap add ios resets AppIcon.appiconset to Capacitor stock icons)
           bash scripts/apply-icons.sh
           npx cap sync ios
-      - name: Register wealthdash URL scheme + Face ID + push background mode + export compliance
+      - &step_register_scheme
+        name: Register wealthdash URL scheme + Face ID + push background mode + export compliance
         script: |
           PLIST="$CM_BUILD_DIR/capacitor-spike/ios/App/App/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
@@ -120,7 +150,7 @@ workflows:
           # below for why: signing fails until the provisioning profile grants
           # Push, so this ships off by default for a clean no-push TestFlight
           # build. IOS_PUSH_ENABLED is set in this yaml's environment.vars block
-          # (ios-capacitor workflow, above), not as a Codemagic UI env var. Flip
+          # (both workflows, above), not as a Codemagic UI env var. Flip
           # it there to re-enable or disable.
           if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
             /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
@@ -130,7 +160,8 @@ workflows:
           fi
           # Export compliance: HTTPS only via the OS, exempt, so App Store Connect stops asking per build.
           /usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
-      - name: Add Sign in with Apple entitlement
+      - &step_apple_signin
+        name: Add Sign in with Apple entitlement
         script: |
           # UNGATED (unlike the push step right after this one): Sign in with
           # Apple needs the com.apple.developer.applesignin entitlement wired
@@ -172,7 +203,8 @@ workflows:
           # here instead of shipping a build that's missing the entitlement.
           grep -q "CODE_SIGN_ENTITLEMENTS" "$PBXPROJ" || { echo "ERROR: failed to wire CODE_SIGN_ENTITLEMENTS (apple sign-in) into $PBXPROJ"; exit 1; }
           /usr/libexec/PlistBuddy -c "Print :com.apple.developer.applesignin:0" "$ENTITLEMENTS" | grep -q Default || { echo "ERROR: applesignin entitlement missing"; exit 1; }
-      - name: Add Push Notifications entitlement (aps-environment)
+      - &step_push_entitlement
+        name: Add Push Notifications entitlement (aps-environment)
         script: |
           # Gated behind IOS_PUSH_ENABLED (default false/unset): the
           # aps-environment entitlement only signs cleanly if the App Store
@@ -181,8 +213,8 @@ workflows:
           # 3-4) — until that's done, wiring CODE_SIGN_ENTITLEMENTS in makes
           # Apple signing FAIL. So today we ship a no-push TestFlight build:
           # this whole step is a no-op unless IOS_PUSH_ENABLED is set to "true"
-          # in this yaml's environment.vars block (ios-capacitor workflow,
-          # above), not as a Codemagic UI environment variable. Face ID/biometrics is unaffected
+          # in this yaml's environment.vars block (both workflows,
+          # above). Face ID/biometrics is unaffected
           # (needs no capability) — see the previous step.
           if [ "${IOS_PUSH_ENABLED:-false}" = "true" ]; then
             # Capacitor's `cap add ios` template ships no entitlements file and no
@@ -223,7 +255,8 @@ workflows:
           else
             echo "Push entitlement (aps-environment / CODE_SIGN_ENTITLEMENTS) SKIPPED (IOS_PUSH_ENABLED != true) — signing a no-push TestFlight build"
           fi
-      - name: Patch AppDelegate for push token forwarding (SPM template gap)
+      - &step_appdelegate_patch
+        name: Patch AppDelegate for push token forwarding (SPM template gap)
         script: |
           # Gated behind IOS_PUSH_ENABLED, same reasoning as the entitlement
           # step above: this only matters once push is actually being wired
@@ -263,7 +296,8 @@ workflows:
           else
             echo "AppDelegate push token forwarding patch SKIPPED (IOS_PUSH_ENABLED != true), building a no-push TestFlight build"
           fi
-      - name: Set unique build number
+      - &step_build_number
+        name: Set unique build number
         script: |
           # App Store Connect rejects a TestFlight upload that reuses a
           # (CFBundleShortVersionString, CFBundleVersion) pair. Capacitor's
@@ -286,21 +320,71 @@ workflows:
           # the last-used build number from App Store Connect instead:
           #   app-store-connect get-latest-testflight-build-number <app_apple_id>
           # and incrementing that by 1.
-      - name: Apply provisioning profiles
+      - &step_provisioning
+        name: Apply provisioning profiles
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
           xcode-project use-profiles
-      - name: Build IPA
+      - &step_build_ipa
+        name: Build IPA
         script: |
           cd "$CM_BUILD_DIR/capacitor-spike/ios/App"
           xcode-project build-ipa \
             --project "App.xcodeproj" \
             --scheme "App" \
             --ipa-directory "$CM_BUILD_DIR/build/ios/ipa"
-    artifacts:
+    artifacts: &shared_artifacts
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-    publishing:
+    publishing: &shared_publishing
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+
+  ios-capacitor-prod:
+    name: iOS Capacitor (TestFlight, production API)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations: *shared_integrations
+    environment:
+      xcode: latest
+      node: 22
+      ios_signing: *shared_ios_signing
+      vars:
+        # Selects which API base the shared "Build web" step bakes in — see
+        # that step's comment (defined once, above, in ios-capacitor's
+        # scripts list, and reused here via anchor). "prod" -> build:mobile:prod,
+        # baking https://api.wealth.auriqltd.co.uk directly (no /api suffix —
+        # the mobile static export talks to the backend's own root, unlike
+        # the web app which goes through Vercel's /api rewrite).
+        MOBILE_TARGET: "prod"
+        # This enables the aps-environment entitlement and the remote-notification
+        # background mode in the build steps below (see "Register wealthdash URL
+        # scheme + Face ID + push background mode" and "Add Push Notifications
+        # entitlement"). It's a plain feature flag, not a secret, so it lives here
+        # in the repo rather than as a Codemagic UI environment variable: UI
+        # variables belong to variable groups that must be imported via an
+        # `environment: groups:` key, this file has no `groups:` key, so a
+        # UI-set variable would silently never reach the build.
+        #
+        # !!! PREREQUISITE, READ BEFORE FLIPPING THIS TO "true" !!!
+        # The Push Notifications capability must already be enabled on the
+        # co.uk.auriqltd.sorted App ID in the Apple Developer portal (see header
+        # comment step 3 above) BEFORE this is set to "true". If the entitlement
+        # is requested in a build before Apple has granted the capability, code
+        # signing FAILS. Quoted as a string because the build scripts compare it
+        # with `[ "${IOS_PUSH_ENABLED:-false}" = "true" ]`, a YAML boolean `true`
+        # would not match that string comparison.
+        IOS_PUSH_ENABLED: "true"
+    scripts:
+      - *step_build_web
+      - *step_capacitor_sync
+      - *step_register_scheme
+      - *step_apple_signin
+      - *step_push_entitlement
+      - *step_appdelegate_patch
+      - *step_build_number
+      - *step_provisioning
+      - *step_build_ipa
+    artifacts: *shared_artifacts
+    publishing: *shared_publishing

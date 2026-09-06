@@ -209,6 +209,23 @@ Optional companion vars, read by `components/StoreBadges.tsx`
 `NEXT_PUBLIC_PLAY_STORE_URL`. Leave unset until the store listings exist —
 the badge renders a "coming soon" placeholder instead of a dead link.
 
+## Mobile — Codemagic TestFlight builds
+
+`codemagic.yaml` (repo root) defines two iOS workflows, both producing a
+Capacitor TestFlight build from the same pipeline (Capacitor sync,
+entitlements, signing, IPA, App Store Connect publish) — they differ only in
+which backend the static export bakes in:
+
+| Workflow | API baked in | When to use |
+|----------|--------------|-------------|
+| `ios-capacitor` | `https://uat.wealth.auriqltd.co.uk/api` (`npm run build:mobile`) | day-to-day TestFlight builds while testing |
+| `ios-capacitor-prod` | `https://api.wealth.auriqltd.co.uk` (`npm run build:mobile:prod`) | the production TestFlight build used as Q5 compliance evidence, and for the real App Store release |
+
+To run the production variant, start a Codemagic build and pick
+`ios-capacitor-prod` as the workflow (Codemagic UI's "Start new build"
+workflow dropdown, or `--workflow ios-capacitor-prod` via the Codemagic
+API/CLI) instead of the default `ios-capacitor`.
+
 ## GitHub Actions secrets (backups)
 
 `BACKUP_MONGO_URI`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `R2_BUCKET`.
