@@ -157,6 +157,7 @@ migrated **encrypted tokens decrypt** — the TOKEN_KEY proof), trigger a sync
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
 | `MONO_*`, `YAPILY_*` | from `backend/.env` | only if using the Kenya region |
 | `SENTRY_DSN` | optional | error monitoring |
+| `API_PUBLIC_URL` | optional, defaults to `https://api.wealth.auriqltd.co.uk` | the API's own domain, reached directly by Capacitor mobile builds (`build:mobile:prod`); added to CORS alongside `APP_URL` |
 
 **Do NOT set** `PORT` (Railway injects it). Do not set the secret *file* paths —
 env vars take precedence and the files are excluded from the image.

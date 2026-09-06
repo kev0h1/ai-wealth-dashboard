@@ -22,6 +22,11 @@ OPENROUTER_PROVIDER_PREFS = {"data_collection": "deny"}
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 LOGODEV_TOKEN       = os.getenv("LOGODEV_TOKEN", "")
 APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
+# The API's own public domain (Railway backend, reached directly by mobile
+# builds — see frontend/scripts/build-mobile.sh's MOBILE_API_BASE). Added to
+# CORS below alongside APP_URL; the web app keeps using APP_URL's /api
+# rewrite and never talks to this origin directly.
+API_PUBLIC_URL      = os.getenv("API_PUBLIC_URL", "https://api.wealth.auriqltd.co.uk")
 _raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",") if e.strip()]
 ALLOWED_EMAILS      = set(_raw_allowed_emails)
 PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"
