@@ -36,7 +36,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 
 ## C. Store publishing
 
-- [ ] **C1. iOS rebuild** [owner: kevin] via Codemagic `ios-capacitor` to pick up the ring, chips, cap and Apple linking. Then Kevin links Apple from Settings once (Sign-in methods, Link Apple ID) so Hide My Email signs into his account.
+- [ ] **C1. iOS rebuild** [owner: kevin] [priority: p2] via Codemagic `ios-capacitor` to pick up the ring, chips, cap and Apple linking. Then Kevin links Apple from Settings once (Sign-in methods, Link Apple ID) so Hide My Email signs into his account.
 - [ ] **C2. Android release signing and AAB.** [owner: claude] `capacitor-spike/android/app/build.gradle` has no release signingConfig and no upload keystore; Play needs an AAB. Generate an upload keystore (kept out of git, path documented in DEPLOY.md), add the release config, `./gradlew bundleRelease`. Rebuild the debug APK to UAT too (`/var/www/wealth-downloads/wealth.apk`).
 - [ ] **C3. Build tag.** [owner: claude] `frontend/lib/buildTag.ts` is a hand-edited constant ("build 2026-08-18c"). Derive it from the git short SHA or CI build number at build time.
 - [ ] **C4. iPhone-only target.** [owner: claude] Capacitor targets iPad by default, which means iPad screenshots at review. Set `TARGETED_DEVICE_FAMILY` to iPhone in the Codemagic plist/pbxproj step.
