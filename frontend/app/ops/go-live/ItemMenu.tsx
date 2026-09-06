@@ -15,6 +15,7 @@ export function ItemMenu({
   item,
   disabled,
   onStart,
+  onMoveToTodo,
   onBlock,
   onNote,
   onPriority,
@@ -23,6 +24,7 @@ export function ItemMenu({
   item: GoLiveItem;
   disabled: boolean;
   onStart: () => void;
+  onMoveToTodo: () => void;
   onBlock: (reason: string) => void;
   onNote: (text: string) => void;
   onPriority: (priority: GoLivePriority) => void;
@@ -67,6 +69,18 @@ export function ItemMenu({
               className="flex min-h-9 w-full items-center rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5"
             >
               Start
+            </button>
+          )}
+          {item.state !== "todo" && (
+            <button
+              type="button"
+              onClick={() => {
+                onMoveToTodo();
+                closeAll();
+              }}
+              className="flex min-h-9 w-full items-center rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              Move to To do
             </button>
           )}
           <button

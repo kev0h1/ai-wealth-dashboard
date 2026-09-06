@@ -205,9 +205,19 @@ export default function GoLivePage() {
     );
   }
 
+  // On `lg`+ the List view (Questionnaire + Backlog) becomes a two-column
+  // layout — Questionnaire ~40% left, Backlog ~60% right, both scrolling
+  // with the page — but only when there's a Questionnaire section to sit
+  // next to; a lone Backlog just takes the full width. Board view keeps
+  // the full-width single column so the kanban grid (see BoardView.tsx)
+  // gets the whole shell to itself. Reference and the footer always span
+  // full width below, in both views.
+  const showQuestionnaire = filteredQuestions.length > 0;
+  const listTwoColumn = filters.view === "list" && showQuestionnaire;
+
   return (
-    <main className="min-h-dvh bg-[#f0f2f7] px-6 py-10 dark:bg-[#0f172a]">
-      <div className="mx-auto max-w-2xl">
+    <main className="min-h-dvh bg-[#f0f2f7] px-6 py-10 dark:bg-[#0f172a] xl:px-10">
+      <div className="mx-auto max-w-2xl lg:max-w-none">
         <header className="mb-2">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Go-live readiness</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Finexer production access: 1 Oct 2026</p>
@@ -219,76 +229,78 @@ export default function GoLivePage() {
 
       <FilterBar filters={filters} onChange={updateFilters} />
 
-      <div className="mx-auto max-w-2xl">
-        {filteredQuestions.length > 0 && (
+      <div className="mx-auto max-w-2xl lg:max-w-none">
+        <div className={listTwoColumn ? "lg:grid lg:grid-cols-[2fr_3fr] lg:items-start lg:gap-6" : undefined}>
+          {showQuestionnaire && (
+            <section className="mb-8">
+              <button
+                type="button"
+                onClick={() => toggleUi("questionnaireOpen")}
+                aria-expanded={ui.questionnaireOpen}
+                className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Questionnaire</span>
+                  {!ui.questionnaireOpen && (
+                    <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
+                      {submittedCount} of {filteredQuestions.length} submitted
+                    </span>
+                  )}
+                </span>
+                <ChevronDown
+                  size={17}
+                  className={`shrink-0 text-slate-400 transition-transform ${ui.questionnaireOpen ? "rotate-180" : ""}`}
+                  aria-hidden="true"
+                />
+              </button>
+              {ui.questionnaireOpen && (
+                <QuestionsSection
+                  questions={filteredQuestions}
+                  pendingIds={pendingIds}
+                  saveNotes={saveNotes}
+                  onStatusChange={handleQuestionStatus}
+                />
+              )}
+            </section>
+          )}
+
           <section className="mb-8">
             <button
               type="button"
-              onClick={() => toggleUi("questionnaireOpen")}
-              aria-expanded={ui.questionnaireOpen}
+              onClick={() => toggleUi("backlogOpen")}
+              aria-expanded={ui.backlogOpen}
               className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
             >
               <span className="flex items-center gap-2">
-                <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Questionnaire</span>
-                {!ui.questionnaireOpen && (
+                <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Backlog</span>
+                {!ui.backlogOpen && (
                   <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
-                    {submittedCount} of {filteredQuestions.length} submitted
+                    {done} of {total} done
                   </span>
                 )}
               </span>
               <ChevronDown
                 size={17}
-                className={`shrink-0 text-slate-400 transition-transform ${ui.questionnaireOpen ? "rotate-180" : ""}`}
+                className={`shrink-0 text-slate-400 transition-transform ${ui.backlogOpen ? "rotate-180" : ""}`}
                 aria-hidden="true"
               />
             </button>
-            {ui.questionnaireOpen && (
-              <QuestionsSection
-                questions={filteredQuestions}
-                pendingIds={pendingIds}
-                saveNotes={saveNotes}
-                onStatusChange={handleQuestionStatus}
-              />
-            )}
+            {ui.backlogOpen &&
+              (filters.view === "list" ? (
+                <ListView sections={sections} pendingIds={pendingIds} saveNotes={saveNotes} onAction={handleItemAction} />
+              ) : (
+                <BoardView
+                  items={filteredItems}
+                  todoMarkdown={data.files.todo?.markdown}
+                  lanes={filters.lanes}
+                  onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}
+                  pendingIds={pendingIds}
+                  saveNotes={saveNotes}
+                  onAction={handleItemAction}
+                />
+              ))}
           </section>
-        )}
-
-        <section className="mb-8">
-          <button
-            type="button"
-            onClick={() => toggleUi("backlogOpen")}
-            aria-expanded={ui.backlogOpen}
-            className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 text-left"
-          >
-            <span className="flex items-center gap-2">
-              <span className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">Backlog</span>
-              {!ui.backlogOpen && (
-                <span className="money text-xs font-semibold normal-case text-slate-400 dark:text-slate-500">
-                  {done} of {total} done
-                </span>
-              )}
-            </span>
-            <ChevronDown
-              size={17}
-              className={`shrink-0 text-slate-400 transition-transform ${ui.backlogOpen ? "rotate-180" : ""}`}
-              aria-hidden="true"
-            />
-          </button>
-          {ui.backlogOpen &&
-            (filters.view === "list" ? (
-              <ListView sections={sections} pendingIds={pendingIds} saveNotes={saveNotes} onAction={handleItemAction} />
-            ) : (
-              <BoardView
-                items={filteredItems}
-                todoMarkdown={data.files.todo?.markdown}
-                lanes={filters.lanes}
-                onLanesChange={(lanes) => updateFilters({ ...filters, lanes })}
-                pendingIds={pendingIds}
-                saveNotes={saveNotes}
-                onAction={handleItemAction}
-              />
-            ))}
-        </section>
+        </div>
 
         {data.files.pricing && (
           <section className="mb-8">

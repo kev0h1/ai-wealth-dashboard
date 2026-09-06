@@ -106,6 +106,7 @@ function ItemRow({
             item={item}
             disabled={pending}
             onStart={() => onAction({ action: "start" })}
+            onMoveToTodo={() => onAction({ action: "todo" })}
             onBlock={(reason) => onAction({ action: "block", reason })}
             onNote={(text) => onAction({ action: "note", text })}
             onPriority={(priority) => onAction({ action: "priority", priority })}

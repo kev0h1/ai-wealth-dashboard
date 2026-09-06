@@ -5,6 +5,7 @@
 // as one object under lib/goLive's GO_LIVE_FILTERS_STORAGE_KEY by the
 // parent page; this component is purely controlled.
 
+import { useEffect, useRef } from "react";
 import { LayoutGrid, List, Search, X } from "lucide-react";
 import {
   FILTER_STATE_LABEL,
@@ -31,9 +32,35 @@ export function FilterBar({ filters, onChange }: { filters: GoLiveFilters; onCha
   const hasActiveFilters =
     filters.owner !== "all" || filters.priorities.length > 0 || filters.states.length > 0 || filters.search.trim() !== "";
 
+  // Publishes this bar's real rendered height as a CSS variable on <html>
+  // so BoardView.tsx's desktop column headers (a sibling deep in the tree,
+  // not a descendant — a CSS variable is simpler here than prop-drilling a
+  // measured height down through page.tsx) can sit their `sticky` offset
+  // exactly under it, rather than guessing a fixed pixel value that drifts
+  // whenever this bar's content wraps differently (active filters, window
+  // width, font loading, etc).
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const publishHeight = () => {
+      document.documentElement.style.setProperty("--go-live-filter-h", `${el.getBoundingClientRect().height}px`);
+    };
+    publishHeight();
+    const observer = new ResizeObserver(publishHeight);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty("--go-live-filter-h");
+    };
+  }, []);
+
   return (
-    <div className="sticky top-0 z-20 -mx-6 mb-6 border-b border-slate-200 bg-[#f0f2f7]/90 px-6 py-3 backdrop-blur dark:border-white/10 dark:bg-[#0f172a]/90">
-      <div className="mx-auto max-w-2xl space-y-2.5">
+    <div
+      ref={barRef}
+      className="sticky top-0 z-20 -mx-6 mb-6 border-b border-slate-200 bg-[#f0f2f7]/90 px-6 py-3 backdrop-blur dark:border-white/10 dark:bg-[#0f172a]/90 xl:-mx-10 xl:px-10"
+    >
+      <div className="mx-auto max-w-2xl space-y-2.5 lg:max-w-none">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex min-h-9 shrink-0 items-center rounded-full bg-slate-100 p-0.5 dark:bg-white/5">
             {OWNER_OPTIONS.map((opt) => (

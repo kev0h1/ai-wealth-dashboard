@@ -150,6 +150,17 @@ export function ItemDetailSheet({
             </button>
           )}
 
+          {item.state !== "todo" && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onAction(done ? { action: "reopen" } : { action: "todo" })}
+              className="min-h-9 w-full rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              Move to To do
+            </button>
+          )}
+
           {!done && (
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Block, with a reason</label>
