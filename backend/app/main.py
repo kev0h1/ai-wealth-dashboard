@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
-from app.core.config import APP_URL, TRUELAYER_CLIENT_ID
+from app.core.config import APP_URL, API_PUBLIC_URL, TRUELAYER_CLIENT_ID
 from app.core.auth import auth_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -51,13 +51,16 @@ if os.getenv("ENABLE_API_DOCS"):
 else:
     app = FastAPI(title="Wealth Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
 
-_cors_origins = [APP_URL]
+_cors_origins = [APP_URL, API_PUBLIC_URL]
 # Capacitor mobile WebView origins (Android WebView with androidScheme "https"
 # reports Origin: https://localhost; some WebViews use the capacitor: scheme).
 _cors_origins.append("https://localhost")
 _cors_origins.append("capacitor://localhost")
 if os.getenv("DEV_MODE"):
     _cors_origins.append("http://localhost:3000")
+# Dedupe while preserving order (APP_URL/API_PUBLIC_URL could collide with
+# an explicit env override, or in a future config where they match).
+_cors_origins = list(dict.fromkeys(_cors_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

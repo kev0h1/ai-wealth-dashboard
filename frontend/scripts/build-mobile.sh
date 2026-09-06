@@ -66,7 +66,13 @@ done
 # different backend. Falls back to UAT when unset — Kevin's standing rule is
 # that Android APK builds always bake the UAT API base by default; only an
 # explicit MOBILE_API_BASE override (see package.json's build:mobile:prod,
-# used by the Codemagic/TestFlight iOS pipeline) bakes prod.
+# used by the Codemagic/TestFlight iOS pipeline) bakes prod, at the API
+# domain https://api.wealth.auriqltd.co.uk (no /api suffix — unlike the web
+# build, which reaches the backend through Vercel's /api rewrite, the mobile
+# static export talks to the backend directly, so NEXT_PUBLIC_API_URL is the
+# backend's own root). The web-facing domain (wealth.auriqltd.co.uk) is
+# unaffected by this and keeps hosting the Finexer OAuth return URL — that
+# redirect always goes back to a real browser context, never the app.
 # NEXT_PUBLIC_WEB_PRODUCT is forced "on" here (backlog A10's web-only-shell
 # flag) so a mobile export can never be built locked, regardless of what's
 # set in the calling environment.
