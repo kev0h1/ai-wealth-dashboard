@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.db.collections import user_profiles_col
+from app.services.retention import erase_user
 
 router = APIRouter(tags=["profile"])
 
@@ -60,23 +61,15 @@ async def get_profile(user: dict = Depends(current_user)):
 @router.delete("/account")
 async def delete_account(body: dict, user: dict = Depends(current_user)):
     """Erase every trace of the user: all documents in every collection,
-    matched by user_id field or uid-keyed _id. Requires typed confirmation."""
+    matched by user_id field or uid-keyed _id. Requires typed confirmation.
+
+    The erasure itself lives in app.services.retention.erase_user so the
+    nightly dormant-account sweep (SECURITY.md section 6) runs the exact
+    same routine."""
     if body.get("confirm") != "DELETE":
         raise HTTPException(400, "Confirmation required")
     uid = user["email"]
-
-    from app.db import collections as _cols
-    removed: dict[str, int] = {}
-    for attr in dir(_cols):
-        if not attr.endswith("_col"):
-            continue
-        col = getattr(_cols, attr)
-        r_field = await col.delete_many({"user_id": uid})
-        r_keyed = await col.delete_many({"_id": uid})
-        count = r_field.deleted_count + r_keyed.deleted_count
-        if count:
-            removed[attr.removesuffix("_col")] = count
-
+    removed = await erase_user(uid)
     return {"deleted": True, "removed": removed}
 
 

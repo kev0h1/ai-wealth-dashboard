@@ -67,11 +67,11 @@ A **personal data breach** is any breach of security leading to accidental or un
 
 AURIQ LTD retains customer data only for as long as necessary to provide the service and to meet legal obligations, in line with the UK GDPR storage-limitation principle. This section defines our retention periods and deletion mechanisms.
 
-*Status: DRAFT — periods marked `[CONFIRM]` are provisional defaults pending founder sign-off. An automated purge job to enforce the account/transaction retention limits is still to be implemented; deletion is currently user-initiated (see mechanisms below).*
+*Status: DRAFT. Periods marked `[CONFIRM]` are provisional defaults pending founder sign-off. The automated purge jobs below now enforce the account/transaction retention limits, running nightly at 03:30 UTC as an arq cron job (`task_retention_sweep`), in addition to the user-initiated mechanisms.*
 
 | Data category | Retention period | Mechanism |
 |---------------|------------------|-----------|
-| Bank account & transaction data | Retained while the customer's account is open and the open-banking consent is active. Deleted within `[CONFIRM: 30]` days of account closure, consent withdrawal or expiry, or after `[CONFIRM: 12]` months of account inactivity. | User-initiated now (account deletion / bank disconnect); scheduled auto-purge to be added. |
+| Bank account & transaction data | Retained while the customer's account is open and the open-banking consent is active. Deleted within `[CONFIRM: 30]` days of account closure, consent withdrawal or expiry, or after `[CONFIRM: 12]` months of account inactivity. | User-initiated (account deletion / bank disconnect) plus a nightly automated sweep: a bank connection is auto-purged 30 days after its consent expires or is withdrawn if the customer never disconnected it themselves, and a whole account is auto-purged after 12 months with no sign-in. |
 | Open-banking consent records (status, timestamps) | Life of the connection plus `[CONFIRM: 12]` months for audit, then deleted. | Consent records. |
 | Encrypted bank access tokens | Deleted immediately on bank disconnect or account deletion; overwritten on consent renewal. | Cascade on disconnect + remote consent revoke. |
 | AI chat sessions | 7 days. | Automatic TTL. |
@@ -129,3 +129,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.2 | 2026-08-09 | Added GDPR compliance section (draft). |
 | 1.3 | 2026-08-09 | Documented privacy notice & consent-withdrawal process (draft; page not yet published). |
 | 1.4 | 2026-08-14 | Recorded ICO registration; drafted Privacy Policy and Terms & Conditions. |
+| 1.5 | 2026-09-06 | Automated retention sweeps (connections 30 days after consent ends, dormant accounts after 12 months). |
