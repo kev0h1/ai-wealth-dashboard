@@ -216,6 +216,10 @@ export default function SettingsPage() {
   useEffect(() => { fetchIdentities(); }, []);
 
   const appleIdentity = identities?.linked.find(l => l.provider === "apple") ?? null;
+  // True when this account's only sign-in method is an automatic Apple
+  // "Hide My Email" relay link (created via OPEN_SIGNUP), not linked from an
+  // existing Google account.
+  const isRelayPrimaryAccount = identities?.primary_email?.endsWith("@privaterelay.appleid.com") ?? false;
 
   async function handleLinkApple() {
     setAppleLinking(true);
@@ -645,14 +649,23 @@ export default function SettingsPage() {
                   {appleIdentity.relay && (
                     <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Uses Hide My Email</p>
                   )}
+                  {isRelayPrimaryAccount && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">This account was created with Hide My Email. If you already use Sorted with Google, sign in with Google and link your Apple ID there to keep one account.</p>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAppleUnlinkOpen(true)}
-                  className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
-                >
-                  Unlink
-                </button>
+                {appleIdentity.auto && isRelayPrimaryAccount ? (
+                  <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
+                    Primary
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAppleUnlinkOpen(true)}
+                    className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
+                  >
+                    Unlink
+                  </button>
+                )}
               </div>
             ) : isIOSNative() ? (
               <div className="flex items-center justify-between gap-3">

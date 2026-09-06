@@ -1715,9 +1715,13 @@ export type TestPushResult = {
 // A single external identity linked to this account (Phase 1: Apple only).
 // `relay` is true when the email is an Apple "Hide My Email" private relay
 // address rather than the user's real one — surfaced so Settings can say so.
+// `auto` is true when this identity created its own account via OPEN_SIGNUP
+// (an Apple relay sign-in with no prior account to link from) rather than
+// being explicitly linked from an existing account.
 export type LinkedIdentity = {
   provider: "apple";
   relay: boolean;
+  auto: boolean;
   email_masked: string;
   linked_at: string | null;
 };
