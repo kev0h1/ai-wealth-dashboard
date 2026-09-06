@@ -15,6 +15,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "settings-usage-row",
+    name: "settings-usage-row",
+    description:
+      "Backlog B4: \"Penny messages\" usage row in Settings' Sign-in methods card, real components/PennyUsageRow.tsx (shared with the live SettingsPage.tsx) against three fixtures stacked in a light block and a dark block, no data fetching · normal (37/150), amber (131/150, >=80% used), unlimited (Max plan, no pill)",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "app-only",
     name: "app-only",
     description:

@@ -25,6 +25,8 @@ import {
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";
+import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
+import PennyUsageRow from "@/components/PennyUsageRow";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
@@ -194,6 +196,19 @@ export default function SettingsPage() {
   const [appleLinkMsg, setAppleLinkMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [appleUnlinkOpen, setAppleUnlinkOpen] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
+
+  // Penny messages usage row (backlog B4) — shared store, see
+  // components/PennySheetProvider.tsx. `pennyUsageAttempted` flips once the
+  // one-shot refresh below has settled; combined with a still-null `info`
+  // that means the fetch failed (a genuine reject never reaches here, see
+  // refreshPennyUsage()'s own catch), so PennyUsageRow renders "Could not
+  // load usage" instead of leaving "Checking…" up forever.
+  const pennyUsage = usePennyUsage();
+  const [pennyUsageAttempted, setPennyUsageAttempted] = useState(false);
+  useEffect(() => {
+    refreshPennyUsage().finally(() => setPennyUsageAttempted(true));
+  }, []);
+  const pennyUsageError = pennyUsageAttempted && pennyUsage.info === null;
 
   // No synchronous setState calls in the function body itself (only inside
   // the .then/.catch/.finally continuations) so this is safe to call
@@ -633,7 +648,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Apple */}
-          <div className="px-4 py-3.5">
+          <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
             {identitiesLoading ? (
               <p className="text-xs text-slate-400 dark:text-slate-500">Checking…</p>
             ) : identitiesError ? (
@@ -692,6 +707,9 @@ export default function SettingsPage() {
               </p>
             )}
           </div>
+
+          {/* Penny messages usage (backlog B4) */}
+          <PennyUsageRow info={pennyUsage.info} error={pennyUsageError} />
         </div>
 
         {/* ── Display ── */}
