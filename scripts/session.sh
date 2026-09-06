@@ -215,12 +215,19 @@ cmd_finish() {
   local branch
   branch="$(git -C "$worktree_dir" rev-parse --abbrev-ref HEAD)"
 
-  local dirty
-  dirty="$(git -C "$worktree_dir" status --porcelain)"
+  local status_lines
+  status_lines="$(git -C "$worktree_dir" status --porcelain)"
+  local dirty untracked
+  dirty="$(echo "$status_lines" | grep -v '^??' || true)"
+  untracked="$(echo "$status_lines" | grep '^??' || true)"
   if [[ -n "$dirty" ]]; then
     err "worktree $worktree_dir is dirty; commit your changes before finishing:"
     echo "$dirty" >&2
     exit 1
+  fi
+  if [[ -n "$untracked" ]]; then
+    log "worktree $worktree_dir has untracked files (not blocking finish):"
+    echo "$untracked"
   fi
 
   log "running backend tests in $worktree_dir/backend..."
