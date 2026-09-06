@@ -15,6 +15,39 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "penny-usage-ring",
+    name: "penny-usage-ring",
+    description:
+      "Penny message-allowance meter, 3 art-direction variants against static mocks of the sheet header, bottom nav and composer (copied markup, not imported) · A avatar ring: thin ring around the Penny avatar, tap to reveal a caption under the title / B nav button ring: the same ring as a halo on the raised centre Penny button, visible without opening the sheet, sheet header stays unchanged / C composer meter: no ring, hairline bar + count above the composer input, placeholder and send disable at Cap · ring reads Penny's indigo→violet gradient below 80% used, crossfades to Watch Amber at 80%+ and at Cap, never red · ?mode=light|dark&state=low|high|cap|unlimited",
+    states: [
+      { label: "Low (37/150)", value: "low" },
+      { label: "High (128/150)", value: "high" },
+      { label: "Cap (150/150)", value: "cap" },
+      { label: "Unlimited", value: "unlimited" },
+    ],
+  },
+  {
+    slug: "planning-plans",
+    name: "planning-plans",
+    description:
+      "Planning plans-density round: 3 variants for the priority ladder's plan list (A register / B priority / C dashboard) · ?variant=a|b|c&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "spend-penny-flow",
+    name: "spend-penny-flow",
+    description:
+      "Spend (This period / Patterns) to Penny interaction prototype, fictional figures, no API calls or production navigation changes · ?view=period|patterns|penny&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
+    slug: "upcoming-plan",
+    name: "upcoming-plan",
+    description:
+      "Proposed Upcoming/Planning information architecture split, not live navigation · ?view=upcoming|plan&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "spend-shape",
     name: "spend-shape",
     description:
