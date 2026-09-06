@@ -80,6 +80,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **G4. `chat.py` tax explainer prompt** [owner: claude] [priority: p1] [unblocks: Q8] has no product constraints (EIS/SEIS content invites investment-product suggestions) and no temperature; tighten before go-live (Q8 promises it). (done 2026-09-06, e24bd9fbe1ffbf0c1f6ec81b0bdb2bde709c2361)
 - [ ] **G5. Penny agent mode** [owner: claude] (propose-only writes, consent-gated) stays off until Finexer approval; when it ships it is a disclosed change with a privacy update.
 - [ ] **G6. Safe-to-Spend cards-short state should show the net shortfall figure in the hero, not £0, with severity driven by the net position** [owner: claude]
+  - note (2026-09-06, claude): Context (2026-09-06, Kevin + Fable): short_reason_for in backend/app/services/net_position.py splits short into bills (cash after set-asides <= 0, red, hero = full gap) and cards (cash positive, card growth pushes net below zero, amber, hero forced to £0 in frontend/components/SafeToSpendCard.tsx). Result: a £10 cash gap plus £100 on cards reads as £110 red, while bills covered plus £1,000 on cards reads as £0 amber, so the worse position looks calmer. Kevin's decision: show the net figure for the shortfall in the cards case too. Still to discuss when picked up: caption wording, whether chip severity escalates on the net figure or a threshold, and keeping bills-at-risk as its own red signal. Design change: propose to Kevin before building.
 
 ## H. Repo hygiene
 
