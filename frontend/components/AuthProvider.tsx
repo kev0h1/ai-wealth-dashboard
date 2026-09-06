@@ -4,7 +4,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { getToken, setToken, clearToken } from "@/lib/auth";
 import { api, API_BASE } from "@/lib/api";
+import { WEB_PRODUCT_OFF } from "@/lib/webProduct";
 import LoginScreen from "@/components/LoginScreen";
+import AppOnlyPage from "@/components/AppOnlyPage";
 import Onboarding from "@/components/Onboarding";
 import { invalidateTransactionsCache } from "@/lib/useAllTransactions";
 import { clearHomeCache } from "@/lib/homeCache";
@@ -16,6 +18,9 @@ import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 interface AuthUser {
   email: string;
   name: string;
+  // True when the session email is PRIMARY_EMAIL (backend/app/core/config.py),
+  // lower-cased and stripped. Only meaningful for the web-product lock below.
+  owner: boolean;
 }
 
 interface AuthContextValue {
@@ -71,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           if (data.email) {
-            setUser({ email: data.email, name: data.name || "" });
+            setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
             const profile = await profileP;
             if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
           } else {
@@ -128,6 +133,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   if (checking) {
     return <div className="min-h-dvh bg-[#f0f2f7] dark:bg-[#0f172a]" />;
+  }
+
+  // Web-product lock (backlog A10). When NEXT_PUBLIC_WEB_PRODUCT=off, only
+  // the owner's own account (the `owner` flag from POST /auth/session/validate)
+  // reaches the real product on the web build — everyone else, signed in or
+  // not, sees the "Sorted is an app" shell instead. AppOnlyPage is rendered
+  // here in place of `children`, so it also replaces every descendant of
+  // this provider (Sidebar, BottomNav, the Penny sheet, TutorialProvider —
+  // see app/layout.tsx/Providers.tsx for how they nest under AuthProvider),
+  // the same way the `!user` branch below already suppresses them for a
+  // signed-out visitor.
+  const webProductLocked = WEB_PRODUCT_OFF && !(user && user.owner);
+  if (webProductLocked) {
+    return <AppOnlyPage />;
   }
 
   if (!user) {

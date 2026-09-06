@@ -66,7 +66,12 @@ async def validate_session(request: Request):
         data = serializer.loads(auth[7:], max_age=SESSION_MAX_AGE)
         name  = data.get("name", "")  if isinstance(data, dict) else ""
         email = data.get("email", "") if isinstance(data, dict) else ""
-        return {"valid": True, "name": name, "email": email}
+        # Web-only product lock (A10): the frontend needs to tell the owner's
+        # account apart from any other authorised sign-in so it can keep the
+        # full product reachable for the owner while everyone else gets the
+        # "Sorted is an app" shell when NEXT_PUBLIC_WEB_PRODUCT=off.
+        owner = email.strip().lower() == PRIMARY_EMAIL
+        return {"valid": True, "name": name, "email": email, "owner": owner}
     except (SignatureExpired, BadSignature):
         raise HTTPException(401, "Session expired")
 
