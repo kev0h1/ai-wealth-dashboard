@@ -79,6 +79,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **G3. Design index.** [owner: claude] `app/design/page.tsx` now lists `penny-usage-ring`, `planning-plans`, `spend-penny-flow`, `upcoming-plan`; keep it current for every new preview.
 - [x] **G4. `chat.py` tax explainer prompt** [owner: claude] [priority: p1] [unblocks: Q8] has no product constraints (EIS/SEIS content invites investment-product suggestions) and no temperature; tighten before go-live (Q8 promises it). (done 2026-09-06, e24bd9fbe1ffbf0c1f6ec81b0bdb2bde709c2361)
 - [ ] **G5. Penny agent mode** [owner: claude] (propose-only writes, consent-gated) stays off until Finexer approval; when it ships it is a disclosed change with a privacy update.
+- [ ] **G6. Safe-to-Spend cards-short state should show the net shortfall figure in the hero, not £0, with severity driven by the net position** [owner: claude]
 
 ## H. Repo hygiene
 
