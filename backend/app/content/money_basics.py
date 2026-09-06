@@ -162,6 +162,30 @@ MONEY_BASICS: list[dict] = [
         "body": "Pay yourself first means moving a slice of your income into savings the moment it lands, on payday, before any spending happens, rather than saving whatever is left at the end of the month. The idea is behavioural: once the transfer happens automatically, there's no daily decision to make and no temptation to skip it.",
         "takeaway": "It's the same logic behind the app's Payday Plan, which groups that payday transfer into one step rather than leaving it to memory.",
     },
+    {
+        "id": "pension-carry-forward",
+        "topic": "Pensions",
+        "icon": "⏳",
+        "title": "Unused pension allowance can carry forward 3 years",
+        "body": "The annual pension allowance is £60,000, but if you didn't use it all in the previous 3 tax years, you can carry the unused amount forward, provided you were a member of a registered pension scheme in those years and have enough relevant earnings to support the contribution. Carry-forward is only used once this year's £60,000 allowance is exhausted, oldest unused year first. Allowance older than 3 tax years back is lost for good.",
+        "takeaway": "Check the last 3 tax years' unused allowance before assuming £60,000 is the ceiling.",
+    },
+    {
+        "id": "salary-sacrifice",
+        "topic": "Tax",
+        "icon": "🔄",
+        "title": "Salary sacrifice lowers pay before tax and National Insurance",
+        "body": "Salary sacrifice means agreeing to give up part of your gross salary in exchange for a non-cash benefit, most often extra pension contributions, but also schemes like cycle to work or an electric car. Because the sacrificed amount never counts as pay, it reduces income tax and National Insurance for both you and your employer, and it lowers adjusted net income, which is what the personal allowance taper and the Child Benefit charge are measured against. A sacrificed pension contribution still counts towards the £60,000 annual allowance like any other contribution.",
+        "takeaway": "It reduces taxable pay directly, rather than paying tax on it and claiming relief back afterwards.",
+    },
+    {
+        "id": "gift-aid",
+        "topic": "Tax",
+        "icon": "🎗️",
+        "title": "Gift Aid turns an £80 donation into £100",
+        "body": "Gift Aid lets a UK charity reclaim basic-rate tax on your donation, so an £80 gift becomes £100 in the charity's hands at no extra cost to you. If you pay higher or additional-rate tax, you can claim back the difference between your rate and basic rate when you file a self-assessment return. The grossed-up amount, the £100, not the £80 you actually paid, is also what reduces adjusted net income for the personal allowance taper and the Child Benefit high income charge.",
+        "takeaway": "The grossed-up figure, not what you actually paid, is what counts against the taper and the Child Benefit charge.",
+    },
 ]
 
 # Topics that belong to the post-buffer "grow your money" stage.

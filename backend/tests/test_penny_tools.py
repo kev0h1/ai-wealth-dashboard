@@ -946,6 +946,10 @@ _BASICS_KEYS = [
     "diversification", "dividend-allowance", "cgt-allowance",
     "tax-year-dates", "premium-bonds", "marriage-allowance",
     "conscious-spending-plan", "fifty-thirty-twenty", "pay-yourself-first",
+    # B3 (2026-09-06): grounds the three tax chips that used to fall back
+    # to the model (tax_pension_carry_forward/tax_salary_sacrifice/
+    # tax_gift_aid in app.services.penny_chips) instead of inventing prose.
+    "pension-carry-forward", "salary-sacrifice", "gift-aid",
 ]
 
 

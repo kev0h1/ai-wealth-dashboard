@@ -16,10 +16,13 @@ Three `kind`s on the returned dict:
 - "explain": the `explain(topic)` registry's own text, verbatim (see
   app.services.penny_tools's `_ALL_EXPLAIN_COPY`), also no model call.
 - "llm": this chip has no registry entry and no engine figure to answer
-  from honestly (see the tax chips below) — the caller gets `{"kind":
-  "llm"}` with a 200, and the FRONTEND is the one that falls back to the
-  ordinary /can-i model path for it, spending a real message. This module
-  itself never invents copy to avoid that fallback.
+  from honestly — the caller gets `{"kind": "llm"}` with a 200, and the
+  FRONTEND is the one that falls back to the ordinary /can-i model path
+  for it, spending a real message. This module itself never invents copy
+  to avoid that fallback. No chip is currently registered this way (the
+  tax chips that used to fall back this way now answer from the explain
+  registry plus the user's own figure, B3) but the contract stays
+  documented for a future chip that genuinely has neither.
 
 Every "engine"/"explain" answer is run through `house_style` (the same
 em-dash/en-dash and "N pounds" backstop the LLM-authored surfaces use) as a
@@ -206,10 +209,6 @@ class ChipSpec:
 
 def _engine_result(chip_id: str, answer: str, facts: dict | None = None) -> dict:
     return {"chip_id": chip_id, "kind": "engine", "answer": house_style(answer.strip()), "facts": facts or {}}
-
-
-def _llm_fallback(chip_id: str) -> dict:
-    return {"chip_id": chip_id, "kind": "llm"}
 
 
 # ── home_payday_status — "How am I doing until payday?" ─────────────────────
@@ -428,14 +427,7 @@ async def _chip_grow_saving_enough(uid: str, params: dict | None) -> dict:
 # (income, already exposed by get_tax_position) to personalise the fixed,
 # already-vetted UK mechanics fact (self-assessment mandatory above
 # £100,000 income this tax year — the same fact app.services.penny_agent's
-# own system prompt rule 9 states for the model). The other three tax
-# chips below (carry-forward, salary sacrifice, gift aid) have NEITHER a
-# registry key NOR an engine-tracked figure specific to them — the app
-# never records prior years' unused pension allowance, whether a
-# contribution was made via salary sacrifice, or gift-aid donations — so
-# composing prose for them here would mean inventing facts this module's
-# own doctrine forbids. Those three fall back to the model instead (see
-# `_llm_fallback` and CHIPS below). ─────────────────────────────────────────
+# own system prompt rule 9 states for the model). ───────────────────────────
 async def _chip_tax_self_assessment(uid: str, params: dict | None) -> dict:
     tax = await execute_tool(uid, "get_tax_position", {})
     if tax.get("insufficient_data"):
@@ -458,6 +450,107 @@ async def _chip_tax_self_assessment(uid: str, params: dict | None) -> dict:
             f"on file is {income_fmt}, below that threshold."
         )
     return _engine_result("tax_self_assessment", text, tax)
+
+
+# ── tax_pension_carry_forward / tax_salary_sacrifice / tax_gift_aid — the
+# three chips that used to fall back to the model (B3): each now answers
+# from the SAME `explain(topic)` registry entry the Money Basics content
+# grounds (app.content.money_basics's pension-carry-forward/
+# salary-sacrifice/gift-aid entries), a verified general mechanics
+# explanation, no model call. Where get_tax_position has a figure that
+# bears on the topic (pension contributions on file, adjusted net income,
+# whether the taper/Child Benefit charge applies) one further sentence
+# adds the user's OWN number; that sentence never says what to do with
+# it, only states the figure and the mechanic it interacts with. When
+# income isn't on file yet, all three degrade to an honest sentence
+# pointing at Settings instead of guessing. ─────────────────────────────────
+_TAX_SETTINGS_HEADROOM_SENTENCE = (
+    "Add your income and pension contributions in Settings to see your own headroom."
+)
+_TAX_SETTINGS_FIGURES_SENTENCE = (
+    "Add your income and pension contributions in Settings to see your own adjusted net income."
+)
+
+
+async def _tax_registry_text(uid: str, chip_id: str, topic: str) -> tuple[str, dict]:
+    """Shared plumbing for the three chips below: the explain(topic)
+    registry text (raises LookupError if the mapping ever drifts, same
+    doctrine as `_make_explain_chip`) plus the user's own get_tax_position
+    figures, fetched together since every one of these chips needs both."""
+    explain_result = await execute_tool(uid, "explain", {"topic": topic})
+    text = explain_result.get("text")
+    if not text:
+        logger.error("penny_chips: explain topic '%s' missing for chip '%s'", topic, chip_id)
+        raise LookupError(f"explain topic '{topic}' not found for chip '{chip_id}'")
+    tax = await execute_tool(uid, "get_tax_position", {})
+    return text, tax
+
+
+async def _chip_tax_pension_carry_forward(uid: str, params: dict | None) -> dict:
+    text, tax = await _tax_registry_text(uid, "tax_pension_carry_forward", "pension-carry-forward")
+    if tax.get("insufficient_data"):
+        personal = _TAX_SETTINGS_HEADROOM_SENTENCE
+    else:
+        contributions_fmt = (tax.get("pension_contributions_this_year") or {}).get("formatted") or ""
+        personal = (
+            f"Your pension contributions on file this tax year are {contributions_fmt}, against "
+            "the £60,000 annual allowance."
+        )
+    return _engine_result(
+        "tax_pension_carry_forward", f"{text} {personal}", {"explain": text, "tax": tax},
+    )
+
+
+async def _chip_tax_salary_sacrifice(uid: str, params: dict | None) -> dict:
+    text, tax = await _tax_registry_text(uid, "tax_salary_sacrifice", "salary-sacrifice")
+    if tax.get("insufficient_data"):
+        personal = _TAX_SETTINGS_FIGURES_SENTENCE
+    else:
+        adjusted = tax.get("adjusted_net_income") or {}
+        adjusted_fmt = adjusted.get("formatted") or ""
+        adjusted_raw = float(adjusted.get("raw") or 0.0)
+        if adjusted_raw > 100_000:
+            personal = (
+                f"Your adjusted net income on file is {adjusted_fmt}, above the £100,000 point "
+                "where the personal allowance taper starts, so sacrificing more would pull that "
+                "figure down towards the threshold."
+            )
+        else:
+            personal = (
+                f"Your adjusted net income on file is {adjusted_fmt}, below the £100,000 point "
+                "where the personal allowance taper starts, so it doesn't affect you at that level."
+            )
+    return _engine_result(
+        "tax_salary_sacrifice", f"{text} {personal}", {"explain": text, "tax": tax},
+    )
+
+
+async def _chip_tax_gift_aid(uid: str, params: dict | None) -> dict:
+    text, tax = await _tax_registry_text(uid, "tax_gift_aid", "gift-aid")
+    if tax.get("insufficient_data"):
+        personal = _TAX_SETTINGS_FIGURES_SENTENCE
+    else:
+        adjusted = tax.get("adjusted_net_income") or {}
+        adjusted_fmt = adjusted.get("formatted") or ""
+        adjusted_raw = float(adjusted.get("raw") or 0.0)
+        has_cb = bool(tax.get("has_child_benefit"))
+        if has_cb or adjusted_raw > 100_000:
+            reason = (
+                "you're recorded as receiving Child Benefit" if has_cb
+                else "that figure is above £100,000"
+            )
+            personal = (
+                f"Your adjusted net income on file is {adjusted_fmt}. Because {reason}, a "
+                "grossed-up donation would reduce the figure those charges are measured against."
+            )
+        else:
+            personal = (
+                f"Your adjusted net income on file is {adjusted_fmt}, below the levels where Gift "
+                "Aid donations affect the personal allowance taper or the Child Benefit charge."
+            )
+    return _engine_result(
+        "tax_gift_aid", f"{text} {personal}", {"explain": text, "tax": tax},
+    )
 
 
 # ── can_i_amount — the personalised "Can I spend £X this weekend?" chips
@@ -509,13 +602,6 @@ async def _chip_can_i_amount(uid: str, params: dict | None) -> dict:
     return _engine_result("can_i_amount", f"{sentence1} {sentence2}", result)
 
 
-def _make_llm_fallback_chip(chip_id: str) -> ChipHandler:
-    async def _handler(uid: str, params: dict | None) -> dict:
-        return _llm_fallback(chip_id)
-
-    return _handler
-
-
 def _make_explain_chip(chip_id: str, topic: str) -> ChipHandler:
     async def _handler(uid: str, params: dict | None) -> dict:
         result = await execute_tool(uid, "explain", {"topic": topic})
@@ -538,9 +624,9 @@ CHIPS: dict[str, ChipSpec] = {
     "spend_more_than_usual":  ChipSpec(handler=_chip_spend_more_than_usual),
     "grow_saving_enough":     ChipSpec(handler=_chip_grow_saving_enough),
     "tax_self_assessment":    ChipSpec(handler=_chip_tax_self_assessment),
-    "tax_pension_carry_forward": ChipSpec(handler=_make_llm_fallback_chip("tax_pension_carry_forward")),
-    "tax_salary_sacrifice":      ChipSpec(handler=_make_llm_fallback_chip("tax_salary_sacrifice")),
-    "tax_gift_aid":              ChipSpec(handler=_make_llm_fallback_chip("tax_gift_aid")),
+    "tax_pension_carry_forward": ChipSpec(handler=_chip_tax_pension_carry_forward),
+    "tax_salary_sacrifice":      ChipSpec(handler=_chip_tax_salary_sacrifice),
+    "tax_gift_aid":              ChipSpec(handler=_chip_tax_gift_aid),
     "can_i_amount":           ChipSpec(handler=_chip_can_i_amount),
     **{
         chip_id: ChipSpec(handler=_make_explain_chip(chip_id, topic))
