@@ -16,8 +16,18 @@
 
 import { ChevronRight } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
-import { JOB_COLOR } from "@/app/spend/shape/MoneyShapeHero";
+import { JOB_COLOR, JobDot } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
+
+// One-line legend, kept in sync with MoneyShapeHero.tsx's own row
+// title/aria-label text and with what backend/app/services/money_shape.py's
+// bucket_period() actually buckets (verified 2026-09-08, see
+// tests/test_money_shape.py's "excluded from every job" comment): Fixed is
+// commitment-kind category spend (Bills, Groceries, Transport, etc.), Moved
+// is Savings-category spend plus credits landing on a savings account plus
+// Investment-category spend — Debt and bare Transfer categories are
+// deliberately excluded from every job today, so they are NOT claimed here.
+const SHAPE_LEGEND = "Fixed is bills and commitments, moved is money sent to savings and investing.";
 
 const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
@@ -62,10 +72,20 @@ function CardLabel({ shape }: { shape: MoneyShape }) {
   );
 }
 
-function Cell({ label, value, money }: { label: string; value: string; money?: boolean }) {
+// `dotId` ties the cell's own label to the bar segment it describes — a
+// JobDot in JOB_COLOR[dotId]'s colour (DESIGN.md: colour is information),
+// same dot MoneyShapeHero.tsx's job rows already use, so the two surfaces
+// never disagree on what a colour means. "Beyond" (overspent) has no bar
+// segment of its own (it replaces "Left" honestly rather than showing a
+// negative share, see the hero's own `overspentHere` comment), so it takes
+// "left"'s colour, matching the row it stands in for.
+function Cell({ label, value, money, dotId }: { label: string; value: string; money?: boolean; dotId: MoneyShapeJob["id"] }) {
   return (
     <div className="min-w-0">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 truncate">{label}</p>
+      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <JobDot id={dotId} className="h-1.5 w-1.5" />
+        <span className="truncate">{label}</span>
+      </p>
       {money ? (
         <MoneyText text={value} className="mt-0.5 block text-[13px] font-semibold tabular-nums text-slate-900 dark:text-slate-100 truncate" />
       ) : (
@@ -75,13 +95,14 @@ function Cell({ label, value, money }: { label: string; value: string; money?: b
   );
 }
 
-// Height pinned to the loaded card's own measured height (115px at 398px
-// content width, border-box, p-4 — verified via a headless-Chrome
+// Height pinned to the loaded card's own measured height (141px at 398px
+// content width, border-box, p-4 — re-verified via a headless-Chrome
 // getBoundingClientRect() check against /design/spend-shape?variant=b,
-// 2026-09-05 review round), not a guess: a skeleton taller or shorter than
+// 2026-09-08 round, up from 115px because of the added one-line legend
+// under the four cells, G7), not a guess: a skeleton taller or shorter than
 // its real content causes a layout jump the instant the fetch resolves.
 function CardSkeleton() {
-  return <div className="glass-card h-[115px] animate-pulse rounded-2xl" aria-hidden="true" />;
+  return <div className="glass-card h-[141px] animate-pulse rounded-2xl" aria-hidden="true" />;
 }
 
 export default function SpendShapeCard({
@@ -114,19 +135,21 @@ export default function SpendShapeCard({
           <CardLabel shape={shape} />
           <ShapeBar jobs={shape.jobs ?? []} />
           <div className="mt-3 grid grid-cols-4 gap-2">
-            {fixed && <Cell label="Fixed" value={`${Math.round(fixed.share)}%`} />}
-            {moved && <Cell label="Moved" value={`${Math.round(moved.share)}%`} />}
-            {free && <Cell label="Free" value={`${Math.round(free.share)}%`} />}
+            {fixed && <Cell dotId="fixed" label="Fixed" value={`${Math.round(fixed.share)}%`} />}
+            {moved && <Cell dotId="moved" label="Moved" value={`${Math.round(moved.share)}%`} />}
+            {free && <Cell dotId="free" label="Free" value={`${Math.round(free.share)}%`} />}
             {overspent ? (
               <Cell
+                dotId="left"
                 label="Beyond"
                 value={hideValues ? "£••••" : `£${Math.round(shape.overspent).toLocaleString("en-GB")}`}
                 money
               />
             ) : (
-              left && <Cell label="Left" value={`${Math.round(left.share)}%`} />
+              left && <Cell dotId="left" label="Left" value={`${Math.round(left.share)}%`} />
             )}
           </div>
+          <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 truncate">{SHAPE_LEGEND}</p>
         </div>
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>
