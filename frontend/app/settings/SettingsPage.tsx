@@ -648,7 +648,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Apple */}
-          <div className="px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
+          <div className="px-4 py-3.5">
             {identitiesLoading ? (
               <p className="text-xs text-slate-400 dark:text-slate-500">Checking…</p>
             ) : identitiesError ? (
@@ -707,9 +707,6 @@ export default function SettingsPage() {
               </p>
             )}
           </div>
-
-          {/* Penny messages usage (backlog B4) */}
-          <PennyUsageRow info={pennyUsage.info} error={pennyUsageError} />
         </div>
 
         {/* ── Display ── */}
@@ -760,6 +757,16 @@ export default function SettingsPage() {
             one. */}
         <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Wand2} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
+
+          {/* Penny messages usage (backlog B4). Re-homes into a "Your
+              plan" card (tier, price, top-up packs) once billing (B5/B11)
+              lands. */}
+          <PennyUsageRow
+            info={pennyUsage.info}
+            error={pennyUsageError}
+            className="border-b border-slate-100 dark:border-slate-700"
+          />
+
           <div className="px-4 py-3.5">
             {rawPrefs?.penny_agent_consent ? (
               <>

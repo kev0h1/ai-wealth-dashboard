@@ -1,9 +1,12 @@
 "use client";
 
 // "Penny messages" usage row (backlog B4) — shared markup for the live
-// Sign-in methods card (app/settings/SettingsPage.tsx, added as the last
-// row after Apple) and its design preview
+// Penny card (app/settings/SettingsPage.tsx, the first row, above the
+// agent-mode consent block) and its design preview
 // (app/design/settings-usage-row/page.tsx), so the two can't drift.
+//
+// Re-homes into a "Your plan" card (tier, price, top-up packs) once
+// billing (B5/B11) lands.
 //
 // Reads a SubscriptionInfo snapshot passed in by the caller rather than
 // fetching its own — SettingsPage.tsx sources it from
@@ -33,12 +36,16 @@ function capitalize(s: string): string {
 export default function PennyUsageRow({
   info,
   error = false,
+  className = "",
 }: {
   info: SubscriptionInfo | null;
   /** True once a fetch has been attempted and still left `info` null (a
    * failed GET /subscription) — distinct from the ordinary pre-fetch null,
    * which reads as "Checking…" instead. */
   error?: boolean;
+  /** Extra classes on the row's outer div, e.g. a border to separate it
+   * from whatever follows inside the host card. */
+  className?: string;
 }) {
   let subline: string;
   let pill: { text: string; amber: boolean } | null = null;
@@ -64,7 +71,7 @@ export default function PennyUsageRow({
   }
 
   return (
-    <div className="flex items-center justify-between px-4 py-3.5">
+    <div className={`flex items-center justify-between px-4 py-3.5 ${className}`}>
       <div className="min-w-0 pr-3">
         <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Penny messages</p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 num">{subline}</p>
