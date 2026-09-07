@@ -220,6 +220,21 @@ Optional companion vars, read by `components/StoreBadges.tsx`
 `NEXT_PUBLIC_PLAY_STORE_URL`. Leave unset until the store listings exist —
 the badge renders a "coming soon" placeholder instead of a dead link.
 
+### TrueLayer picker flag
+
+`NEXT_PUBLIC_TRUELAYER_PICKER=on` (`frontend/lib/featureFlags.ts`) shows the
+legacy "Add Bank via TrueLayer" entry in the Accounts "Add" menu, alongside
+the primary "Add Bank" (Finexer) entry. Set it on the **UAT frontend
+service** (this VPS's `wealth-frontend` systemd unit) so the old flow stays
+reachable for testing. Leave it unset on the **Vercel production project**,
+where "Add Bank" (Finexer) is the only connect path.
+
+Mobile builds derive it automatically in `frontend/scripts/build-mobile.sh`:
+"on" by default (day-to-day Android APKs and the `ios-capacitor` TestFlight
+workflow), unset when the build targets prod (`MOBILE_TARGET=prod`, set by
+the `ios-capacitor-prod` Codemagic workflow, or `npm run build:mobile:prod`'s
+`MOBILE_API_BASE`). No `codemagic.yaml` changes were needed for this.
+
 ## Mobile — Codemagic TestFlight builds
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a

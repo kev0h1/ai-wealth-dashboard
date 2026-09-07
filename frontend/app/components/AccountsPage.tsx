@@ -31,6 +31,7 @@ import { getAccountsCached, invalidateAccounts } from "@/lib/accountsCache";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
+import { TRUELAYER_PICKER } from "@/lib/featureFlags";
 
 /** One row inside the condensed "+ Add" menu (header Variant B). Mirrors the
  *  MenuItem pattern already used by SpendTrends' widget overflow menu. */
@@ -2509,8 +2510,15 @@ export default function AccountsPage() {
                       tutorialId="tutorial-add-bank"
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Add Bank"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
+                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
                     />
+                    {TRUELAYER_PICKER && (
+                      <AddMenuItem
+                        icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
+                        label="Add Bank via TrueLayer"
+                        onClick={() => { setAddMenuOpen(false); setShowBankPicker("truelayer"); }}
+                      />
+                    )}
                     <AddMenuItem
                       tutorialId="tutorial-add-statement"
                       icon={<Upload size={14} className="text-slate-400 flex-shrink-0" />}
@@ -2528,11 +2536,6 @@ export default function AccountsPage() {
                       icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
                       label="Offline"
                       onClick={() => { setAddMenuOpen(false); openAddManual(); }}
-                    />
-                    <AddMenuItem
-                      icon={<Plus size={14} className="text-slate-400 flex-shrink-0" />}
-                      label="Finexer (beta)"
-                      onClick={() => { setAddMenuOpen(false); setShowBankPicker("finexer"); }}
                     />
                   </>
                 ) : (

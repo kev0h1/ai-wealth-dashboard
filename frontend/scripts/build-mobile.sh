@@ -83,6 +83,29 @@ for f in "${FILES[@]}"; do
   perl -0pi -e 's/(const BACKEND = process\.env\.BACKEND_URL \|\| "http:\/\/localhost:8000";\n)/$1\nexport const dynamic = "force-static";\n/' "$SCRATCH/$f"
 done
 
+# TrueLayer picker flag (backlog A16): the Accounts "Add" menu's legacy
+# "Add Bank via TrueLayer" entry only renders when NEXT_PUBLIC_TRUELAYER_PICKER
+# is "on" (see frontend/lib/featureFlags.ts). Mobile builds should show it on
+# UAT (day-to-day Android APKs and the ios-capacitor TestFlight workflow) and
+# hide it on prod (the ios-capacitor-prod TestFlight workflow and
+# build:mobile:prod), matching Vercel prod, which never sets this var. An
+# explicit NEXT_PUBLIC_TRUELAYER_PICKER in the calling environment always
+# wins; otherwise this defaults "on" unless MOBILE_TARGET=prod (set by the
+# ios-capacitor-prod Codemagic workflow, inherited here since it's exported
+# at the workflow's environment.vars level) or MOBILE_API_BASE already points
+# at the production API domain (set by `npm run build:mobile:prod`, see
+# package.json).
+if [ -z "${NEXT_PUBLIC_TRUELAYER_PICKER:-}" ]; then
+  IS_PROD_BUILD=0
+  [ "${MOBILE_TARGET:-}" = "prod" ] && IS_PROD_BUILD=1
+  case "${MOBILE_API_BASE:-}" in
+    https://api.*) IS_PROD_BUILD=1 ;;
+  esac
+  if [ "$IS_PROD_BUILD" != "1" ]; then
+    export NEXT_PUBLIC_TRUELAYER_PICKER=on
+  fi
+fi
+
 # MOBILE_API_BASE lets CI (or a local override) point the built app at a
 # different backend. Falls back to UAT when unset — Kevin's standing rule is
 # that Android APK builds always bake the UAT API base by default; only an
