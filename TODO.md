@@ -26,6 +26,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **A14. Own bank picker for Finexer: reuse BankPickerSheet in Finexer mode so the user picks the bank in our design and lands straight on Finexer's consent screen with the provider preselected; Finexer accounts reconnect through the Finexer link too.** [owner: claude] [priority: p1] [unblocks: Q5] (done 2026-09-06, b2096539ba4564012f846ecd739601377fd98d57)
 - [x] **A15. Dependency upgrades from the 2026-09-06 audit: frontend next 16.2.4 to 16.3.4 (nanoid, postcss, sharp highs) and backend aiohttp, pillow, cryptography, starlette, pyasn1, python-multipart, idna, click; upgrade, run the suite, restart UAT, re-audit and update SECURITY.md.** [owner: claude] [priority: p2] [unblocks: Q11] (done 2026-09-06, 0c3d34de27a5c2fac741ada3779c9dd13a3bec77)
   - note (2026-09-06, claude): Opened from A2's audit (2026-09-06). Counts and fix versions are in SECURITY.md section 2, Dependency audit log.
+- [ ] **A16. Accounts Add menu: rename 'Finexer (beta)' to 'Add Bank' (it takes over tutorial-add-bank), rename the TrueLayer entry to 'Add Bank via TrueLayer' and show it only on UAT via a build-time flag (e.g. NEXT_PUBLIC_TRUELAYER_PICKER=on set on the VPS frontend and the ios-capacitor UAT workflow, unset on Vercel prod and ios-capacitor-prod); frontend/app/components/AccountsPage.tsx ~line 2505** [owner: claude]
 
 ## B. Penny cost, tiers and billing
 
