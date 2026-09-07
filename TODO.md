@@ -55,7 +55,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **C6. Housekeeping in the portals.** [owner: kevin] Remove the "Sorted by Auriq - Demised" App Store Connect record, delete provisioning profile "Sorted AppStore A", consider revoking the manually created iOS Distribution certificate (only Codemagic's API-key certificate should remain), remove the old `co.uk.auriqltd.wealth` App ID and Firebase Android app.
 - [ ] **C7. Apple relay email.** [owner: claude] Not needed until the backend sends email; if outbound email is ever added, register the sending domain in Sign in with Apple for Email Communication.
 - [x] **C8. Codemagic: add a production workflow variant (build:mobile:prod) alongside the UAT one so a TestFlight build against the production backend can be produced for Q5 evidence and for release.** [owner: claude] [priority: p1] [unblocks: Q5] (done 2026-09-06, 91735297a026aaba8223b7aa4e83b4501cee4a18)
-- [ ] **C9. Change the contact email in Terms, Privacy and Security to info@auriqltd.co.uk (TERMS.md, PRIVACY.md, SECURITY.md, frontend/content/terms.md + privacy.md, regenerate the PDFs)** [owner: claude] [priority: p2] [state: review: feature-C9-legal-contact-email]
+- [x] **C9. Change the contact email in Terms, Privacy and Security to info@auriqltd.co.uk (TERMS.md, PRIVACY.md, SECURITY.md, frontend/content/terms.md + privacy.md, regenerate the PDFs)** [owner: claude] [priority: p2] (done 2026-09-08, 6261e12776ca2bc2578ed4360f5a6adb27638bbf)
 
 ## D. Identity and sign-up
 
