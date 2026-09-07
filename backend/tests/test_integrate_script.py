@@ -107,3 +107,25 @@ def test_install_dependencies_npm_ci_failure_raises(monkeypatch):
 
     with pytest.raises(integrate.IntegrateError):
         integrate._install_dependencies({"frontend/package-lock.json"})
+
+
+def test_restart_services_backend_change_restarts_api_and_worker(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    integrate._restart_services({"backend/app/services/x.py"})
+
+    assert restarted == ["wealth-api", "wealth-worker"]
+
+
+def test_restart_services_frontend_only_change_restarts_neither_backend_service(monkeypatch):
+    restarted: list[str] = []
+    monkeypatch.setattr(integrate, "_systemctl_restart", lambda service: restarted.append(service))
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+
+    integrate._restart_services({"frontend/components/Foo.tsx"})
+
+    assert "wealth-api" not in restarted
+    assert "wealth-worker" not in restarted
+    assert restarted == ["wealth-frontend"]
