@@ -1,6 +1,6 @@
 # Sorted Terms & Conditions
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-08
 **Version:** 1.0
 
 These terms and conditions ("**Terms**") govern your use of Sorted (the "**Service**", "**App**"), a personal finance dashboard provided by AURIQ LTD. By creating an account or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.
@@ -11,7 +11,7 @@ These terms and conditions ("**Terms**") govern your use of Sorted (the "**Servi
 
 Sorted is provided by **AURIQ LTD**, a company registered in England and Wales under company number **16813875**, trading as "Sorted" ("**we**", "**us**", "**our**"). Our registered office is in Birmingham, B36, United Kingdom; the full registered office address is available on the Companies House register under company number 16813875.
 
-You can contact us at **kevin.maingi@auriqltd.co.uk**.
+You can contact us at **info@auriqltd.co.uk**.
 
 These Terms, together with our Privacy Policy, form the agreement between you and us for your use of the Service. Please read them carefully. They apply whether you access Sorted through our web app or our iOS or Android apps.
 
@@ -77,7 +77,7 @@ You should not rely solely on any figure, forecast, or categorisation shown in S
 
 You are responsible for keeping your sign-in credentials secure. Sorted supports sign-in via Google, and you may optionally enable biometric app lock (such as fingerprint or face recognition) as an additional layer of protection on your device.
 
-If you believe someone has accessed your account without your authorisation, you must notify us as soon as possible at kevin.maingi@auriqltd.co.uk.
+If you believe someone has accessed your account without your authorisation, you must notify us as soon as possible at info@auriqltd.co.uk.
 
 ## 8. Acceptable use
 
@@ -136,7 +136,7 @@ Where reasonably possible, we will give you notice before suspending or terminat
 
 ## 14. Complaints
 
-If you have a complaint, please contact us at **kevin.maingi@auriqltd.co.uk**. We will acknowledge your complaint within **3 business days** and aim to resolve it within **8 weeks**.
+If you have a complaint, please contact us at **info@auriqltd.co.uk**. We will acknowledge your complaint within **3 business days** and aim to resolve it within **8 weeks**.
 
 Because the regulated account information service is provided through Finexer LTD as principal (see Section 2), complaints relating to that regulated activity are handled in cooperation with Finexer LTD. If your complaint is not resolved to your satisfaction, you may be entitled to refer it to the **Financial Ombudsman Service**.
 
@@ -158,4 +158,4 @@ If you have any questions about these Terms or the Service, please contact us at
 
 **AURIQ LTD**
 Birmingham, B36, United Kingdom
-Email: kevin.maingi@auriqltd.co.uk
+Email: info@auriqltd.co.uk

@@ -2,7 +2,7 @@
 
 **Owner:** Kevin Maingi, Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.7 — last reviewed 2026-09-06. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.8 — last reviewed 2026-09-08. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -125,7 +125,7 @@ Customers can withdraw consent and have their data removed at any time, using me
 
 ## 8. Contacts
 
-- **Internal (ISM):** Kevin Maingi — kevin.maingi@auriqltd.co.uk / 07398773162.
+- **Internal (ISM):** Kevin Maingi — info@auriqltd.co.uk / 07398773162.
 - **Finexer:** TBC.
 - **ICO:** report at ico.org.uk or the ICO breach helpline within 72 hours.
 
@@ -143,3 +143,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.5 | 2026-09-06 | Removed legacy PIN login; masked reconnect state; first recorded dependency audit. |
 | 1.6 | 2026-09-06 | Automated retention sweeps (connections 30 days after consent ends, dormant accounts after 12 months). |
 | 1.7 | 2026-09-06 | Dependency upgrades from the audit (Next 16.3.4; aiohttp, pillow, cryptography, starlette, pyasn1, python-multipart, idna, click). |
+| 1.8 | 2026-09-08 | Contact address changed to info@auriqltd.co.uk. |
