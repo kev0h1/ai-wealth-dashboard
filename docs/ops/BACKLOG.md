@@ -279,9 +279,10 @@ integrate's to solve. After a clean merge it reinstalls dependencies if the
 merge changed a lockfile (`pip install -r backend/requirements.txt` into the
 shared venv, `npm ci` in `frontend/`), then runs the backend suite,
 rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or
-`shared/` changed, restarts `wealth-api` (and `wealth-worker` if
-`backend/app/workers` changed) if `backend/` changed, and checks both
-health endpoints. Any failure there rolls the merge back
+`shared/` changed, restarts `wealth-api` and `wealth-worker` if `backend/`
+changed at all (the worker imports services and core modules under
+`backend/app`, not just `backend/app/workers`, so cron code never runs
+stale), and checks both health endpoints. Any failure there rolls the merge back
 (`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
 and blocks the item with the first 300 characters of whatever failed — main
 never sits on a broken merge waiting for someone to notice. A clean pass

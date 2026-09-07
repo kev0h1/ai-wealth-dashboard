@@ -21,8 +21,10 @@ For each board item in state `review` with a branch (see
      `frontend/` if `frontend/package-lock.json` or `package.json` changed),
      then runs the backend test suite. If `frontend/` or `shared/` changed in
      the merge, `npm run build` + restart `wealth-frontend`; if `backend/`
-     changed, restart `wealth-api` (+ `wealth-worker` if
-     `backend/app/workers` changed); then checks both health endpoints.
+     changed, restart `wealth-api` and `wealth-worker` (the worker imports
+     services and core modules under `backend/app`, not just
+     `backend/app/workers`, so any backend change can affect its cron code);
+     then checks both health endpoints.
   4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
      services again from the restored tree, and block the item with the
      first 300 characters of the failure.
@@ -170,7 +172,6 @@ def _install_dependencies(changed: set[str]) -> None:
 def _restart_services(changed: set[str]) -> None:
     frontend_or_shared = any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed)
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
-    worker_changed = any(p.startswith("backend/app/workers/") for p in changed)
 
     if frontend_or_shared:
         rc, out = _sh(["npm", "run", "build"], cwd=REPO_ROOT / "frontend", timeout=900)
@@ -179,8 +180,12 @@ def _restart_services(changed: set[str]) -> None:
         _systemctl_restart("wealth-frontend")
     if backend_changed:
         _systemctl_restart("wealth-api")
-        if worker_changed:
-            _systemctl_restart("wealth-worker")
+        # wealth-worker imports services and core modules under backend/app
+        # (retention, penny_tools, sync services, ...), not just
+        # backend/app/workers/ itself, so any backend change can affect the
+        # cron code it runs — restart it on every backend change, not just
+        # a workers/ one, so cron never runs stale.
+        _systemctl_restart("wealth-worker")
 
 
 def _wait_and_check_health() -> None:
