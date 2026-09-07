@@ -1402,6 +1402,37 @@ export type GoLiveItemAction =
   | { action: "priority"; priority: "p1" | "p2" | "p3" }
   | { action: "unblocks"; questions: string[] };
 
+/** Thrown by get<T>/post<T> on a non-2xx response. Carries the HTTP
+ * `status` and the raw `detail` from the JSON error body (if any) so a
+ * caller that needs to branch on the failure kind (a 402 tier gate, a 409
+ * conflict, ...) can check `err.status` instead of string-matching
+ * `message`. `message` itself is already humanised via
+ * humanizeErrorDetail below: a structured tier-gate `detail` becomes its
+ * `message` field or a friendly fallback, and a non-JSON body keeps
+ * today's plain `${status} ${statusText}` line unchanged. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+  constructor(status: number, detail: unknown, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+async function apiErrorFromResponse(res: Response): Promise<ApiError> {
+  const fallback = `${res.status} ${res.statusText}`;
+  let detail: unknown;
+  try {
+    const body = await res.json();
+    if (body?.detail !== undefined) detail = body.detail;
+  } catch {
+    /* body wasn't JSON, keep the status line as the message */
+  }
+  return new ApiError(res.status, detail, humanizeErrorDetail(detail, fallback));
+}
+
 // A fetch that dies on a flaky network (e.g. WiFi→mobile handover mid-transfer)
 // otherwise hangs indefinitely and pages spin forever waiting on Promise.all.
 // Abort stalled GETs and retry once — GETs are safe to repeat.
@@ -1413,7 +1444,7 @@ async function get<T>(path: string, attempt = 0): Promise<T> {
       headers: authHeaders(),
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await apiErrorFromResponse(res);
     return await res.json();
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -1431,7 +1462,7 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
 }
 

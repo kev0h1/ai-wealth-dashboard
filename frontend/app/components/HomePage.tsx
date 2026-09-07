@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
+import { api, ApiError, Account, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, NeedleSummary } from "@/lib/api";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";
@@ -552,7 +552,9 @@ export default function HomePage() {
         ? await api.finexerConnectLink(providerId)
         : await api.connectLink(providerId);
       window.location.href = auth_url;
-    } catch {}
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
+    }
   }
 
   // ── Fresh-user (no connected data) detection ────────────────────────────
