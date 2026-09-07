@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-brief-width",
+    name: "home-brief-width",
+    description:
+      "Backlog G11: real CelebrationCard/CliffCard/MoveCard (components/HomeBrief.tsx) against long-body fixtures, dismissible on, light and dark blocks — body copy now spans the full card width instead of stopping short to make room for DismissChip's old 44px flex column; the chip is absolute top-right and clears only the headline row · CliffCard/MoveCard fixtures also carry a £1,175 figure for the companion thousands-separator fix",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "settings-usage-row",
     name: "settings-usage-row",
     description:

@@ -372,7 +372,7 @@ interface CelebrationCardProps {
 // covered, and Planning is where upcoming bills live. The ✕ only renders when
 // `dismissible` (Home) — a local, Home-only hide (localStorage). Penny never
 // renders the ✕ at all, so it has no way to dismiss the card away for good.
-function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CelebrationCardProps) {
+export function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CelebrationCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -403,14 +403,16 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
           handleOpen();
         }
       }}
-      className="glass-card rounded-2xl p-4 cursor-pointer active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      className="glass-card rounded-2xl p-4 cursor-pointer active:scale-[0.99] transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 relative"
     >
       <div className="flex items-start gap-3">
         <span className="flex-shrink-0 flex items-center justify-center w-4 h-6">
           <SettleMark size={16} className="text-emerald-500" />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+          {/* Only the headline clears the dismiss chip (absolute top-right,
+              below) — body spans the full card width. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
             <MoneyText text={item.headline} />
           </p>
           {item.body && (
@@ -419,10 +421,10 @@ function CelebrationCard({ item, router, maskAmounts, dismissible, onHomeDismiss
             </p>
           )}
         </div>
-        {dismissible && (
-          <DismissChip label="Hide on Home" onClick={handleDismiss} />
-        )}
       </div>
+      {dismissible && (
+        <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      )}
     </div>
   );
 }
@@ -443,7 +445,7 @@ interface CliffCardProps {
 // reserved for materialised risk (Red-is-Risk rule). Icon varies by type:
 // AlertTriangle for cliff, TrendingDown for trajectory. The ✕ only renders
 // when `dismissible` (Home) — a local, Home-only hide; Penny never renders it.
-function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
+export function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: CliffCardProps) {
   const Icon = item.type === "trajectory" ? TrendingDown : AlertTriangle;
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
@@ -461,11 +463,13 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         <Icon size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+          {/* Only the headline clears the dismiss chip (absolute top-right,
+              below) — body and action span the full card width. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -482,10 +486,10 @@ function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismiss }: Cl
             </button>
           )}
         </div>
-        {dismissible && (
-          <DismissChip label="Hide on Home" onClick={handleDismiss} />
-        )}
       </div>
+      {dismissible && (
+        <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      )}
     </div>
   );
 }
@@ -569,7 +573,7 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
   const actionLabel = item.action?.label ?? "See it in Upcoming ›";
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         <AlertCircle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
         <div className="flex-1 min-w-0">
@@ -587,7 +591,10 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
               </span>
             </div>
           )}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+          {/* Only the headline clears the dismiss chip (absolute top-right,
+              below) — body, the per-move rows and the action span the full
+              card width. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -631,10 +638,10 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
             {actionLabel}
           </button>
         </div>
-        {dismissible && (
-          <DismissChip label="Hide on Home" onClick={handleDismiss} />
-        )}
       </div>
+      {dismissible && (
+        <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      )}
     </div>
   );
 }
@@ -670,10 +677,12 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+          {/* Only the headline clears the dismiss chip (absolute top-right,
+              below) — body spans the full card width. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -682,10 +691,10 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
             </p>
           )}
         </div>
-        {dismissible && (
-          <DismissChip label="Hide on Home" onClick={handleDismiss} />
-        )}
       </div>
+      {dismissible && (
+        <DismissChip label="Hide on Home" onClick={handleDismiss} className="absolute top-2 right-2 z-10" />
+      )}
     </div>
   );
 }
@@ -702,7 +711,7 @@ interface MoveCardProps {
   onHomeDismiss?: (id: string) => void;
 }
 
-function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: MoveCardProps) {
+export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribution, dismissible, onHomeDismiss }: MoveCardProps) {
   const [hidden, setHidden] = useState(false);
   if (hidden) return null;
 
@@ -1004,7 +1013,7 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
   }
 
   return (
-    <div className="glass-card rounded-2xl p-4">
+    <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         {/* Category icon chip — same size/treatment as Spend tile chips */}
         <span
@@ -1016,8 +1025,10 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
         </span>
 
         <div className="flex-1 min-w-0">
-          {/* Headline */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6">
+          {/* Headline — only this row clears the dismiss chip (absolute
+              top-right, below); the support line and the buttons row
+              beneath already span the full card width. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
             <MoneyText text={headline} />
           </p>
           {/* One supporting line. Plain string (no dominant transaction):
