@@ -224,6 +224,19 @@ def _ceil5(amount: float) -> int:
     return math.ceil(amount / 5) * 5
 
 
+def _gbp(x: float) -> str:
+    """Whole-pound GBP string with thousands separators, e.g. 1175 -> "£1,175",
+    999 -> "£999", -20 -> "−£20" (Unicode minus, not a hyphen, matching
+    the rest of the app's currency convention). Rounds to the nearest whole
+    pound; call sites that need pence precision keep their own formatting
+    (see `_fmt_overdrawn` below, and the local `_fmt_gbp` further down this
+    file which formats a caller-chosen number of decimal places for debt
+    interest figures — distinct use case, not merged into this helper)."""
+    n = int(round(x))
+    sign = "−" if n < 0 else ""
+    return f"{sign}£{abs(n):,}"
+
+
 def _fmt_overdrawn(amount: float) -> str:
     """Pence-precision string for a live overdrawn amount (no £ prefix), e.g.
     2.48 -> "2.48", 2.0 -> "2". The overdraft trigger has no noise floor (any
@@ -2788,10 +2801,10 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     f"that can safely cover it without leaving another account short."
                 )
             else:
-                headline = f"£{int(round(u['shortfall']))} gap before {_dest_display} payday."
+                headline = f"{_gbp(u['shortfall'])} gap before {_dest_display} payday."
                 body = (
-                    f"Your £{u['bill_amount']} {_humanise_bill_name(u['bill_name'])} payment is expected "
-                    f"{u['bill_weekday']}, but it's £{int(round(u['shortfall']))} short of cover, "
+                    f"Your {_gbp(u['bill_amount'])} {_humanise_bill_name(u['bill_name'])} payment is expected "
+                    f"{u['bill_weekday']}, but it's {_gbp(u['shortfall'])} short of cover, "
                     f"and there's no easy transfer source right now."
                 )
             item_doc = {
@@ -2921,25 +2934,25 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                 # "held" figure — see `is_assessable_bill`'s docstring for
                 # why this branch can now be reached with a negative balance.
                 _spare = int(round(total - _r["shortfall"]))
-                _spare_phrase = f", with about £{_spare} spare." if (dest_covered and _spare >= 2) else "."
+                _spare_phrase = f", with about {_gbp(_spare)} spare." if (dest_covered and _spare >= 2) else "."
                 _all_phrase = "covers all of them" if dest_covered else "covers most of it"
                 _ds_bal = float(_ds.get("balance", 0) or 0)
                 _held_phrase = (
                     f"it's £{_fmt_overdrawn(_ds_bal)} overdrawn"
                     if _ds_bal < 0 else
-                    f"it holds £{int(round(_ds_bal))}"
+                    f"it holds {_gbp(_ds_bal)}"
                 )
                 body = (
                     f"{len(_ds_bills)} payments (£{_ds.get('needs_total', 0):,}) leave {dest_name} "
                     f"before period end and {_held_phrase}. "
-                    f"£{_shortfall_i} short. "
+                    f"{_gbp(_shortfall_i)} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_all_phrase}{_spare_phrase}"
                 )
             else:
                 body = (
-                    f"Your £{_r['bill_amount']} {_humanise_bill_name(_r['bill_name'])} is expected "
+                    f"Your {_gbp(_r['bill_amount'])} {_humanise_bill_name(_r['bill_name'])} is expected "
                     f"{_r['bill_weekday']} from {dest_name}. "
-                    f"It's £{_shortfall_i} short. "
+                    f"It's {_gbp(_shortfall_i)} short. "
                     f"Moving £{total:,} from {_r['move_map']['from']['name']} {_covers_phrase}"
                 )
         elif dest_covered:
@@ -2955,7 +2968,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             )
             residual = (
                 f"These moves cover £{total:,}, but {dest_name} is still "
-                f"£{int(round(dest_gap))} short, {_residual_tail}"
+                f"{_gbp(dest_gap)} short, {_residual_tail}"
             )
 
         assumed_incomes = [
@@ -3413,8 +3426,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             if rid not in dismissed:
                 headline = f"Your heavy week starts {next_month_1st.strftime('%-d %b')}"
                 body = (
-                    f"Around £{avg_early_month} of commitments land in the first 7 days. "
-                    f"Right now you hold £{int(round(current_cash))} across current accounts. · estimated"
+                    f"Around {_gbp(avg_early_month)} of commitments land in the first 7 days. "
+                    f"Right now you hold {_gbp(current_cash)} across current accounts. · estimated"
                 )
                 rhythm_items.append({
                     "id": rid,
@@ -3474,7 +3487,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     if _cs_delta >= 10:
                         body = (
                             f"This is the week your credit cards usually take over {card_desc}. "
-                            f"£{int(round(_cs_delta))} has gone on credit cards so far this month. "
+                            f"{_gbp(_cs_delta)} has gone on credit cards so far this month. "
                             f"Nothing to do now, it just joins your card plan."
                         )
                 except Exception:
@@ -4015,7 +4028,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     "id": _rc_item_id,
                     "type": "rhythm",
                     "headline": f"{_rc_cat} is running {_rc_mult:.1f}× your usual",
-                    "body": f"£{_rc_spent:.2f} so far this period.",
+                    "body": f"£{_rc_spent:,.2f} so far this period.",
                     "action": None,
                     "estimated": False,
                     "payload": {
@@ -4080,8 +4093,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                         "id": _ip_id,
                         "type": "intent_pace",
                         "headline": (
-                            f"{_ip_cat}: £{int(round(_ip_spent))} so far "
-                            f"vs £{int(round(_ip_pro_rata))} usual by now"
+                            f"{_ip_cat}: {_gbp(_ip_spent)} so far "
+                            f"vs {_gbp(_ip_pro_rata)} usual by now"
                         ),
                         "body": "Tracking the change you asked for, no action needed.",
                         "action": None,
