@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, Search, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
-import { api, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
+import { api, ApiError, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
@@ -873,8 +873,9 @@ export default function AccountsPage() {
     try {
       const { auth_url } = await api.connectLink();
       window.location.href = auth_url;
-    } catch {
+    } catch (err) {
       setConnecting(false);
+      alert(err instanceof ApiError ? err.message : "Failed to connect. Please try again.");
     }
   }
 
@@ -905,8 +906,8 @@ export default function AccountsPage() {
         ? await api.finexerConnectLink(providerId)
         : await api.connectLink(providerId);
       window.location.href = auth_url;
-    } catch {
-      alert("Failed to start reconnection. Please try again.");
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Failed to start reconnection. Please try again.");
     }
   }
 

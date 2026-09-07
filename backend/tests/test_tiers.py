@@ -118,6 +118,7 @@ def test_check_connection_limit_raises_402_for_lite_at_bank_cap(monkeypatch):
     assert detail["kind"] == "banks"
     assert detail["current_tier"] == "lite"
     assert detail["limit"] == 3
+    assert detail["message"] == "Your Lite plan allows up to 3 connected banks."
     assert "Pro" not in detail["message"]
     assert "Premium" not in detail["message"]
 

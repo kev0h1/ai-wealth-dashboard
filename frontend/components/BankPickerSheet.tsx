@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X, Search, ChevronRight, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { AGENT_DISCLOSURE } from "@/lib/regulatoryCopy";
@@ -77,8 +77,8 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "tru
         window.location.href = auth_url;
       }
     } catch (err) {
-      const msg = err instanceof Error && err.message.startsWith("402")
-        ? "Free plan allows 2 connected banks. Upgrade to Pro for unlimited connections."
+      const msg = err instanceof ApiError && err.status === 402
+        ? err.message
         : "Failed to connect. Please try again.";
       setError(msg);
       setConnecting(null);
