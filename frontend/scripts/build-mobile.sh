@@ -62,6 +62,8 @@ rsync -a --delete \
   --exclude='out/' \
   --exclude='node_modules/' \
   --exclude='.git/' \
+  --exclude='.env.local' \
+  --exclude='.env*.local' \
   ./ "$SCRATCH/"
 
 # Reuse the already-installed deps instead of reinstalling into the scratch dir.
@@ -94,14 +96,21 @@ done
 # ios-capacitor-prod Codemagic workflow, inherited here since it's exported
 # at the workflow's environment.vars level) or MOBILE_API_BASE already points
 # at the production API domain (set by `npm run build:mobile:prod`, see
-# package.json).
+# package.json). The prod branch below sets the flag explicitly to "off"
+# rather than leaving it unset: UAT's web build depends on a gitignored
+# frontend/.env.local carrying NEXT_PUBLIC_TRUELAYER_PICKER=on (also A16),
+# and although the rsync above now excludes .env.local from the scratch copy,
+# an explicit "off" is a second guard so a prod build can never inherit that
+# value however it arrives.
 if [ -z "${NEXT_PUBLIC_TRUELAYER_PICKER:-}" ]; then
   IS_PROD_BUILD=0
   [ "${MOBILE_TARGET:-}" = "prod" ] && IS_PROD_BUILD=1
   case "${MOBILE_API_BASE:-}" in
     https://api.*) IS_PROD_BUILD=1 ;;
   esac
-  if [ "$IS_PROD_BUILD" != "1" ]; then
+  if [ "$IS_PROD_BUILD" = "1" ]; then
+    export NEXT_PUBLIC_TRUELAYER_PICKER=off
+  else
     export NEXT_PUBLIC_TRUELAYER_PICKER=on
   fi
 fi

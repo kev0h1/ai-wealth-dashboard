@@ -231,9 +231,13 @@ where "Add Bank" (Finexer) is the only connect path.
 
 Mobile builds derive it automatically in `frontend/scripts/build-mobile.sh`:
 "on" by default (day-to-day Android APKs and the `ios-capacitor` TestFlight
-workflow), unset when the build targets prod (`MOBILE_TARGET=prod`, set by
-the `ios-capacitor-prod` Codemagic workflow, or `npm run build:mobile:prod`'s
-`MOBILE_API_BASE`). No `codemagic.yaml` changes were needed for this.
+workflow), explicitly `off` when the build targets prod (`MOBILE_TARGET=prod`,
+set by the `ios-capacitor-prod` Codemagic workflow, or `npm run
+build:mobile:prod`'s `MOBILE_API_BASE`). No `codemagic.yaml` changes were
+needed for this. The script's scratch-dir rsync also excludes `.env.local`,
+so a prod mobile build built on this VPS can't pick up the UAT frontend's
+gitignored `.env.local` (which carries `NEXT_PUBLIC_TRUELAYER_PICKER=on`)
+either.
 
 ## Mobile — Codemagic TestFlight builds
 
