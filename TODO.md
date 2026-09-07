@@ -40,6 +40,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **B8. OpenRouter organisation account.** [owner: kevin] Move from Kevin's personal account to an AURIQ LTD organisation with per-environment keys and spend limits; keep `data_collection: deny`; file their data processing terms for the sub-processor record. Kevin creates the account; agent rotates keys in env (never in git).
 - [x] **B9. Cost dashboard.** [owner: claude] [priority: p2] Bot-only `GET /admin/llm-usage?month=` aggregating `llm_usage` by pipeline and by user, so real AI cost per user replaces the estimates in the pricing doc. (done 2026-09-07, db11bb3ab93e021d7ec24b08f41736ba9ec15838)
 - [x] **B10. Surface tier 402 messages on bank connect: BankPickerSheet and AccountsPage handleConnectBank/handleReconnect discard the error detail, so OPEN_BANKING_NOT_IN_TIER and CONNECTION_LIMIT_REACHED never show their message; render detail.message inline in the sheet.** [owner: claude] (done 2026-09-07)
+- [ ] **B11. Penny top-up packs: replace the single £2.99 row with three packs (20 for £0.99, 100 for £2.99 'Most popular', 200 for £4.99 'Best value'), packs last 90 days and draw down after the monthly allowance, Move to Max leads after a second pack in a month; model in docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9; touches core/subscription.py PENNY_TOPUP, GET /subscription, penny_topups schema, components/MoreMessagesSheet.tsx and its design preview** [owner: claude]
 
 ## C. Store publishing
 
