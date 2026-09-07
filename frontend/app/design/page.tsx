@@ -79,7 +79,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "spend-shape",
     name: "spend-shape",
     description:
-      "Shape card on the Spend period view + the /spend/shape destination (owner decisions 2026-09-05: Insights page retired, shape hero left Patterns) · variant B, the instrument, is the SHIPPED design — renders the live components/SpendShapeCard.tsx; A (sentence) and C (change-led) kept as reference forks · the shape view renders the live app/spend/shape/ShapePage.tsx fed this route's fixture — hero, what works, reference shapes, nothing else, no tips index · ?variant=a|b|c&mode=light|dark&view=list|shape",
+      "Shape card on the Spend period view + the /spend/shape destination (owner decisions 2026-09-05: Insights page retired, shape hero left Patterns) · variant B, the instrument, is the SHIPPED design — renders the live components/SpendShapeCard.tsx; A (sentence) and C (change-led) kept as reference forks · G7 (2026-09-08): each cell now carries a JOB_COLOR dot and a one-line legend explains what Fixed and Moved mean, matched word for word in the destination hero · the shape view renders the live app/spend/shape/ShapePage.tsx fed this route's fixture — hero, what works, reference shapes, nothing else, no tips index · ?variant=a|b|c&mode=light|dark&view=list|shape",
     states: [{ label: "Everything", value: "everything" }],
   },
   {

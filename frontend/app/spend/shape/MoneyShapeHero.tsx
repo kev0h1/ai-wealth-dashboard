@@ -44,6 +44,25 @@ export const JOB_COLOR: Record<MoneyShapeJob["id"], { bg: string; text: string }
   left: { bg: "bg-slate-200 dark:bg-slate-700", text: "text-slate-400 dark:text-slate-500" },
 };
 
+// One-line meaning per job, used as each legend row's title/aria-label
+// (G7: the words alone don't say what they mean) and echoed once as a
+// caption under the rows so this hero and components/SpendShapeCard.tsx's
+// own SHAPE_LEGEND never disagree. Kept to what
+// backend/app/services/money_shape.py's bucket_period() actually buckets
+// today (verified 2026-09-08 against tests/test_money_shape.py): Fixed is
+// commitment-kind category spend, Moved is Savings-category spend plus
+// credits landing on a savings account plus Investment-category spend —
+// Debt and bare Transfer categories are deliberately excluded from every
+// job, so they are not claimed here. "left" covers both the ordinary
+// leftover row and its "Beyond take-home" overspent replacement.
+const JOB_MEANING: Record<MoneyShapeJob["id"], string> = {
+  fixed: "Bills and commitments",
+  moved: "Money sent to savings and investing",
+  free: "Everyday, discretionary spending",
+  left: "What was left over",
+};
+const OVERSPENT_MEANING = "Spend that went beyond your take-home pay";
+
 const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
 // Fallback ONLY — used when a job carries no `categories` (an older
@@ -433,11 +452,14 @@ export default function MoneyShapeHero({
           const overspentHere = job.id === "left" && entry.overspent > 0;
           const label = overspentHere ? "Beyond take-home" : job.label;
           const amount = overspentHere ? entry.overspent : job.amount;
+          const meaning = overspentHere ? OVERSPENT_MEANING : JOB_MEANING[job.id];
           return (
             <Link
               key={job.id}
               href={jobHref(job, { start: entry.start, end: entry.end }, overspentHere)}
               className="flex min-h-[40px] items-center gap-2.5 -mx-1 px-1 rounded-lg active:scale-[0.98] transition-transform"
+              title={meaning}
+              aria-label={`${label}, ${meaning}`}
             >
               <JobDot id={job.id} />
               <span className="flex-1 min-w-0 text-[13px] font-medium text-slate-700 dark:text-slate-300 truncate">
@@ -463,7 +485,13 @@ export default function MoneyShapeHero({
         })}
       </div>
 
-      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
+      {/* Matches components/SpendShapeCard.tsx's own SHAPE_LEGEND word for
+          word (G7) — the shape card and this hero must never disagree on
+          what a job means, same as they already agree on JOB_COLOR. */}
+      <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">
+        Fixed is bills and commitments, moved is money sent to savings and investing.
+      </p>
+      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
 
       {entry.verdict && (
         <MoneyText
