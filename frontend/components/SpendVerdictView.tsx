@@ -912,6 +912,7 @@ function OtherRowView({ total, paymentsCount, colours, onOpen }: {
         </p>
       </div>
       <span className="flex-shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">{fmt(total)}</span>
+      <ChevronRight size={14} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
     </button>
   );
 }
