@@ -137,3 +137,34 @@ Both PRIVACY.md section 8 and SECURITY.md section 6 promise two automated sweeps
 1. Dormant accounts deleted after 12 months of inactivity.
 2. Account and transaction data deleted within 30 days of consent withdrawal or expiry even if the customer never presses Disconnect.
 Account deletion and bank disconnection already cascade immediately, so those promises are met. The two sweeps are a nightly arq cron job of modest size: find users whose last activity is older than 12 months and run the existing account-deletion routine; find connections whose consent has been revoked or expired for more than 30 days and run the existing disconnect routine. Recommended before go-live so Q10 can be answered without a caveat.
+
+
+## 9. Penny top-up packs (proposal 2026-09-07)
+
+Real metering from `GET /admin/llm-usage?month=2026-09` on UAT (5 Penny calls, 3 messages, 27k of 38k prompt tokens served from cache) puts a cached Penny message at roughly £0.004 to £0.006. That is a tiny sample, so this section sizes margins on the conservative £0.015 planning figure from section 1 and treats the measured figure as upside.
+
+Design rules for the packs:
+
+1. Three packs, good / better / best. The middle pack is the target and is labelled "Most popular"; the largest carries "Best value". A single £2.99 row gives the user nothing to compare against.
+2. The smallest pack is an impulse price. It exists to remove friction at the moment the cap is hit, and to give free-tier users a first purchase.
+3. Per-message price falls with pack size, but the largest pack must stay close to the marginal price of moving up a tier so that repeat buyers are nudged to a subscription rather than living on packs. Marginal tier rates today: Lite to Standard is £4 for 110 messages (3.6p each); Standard to Max is £7 for 250 messages (2.8p each).
+4. Prices use standard App Store and Play price points so the same SKU prices work in-app and on Stripe.
+
+| Pack | Messages | Price | Per message | Net to us (UK VAT out, 15% store fee) | Worst-case AI cost at £0.015 | Margin worst case | Margin at measured £0.005 |
+|---|---|---|---|---|---|---|---|
+| Small | 20 | £0.99 | 5.0p | £0.70 | £0.30 | £0.40 | £0.60 |
+| Medium ("Most popular") | 100 | £2.99 | 3.0p | £2.12 | £1.50 | £0.62 | £1.62 |
+| Large ("Best value") | 200 | £4.99 | 2.5p | £3.53 | £3.00 | £0.53 | £2.53 |
+
+Via Stripe on the web the net is about £0.62 / £2.25 / £3.80 respectively (ex VAT, less 1.5% + 20p).
+
+The large pack sits about 10% under the Standard to Max marginal rate. That is deliberate: rounder numbers convert better than 175 for £4.99, and the sheet handles the cannibalisation risk in software instead:
+
+- The "Move to Max, 400 a month" row stays on the sheet as the anchor under the packs.
+- After a user's second pack purchase in one calendar month, the sheet leads with Move to Max and shows the packs below it.
+- Pack messages are consumed only after the monthly allowance is used up, and they no longer expire at month end. They last 90 days from purchase. "This month only" makes the large pack a bad buy in the last week of a month and suppresses exactly the purchase we most want. This changes `penny_topups` from a `year_month` keyed record to a purchase record with `expires_at` and `remaining`, and `penny_allowance` in `core/subscription.py` draws down the oldest unexpired pack first.
+- Packs are available on every tier including Statements (free). The free tier's 10 messages plus a £0.99 pack is the cheapest possible first transaction.
+
+Copy on the sheet (no em dashes): "20 messages, £0.99", "100 messages, £2.99, Most popular", "200 messages, £4.99, Best value", footnote "Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free."
+
+Implementation touch points: `PENNY_TOPUP` in `backend/app/core/subscription.py` becomes a list of packs served as `topups` from `GET /subscription`; `components/MoreMessagesSheet.tsx` renders the three rows plus the Max row; the design preview at `app/design/penny-usage-ring/MoreMessagesSheet.tsx` gets the same three rows; billing wiring is item B5.
