@@ -1,18 +1,19 @@
 // TEMPORARY PREVIEW — delete with the other /design/* routes
 //
 // Backlog B4: "Show Penny messages used 37 of 150, resets 1 Oct" as its own
-// row in Settings' Sign-in methods card. Renders the REAL
-// components/PennyUsageRow.tsx (the same component app/settings/
-// SettingsPage.tsx now places directly under the Apple row) against three
-// static SubscriptionInfo fixtures (shared/src/types.ts) — normal, amber
-// (>=80% used) and an uncapped tier (no pill). A faithful replica of the
-// surrounding card (header + a Google row) frames each state so the row
-// reads in its real context, but that replica is copied markup, not an
-// import — SectionHeader/IconChip are private to SettingsPage.tsx. No data
-// fetching, no client state, no auth — /design/* is exempt (see
-// components/AuthProvider.tsx). Deep-linkable at /design/settings-usage-row.
+// row in Settings. Renders the REAL components/PennyUsageRow.tsx (the same
+// component app/settings/SettingsPage.tsx now places as the FIRST row of
+// its Penny card, directly under the SectionHeader and above the agent-mode
+// consent block) against three static SubscriptionInfo fixtures
+// (shared/src/types.ts) — normal, amber (>=80% used) and an uncapped tier
+// (no pill). A faithful replica of the surrounding card (header + a stub of
+// the consent copy) frames each state so the row reads in its real context,
+// but that replica is copied markup, not an import — SectionHeader/IconChip
+// are private to SettingsPage.tsx. No data fetching, no client state, no
+// auth — /design/* is exempt (see components/AuthProvider.tsx).
+// Deep-linkable at /design/settings-usage-row.
 
-import { KeyRound } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import type { SubscriptionInfo } from "@/lib/api";
 
@@ -65,26 +66,25 @@ function CardFrame({ label, info }: { label: string; info: SubscriptionInfo }) {
             style={{ background: `${INDIGO}26` }}
             aria-hidden="true"
           >
-            <KeyRound size={16} style={{ color: INDIGO }} />
+            <Wand2 size={16} style={{ color: INDIGO }} />
           </span>
           <div className="min-w-0 pt-0.5">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-              Sign-in methods
+              Penny
             </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">What Penny can do on your behalf</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-700">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Google</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">kevin@example.com</p>
-          </div>
-          <span className="flex-shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 rounded-full px-2.5 py-1">
-            Primary
-          </span>
-        </div>
+        <PennyUsageRow info={info} className="border-b border-slate-100 dark:border-slate-700" />
 
-        <PennyUsageRow info={info} />
+        <div className="px-4 py-3.5">
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is off</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Penny can only answer questions right now. Ask her to set something up, like an envelope or a goal, and
+            she&apos;ll offer to turn this on.
+          </p>
+        </div>
       </div>
     </div>
   );
