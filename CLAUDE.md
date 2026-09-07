@@ -9,7 +9,7 @@ genuine risk only, the indigo→violet gradient belongs to Penny alone.
 
 ## Surface map (reindexed 2026-09-04 after the Codex design round)
 
-Working tree on `docs/mobile-porting-checkpoint` carries this round uncommitted. `AGENTS.md` is Codex's own workflow file; it coexists with this file. UAT frontend listens on `http://127.0.0.1:3030`, API on `:8000`.
+`main` is the integration branch and what UAT runs from the shared tree; `release` is the production branch (Vercel and Railway). All work happens on `feature-<ID>[-slug]` branches in worktrees via `scripts/session.sh` and reaches `main` only through `scripts/integrate.py` (see the Backlog section below); `docs/mobile-porting-checkpoint` is retired and must not be committed to. `AGENTS.md` is Codex's own workflow file; it coexists with this file. UAT frontend listens on `http://127.0.0.1:3030`, API on `:8000`.
 
 **Primary nav** (`frontend/components/BottomNav.tsx`, `Sidebar.tsx`): Home `/` · Spend `/spend?view=period` · Penny centre button → `/penny` · Upcoming `/upcoming` · Planning `/planning`. Sidebar adds Settings. Insights is retired: `/insights` redirects to `/spend/shape`, `/tax` and `/receipts` are their own routes.
 
