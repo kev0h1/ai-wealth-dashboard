@@ -187,6 +187,43 @@ values); a user can read their own rows back via `GET /mcp/audit?month=`
 (no UI for this yet, F4, not started, is the "Connected assistants"
 settings surface that will render it).
 
+### MCP connector flag
+
+A17 (2026-09-08): everything above is built, but not part of the Finexer
+compliance answers yet (they say "planned", not live), so it must ship
+absent from production, not merely unauthenticated. Two env vars gate it
+and must be turned on together, or both left off:
+
+| Var | UAT (this VPS) | Production (Railway / Vercel) |
+|-----|-----------------|--------------------------------|
+| `MCP_CONNECTOR_ENABLED` (backend `.env`, `app/core/config.py`) | `true` | unset |
+| `NEXT_PUBLIC_MCP_CONNECTOR` (frontend `.env.local`, `lib/featureFlags.ts`) | `on` | unset |
+
+With `MCP_CONNECTOR_ENABLED` unset (default false), `app/main.py` never
+registers `app/routers/oauth.py` or `app/routers/mcp.py` at all, so no
+`/mcp`, `/auth/oauth/*` or `/.well-known/oauth-*` routes exist, and
+`app/core/auth.py`'s `/mcp`-specific `WWW-Authenticate` discovery header and
+its `sorted_at_` bearer pass-through are both no-ops. With
+`NEXT_PUBLIC_MCP_CONNECTOR` unset, Settings never renders "Connected
+assistants" (or fetches connections/audit), `/oauth/consent` shows a calm
+"not available yet" screen instead of running the consent flow, and the
+Privacy/Terms "AI assistants" sections are stripped out of the rendered
+legal pages (`lib/legalContent.ts`'s `stripMcpSections`, driven by the
+`<!-- mcp-connector:start/end -->` markers in `content/privacy.md` and
+`content/terms.md`). See `tests/test_mcp_connector_flag.py` for the
+route-table and middleware assertions. The design previews
+(`/design/connected-assistants`, `/design/oauth-consent`) render regardless
+of the flag, since they use fixtures, not the gated surfaces.
+
+**Before the connector actually launches on production:** turn both vars on
+in Railway and Vercel, then regenerate `frontend/public/TERMS.pdf` and
+`PRIVACY.pdf` with the flag on (see the Verify step above, plus the PDF
+recipe used for the current, flag-off PDFs: `npx next build --webpack`,
+then `npx next start -p <free-port>`, then `google-chrome --headless=new
+--no-sandbox --disable-gpu --print-to-pdf=... --no-pdf-header-footer
+<url>`, then stop the server and delete `.next`/`out`/any stray
+`ai-wealth-dashboard/` dir that `next build --webpack` can leave behind).
+
 ---
 
 ## Backend env vars (Railway — web AND worker)

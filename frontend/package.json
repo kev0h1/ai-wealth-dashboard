@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "check:design-index": "node scripts/check-design-index.mjs",
-    "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh"
+    "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
+    "check:legal-content": "node scripts/legal-content.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

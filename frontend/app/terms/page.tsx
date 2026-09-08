@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import type { Metadata } from "next";
 import LegalDocument from "@/components/LegalDocument";
+import { stripMcpSections } from "@/lib/legalContent";
+import { MCP_CONNECTOR } from "@/lib/featureFlags";
 
 // Public, unauthenticated legal document. Read once at build time and
 // prerendered as static HTML (`dynamic = "force-static"`) — no runtime fs
@@ -19,7 +21,8 @@ export const metadata: Metadata = {
 // why, and frontend/content/privacy.md's tables for the case that needed
 // the workaround.
 export default function TermsPage() {
-  const markdown = fs.readFileSync(path.join(process.cwd(), "content/terms.md"), "utf-8");
+  const raw = fs.readFileSync(path.join(process.cwd(), "content/terms.md"), "utf-8");
+  const markdown = stripMcpSections(raw, MCP_CONNECTOR);
 
   return <LegalDocument markdown={markdown} otherDocHref="/privacy" otherDocLabel="Read the Privacy Policy" />;
 }

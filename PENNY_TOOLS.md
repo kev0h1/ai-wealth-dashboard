@@ -559,3 +559,14 @@ bearer still works exactly as it did under F3 (all three scopes,
 `client: "session"`), for anyone who hasn't gone through the OAuth flow
 yet. Nothing about the tool catalogue, `TOOL_SCOPES`, or the masking rules
 above changed.
+
+**Update, 2026-09-08 (A17):** all of the above is now gated behind
+`MCP_CONNECTOR_ENABLED` (backend) / `NEXT_PUBLIC_MCP_CONNECTOR` (frontend),
+both default off. With the flag off, `/mcp` and `/auth/oauth/*` are not
+registered in `app/main.py` at all (no routes, no OpenAPI entries), and
+`app/core/auth.py`'s `/mcp` discovery header and `sorted_at_` bearer
+pass-through are inert, so production ships with the connector entirely
+absent, matching the Finexer compliance answers ("planned", not live). It
+is only on for this VPS's UAT for now; see `DEPLOY.md`'s "MCP connector
+flag" section for the exact env vars and the launch-day checklist (turn
+both on, regenerate the legal PDFs with the flag on).

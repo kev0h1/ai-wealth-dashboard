@@ -2,7 +2,9 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
-from app.core.config import API_PUBLIC_URL, BOT_SECRET, SESSION_MAX_AGE, serializer
+from app.core.config import (
+    API_PUBLIC_URL, BOT_SECRET, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
+)
 from app.core.ratelimit import check_rate_limit
 
 # F2: the value an unauthenticated (or expired-token) request to /mcp gets
@@ -16,10 +18,16 @@ MCP_WWW_AUTHENTICATE = f'Bearer resource_metadata="{API_PUBLIC_URL}/.well-known/
 
 # Paths open to anyone, no bearer token required at all (distinct from the
 # /auth/, /webhooks/, /logo/ prefixes above, which are open but still
-# rate-limited). The two discovery documents below (RFC 8414 / RFC 9728)
-# must be readable by an MCP client before it has ANY credential.
-_OPEN_PATHS = {
-    "/health", "/docs", "/openapi.json", "/redoc",
+# rate-limited).
+_OPEN_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+# F2 discovery documents (RFC 8414 / RFC 9728), which must be readable by an
+# MCP client before it has ANY credential, but ONLY when the connector is
+# turned on (A17: MCP_CONNECTOR_ENABLED, default false). With it off these
+# behave like any other unknown route: the normal bearer check below runs,
+# and since app.routers.oauth isn't even registered in app.main, an
+# authorised request still 404s at routing.
+_MCP_OPEN_PATHS = {
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource",
 }
@@ -59,7 +67,7 @@ async def auth_middleware(request: Request, call_next):
         if limited := await check_rate_limit(request):
             return limited
         return await call_next(request)
-    if path in _OPEN_PATHS:
+    if path in _OPEN_PATHS or (MCP_CONNECTOR_ENABLED and path in _MCP_OPEN_PATHS):
         return await call_next(request)
     # F2/F3: an unauthenticated hit on /mcp gets the discovery header
     # attached to its 401 (both branches below), so an MCP client can find
@@ -67,8 +75,10 @@ async def auth_middleware(request: Request, call_next):
     # request rather than needing it hand-configured. Deliberately scoped to
     # /mcp itself (exact path or a sub-path) — this header is an MCP-specific
     # discovery signal, not a generic "you're unauthenticated" hint, so no
-    # other route should ever emit it.
-    is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
+    # other route should ever emit it. Gated on MCP_CONNECTOR_ENABLED (A17):
+    # with the connector off, /mcp is just an unregistered path like any
+    # other and gets the plain 401/404 treatment, no discovery header.
+    is_mcp_path = MCP_CONNECTOR_ENABLED and (path == "/mcp" or path.startswith("/mcp/"))
     mcp_headers = {"WWW-Authenticate": MCP_WWW_AUTHENTICATE} if is_mcp_path else None
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
