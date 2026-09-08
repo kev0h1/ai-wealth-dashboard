@@ -1,4 +1,5 @@
 """Central configuration — all env vars and derived constants."""
+import logging
 import os
 import secrets
 from pathlib import Path
@@ -154,6 +155,31 @@ def _parse_flag(value: str | None) -> bool:
 
 
 MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
+
+# F10: MCP-only service mode. The same backend image can run as a second
+# Railway service on a dedicated `mcp` hostname, mounting only the
+# oauth/mcp routers (see app.main.build_app's `mcp_only` param), sharing
+# Mongo and Redis with the main app service, so a first Connect customer or
+# visible assistant load can be isolated from the main app API without
+# standing up separate infrastructure. See DEPLOY.md's "MCP-only service
+# mode" section; not deployed anywhere yet as of this writing.
+#
+# A connector-only service with the connector itself disabled would boot
+# with almost no routes at all, so MCP_ONLY=true implies
+# MCP_CONNECTOR_ENABLED=true even if that var was left false or unset —
+# rather than fail fast (which would just turn a slightly-misconfigured env
+# into a crash-looping service), this logs a warning and treats the
+# connector as enabled for this instance. Computed here, not in app.main,
+# so every module that already reads MCP_CONNECTOR_ENABLED at import time
+# (notably app.core.auth, see A17) sees the corrected value automatically.
+MCP_ONLY = _parse_flag(os.getenv("MCP_ONLY", "false"))
+if MCP_ONLY and not MCP_CONNECTOR_ENABLED:
+    logging.getLogger("app.startup").warning(
+        "MCP_ONLY=true but MCP_CONNECTOR_ENABLED was not set to a truthy value; "
+        "MCP_ONLY implies the connector, treating MCP_CONNECTOR_ENABLED as enabled "
+        "for this instance."
+    )
+    MCP_CONNECTOR_ENABLED = True
 
 # F7: per-principal MCP rate limits, keyed by OAuth client_id or uid in
 # app/routers/mcp.py (not IP, since Claude's and ChatGPT's connectors call from
