@@ -87,6 +87,7 @@ TOOL_SCOPES: dict[str, str] = {
     "get_category_spend": "insights:read",
     "get_insights": "insights:read",
     "explain": "insights:read",
+    "preview_trend_intent": "insights:read",
 }
 
 MCP_TOOLS = [

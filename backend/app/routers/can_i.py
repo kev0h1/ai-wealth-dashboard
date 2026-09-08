@@ -966,6 +966,136 @@ async def _execute_sync_now(uid: str, params: dict) -> dict:
     return await _route_sync_all(user={"email": uid})
 
 
+# ── B17 (2026-09-08, B12 stages 4-5) — full card terms, trend intents,
+# insight/merchant-label actions ───────────────────────────────────────────
+async def _execute_set_card_terms(uid: str, params: dict) -> dict:
+    """Genuine read-modify-write, generalising `_execute_set_card_apr`
+    above to every field `propose_set_card_terms` can change: `params` only
+    ever carries the fields the model actually supplied (see that tool's
+    own doctrine comment in `app.services.penny_tools`), so the freshest
+    existing doc is read again HERE, at execute time (never a stale
+    propose-time snapshot), and every field `params` doesn't mention is
+    carried forward from it unchanged before `save_card_terms` — which
+    REPLACES the whole document on every call — is invoked.
+
+    `status='skipped'` is a different real shape in `save_card_terms`
+    itself (it wipes apr_pct/promos/min_payment_note/bt_offers and keeps
+    only its OWN read of `usage` from the existing doc), so that branch is
+    replayed directly with no merge of our own, exactly mirroring the
+    router's own skipped branch rather than a second implementation of it."""
+    from app.routers.card_terms import BtOffer as _CardBtOffer
+    from app.routers.card_terms import CardPromo as _CardPromo
+    from app.routers.card_terms import CardTermsBody as _CardTermsBody
+    from app.routers.card_terms import _serialize_terms as _card_serialize_terms
+    from app.routers.card_terms import card_terms_col as _card_terms_col_execute
+    from app.routers.card_terms import save_card_terms as _route_save_card_terms
+
+    account_id = params["account_id"]
+    if params.get("status") == "skipped":
+        body = _CardTermsBody(status="skipped", product_key=params.get("product_key"))
+        return await _route_save_card_terms(account_id, body, user={"email": uid})
+
+    existing_doc = await _card_terms_col_execute.find_one({"_id": f"{uid}:{account_id}"})
+    existing = _card_serialize_terms(existing_doc) or {}
+    body = _CardTermsBody(
+        status="confirmed",
+        apr_pct=params.get("apr_pct", existing.get("apr_pct")),
+        promos=[_CardPromo(**p) for p in params.get("promos", existing.get("promos") or [])],
+        bt_offers=[_CardBtOffer(**o) for o in params.get("bt_offers", existing.get("bt_offers") or [])],
+        min_payment_note=params.get("min_payment_note", existing.get("min_payment_note")),
+        usage=params.get("usage", existing.get("usage")),
+        product_key=params.get("product_key", existing.get("product_key")),
+    )
+    return await _route_save_card_terms(account_id, body, user={"email": uid})
+
+
+async def _execute_record_trend_intent(uid: str, params: dict) -> dict:
+    from app.routers.checkpoints import post_intent as _route_post_intent
+
+    body = {"category": params["category"], "answer": params["answer"]}
+    return await _route_post_intent(body, user={"email": uid})
+
+
+async def _execute_undo_trend_intent(uid: str, params: dict) -> dict:
+    from app.routers.spend_verdict import delete_intent_answer as _route_delete_intent_answer
+
+    return await _route_delete_intent_answer(params["category"], user={"email": uid})
+
+
+async def _execute_mark_insight_opened(uid: str, params: dict) -> dict:
+    from app.routers.savings_insights import mark_insight_opened as _route_mark_insight_opened
+
+    return await _route_mark_insight_opened(params["insight_id"], user={"email": uid})
+
+
+async def _execute_save_insight_context(uid: str, params: dict) -> dict:
+    """`save_insight_context` takes a `BackgroundTasks` the real ASGI
+    request cycle would normally run after the response is sent; called
+    directly here, that queued regeneration is run explicitly via
+    `await bg()` immediately after, so this executor has the exact same
+    net effect as a real POST — the insight really does regenerate, not
+    just get a params dict silently dropped."""
+    from starlette.background import BackgroundTasks as _BackgroundTasks
+
+    from app.routers.savings_insights import save_insight_context as _route_save_insight_context
+
+    bg = _BackgroundTasks()
+    body = {"context": params["context"]}
+    result = await _route_save_insight_context(params["insight_id"], body, bg, user={"email": uid})
+    await bg()
+    return result
+
+
+async def _execute_dismiss_insight(uid: str, params: dict) -> dict:
+    from app.routers.savings_insights import dismiss_spotlight_insight as _route_dismiss_spotlight_insight
+
+    return await _route_dismiss_spotlight_insight(params["insight_id"], user={"email": uid})
+
+
+async def _execute_pin_insight(uid: str, params: dict) -> dict:
+    """`toggle_pin_insight` (the real router function) is a TOGGLE, not a
+    set — see its own docstring in savings_insights.py. This executor never
+    reimplements the write: it reads current state only to decide WHETHER
+    to call the toggle (skipping it, no-op, when already in the desired
+    state), the toggle itself is always the real router function.
+
+    Reads through `app.routers.savings_insights`'s OWN `savings_insights_col`
+    name (not a fresh `app.db.collections` import) deliberately, same
+    reasoning as `_execute_set_card_apr`'s own doctrine comment above: it's
+    the same module-level reference `toggle_pin_insight` itself reads/
+    writes through, so this pre-read can never be looking at a different
+    collection object than the toggle that follows it."""
+    from app.routers.savings_insights import savings_insights_col as _savings_insights_col_execute
+    from app.routers.savings_insights import toggle_pin_insight as _route_toggle_pin_insight
+
+    doc = await _savings_insights_col_execute.find_one({"user_id": uid, "insight_id": params["insight_id"]})
+    if not doc:
+        raise HTTPException(404, "Insight not found")
+    current = bool(doc.get("pinned", False))
+    desired = bool(params["pinned"])
+    if current == desired:
+        return {"pinned": current}
+    return await _route_toggle_pin_insight(params["insight_id"], user={"email": uid})
+
+
+async def _execute_label_merchant(uid: str, params: dict) -> dict:
+    from starlette.background import BackgroundTasks as _BackgroundTasks
+
+    from app.routers.savings_insights import label_bill as _route_label_bill
+
+    bg = _BackgroundTasks()
+    body = {"merchant_key": params["merchant_key"], "category": params["category"]}
+    result = await _route_label_bill(body, bg, user={"email": uid})
+    await bg()
+    return result
+
+
+async def _execute_remove_merchant_label(uid: str, params: dict) -> dict:
+    from app.routers.savings_insights import delete_bill_label as _route_delete_bill_label
+
+    return await _route_delete_bill_label(params["merchant_key"], user={"email": uid})
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -1004,6 +1134,15 @@ _PROPOSAL_EXECUTORS = {
     "delete_account_rule":        _execute_delete_account_rule,
     "disconnect_bank":            _execute_disconnect_bank,
     "sync_now":                   _execute_sync_now,
+    "set_card_terms":             _execute_set_card_terms,
+    "record_trend_intent":        _execute_record_trend_intent,
+    "undo_trend_intent":          _execute_undo_trend_intent,
+    "mark_insight_opened":        _execute_mark_insight_opened,
+    "save_insight_context":       _execute_save_insight_context,
+    "dismiss_insight":            _execute_dismiss_insight,
+    "pin_insight":                _execute_pin_insight,
+    "label_merchant":             _execute_label_merchant,
+    "remove_merchant_label":      _execute_remove_merchant_label,
 }
 
 
