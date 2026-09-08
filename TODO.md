@@ -33,6 +33,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 ........................................................................ [ 14%]
 .................................] [unblocks: Q2, Q9]
   - note (2026-09-08, claude): Added by the coordinator on 2026-09-08 after F2, F3 and F5 merged unconditionally; A1 must not deploy until this is done.
+- [ ] **A18. api.wealth.auriqltd.co.uk has no DNS record (getent fails from the VPS, 2026-09-08) yet app/core/config.py defaults API_PUBLIC_URL to it, DEPLOY.md says Capacitor build:mobile:prod bakes it, and the Connected assistants card shows it as the MCP connect address; either create the record (Cloudflare or Vercel DNS to the Railway web service) or change the default and all references to the Vercel-proxied https://wealth.auriqltd.co.uk/api; prod is currently reachable only through the Vercel /api rewrite** [owner: kevin]
 
 ## B. Penny cost, tiers and billing
 
