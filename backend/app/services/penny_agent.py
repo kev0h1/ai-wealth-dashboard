@@ -68,6 +68,7 @@ from app.core.llm import openrouter_chat
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
+    revoke_agent_consent,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,39 @@ _REQUEST_TIMEOUT_S = 35.0
 # module docstring's "Off-topic sentinel" section for why this exists rather
 # than letting the model phrase a normal-looking refusal.
 _OUT_OF_SCOPE_SENTINEL = "OUT_OF_SCOPE"
+
+# ── "Stop setting things up" (B13, 2026-09-08) ────────────────────────────
+# A deterministic, no-model-call twin of Settings' "Turn off" control:
+# app.services.penny_tools.revoke_agent_consent is the ONE place a revoke
+# actually happens (clears the consent flag AND cancels every pending
+# proposal), called identically from both the Settings DELETE route and
+# here. "Server is the gate" doctrine — this is never offered to the model
+# as a tool, it is matched in Python BEFORE the OpenRouter client is ever
+# touched, so revoking never costs a message, never depends on the model
+# correctly recognising the intent, and can never be talked out of firing
+# by a cleverly-phrased follow-up.
+#
+# Whole-message match only (light case/punctuation tolerance), not a
+# substring search: a sentence that merely MENTIONS one of these phrases
+# mid-thought ("why did it stop proposing halfway through the walkthrough")
+# must not accidentally revoke consent — a user actually asking to stop
+# always says so as the entire message, matching this codebase's existing
+# convention for short deterministic intents (see can_i.py's own greeting
+# short-circuit for the same "match the whole thing, not a fragment of it"
+# discipline).
+_STOP_CONSENT_PHRASES = frozenset({
+    "stop setting things up",
+    "turn off setting things up",
+    "stop proposing",
+    "revoke consent",
+})
+_TRAILING_PUNCT_RE = re.compile(r"[.!?]+$")
+
+
+def _is_stop_consent_message(question: str) -> bool:
+    normalized = _TRAILING_PUNCT_RE.sub("", (question or "").strip().lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized in _STOP_CONSENT_PHRASES
 
 _SYSTEM_PROMPT = (
     "You are Penny, the assistant inside Sorted, a personal money app. You "
@@ -394,7 +428,29 @@ async def run_penny_agent(
     refuses to actually call `execute_tool` (never persists the attempted
     intent, never builds a proposal) unless `consented` is true, returning
     `{"consent_required": True}` instead so the frontend can show the
-    one-time consent card and auto-resend the question once granted."""
+    one-time consent card and auto-resend the question once granted.
+
+    B13 (2026-09-08): checked BEFORE anything else in this function,
+    including the consent lookup just below — see `_is_stop_consent_message`
+    and the module-level doctrine note above it. No OpenRouter call, no
+    round counted, no tool ever offered for this: revoking is deterministic
+    and always succeeds (revoke_agent_consent is itself idempotent), so this
+    always returns an ordinary headline/reply pair, never `None`."""
+    if _is_stop_consent_message(question):
+        result = await revoke_agent_consent(uid)
+        logger.info(
+            "penny_agent: stop-consent phrase matched for %s, proposals_cancelled=%d",
+            uid, result.get("proposals_cancelled") or 0,
+        )
+        return {
+            "headline": "Setting things up is off",
+            "reply": (
+                "Setting things up is off. I will only answer questions "
+                "until you turn it back on in Settings or ask me to set "
+                "things up again."
+            ),
+            "tools_used": [],
+        }
     started = time.monotonic()
     try:
         prefs = await preferences_col.find_one({"user_id": uid}, {"penny_agent_consent": 1})

@@ -2846,6 +2846,46 @@ async def _create_proposal(uid: str, kind: str, params: dict, summary: str, cons
     }
 
 
+async def revoke_agent_consent(uid: str) -> dict:
+    """The ONE place Penny's agent mode is actually turned off for `uid` —
+    shared by app.routers.can_i's DELETE /penny/agent-consent (Settings'
+    "Turn off" control) and app.services.penny_agent's deterministic
+    "stop setting things up" phrase match, so both paths do the exact same
+    thing rather than one of them drifting into a partial revoke. Lives
+    here (not in can_i.py, where the original revoke endpoint was) so
+    penny_agent.py — which can_i.py imports FROM — can call it without a
+    circular import; penny_agent.py already imports this module for the
+    propose-tool schemas and dispatch.
+
+    Two effects, in the same call: (1) clears `penny_agent_consent` back to
+    falsy, exactly as before — app.services.penny_agent reads this live on
+    every call, so the very next question excludes the propose-tool
+    schemas again; execute_proposal also re-checks consent at EXECUTE time,
+    so nothing already-built can slip through after this fires. (2) cancels
+    every one of the user's still-pending proposals (never executed, never
+    already cancelled) in the same stroke — a proposal sitting unactioned
+    in its 15-minute window represents an action the user is no longer
+    trusting Penny to take, revoking consent should mean exactly that,
+    not "revoke consent AND separately still let this one specific
+    envelope/goal/APR-change go through if I happen to tap Confirm before
+    it expires." Confirmed/executed proposals are historical record and are
+    left untouched — there's nothing left to cancel about a write that
+    already happened.
+
+    Idempotent — revoking when already not consented, with nothing
+    pending, just confirms the off state: `proposals_cancelled` is 0."""
+    now = datetime.now()
+    await preferences_col.update_one(
+        {"user_id": uid}, {"$set": {"penny_agent_consent": None, "user_id": uid}}, upsert=True,
+    )
+    result = await penny_proposals_col.update_many(
+        {"user_id": uid, "executed_at": None, "cancelled_at": None},
+        {"$set": {"cancelled_at": now}},
+    )
+    cancelled = getattr(result, "modified_count", 0) or 0
+    return {"penny_agent_consent": None, "proposals_cancelled": cancelled}
+
+
 async def _resolve_account_for_propose(uid: str, account_id_or_name: str | None) -> dict:
     """Same id-or-name resolution `get_account_activity` already uses,
     reused here (not reimplemented) for every write tool that takes an
