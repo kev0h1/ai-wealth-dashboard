@@ -1,5 +1,7 @@
 # Mobile Porting Documentation
 
+> This is the web-to-mobile porting spec kept as reference after the Expo project was retired (see H11). It was pinned to web commit 5ad21c0 when written and was not kept in sync after that. The Expo project tree itself is preserved at git tag `archive/expo-mobile-2026-09-08`; the Capacitor wrap in `capacitor-spike/` is the current mobile path.
+
 Complete specification for rebuilding the web app in React Native (Expo). Each doc is a canonical reference; read them before coding.
 
 ## Stack Summary
