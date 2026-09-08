@@ -53,7 +53,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from app.core.auth import current_user
-from app.core.config import API_PUBLIC_URL, APP_URL
+from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
 from app.db.collections import oauth_clients_col, oauth_codes_col, oauth_tokens_col
 from app.routers.mcp import V1_SCOPES
@@ -123,8 +123,12 @@ async def oauth_authorization_server_metadata():
 
 @router.get("/.well-known/oauth-protected-resource")
 async def oauth_protected_resource_metadata():
+    # F8: `resource` is the connector's own URL (MCP_PUBLIC_URL, a dedicated
+    # host once one is provisioned); `authorization_servers` stays on the
+    # API host, since the OAuth endpoints themselves (authorize/token/
+    # register/revoke) never move.
     return {
-        "resource": f"{API_PUBLIC_URL}/mcp",
+        "resource": MCP_PUBLIC_URL,
         "authorization_servers": [API_PUBLIC_URL],
         "scopes_supported": sorted(V1_SCOPES),
         "bearer_methods_supported": ["header"],

@@ -32,7 +32,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "connected-assistants",
     name: "connected-assistants",
     description:
-      "F4: Settings' \"Connected assistants\" card, real components/ConnectedAssistantsCard.tsx (placed directly after the Penny card in app/settings/SettingsPage.tsx) against fixtures, no fetching · empty / populated with two clients (Claude used recently, ChatGPT never used) / activity expander open onto the current month's GET /mcp/audit rows · scope wording shared with /oauth/consent via lib/oauthScopes.ts, kept word for word in sync with the backend's SCOPE_DESCRIPTIONS",
+      "F4/F8: Settings' \"Connected assistants\" card, real components/ConnectedAssistantsCard.tsx (placed directly after the Penny card in app/settings/SettingsPage.tsx) against fixtures, no fetching · empty / populated with two clients (Claude used recently, ChatGPT never used) / activity expander open onto the current month's GET /mcp/audit rows / a zero-allowance tier (Statements, Lite, Standard) showing \"Available on Connect and Max\" instead of connect instructions · connect URL from NEXT_PUBLIC_MCP_URL, scope wording shared with /oauth/consent via lib/oauthScopes.ts, kept word for word in sync with the backend's SCOPE_DESCRIPTIONS",
     states: [{ label: "Everything", value: "everything" }],
   },
   {

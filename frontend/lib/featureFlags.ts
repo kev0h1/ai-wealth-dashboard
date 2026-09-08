@@ -24,3 +24,15 @@ export const TRUELAYER_PICKER = process.env.NEXT_PUBLIC_TRUELAYER_PICKER === "on
 // together (UAT only, for now; see DEPLOY.md). Set
 // `NEXT_PUBLIC_MCP_CONNECTOR=on` to show it; leave it unset to hide it.
 export const MCP_CONNECTOR = process.env.NEXT_PUBLIC_MCP_CONNECTOR === "on";
+
+// F8: the connector's own public URL, shown in Settings' "Connected
+// assistants" empty state (components/ConnectedAssistantsCard.tsx) as the
+// address a user points Claude/ChatGPT at. Mirrors the backend's
+// MCP_PUBLIC_URL (backend/app/core/config.py) — the two must point at the
+// same host, since this is only copy, not a live request the frontend
+// makes. Defaults to the prod API host's /mcp path so a prod build works
+// with no env var set; UAT sets `NEXT_PUBLIC_MCP_URL` in its own
+// frontend/.env.local once a dedicated connector hostname (e.g.
+// mcp.wealth.auriqltd.co.uk) exists, so UAT never shows the prod host to a
+// UAT user (see DEPLOY.md's MCP connector section).
+export const MCP_URL = process.env.NEXT_PUBLIC_MCP_URL || "https://api.wealth.auriqltd.co.uk/mcp";

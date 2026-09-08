@@ -261,6 +261,33 @@ then `npx next start -p <free-port>`, then `google-chrome --headless=new
 <url>`, then stop the server and delete `.next`/`out`/any stray
 `ai-wealth-dashboard/` dir that `next build --webpack` can leave behind).
 
+### MCP connector URL
+
+F8 (2026-09-08): the connector's own public URL is a separate setting from
+`API_PUBLIC_URL`, so it can be pointed at a dedicated hostname (e.g.
+`https://mcp.wealth.auriqltd.co.uk/mcp`) without moving the API's own
+domain, once that host is DNS-provisioned — that's a Kevin task, alongside
+`API_PUBLIC_URL`'s own missing DNS record (see backlog A18: production is
+currently only reachable via the Vercel `/api` rewrite, `api.wealth.auriqltd.co.uk`
+has no DNS record at all yet). This backend answers on any hostname routed
+to it, so pointing the connector at a new host needs no code change, only
+the env var below plus the DNS/reverse-proxy record.
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `MCP_PUBLIC_URL` (backend `.env`, `app/core/config.py`) | `${API_PUBLIC_URL}/mcp` | the connector's full URL: `resource` in the RFC 9728 protected-resource metadata, and the origin the `WWW-Authenticate` discovery header on an unauthenticated `/mcp` 401 points at. `authorization_servers` (and every OAuth endpoint — authorize/token/register/revoke) stays on `API_PUBLIC_URL`; only `resource` moves. |
+| `NEXT_PUBLIC_MCP_URL` (frontend `.env.local`, `lib/featureFlags.ts`) | `https://api.wealth.auriqltd.co.uk/mcp` | copy only — the address Settings' "Connected assistants" empty state (`components/ConnectedAssistantsCard.tsx`) tells a user to point Claude/ChatGPT at. Must be kept in sync with the backend's `MCP_PUBLIC_URL` by hand; the frontend never calls `/mcp` itself. |
+
+Until the dedicated hostname exists, set **UAT**'s `frontend/.env.local` to
+`NEXT_PUBLIC_MCP_URL=https://uat.wealth.auriqltd.co.uk/api/mcp` (UAT's
+nginx only exposes one public host, `uat.wealth.auriqltd.co.uk`, proxying
+`/api/` to the backend on `:8000` — there is no separate UAT API
+subdomain), and leave the backend's `MCP_PUBLIC_URL` matching (same value,
+in `backend/.env`) so the metadata `resource` a connector discovers agrees
+with the URL the card tells the user to add. Leave both unset in
+production until A18 gives `api.wealth.auriqltd.co.uk` (or a dedicated
+`mcp.` host) a real DNS record.
+
 ---
 
 ## Backend env vars (Railway: web AND worker)
