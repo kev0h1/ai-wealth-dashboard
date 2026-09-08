@@ -186,12 +186,43 @@ Settings' "Connected assistants" list (`GET /oauth/connections`,
 
 **Allowance and audit:** the connector shares the tier's own monthly call
 allowance (`TIER_LIMITS[...]["mcp_tool_calls_per_month"]`: 2,000 on Connect,
-5,000 on Max, 0 (not included) below that) plus a 60-requests/minute
-per-IP rate limit. Every `tools/call` writes one audit doc to `mcp_calls_col`
-(tool, client, ok, timestamp, latency, count of keys masked, never the
-values); a user can read their own rows back via `GET /mcp/audit?month=`
-(no UI for this yet, F4, not started, is the "Connected assistants"
-settings surface that will render it).
+5,000 on Max, 0 (not included) below that). Every `tools/call` writes one
+audit doc to `mcp_calls_col` (tool, client, ok, timestamp, latency, count of
+keys masked, never the values); a user can read their own rows back via
+`GET /mcp/audit?month=` (no UI for this yet, F4, not started, is the
+"Connected assistants" settings surface that will render it; F7's
+`limits` block on that same endpoint gives F9 the raw numbers below to
+display alongside the call log).
+
+**Rate limits (F7, 2026-09-08):** the connector used to key its rate limit
+by IP, but Claude's and ChatGPT's connectors call from shared egress ranges,
+so every user of the same assistant would have shared one bucket. `/mcp` is
+authenticated on every call, so the old per-IP rule in `app/core/ratelimit.py`
+is gone; instead `app/routers/mcp.py` applies two limits per *principal*
+(OAuth `client_id` when the call came through F2's OAuth flow, else the
+session/token uid), after `resolve_mcp_principal` runs and before the tool
+allowance check:
+
+- **Burst**: `MCP_BURST_PER_MINUTE` (default 60) `tools/call`s per minute.
+- **Daily soft cap**: `MCP_DAILY_SOFT_CAP` (default 500) `tools/call`s per
+  calendar day (UTC), a coarser backstop so a runaway agent loop can't burn
+  a whole month's allowance in an hour even while staying under the burst
+  limit. Stored as a `mcp:day:<key>:<YYYY-MM-DD>` Redis counter with a 48h
+  TTL (in-process fallback if Redis is down).
+- `initialize`/`ping`/`tools/list` are cheap and not billed against either
+  limit above, but still get their own generous per-principal ceiling,
+  `MCP_CHEAP_METHOD_PER_MINUTE` (default 240), so a broken client's
+  reconnect loop can't hammer them unbounded.
+
+Either of the first two tripping returns HTTP 429 with a `Retry-After`
+header (seconds to the next minute for burst, seconds to midnight UTC for
+the daily cap) and a JSON-RPC error body (code `-32003`, `data.kind` is
+`"burst"` or `"daily"`). A rate-limited call writes no audit doc and is
+never counted against the monthly allowance. The old `/auth/oauth/register`
+per-IP rule (unauthenticated by design, that's the point of dynamic client
+registration) is unchanged, and `/auth/oauth/token` / `/auth/oauth/authorize`
+now have their own explicit per-IP entries too (30/minute, same as the
+generic `/auth/` rule they used to fall through to).
 
 ### MCP connector flag
 

@@ -738,8 +738,11 @@ first. v1 rules, all owner decisions from 2026-09-08:
 - Scopes are `accounts:read`, `plans:read`, `insights:read`. `transactions:read`
   does not exist yet; v1 has nothing for it to gate.
 - Included in Connect (2,000 calls/month) and Max (5,000/month); not
-  included in Statements/Lite/Standard. Per-IP rate limit plus the tier's
-  monthly allowance, both enforced in `app/routers/mcp.py`; every
+  included in Statements/Lite/Standard. The tier's monthly allowance, a
+  per-principal burst limit (60/minute) and a per-principal daily soft cap
+  (500/day, keyed by OAuth client_id or uid rather than IP so Claude's and
+  ChatGPT's shared egress ranges never share a bucket, F7, see DEPLOY.md's
+  "Rate limits" paragraph) are all enforced in `app/routers/mcp.py`; every
   `tools/call` writes one audit doc (`mcp_calls_col`) the caller can read
   back via `GET /mcp/audit`.
 
