@@ -409,10 +409,11 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
         <span className="flex-shrink-0 flex items-center justify-center w-4 h-6">
           <SettleMark size={16} className="text-emerald-500" />
         </span>
-        <div className="flex-1 min-w-0">
-          {/* Only the headline clears the dismiss chip (absolute top-right,
-              below) — body spans the full card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
+        <div className="flex-1 min-w-0 pr-7">
+          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the left
+              inset. Headline keeps a smaller pr-2 on top (44+8=52px) to just
+              clear the DismissChip's left edge (right-2 8px + w-11 44px). */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
             <MoneyText text={item.headline} />
           </p>
           {item.body && (
@@ -466,10 +467,13 @@ export function CliffCard({ item, router, maskAmounts, dismissible, onHomeDismis
     <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         <Icon size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
-        <div className="flex-1 min-w-0">
-          {/* Only the headline clears the dismiss chip (absolute top-right,
-              below) — body and action span the full card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
+        <div className="flex-1 min-w-0 pr-7">
+          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the ~43px
+              left inset (p-4 + icon + gap-3). Headline keeps its own small
+              pr-2 on top (44+8=52px) to just clear the DismissChip's left
+              edge (right-2 8px + w-11 44px = 52px) without double-inserting
+              past pr-8's old 76px. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -576,7 +580,12 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
     <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
         <AlertCircle size={15} aria-hidden="true" className="text-amber-500 dark:text-amber-400 flex-shrink-0 mt-[5px]" />
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pr-7">
+          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the ~43px
+              left inset (p-4 + icon + gap-3). Headline keeps its own small
+              pr-2 on top (44+8=52px) to just clear the DismissChip's left
+              edge (right-2 8px + w-11 44px = 52px) without double-inserting
+              past pr-8's old 76px. */}
           {/* Penny gradient chip — same convention as sibling advice cards,
               suppressed on the Penny screen itself (its header already
               establishes Penny's voice there). */}
@@ -594,7 +603,7 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
           {/* Only the headline clears the dismiss chip (absolute top-right,
               below) — body, the per-move rows and the action span the full
               card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -679,10 +688,14 @@ function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }: Inten
   return (
     <div className="glass-card rounded-2xl p-4 relative">
       <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          {/* Only the headline clears the dismiss chip (absolute top-right,
-              below) — body spans the full card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
+        <div className="flex-1 min-w-0 pr-7">
+          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px. This card has no
+              leading icon, so its left inset is only p-4 (16px) — the pr-7
+              here is for consistency with the rest of the card family in
+              this scrolling feed, not to mirror a left inset. Headline keeps
+              its own small pr-2 on top (44+8=52px) to just clear the
+              DismissChip's left edge (right-2 8px + w-11 44px = 52px). */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
           {item.body && (
@@ -1024,11 +1037,15 @@ function RhythmCard({ item, router, maskAmounts, onRefresh, dismissible, onHomeD
           <Icon size={16} style={{ color: colour }} />
         </span>
 
-        <div className="flex-1 min-w-0">
-          {/* Headline — only this row clears the dismiss chip (absolute
-              top-right, below); the support line and the buttons row
-              beneath already span the full card width. */}
-          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-8">
+        <div className="flex-1 min-w-0 pr-7">
+          {/* Right inset: p-4 (16px) + pr-7 (28px) = 44px, matching the
+              ~43px left inset. The DismissChip below is a flex sibling here
+              (not absolutely positioned like the other four cards), so flex
+              layout already reserves its width and this column never
+              actually overlaps it, but pr-7 keeps this card visually
+              consistent with the rest of the family. Headline keeps a
+              smaller pr-2 on top for the same reason. */}
+          <p className="text-[15px] font-semibold text-slate-900 dark:text-white leading-6 pr-2">
             <MoneyText text={headline} />
           </p>
           {/* One supporting line. Plain string (no dominant transaction):

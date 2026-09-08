@@ -3457,7 +3457,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             rid = f"rhythm:switch:{year_month}"
             if rid not in dismissed:
                 if early_pct is not None and late_pct is not None:
-                    card_desc = f"({early_pct}% → {late_pct}% of spending)"
+                    card_desc = f"(from {early_pct}% to {late_pct}% of spending)"
                 else:
                     card_desc = ""
                 headline = "Card season"

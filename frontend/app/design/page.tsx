@@ -39,7 +39,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "home-brief-width",
     name: "home-brief-width",
     description:
-      "Backlog G11: real CelebrationCard/CliffCard/MoveCard (components/HomeBrief.tsx) against long-body fixtures, dismissible on, light and dark blocks — body copy now spans the full card width instead of stopping short to make room for DismissChip's old 44px flex column; the chip is absolute top-right and clears only the headline row · CliffCard/MoveCard fixtures also carry a £1,175 figure for the companion thousands-separator fix",
+      "Backlog G11: real CelebrationCard/CliffCard/MoveCard (components/HomeBrief.tsx) against long-body fixtures, dismissible on, light and dark blocks — body copy now spans the full card width instead of stopping short to make room for DismissChip's old 44px flex column; the chip is absolute top-right and clears only the headline row · CliffCard/MoveCard fixtures also carry a £1,175 figure for the companion thousands-separator fix · Backlog G12: the text column's right inset is now symmetric with the left (pr-7 plus the headline's own pr-2), and the \"Card season\" companion copy reads \"from X% to Y%\" instead of an arrow",
     states: [{ label: "Everything", value: "everything" }],
   },
   {
