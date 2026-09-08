@@ -30,6 +30,7 @@
 import { useEffect, useState } from "react";
 import { Plug, Check, ChevronDown } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { api } from "@/lib/api";
 import type { OAuthConnection, McpAuditCall } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
@@ -82,9 +83,20 @@ function formatAllowanceRow(allowance: McpAllowance): { subline: string; pill: {
   return { subline, pill };
 }
 
-function McpPackRow({ pack }: { pack: SubscriptionMcpPack }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+// B5: real button once `billingLive` (POST /billing/checkout, kind="pack",
+// target="mcp_1000") — starts a Stripe Checkout session and redirects the
+// browser to it. `onBuy`/`busy` are only meaningful when `billingLive` is
+// true; otherwise the row keeps the "Available soon" trailing label.
+function McpPackRow({
+  pack, billingLive, busy, onBuy,
+}: {
+  pack: SubscriptionMcpPack;
+  billingLive: boolean;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  const inner = (
+    <>
       <span className="flex items-center gap-2 min-w-0 pr-2">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 num">
           {pack.calls.toLocaleString("en-GB")} calls
@@ -97,11 +109,36 @@ function McpPackRow({ pack }: { pack: SubscriptionMcpPack }) {
       </span>
       <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
         <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
-        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Available soon
-        </span>
+        {billingLive ? (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+            {busy ? "Opening…" : "Buy"}
+          </span>
+        ) : (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            Available soon
+          </span>
+        )}
       </span>
-    </div>
+    </>
+  );
+
+  if (!billingLive) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onBuy}
+      disabled={busy}
+      className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px] text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    >
+      {inner}
+    </button>
   );
 }
 
@@ -157,23 +194,38 @@ export default function ConnectedAssistantsCard({
    * ceiling, used for the tier-gate check) because this also carries the
    * live `used` count and any active call-pack balance. */
   allowance: McpAllowance | null;
-  /** F9: GET /subscription's `mcp_packs` (MCP_CALL_PACKS) — rendered as
-   * "Available soon" rows under "Need more calls?", same treatment as
-   * MoreMessagesSheet.tsx's Penny packs (no purchase flow yet, B5). */
+  /** F9: GET /subscription's `mcp_packs` (MCP_CALL_PACKS) — rendered under
+   * "Need more calls?". B5: real "Buy" buttons once `billingLive` (POST
+   * /billing/checkout), "Available soon" rows until then. */
   mcpPacks: SubscriptionMcpPack[];
   /** F9: the signed-in user's tier name, so the "Everyone is on the Max
    * plan..." note only shows for a Max-tier user (not e.g. someone on
    * Connect who bought a pack). Null before GET /subscription resolves. */
   tier: string | null;
-  /** F9: GET /subscription's `billing_live` — false while item B5 hasn't
-   * shipped, gating the temporary "while billing is being built" note so
-   * it disappears the day billing goes live instead of needing a code
-   * change here. */
+  /** F9/B5: GET /subscription's `billing_live` — false until a Stripe
+   * account exists and BILLING_ENABLED is set (app.core.config). Gates
+   * both the temporary "while billing is being built" note below and
+   * whether the MCP pack row is a real checkout button. */
   billingLive: boolean;
 }) {
   const [confirmClient, setConfirmClient] = useState<OAuthConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectedName, setDisconnectedName] = useState<string | null>(null);
+  const [packPendingId, setPackPendingId] = useState<string | null>(null);
+  const [packError, setPackError] = useState<string | null>(null);
+
+  async function handleBuyPack(packId: string) {
+    if (packPendingId) return;
+    setPackError(null);
+    setPackPendingId(packId);
+    try {
+      const { url } = await api.startCheckout("pack", packId);
+      window.location.assign(url);
+    } catch {
+      setPackError("Could not start checkout. Try again in a moment.");
+      setPackPendingId(null);
+    }
+  }
 
   // "Brief" per the brief: the confirmation line clears itself so it
   // doesn't linger as a stale caption on a settings screen the user may
@@ -358,18 +410,27 @@ export default function ConnectedAssistantsCard({
         </>
       )}
 
-      {/* F9: "Need more calls?" — quiet upsell for the MCP call pack,
-          same "Available soon" treatment as MoreMessagesSheet.tsx's Penny
-          packs (no purchase flow yet, billing is B5). Only shown for a
-          tier that has the connector at all. */}
+      {/* F9: "Need more calls?" — upsell for the MCP call pack. B5: a real
+          checkout button once `billingLive`, same "Available soon"
+          treatment as before until then. Only shown for a tier that has
+          the connector at all. */}
       {!isTierGated && mcpPacks.length > 0 && (
         <div className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 space-y-2">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Need more calls?</p>
           <div className="space-y-2">
             {mcpPacks.map((pack) => (
-              <McpPackRow key={pack.id} pack={pack} />
+              <McpPackRow
+                key={pack.id}
+                pack={pack}
+                billingLive={billingLive}
+                busy={packPendingId === pack.id}
+                onBuy={() => handleBuyPack(pack.id)}
+              />
             ))}
           </div>
+          {packError && (
+            <p className="text-[11px] leading-snug text-red-500 dark:text-red-400">{packError}</p>
+          )}
           {tier === "max" && !billingLive && (
             <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
               Everyone is on the Max plan with 5,000 calls a month while billing is being built.

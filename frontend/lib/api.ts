@@ -3074,6 +3074,25 @@ export const api = {
 
   getSubscription: () => get<SubscriptionInfo>("/subscription"),
 
+  // B5: Stripe checkout/portal, only reachable once GET /subscription's
+  // billing_live is true (POST /billing/checkout and /billing/portal both
+  // 503 BILLING_NOT_LIVE otherwise, backend/app/routers/billing.py). `kind`
+  // "subscription" moves the user to a paid tier (`target` a tier name:
+  // lite/standard/connect/max), "pack" buys a top-up pack (`target` a pack
+  // id: the Penny packs' own ids, or "mcp_1000"). The backend never trusts
+  // `target` beyond "does a Stripe price exist for it" — what the user
+  // actually gets is granted only once Stripe's webhook fires, never from
+  // this request. Callers redirect the browser to the returned `url`
+  // (window.location.assign), same convention as any other hosted-checkout
+  // redirect.
+  startCheckout: (kind: "subscription" | "pack", target: string) =>
+    post<{ url: string }>("/billing/checkout", { kind, target }),
+
+  // B5: opens Stripe's customer portal (manage/cancel a subscription,
+  // update the card on file) for the signed-in user. 404s if they have no
+  // Stripe customer yet (never started a checkout).
+  openBillingPortal: () => post<{ url: string }>("/billing/portal", {}),
+
   getIncomeStreams: () => get<IncomeStream[]>("/income/streams"),
   confirmIncomeStream: (key: string) =>
     post<IncomeStream>("/income/streams/confirm", { key }),

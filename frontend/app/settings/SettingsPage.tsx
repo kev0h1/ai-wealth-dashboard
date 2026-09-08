@@ -27,7 +27,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection, McpAuditCall } from "@/lib/api";
 import ConnectedAssistantsCard, { ConnectionsState, ActivityState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
-import PennyUsageRow from "@/components/PennyUsageRow";
+import YourPlanCard from "@/components/YourPlanCard";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
@@ -791,6 +791,16 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* ── Your plan (B5) ── */}
+        {/* Tier, price and (once billing is live) a "Manage plan" link into
+            Stripe's customer portal. Hosts PennyUsageRow.tsx, moved out of
+            the Penny card below (see that component's own "re-homes into a
+            Your plan card" note) — usage against the tier's monthly
+            allowance reads more naturally next to the tier itself. Placed
+            directly above the Penny card since both are about the same
+            account-level relationship (what plan, what Penny can do). */}
+        <YourPlanCard info={pennyUsage.info} error={pennyUsageError} />
+
         {/* ── Penny (agent mode v1) ── */}
         {/* Consent-state row for Penny's agent mode (setting up envelopes/
             goals/one-offs on the user's behalf, always with a confirm card
@@ -823,18 +833,10 @@ export default function SettingsPage() {
             something else. Icon is a plain INDIGO-tinted IconChip (Wand2),
             not the Penny gradient: DESIGN.md's Penny Gradient Rule reserves
             that gradient for surfaces that give advice, and Settings isn't
-            one. */}
+            one. B5: Penny messages usage now lives in the "Your plan" card
+            above, not here. */}
         <div className="glass-card rounded-2xl overflow-hidden">
           <SectionHeader icon={Wand2} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
-
-          {/* Penny messages usage (backlog B4). Re-homes into a "Your
-              plan" card (tier, price, top-up packs) once billing (B5/B11)
-              lands. */}
-          <PennyUsageRow
-            info={pennyUsage.info}
-            error={pennyUsageError}
-            className="border-b border-slate-100 dark:border-slate-700"
-          />
 
           <div className="px-4 py-3.5">
             {rawPrefs?.penny_agent_consent ? (

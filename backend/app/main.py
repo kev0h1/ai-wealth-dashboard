@@ -24,6 +24,7 @@ from app.db.collections import (
     response_cache_col, mcp_calls_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
+    billing_customers_col, billing_events_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -37,7 +38,8 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
-    penny_chip, ops, admin_usage, admin_allowlist, mcp as mcp_router, oauth as oauth_router,
+    penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
+    mcp as mcp_router, oauth as oauth_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -87,6 +89,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
         ops.router,
         admin_usage.router,
         admin_allowlist.router,
+        billing_router.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
@@ -311,6 +314,11 @@ async def _create_indexes():
     # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
     # re-invite is always an update, never a duplicate doc.
     await allowed_signups_col.create_index("key", unique=True)
+    # B5 Stripe billing — one customer doc per user, and the webhook
+    # idempotency ledger keyed on Stripe's own event id.
+    await billing_customers_col.create_index("user_id", unique=True)
+    await billing_customers_col.create_index("stripe_customer_id", unique=True, sparse=True)
+    await billing_events_col.create_index("event_id", unique=True)
 
 
 async def _acquire_migration_lock() -> bool:
