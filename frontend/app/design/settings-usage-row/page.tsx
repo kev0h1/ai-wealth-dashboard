@@ -28,6 +28,11 @@ function fixture(
     status: "active",
     prices_gbp: { statements: 0, lite: 2.99, standard: 5.99, connect: 9.99, max: 14.99 },
     topup: { messages: 100, price_gbp: 2.99 },
+    topups: [
+      { id: "small", messages: 20, price_gbp: 0.99, badge: null },
+      { id: "medium", messages: 100, price_gbp: 2.99, badge: "Most popular" },
+      { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
+    ],
     limits: {
       open_banking: true,
       max_banks: null,
@@ -46,6 +51,8 @@ function fixture(
       penny_remaining: 150,
       penny_resets_on: "2026-10-01",
       penny_topup_messages: 0,
+      penny_topup_expires_soonest: null,
+      penny_packs_bought_this_month: 0,
       ...usage,
     },
   };
@@ -54,6 +61,18 @@ function fixture(
 const NORMAL = fixture("standard", { penny_messages: 37, penny_limit: 150, penny_remaining: 113 });
 const AMBER = fixture("standard", { penny_messages: 131, penny_limit: 150, penny_remaining: 19 });
 const UNLIMITED = fixture("max", { penny_messages: 84, penny_limit: null, penny_remaining: null });
+// B11: an active top-up pack (its remaining balance already folded into
+// penny_limit, per app.core.subscription.penny_allowance's contract, so
+// PennyUsageRow must NOT add penny_topup_messages a second time), expiring
+// within the row's 14-day "packs expire" window.
+const WITH_PACK = fixture("standard", {
+  penny_messages: 160,
+  penny_limit: 190,
+  penny_remaining: 30,
+  penny_topup_messages: 40,
+  penny_topup_expires_soonest: "2026-09-14",
+  penny_packs_bought_this_month: 1,
+});
 
 function CardFrame({ label, info }: { label: string; info: SubscriptionInfo }) {
   return (
@@ -97,6 +116,7 @@ function ThemeBlock({ dark }: { dark: boolean }) {
         <CardFrame label="Normal, 37 of 150" info={NORMAL} />
         <CardFrame label="Amber, 131 of 150 (>=80% used)" info={AMBER} />
         <CardFrame label="Unlimited, Max plan" info={UNLIMITED} />
+        <CardFrame label="With an active top-up pack, expiring soon (B11)" info={WITH_PACK} />
       </div>
     </div>
   );

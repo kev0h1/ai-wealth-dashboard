@@ -41,7 +41,29 @@ TIER_PRICES_GBP = {
     "max":        16.99,
 }
 
-PENNY_TOPUP = {"messages": 100, "price_gbp": 2.99}
+# B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): three
+# top-up packs, good/better/best. The middle pack is the target ("Most
+# popular"); the largest is priced about 10% under the Standard-to-Max
+# marginal rate so a repeat buyer is nudged towards the sheet's "Move to
+# Max" row (see penny_allowance's packs_bought_this_month) rather than
+# living on packs. Prices sit on standard App Store / Play price points so
+# the same SKU works in-app and on Stripe.
+PENNY_TOPUP_PACKS = [
+    {"id": "small",  "messages": 20,  "price_gbp": 0.99, "badge": None},
+    {"id": "medium", "messages": 100, "price_gbp": 2.99, "badge": "Most popular"},
+    {"id": "large",  "messages": 200, "price_gbp": 4.99, "badge": "Best value"},
+]
+
+# Packs last 90 days from purchase rather than expiring at month end (section
+# 9's whole point: "this month only" makes the large pack a bad buy in the
+# last week of a month and suppresses exactly the purchase we most want).
+PENNY_TOPUP_LIFETIME_DAYS = 90
+
+# Legacy alias — kept for one release so any code/tests still reading the
+# single-pack shape (`{"messages", "price_gbp"}`) keep working. Grep
+# `PENNY_TOPUP` (not `PENNY_TOPUP_PACKS`) before deleting this; GET
+# /subscription now also serves the full list as `topups`.
+PENNY_TOPUP = {"messages": PENNY_TOPUP_PACKS[1]["messages"], "price_gbp": PENNY_TOPUP_PACKS[1]["price_gbp"]}
 
 # None = unlimited
 TIER_LIMITS = {
@@ -154,17 +176,122 @@ async def get_subscription(email: str) -> Subscription:
     return Subscription(tier, doc.get("status", "active"))
 
 
+def _ym_tuple(ym: str) -> tuple[int, int]:
+    y, m = ym.split("-")
+    return int(y), int(m)
+
+
+def _ym_after(ym: str) -> str:
+    y, m = _ym_tuple(ym)
+    return f"{y + 1}-01" if m == 12 else f"{y}-{m + 1:02d}"
+
+
+def _pack_covers_month(pack: dict, ym: str) -> bool:
+    """True if `pack` was still alive for at least part of calendar month
+    `ym` (bought on or before it, not expired before it started). Packs
+    that expire mid-month are treated as covering that whole month — the
+    settlement below only draws down `remaining`, so an empty pack takes
+    nothing regardless."""
+    purchased_ym = pack.get("year_month") or ""
+    if purchased_ym > ym:
+        return False
+    expires_at = pack.get("expires_at")
+    if expires_at is None:
+        return True
+    return expires_at.strftime("%Y-%m") >= ym
+
+
+async def settle_topups(email: str, now: datetime) -> list[dict]:
+    """Lazily settle every PAST calendar month (up to but excluding the
+    current one) that this user's top-up packs haven't already accounted
+    for, attributing each month's overflow (messages used past the tier's
+    own allowance that month) to the OLDEST covering pack's `remaining`
+    first. Idempotent: each (pack, month) pair is written at most once,
+    tracked in the pack doc's own `settled_months` list, so re-running
+    this for a month already settled is a no-op check with no DB write.
+
+    The current month is never settled here — its usage is still moving,
+    so `penny_allowance` reads it live (this month's overflow is simply
+    tier_limit vs used, no pack draw-down needed against it beyond the
+    ordinary `limit = tier_limit + topup_messages` sum below). Returns the
+    user's full (possibly just-mutated) list of top-up pack docs so
+    `penny_allowance` doesn't have to re-query."""
+    from app.core.llm import monthly_usage
+    from app.db.collections import penny_topups_col
+
+    packs = [doc async for doc in penny_topups_col.find({"user_id": email})]
+    if not packs:
+        return packs
+
+    cur_ym = now.strftime("%Y-%m")
+    earliest_ym = min((p.get("year_month") or cur_ym) for p in packs)
+
+    ym = earliest_ym
+    while ym < cur_ym:
+        relevant = [p for p in packs if (p.get("year_month") or "") <= ym]
+        unsettled = [p for p in relevant if ym not in (p.get("settled_months") or [])]
+        if not unsettled:
+            ym = _ym_after(ym)
+            continue
+
+        tier_limit = (await get_subscription(email)).limit("penny_messages_per_month")
+        if tier_limit is None:
+            overflow = 0
+        else:
+            usage = await monthly_usage(email, ym)
+            overflow = max(0, int(usage.get("penny_messages") or 0) - tier_limit)
+
+        covering = sorted(
+            (p for p in unsettled if _pack_covers_month(p, ym)),
+            key=lambda p: p.get("purchased_at") or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        not_covering = [p for p in unsettled if p not in covering]
+
+        for p in covering:
+            take = min(int(p.get("remaining") or 0), overflow)
+            overflow -= take
+            new_remaining = int(p.get("remaining") or 0) - take
+            settled_months = list(p.get("settled_months") or []) + [ym]
+            p["remaining"] = new_remaining
+            p["settled_months"] = settled_months
+            await penny_topups_col.update_one(
+                {"_id": p["_id"]},
+                {"$set": {"remaining": new_remaining, "settled_months": settled_months}},
+            )
+
+        for p in not_covering:
+            settled_months = list(p.get("settled_months") or []) + [ym]
+            p["settled_months"] = settled_months
+            await penny_topups_col.update_one(
+                {"_id": p["_id"]}, {"$set": {"settled_months": settled_months}},
+            )
+
+        ym = _ym_after(ym)
+
+    return packs
+
+
 async def penny_allowance(email: str) -> dict:
     """This calendar month's Penny message allowance for `email`: the
     user's tier limit (`penny_messages_per_month`, None = unlimited) plus
-    any purchased/admin top-ups (`penny_topups_col`) for the current UTC
-    year_month, measured against `app.core.llm.monthly_usage`'s distinct-
-    penny-message-id count.
+    the total `remaining` balance of every active (unexpired, unsettled
+    overflow already deducted) top-up pack, measured against
+    `app.core.llm.monthly_usage`'s distinct-penny-message-id count.
 
-    Returns `{"tier", "limit" (tier limit + this month's top-ups, None
+    Packs (`penny_topups_col`, see `settle_topups` above) last 90 days
+    from purchase and draw down only AFTER the tier's own monthly
+    allowance is used up — `settle_topups` is what actually performs that
+    draw-down for past months; this month's overflow doesn't need a pack
+    write yet because `limit` already folds the active packs' remaining
+    balance straight in.
+
+    Returns `{"tier", "limit" (tier limit + active pack remaining, None
     when the tier itself is unlimited), "used", "remaining" (None when
     unlimited), "resets_on" ("YYYY-MM-DD", the 1st of next month UTC),
-    "topup_messages" (this month's top-up total, 0 if none)}`.
+    "topup_messages" (active pack remaining total, 0 if none),
+    "topup_expires_soonest" (ISO date of the soonest-expiring ACTIVE pack,
+    or None), "packs_bought_this_month" (count of packs with this
+    calendar month as their purchase month, any source)}`.
 
     Both cross-module reads (`penny_topups_col`, `monthly_usage`) are
     imported lazily inside the function, matching this module's own
@@ -172,7 +299,6 @@ async def penny_allowance(email: str) -> dict:
     test can monkeypatch either module's attribute and have it picked up
     here without a fresh top-level import cycle."""
     from app.core.llm import monthly_usage
-    from app.db.collections import penny_topups_col
 
     sub = await get_subscription(email)
     tier_limit = sub.limit("penny_messages_per_month")
@@ -180,9 +306,17 @@ async def penny_allowance(email: str) -> dict:
     now = datetime.now(timezone.utc)
     ym = now.strftime("%Y-%m")
 
-    topup_messages = 0
-    async for doc in penny_topups_col.find({"user_id": email, "year_month": ym}):
-        topup_messages += int(doc.get("messages") or 0)
+    packs = await settle_topups(email, now)
+
+    active_packs = [
+        p for p in packs
+        if int(p.get("remaining") or 0) > 0
+        and (p.get("expires_at") is None or p["expires_at"] > now)
+    ]
+    topup_messages = sum(int(p.get("remaining") or 0) for p in active_packs)
+    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    topup_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
+    packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
 
     limit = None if tier_limit is None else tier_limit + topup_messages
 
@@ -202,6 +336,8 @@ async def penny_allowance(email: str) -> dict:
         "remaining": remaining,
         "resets_on": resets_on.isoformat(),
         "topup_messages": topup_messages,
+        "topup_expires_soonest": topup_expires_soonest,
+        "packs_bought_this_month": packs_bought_this_month,
     }
 
 

@@ -689,7 +689,14 @@ class _FakeTopupsCol:
         return _FakeCursor(rows)
 
     async def insert_one(self, doc):
+        doc.setdefault("_id", f"topup-{len(self.docs)}")
         self.docs.append(doc)
+
+    async def update_one(self, query, update):
+        for d in self.docs:
+            if all(d.get(k) == v for k, v in query.items()):
+                d.update(update.get("$set", {}))
+                return
 
 
 class _FakeLiteSub:

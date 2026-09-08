@@ -614,9 +614,26 @@ export interface SubscriptionLimits {
   statement_uploads_per_month: number | null;
 }
 
+/** @deprecated single-pack shape, kept for one release alongside `topups`
+ *  below (backend PENNY_TOPUP alias, see core/subscription.py). Read
+ *  `topups` instead. */
 export interface SubscriptionTopup {
   messages: number;
   price_gbp: number;
+}
+
+/** One of the three Penny top-up packs (B11,
+ *  docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): good,
+ *  better, best. `badge` is the small label on the medium/large rows
+ *  ("Most popular" / "Best value"), null on the small pack. Packs last 90
+ *  days from purchase and draw down only after the tier's own monthly
+ *  allowance is used up — there is no purchase flow yet (billing is B5),
+ *  so every row in the sheet still renders "Available soon". */
+export interface SubscriptionTopupPack {
+  id: string;
+  messages: number;
+  price_gbp: number;
+  badge: string | null;
 }
 
 export interface SubscriptionUsage {
@@ -632,16 +649,25 @@ export interface SubscriptionUsage {
   penny_remaining?: number | null;
   /** ISO date (YYYY-MM-DD) the monthly allowance next resets. */
   penny_resets_on?: string;
-  /** Messages added this month via a one-off top-up, on top of the tier's
-   *  own monthly allowance. */
+  /** Total remaining balance across every currently active (unexpired)
+   *  top-up pack, already folded into `penny_limit`. */
   penny_topup_messages?: number;
+  /** ISO date (YYYY-MM-DD) the soonest-expiring active pack runs out, or
+   *  null with no active packs. */
+  penny_topup_expires_soonest?: string | null;
+  /** How many packs this user bought THIS calendar month, any source —
+   *  MoreMessagesSheet.tsx leads with "Move to Max" instead of the packs
+   *  once this reaches 2. */
+  penny_packs_bought_this_month?: number;
 }
 
 export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
   prices_gbp: Record<string, number>;
+  /** @deprecated see SubscriptionTopup's own note — use `topups`. */
   topup: SubscriptionTopup;
+  topups: SubscriptionTopupPack[];
   limits: SubscriptionLimits;
   usage: SubscriptionUsage;
 }

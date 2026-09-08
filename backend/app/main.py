@@ -259,6 +259,7 @@ async def _migrate():
     asyncio.create_task(_cleanup_stale_connections())
     asyncio.create_task(_cleanup_stale_yapily_data())
     asyncio.create_task(_seed_cashflow_cache())
+    asyncio.create_task(_migrate_penny_topup_packs())
 
 
 async def _encrypt_plaintext_tokens():
@@ -351,6 +352,44 @@ async def _seed_cashflow_cache():
         existing = await cashflow_cache_col.find_one({"_id": uid}, {"_id": 1})
         if not existing:
             await compute_and_cache_cashflow(uid)
+
+
+async def _migrate_penny_topup_packs():
+    """One-time (B11): backfill legacy `penny_topups` docs — inserted back
+    when a top-up was a single £2.99/100-message row that expired at month
+    end — to the pack shape (`pack_id`, `remaining`, `expires_at`,
+    `settled_months`) that `app.core.subscription.penny_allowance`'s
+    draw-down logic now expects. Idempotent: only touches docs missing
+    `expires_at`, matched by `_id` on each write, so a second run finds
+    nothing left to do.
+
+    `purchased_at` for a doc that never recorded it falls back to its
+    ObjectId's own embedded creation time (`ObjectId.generation_time`)
+    rather than "now" — using "now" would give an old top-up a fresh 90-day
+    life it never had, letting a stale pack draw down long after a real
+    purchase that old would have expired."""
+    from datetime import datetime, timedelta, timezone
+    from bson import ObjectId
+    from app.core.subscription import PENNY_TOPUP_LIFETIME_DAYS
+    from app.db.collections import penny_topups_col
+
+    count = 0
+    async for doc in penny_topups_col.find({"expires_at": {"$exists": False}}):
+        purchased_at = doc.get("purchased_at")
+        if not purchased_at:
+            oid = doc.get("_id")
+            purchased_at = oid.generation_time if isinstance(oid, ObjectId) else datetime.now(timezone.utc)
+        update = {
+            "remaining":      doc.get("remaining", doc.get("messages", 0)),
+            "purchased_at":   purchased_at,
+            "expires_at":     purchased_at + timedelta(days=PENNY_TOPUP_LIFETIME_DAYS),
+            "pack_id":        doc.get("pack_id") or ("admin" if doc.get("source") == "admin" else "legacy"),
+            "settled_months": doc.get("settled_months", []),
+        }
+        await penny_topups_col.update_one({"_id": doc["_id"]}, {"$set": update})
+        count += 1
+    if count:
+        print(f"[startup] migrated {count} legacy penny_topups docs to the B11 pack shape")
 
 
 async def _seed_subscriptions():
