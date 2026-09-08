@@ -16,18 +16,19 @@
 
 import { ChevronRight } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
-import { JOB_COLOR, JobDot } from "@/app/spend/shape/MoneyShapeHero";
+import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";
 
-// One-line legend, kept in sync with MoneyShapeHero.tsx's own row
-// title/aria-label text and with what backend/app/services/money_shape.py's
-// bucket_period() actually buckets (verified 2026-09-08, see
-// tests/test_money_shape.py's "excluded from every job" comment): Fixed is
-// commitment-kind category spend (Bills, Groceries, Transport, etc.), Moved
-// is Savings-category spend plus credits landing on a savings account plus
-// Investment-category spend — Debt and bare Transfer categories are
-// deliberately excluded from every job today, so they are NOT claimed here.
-const SHAPE_LEGEND = "Fixed is bills and commitments, moved is money sent to savings and investing.";
+// SHAPE_LEGEND is imported from MoneyShapeHero.tsx (G13) so this card and
+// the hero it opens can never disagree on what a job means, structurally
+// rather than by promise. What it claims matches what
+// backend/app/services/money_shape.py's bucket_period() actually buckets
+// (verified 2026-09-08, see tests/test_money_shape.py's "excluded from
+// every job" comment): Fixed is commitment-kind category spend (Bills,
+// Groceries, Transport, etc.), Moved is Savings-category spend plus credits
+// landing on a savings account plus Investment-category spend — Debt and
+// bare Transfer categories are deliberately excluded from every job today,
+// so they are NOT claimed here.
 
 const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
@@ -149,7 +150,7 @@ export default function SpendShapeCard({
               left && <Cell dotId="left" label="Left" value={`${Math.round(left.share)}%`} />
             )}
           </div>
-          <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 truncate">{SHAPE_LEGEND}</p>
+          <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">{SHAPE_LEGEND}</p>
         </div>
         <ChevronRight size={16} className="flex-shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
       </div>
