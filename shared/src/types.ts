@@ -661,6 +661,37 @@ export interface SubscriptionUsage {
   penny_packs_bought_this_month?: number;
 }
 
+/** F9's MCP connector call pack — same idea as SubscriptionTopupPack above
+ *  but for `/mcp` tool calls rather than Penny messages (`calls`, not
+ *  `messages`). Only one exists today (1,000 calls / £2.99), but the
+ *  shape stays a list, same as `topups`, in case more are added later.
+ *  There is no purchase flow yet (billing is B5), so this row also always
+ *  renders "Available soon". */
+export interface SubscriptionMcpPack {
+  id: string;
+  calls: number;
+  price_gbp: number;
+  badge: string | null;
+}
+
+/** F9: this calendar month's MCP connector call allowance, the `mcp_*`
+ *  counterpart of `penny_limit`/`penny_remaining` etc. on SubscriptionUsage
+ *  above, kept as its own block since ConnectedAssistantsCard.tsx (not the
+ *  Penny sheet) is what reads it. `limit`/`remaining` are null for a tier
+ *  that would be unlimited (none is today) and 0 for a tier without the
+ *  connector at all (Statements/Lite/Standard) — packs never fold into a
+ *  0 limit. `pack_calls` is the active-pack balance already folded into
+ *  `limit` (do not add it again), reported even at a 0 limit so the UI can
+ *  still explain an unused pack. */
+export interface SubscriptionMcpAllowance {
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+  resets_on: string | null;
+  packs: SubscriptionMcpPack[];
+  pack_calls: number;
+}
+
 export interface SubscriptionInfo {
   tier: SubscriptionTier;
   status: string;
@@ -670,6 +701,19 @@ export interface SubscriptionInfo {
   topups: SubscriptionTopupPack[];
   limits: SubscriptionLimits;
   usage: SubscriptionUsage;
+  /** True once real billing (item B5) is live. False today — DEFAULT_TIER
+   *  is "max", so everyone gets the Max tier's allowances (including 5000
+   *  free MCP calls/month) with no card on file; the frontend uses this
+   *  flag rather than hardcoding that as permanent copy. Optional so a
+   *  client running against an older backend degrades to not showing the
+   *  temporary-state note at all. */
+  billing_live?: boolean;
+  /** F9: this month's MCP connector call allowance. Optional for the same
+   *  older-backend reason as `billing_live`. */
+  mcp?: SubscriptionMcpAllowance;
+  /** F9: same list as `mcp.packs`, duplicated at the top level to mirror
+   *  `topups`' own placement. */
+  mcp_packs?: SubscriptionMcpPack[];
 }
 
 export interface GrowVerdict {

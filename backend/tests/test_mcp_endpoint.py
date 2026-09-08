@@ -10,6 +10,8 @@ themselves (already covered by tests/test_penny_tools.py).
 """
 import asyncio
 
+import app.core.subscription as subscription_module
+import app.db.collections as db_collections_module
 import app.routers.mcp as mcp
 import app.services.mcp_mask as mcp_mask
 
@@ -75,12 +77,24 @@ def _principal(scopes=None):
 def _patch_subscription(monkeypatch, tier_name="connect", mcp_limit=2000):
     async def fake_get_subscription(uid):
         return _FakeSubscription(tier_name, mcp_limit)
-    monkeypatch.setattr(mcp, "get_subscription", fake_get_subscription)
+    # F9: check_mcp_allowance now delegates to app.core.subscription.mcp_allowance,
+    # which resolves the tier through that module's OWN get_subscription
+    # reference (not app.routers.mcp's, which no longer imports it at all),
+    # so the fake has to be installed there.
+    monkeypatch.setattr(subscription_module, "get_subscription", fake_get_subscription)
 
 
 def _patch_audit(monkeypatch, seed=None):
     fake_col = _FakeAuditCol(seed)
+    # `mcp.mcp_calls_col` backs _write_audit's insert_one and GET /mcp/audit's
+    # own find(...); `mcp_allowance`'s count_documents (F9) lazily re-imports
+    # mcp_calls_col from app.db.collections, so both names need to point at
+    # the SAME fake for a write in one to be visible to a count in the other.
     monkeypatch.setattr(mcp, "mcp_calls_col", fake_col)
+    monkeypatch.setattr(db_collections_module, "mcp_calls_col", fake_col)
+    # No MCP call packs (F9) in play for these tests — an empty collection
+    # keeps settle_mcp_packs/mcp_allowance's pack lookup a no-op.
+    monkeypatch.setattr(db_collections_module, "mcp_call_packs_col", _FakeAuditCol())
     return fake_col
 
 

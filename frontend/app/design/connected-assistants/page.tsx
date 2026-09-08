@@ -1,18 +1,21 @@
 "use client";
 
 // TEMPORARY PREVIEW — delete with the other /design/* routes.
-// F4/F8: "Connected assistants" Settings card, real
+// F4/F8/F9: "Connected assistants" Settings card, real
 // components/ConnectedAssistantsCard.tsx (the same component
 // app/settings/SettingsPage.tsx renders after the Penny card) against
 // static fixtures — empty, populated (two clients, one of which has
-// never been used), with the activity expander open, and (F8) a
-// zero-allowance tier that can't use the connector at all — each in a
-// light and a dark block. No data fetching, no session; Disconnect and
-// "View activity" are both interactive against the fixture data (real
+// never been used), with the activity expander open, (F8) a
+// zero-allowance tier that can't use the connector at all, and (F9) the
+// monthly call allowance row + "Need more calls?" pack upsell in its
+// normal / amber (>=80% used) / unlimited states — each in a light and a
+// dark block. No data fetching, no session; Disconnect and "View
+// activity" are both interactive against the fixture data (real
 // component state), they just don't hit the network.
 import { useState } from "react";
-import ConnectedAssistantsCard, { ActivityState, ConnectionsState } from "@/components/ConnectedAssistantsCard";
+import ConnectedAssistantsCard, { ActivityState, ConnectionsState, McpAllowance } from "@/components/ConnectedAssistantsCard";
 import type { OAuthConnection, McpAuditCall } from "@/lib/api";
+import type { SubscriptionMcpPack } from "@wealth/shared";
 
 const POPULATED_CONNECTIONS: OAuthConnection[] = [
   {
@@ -40,18 +43,31 @@ const ACTIVITY_CALLS: McpAuditCall[] = [
   { tool: "explain", client: "Claude", ts: "2026-09-04T21:07:00Z", ok: true },
 ];
 
+// F9: the one MCP call pack (MCP_CALL_PACKS, backend/app/core/subscription.py).
+const MCP_PACKS: SubscriptionMcpPack[] = [
+  { id: "mcp_1000", calls: 1000, price_gbp: 2.99, badge: null },
+];
+
 function FixtureCard({
   label,
   connections,
   activityCalls,
   initialOpen,
   tierAllowance = null,
+  allowance = null,
+  mcpPacks = [],
+  tier = null,
+  billingLive = false,
 }: {
   label: string;
   connections: OAuthConnection[];
   activityCalls: McpAuditCall[];
   initialOpen: boolean;
   tierAllowance?: number | null;
+  allowance?: McpAllowance | null;
+  mcpPacks?: SubscriptionMcpPack[];
+  tier?: string | null;
+  billingLive?: boolean;
 }) {
   const [open, setOpen] = useState(initialOpen);
   const state: ConnectionsState = { status: "ready", connections };
@@ -66,6 +82,10 @@ function FixtureCard({
         activityOpen={open}
         onToggleActivity={() => setOpen((o) => !o)}
         tierAllowance={tierAllowance}
+        allowance={allowance}
+        mcpPacks={mcpPacks}
+        tier={tier}
+        billingLive={billingLive}
       />
     </div>
   );
@@ -95,6 +115,38 @@ function ThemeBlock({ dark }: { dark: boolean }) {
           initialOpen={false}
           tierAllowance={0}
         />
+        {/* F9: monthly call allowance row + "Need more calls?" pack upsell. */}
+        <FixtureCard
+          label="F9: allowance normal, 1,240 of 2,000"
+          connections={POPULATED_CONNECTIONS}
+          activityCalls={ACTIVITY_CALLS}
+          initialOpen={false}
+          tierAllowance={2000}
+          tier="connect"
+          mcpPacks={MCP_PACKS}
+          allowance={{ used: 1240, limit: 2000, remaining: 760, resets_on: "2026-10-01", pack_calls: 0 }}
+        />
+        <FixtureCard
+          label="F9: allowance amber, 1,650 of 2,000 (>=80% used)"
+          connections={POPULATED_CONNECTIONS}
+          activityCalls={ACTIVITY_CALLS}
+          initialOpen={false}
+          tierAllowance={2000}
+          tier="connect"
+          mcpPacks={MCP_PACKS}
+          allowance={{ used: 1650, limit: 2000, remaining: 350, resets_on: "2026-10-01", pack_calls: 0 }}
+        />
+        <FixtureCard
+          label="F9: allowance unlimited, Max plan (billing not live)"
+          connections={POPULATED_CONNECTIONS}
+          activityCalls={ACTIVITY_CALLS}
+          initialOpen={false}
+          tierAllowance={null}
+          tier="max"
+          billingLive={false}
+          mcpPacks={MCP_PACKS}
+          allowance={{ used: 820, limit: null, remaining: null, resets_on: "2026-10-01", pack_calls: 0 }}
+        />
       </div>
     </div>
   );
@@ -106,7 +158,7 @@ export default function Page() {
       <div className="mx-auto max-w-[430px] px-4 py-8">
         <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Connected assistants</h1>
         <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          F4/F8, real ConnectedAssistantsCard.tsx against fixtures
+          F4/F8/F9, real ConnectedAssistantsCard.tsx against fixtures
         </p>
 
         <div className="mt-6 flex flex-col gap-10">
@@ -119,9 +171,13 @@ export default function Page() {
           SCOPE_DESCRIPTIONS (backend/app/routers/oauth.py) so the wording never drifts from the /oauth/consent
           screen. A connection only counts as connected while it has at least one live token, a fully disconnected
           client drops out of this list once the parent&apos;s next fetch settles. The connect URL comes from
-          NEXT_PUBLIC_MCP_URL (lib/featureFlags.ts); the zero-allowance fixture above shows
-          SettingsPage.tsx passing tierAllowance={"{"}0{"}"} (GET /subscription&apos;s
-          limits.mcp_tool_calls_per_month) instead of connect instructions.
+          NEXT_PUBLIC_MCP_URL (lib/featureFlags.ts); the zero-allowance fixture above shows SettingsPage.tsx
+          passing tierAllowance={"{"}0{"}"} (GET /subscription&apos;s limits.mcp_tool_calls_per_month) instead of
+          connect instructions. The F9 fixtures below that show GET /subscription&apos;s new `mcp` block (used,
+          limit, resets_on, pack_calls) driving the allowance row and pill, and `mcp_packs` driving the "Need more
+          calls?" pack row, "Available soon" until item B5 (billing) ships a purchase flow. The Max-tier fixture&apos;s
+          "while billing is being built" note is driven by `billing_live: false`, not hardcoded to the Max tier
+          check alone.
         </p>
       </div>
     </div>

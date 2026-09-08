@@ -33,6 +33,8 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import type { OAuthConnection, McpAuditCall } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
+import { formatPennyResetDate } from "@/components/PennySheetProvider";
+import type { SubscriptionMcpPack } from "@wealth/shared";
 
 const INDIGO = "#4f46e5";
 
@@ -46,6 +48,62 @@ export type ActivityState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; calls: McpAuditCall[] };
+
+/** F9: this calendar month's MCP connector call allowance (GET
+ * /subscription's `mcp` block), or null before that fetch has resolved. */
+export type McpAllowance = {
+  used: number;
+  limit: number | null;
+  remaining: number | null;
+  resets_on: string | null;
+  pack_calls: number;
+};
+
+// Copy: no em dashes (repo-wide rule). Colour: the trailing pill turns
+// amber only once used reaches 80% of the (pack-topped-up) limit, never
+// red, matching PennyUsageRow.tsx's own reading of DESIGN.md's Red Is
+// Risk rule, running low on connector calls isn't a genuine financial
+// risk either.
+function formatAllowanceRow(allowance: McpAllowance): { subline: string; pill: { text: string; amber: boolean } | null } {
+  const { used, limit, remaining, resets_on, pack_calls } = allowance;
+  if (limit == null) {
+    return { subline: "Unlimited", pill: null };
+  }
+  const resetLabel = formatPennyResetDate(resets_on);
+  let subline = `${used.toLocaleString("en-GB")} of ${limit.toLocaleString("en-GB")} calls this month, resets ${resetLabel}`;
+  if (pack_calls > 0) {
+    subline += `, including ${pack_calls.toLocaleString("en-GB")} from a pack`;
+  }
+  const remainingVal = remaining ?? Math.max(0, limit - used);
+  const pill = {
+    text: `${remainingVal.toLocaleString("en-GB")} left`,
+    amber: limit > 0 && used / limit >= 0.8,
+  };
+  return { subline, pill };
+}
+
+function McpPackRow({ pack }: { pack: SubscriptionMcpPack }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+      <span className="flex items-center gap-2 min-w-0 pr-2">
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 num">
+          {pack.calls.toLocaleString("en-GB")} calls
+        </span>
+        {pack.badge && (
+          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/15 rounded-full px-2 py-0.5">
+            {pack.badge}
+          </span>
+        )}
+      </span>
+      <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
+        <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Available soon
+        </span>
+      </span>
+    </div>
+  );
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -74,6 +132,10 @@ export default function ConnectedAssistantsCard({
   activityOpen,
   onToggleActivity,
   tierAllowance,
+  allowance,
+  mcpPacks,
+  tier,
+  billingLive,
 }: {
   state: ConnectionsState;
   onDisconnect: (clientId: string) => Promise<boolean>;
@@ -89,6 +151,25 @@ export default function ConnectedAssistantsCard({
    * known) falls through to the ordinary state machine below, the same as
    * any other tier that does allow the connector. */
   tierAllowance: number | null;
+  /** F9: this calendar month's MCP connector call allowance (GET
+   * /subscription's `mcp` block), or null before that fetch has resolved —
+   * distinct from `tierAllowance` above (which is just the tier's own
+   * ceiling, used for the tier-gate check) because this also carries the
+   * live `used` count and any active call-pack balance. */
+  allowance: McpAllowance | null;
+  /** F9: GET /subscription's `mcp_packs` (MCP_CALL_PACKS) — rendered as
+   * "Available soon" rows under "Need more calls?", same treatment as
+   * MoreMessagesSheet.tsx's Penny packs (no purchase flow yet, B5). */
+  mcpPacks: SubscriptionMcpPack[];
+  /** F9: the signed-in user's tier name, so the "Everyone is on the Max
+   * plan..." note only shows for a Max-tier user (not e.g. someone on
+   * Connect who bought a pack). Null before GET /subscription resolves. */
+  tier: string | null;
+  /** F9: GET /subscription's `billing_live` — false while item B5 hasn't
+   * shipped, gating the temporary "while billing is being built" note so
+   * it disappears the day billing goes live instead of needing a code
+   * change here. */
+  billingLive: boolean;
 }) {
   const [confirmClient, setConfirmClient] = useState<OAuthConnection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -134,6 +215,31 @@ export default function ConnectedAssistantsCard({
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">AI assistants that can read your Sorted data</p>
         </div>
       </div>
+
+      {/* F9: this month's connector call allowance, shown for any tier
+          that actually has the connector (tierAllowance !== 0) — placed
+          under the header, before the connections list, so it reads as a
+          property of the card as a whole rather than of any one
+          connection. */}
+      {!isTierGated && allowance && (() => {
+        const { subline, pill } = formatAllowanceRow(allowance);
+        return (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+            <p className="text-xs text-slate-500 dark:text-slate-400 num">{subline}</p>
+            {pill && (
+              <span
+                className={`flex-shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1 num ${
+                  pill.amber
+                    ? "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30"
+                    : "text-slate-500 bg-slate-100 dark:text-slate-400 dark:bg-slate-700"
+                }`}
+              >
+                {pill.text}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {state.status === "loading" && (
         <div className="px-4 py-3.5">
@@ -250,6 +356,26 @@ export default function ConnectedAssistantsCard({
             </div>
           </div>
         </>
+      )}
+
+      {/* F9: "Need more calls?" — quiet upsell for the MCP call pack,
+          same "Available soon" treatment as MoreMessagesSheet.tsx's Penny
+          packs (no purchase flow yet, billing is B5). Only shown for a
+          tier that has the connector at all. */}
+      {!isTierGated && mcpPacks.length > 0 && (
+        <div className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-700 space-y-2">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Need more calls?</p>
+          <div className="space-y-2">
+            {mcpPacks.map((pack) => (
+              <McpPackRow key={pack.id} pack={pack} />
+            ))}
+          </div>
+          {tier === "max" && !billingLive && (
+            <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+              Everyone is on the Max plan with 5,000 calls a month while billing is being built.
+            </p>
+          )}
+        </div>
       )}
 
       <ConfirmDialog

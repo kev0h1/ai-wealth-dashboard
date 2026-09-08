@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
 import app.core.auth as auth_mod
+import app.core.subscription as subscription_module
 import app.routers.mcp as mcp
 import app.routers.oauth as oauth
 
@@ -617,7 +618,11 @@ def test_tools_call_enforces_the_access_tokens_own_scopes(monkeypatch):
             def limit(self, key):
                 return 2000
         return _Sub()
-    monkeypatch.setattr(mcp, "get_subscription", fake_get_subscription)
+    # Not actually reached in this test (the scope check fails before
+    # check_mcp_allowance ever runs), but kept installed at F9's real patch
+    # point (app.core.subscription, not app.routers.mcp, which no longer
+    # imports get_subscription at all) so this stays correct if that changes.
+    monkeypatch.setattr(subscription_module, "get_subscription", fake_get_subscription)
     monkeypatch.setattr(mcp, "mcp_calls_col", _AuditStub())
 
     raw = _seed_access_token(tokens, scopes=["plans:read"])  # no accounts:read
