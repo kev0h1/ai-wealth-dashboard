@@ -82,7 +82,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-08, kevin): Kevin 2026-09-08: v1 scope is the agent's read tools only (TOOL_SCHEMAS, never PROPOSE_TOOL_SCHEMAS) and NO raw transactions over the connector. Drop the transactions:read scope for v1; exclude search_transactions entirely and strip per-transaction rows from get_account_activity (top_transactions, first_transaction, last_transaction in _summarise_account_activity, penny_tools.py ~L1247) when called via /mcp; audit every other read tool's output for merchant-date-amount rows before exposing it (get_category_spend, get_recurring_payments, get_spend_verdict unresolved.largest, get_insights). Aggregates, verdicts and figures only.
   - note (2026-09-08, claude): Built 2026-09-08 (session-bearer auth until F2). Two choices for Kevin to confirm: JSON-RPC error codes -32000 (monthly allowance spent) vs -32002 (tier has no connector); tools/list returns the full 18-tool catalogue to any authenticated principal, scope is enforced only at tools/call.
 - [ ] **F4. Settings "Connected assistants"** [owner: claude] list with client name, last used, revoke.
-- [ ] **F5. Policy updates:** [owner: claude] Privacy Policy section "AI assistants you connect", Terms clause, Finexer Q2 and Q9 disclosure.
+- [ ] **F5. Policy updates:** [owner: claude] [state: in-progress] Privacy Policy section "AI assistants you connect", Terms clause, Finexer Q2 and Q9 disclosure.
 
 ## G. Design and copy follow-ups
 
