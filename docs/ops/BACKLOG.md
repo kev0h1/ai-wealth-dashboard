@@ -27,17 +27,17 @@ A TODO.md item line looks like this:
   `[state: review: feature-<ID>-<slug>]` is the workflow state. Absent
   means to do. It is meaningless once the item is done (the checkbox
   wins). The `review` state and its branch are set by
-  `scripts/session.sh finish` and consumed by `scripts/integrate.py` —
+  `scripts/session.sh finish` and consumed by `scripts/integrate.py`,
   see "Branch per item" below.
 - `[owner: kevin]` or `[owner: claude]` says who is doing the work.
 - `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
-  priority. Absent means `p3` — the tag is only written for `p1`/`p2`, the
+  priority. Absent means `p3`, the tag is only written for `p1`/`p2`, the
   same way `[state: ...]` is only written when the state isn't `todo`.
 - `[unblocks: Q5, Q6]` names the compliance-questionnaire question ids
   this item is gating (comma-separated `Qn`). Absent or empty means the
   item doesn't unblock any question. Each named question gets an
   `unblocked_by` reverse index (`["A1", "A2"]`, sorted) computed from every
-  item's `unblocks` tag — that's what the board's "Unblocked by A1, A2"
+  item's `unblocks` tag, that's what the board's "Unblocked by A1, A2"
   line on a question card reads from.
 - Indented `- note (date, actor): text` sub-bullets sit directly under the
   item line, oldest first.
@@ -51,28 +51,28 @@ Questions in the compliance doc keep their existing `## Qn <title>` /
 `backend/app/services/backlog.py` is the only code that parses or writes
 either file. It exposes:
 
-- `load(todo_path=None, compliance_path=None)` — read-only snapshot with
+- `load(todo_path=None, compliance_path=None)`, read-only snapshot with
   `.items()` and `.questions()` returning plain dicts ready to serialise.
 - `set_done(item_id, done, commit=None, actor="claude")`
-- `set_state(item_id, state, reason=None, branch=None, actor="claude")` —
+- `set_state(item_id, state, reason=None, branch=None, actor="claude")`:
   `state` is `"todo"`, `"in-progress"`, `"blocked"` (needs `reason`) or
   `"review"` (needs `branch`).
-- `set_review(item_id, branch, actor="claude")` — convenience wrapper over
+- `set_review(item_id, branch, actor="claude")`, convenience wrapper over
   `set_state(..., "review", branch=branch)`.
-- `add_item(section, title, owner=None, actor="claude")` — allocates the
+- `add_item(section, title, owner=None, actor="claude")`, allocates the
   next id in `section` and appends it as a new to-do item.
 - `set_owner(item_id, owner, actor="claude")`
-- `set_priority(item_id, priority, actor="claude")` — `priority` is `"p1"`,
+- `set_priority(item_id, priority, actor="claude")`, `priority` is `"p1"`,
   `"p2"` or `"p3"`.
-- `set_unblocks(item_id, questions, actor="claude")` — `questions` is a
+- `set_unblocks(item_id, questions, actor="claude")`, `questions` is a
   list of question ids (`["Q5", "Q6"]`); an empty list clears the tag.
 - `add_note(item_id, text, actor="claude")`
 - `set_question_status(q_id, status, actor="kevin")`
 
 The repo root every one of these resolves against is fixed to
 `/root/ai-wealth-dashboard` (override with the `BACKLOG_ROOT` env var,
-tests only) rather than derived from where this file's own checkout lives
-— see "Branch per item" below for why that matters once sessions run from
+tests only) rather than derived from where this file's own checkout lives,
+see "Branch per item" below for why that matters once sessions run from
 git worktrees.
 
 Every mutator writes the file atomically (temp file + rename) under an
@@ -83,7 +83,7 @@ never interleave and corrupt the file. After the write lands, it runs
 `git push origin HEAD` (15 second timeout). A failed commit or push is
 logged and reported back as `committed: false`, but the file write itself
 already happened by that point, so a flaky git command never loses an
-edit — worst case, the change sits on disk uncommitted until the next
+edit, worst case, the change sits on disk uncommitted until the next
 successful write or a manual `git add && git commit`.
 
 ## The CLI
@@ -110,7 +110,7 @@ comma-separated list of question ids (`Q5,Q6`); pass an empty string
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should
-always use this instead of hand-editing `TODO.md` — a hand edit still
+always use this instead of hand-editing `TODO.md`, a hand edit still
 works (the parser tolerates it), but it skips the lock, the atomic write
 and the commit, which is how the file and the git history quietly drift
 apart.
@@ -118,7 +118,7 @@ apart.
 This CLI's repo root is fixed to `/root/ai-wealth-dashboard` regardless of
 the caller's working directory (override with `BACKLOG_ROOT`, tests only),
 so it always edits the one shared board even when run from a git worktree
-under `/root/worktrees/<branch>` — see "Branch per item" below.
+under `/root/worktrees/<branch>`, see "Branch per item" below.
 
 ## The page
 
@@ -142,12 +142,12 @@ false.
 
 A sticky filter bar sits under the header: owner (All / Kevin / Claude),
 priority chips (P1/P2/P3, multi-select), state chips (Open / In progress
-/ Blocked / In review / Done — "Open" means not done), a search box, and
+/ Blocked / In review / Done, "Open" means not done), a search box, and
 a List/Board view toggle. All of it persists together under one
 localStorage key (`wd_go_live_filters`, see `lib/goLive.ts`). The filters
 apply to both views and to the questionnaire section: a question is shown
-when its own status falls in the selected state chips, or — once an owner
-is selected — when one of the items unblocking it (its `unblocked_by`)
+when its own status falls in the selected state chips, or, once an owner
+is selected, when one of the items unblocking it (its `unblocked_by`)
 has that owner, so narrowing to "Claude" still surfaces the questions his
 open work is gating.
 
@@ -164,7 +164,7 @@ mono, a two-line-clamped title, an owner-initial chip, the priority pill,
 unblocks tags and a note count; tapping one opens `ItemDetailSheet.tsx`, a
 popover with the same controls as the list row (done, reopen, start,
 block with reason, note, owner, priority, unblocks). There is no
-drag-and-drop — every state change goes through a control, same as list
+drag-and-drop, every state change goes through a control, same as list
 view. The header hero keeps the overall done/total count and adds three
 figures computed from the whole (unfiltered) board: P1 items still open,
 blocked items, and items in review.
@@ -172,7 +172,7 @@ blocked items, and items in review.
 ## The shared working tree caveat
 
 All sessions on the VPS work in the same checkout, so a write from the
-page or the CLI is visible to every other session immediately — there is
+page or the CLI is visible to every other session immediately, there is
 no separate "your copy" to sync. Commits exist for history and for
 recovering from a bad edit, not for merging concurrent copies. The file
 lock only protects a single write from tearing; it does not serialise two
@@ -192,21 +192,26 @@ integrate step folds finished branches back into `main` on a schedule.
 
 **The model.**
 
-- `main` is the integration branch — it is what the shared tree at
+- `main` is the integration branch, it is what the shared tree at
   `/root/ai-wealth-dashboard` stays checked out to, and what UAT
   (`systemctl restart wealth-*`) runs. Nothing merges into it except
   through `scripts/integrate.py`.
 - `release` is the production branch. Vercel's production branch points at
-  `release`; Railway deploys off it stay manual. Promoting `main` to
-  `release` is a separate, deliberate step (not part of this workflow) —
-  ask Kevin before touching it.
+  `release`. Railway (project `gleaming-miracle`, services
+  `ai-wealth-dashboard` and `worker`) auto-deploys from whatever branch
+  each service's dashboard has configured under Settings, Source, Branch,
+  and must be set to `release` there too, one-time, by hand (H17); until
+  both services are switched, every push to `main` rebuilds and restarts
+  the production backend. Promoting `main` to `release` is a separate,
+  deliberate step, done only via `scripts/release.py deploy` (see
+  `docs/ops/RELEASE.md`), never a manual `git push`.
 - A session that picks up backlog item `<ID>` works only inside a git
   worktree at `/root/worktrees/feature-<ID>[-slug]`, on a branch named
   `feature-<ID>[-slug]` (the slug is appended only when one is given or
   can be derived from the item's title; e.g. `feature-A2` or
   `feature-A2-pin-login`), created off `origin/main`. It never edits
   files in the shared tree, and never restarts a UAT service from the
-  worktree — UAT only ever changes when integrate merges the branch.
+  worktree, UAT only ever changes when integrate merges the branch.
   Worktrees/branches from before this convention may still exist named
   `item/<ID>-<slug>`; `scripts/session.sh list`/`abandon` still recognise
   those so they can be cleaned up, and `scripts/integrate.py` merges a
@@ -215,7 +220,7 @@ integrate step folds finished branches back into `main` on a schedule.
 - The board (`TODO.md`, `docs/compliance/...`) is edited **only** in the
   shared tree, only through `scripts/backlog.py` (unchanged from the rest
   of this doc). A worktree's own checked-out copy of those files is not
-  the board — it is a stale snapshot from whenever the branch forked off
+  the board, it is a stale snapshot from whenever the branch forked off
   `main`, and editing it does nothing but create merge noise. This is why
   it never conflicts: every session's code changes live on an isolated
   branch, and the one file that all of them might otherwise touch
@@ -246,10 +251,10 @@ scripts/session.sh list
   board, and prints the worktree path plus the rules above. If `<ID>`
   isn't on the board yet, pass `--title "..."` and it runs
   `scripts/backlog.py add` first (into the section matching `<ID>`'s
-  leading letter) — the id it actually uses is whatever `add` allocates,
+  leading letter), the id it actually uses is whatever `add` allocates,
   printed on the way past.
 - `finish` runs inside the worktree: the backend test suite, then the
-  frontend typecheck (not a full `npm run build` — integrate does that
+  frontend typecheck (not a full `npm run build`, integrate does that
   once, after merging, rather than every session building its own copy of
   the frontend). It refuses if the worktree is dirty or either check
   fails. On success it pushes the branch and calls
@@ -270,11 +275,11 @@ Refuses unless the shared tree is on `main` and clean apart from
 untracked files, and takes a lock file so two passes never overlap. For
 every board item in `review` with a branch, in id order: fetch, warn (but
 do not block) if the recorded branch doesn't start with `feature-<ID>`
-for that item's id, then `git merge --no-ff origin/<branch>` regardless —
+for that item's id, then `git merge --no-ff origin/<branch>` regardless:
 a branch is merged whatever its name is, the check just catches likely
 copy-paste mistakes early. A conflict aborts that one merge and
 blocks the item with a reason ("integration conflict with main; rebase
-the branch") — a real problem for the owning session to fix, not
+the branch"), a real problem for the owning session to fix, not
 integrate's to solve. After a clean merge it reinstalls dependencies if the
 merge changed a lockfile (`pip install -r backend/requirements.txt` into the
 shared venv, `npm ci` in `frontend/`), then runs the backend suite,
@@ -284,15 +289,15 @@ changed at all (the worker imports services and core modules under
 `backend/app`, not just `backend/app/workers`, so cron code never runs
 stale), and checks both health endpoints. Any failure there rolls the merge back
 (`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
-and blocks the item with the first 300 characters of whatever failed — main
+and blocks the item with the first 300 characters of whatever failed, main
 never sits on a broken merge waiting for someone to notice. A clean pass
 pushes `main`, marks the item done with the merge commit
-(`scripts/backlog.py done <ID> --merge <sha>` — `--merge` is just `--commit`
+(`scripts/backlog.py done <ID> --merge <sha>`, `--merge` is just `--commit`
 under another name for readability at the call site), deletes the remote
 branch and the worktree, and moves on to the next item. It prints a merged
 / blocked / skipped summary at the end and exits non-zero only if the
 shared-tree preconditions themselves failed (wrong branch, dirty tree, lock
-held) — a blocked item is a normal, expected outcome, not a script failure.
+held), a blocked item is a normal, expected outcome, not a script failure.
 
 `ops/integrate.service` + `ops/integrate.timer` run `--once` every 10
 minutes; they are **not installed by default**. To install:
