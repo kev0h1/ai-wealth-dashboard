@@ -9,6 +9,7 @@ ever touches the real git history or network.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -691,6 +692,65 @@ def test_add_item_last_section_appends_at_end_of_file():
     assert reparsed.items[item.item_id].title == "Tail of file."
 
 
+def test_add_item_title_with_parens_equals_and_asterisk_round_trips():
+    """Regression test for the 2026-09-08 H13 add failure: a title with
+    parentheses, an `=` sign and a lone `*` (e.g. an env var wildcard like
+    `NEXT_PUBLIC_*`) used to make the whole line fail ITEM_RE after
+    add_item's internal reparse, so the newly written item vanished and
+    add_item raised "<id> is not a known backlog item." even though the
+    line had just been written to disk."""
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    title = (
+        "build-mobile.sh must exclude frontend/.env.local from its rsync "
+        "(and unset UAT-only NEXT_PUBLIC_* flags such as TRUELAYER_PICKER "
+        "when MOBILE_TARGET=prod), so a production mobile build made on the "
+        "VPS never inherits the UAT-only .env.local used by the "
+        "wealth-frontend build."
+    )
+    item = doc.add_item("A", title, owner="claude")
+    assert item.title == title
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert item.item_id in reparsed.items
+    assert reparsed.items[item.item_id].title == title
+    # Other items must still parse correctly after the insert.
+    assert reparsed.items["B1"].text == "Something about B1."
+
+
+def test_add_item_rejects_title_with_literal_double_asterisk():
+    """A literal '**' inside a title would close the markdown bold id
+    marker early and truncate the title, silently corrupting the item
+    instead of failing loudly. add_item must refuse this up front rather
+    than write a corrupted line."""
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    with pytest.raises(backlog.BacklogError, match=r"\*\*"):
+        doc.add_item("A", "Title with a literal ** pair inside it.")
+    # Nothing was written: the fixture's next A id (A4) must not exist.
+    assert "A4" not in backlog.TodoDoc.parse(doc.text()).items
+
+
+def test_add_item_failure_message_includes_raw_written_line(monkeypatch):
+    """Defensive check: if a rendered line ever fails to parse back for any
+    other reason (a future regression in ITEM_RE or _render_item_line),
+    add_item must say so and show the exact line it wrote, not just repeat
+    the generic 'is not a known backlog item' message."""
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+
+    real_render = backlog._render_item_line
+
+    def _broken_render(item):
+        if item.item_id == "A4":
+            return "this line does not match ITEM_RE at all"
+        return real_render(item)
+
+    monkeypatch.setattr(backlog, "_render_item_line", _broken_render)
+    with pytest.raises(backlog.BacklogError) as exc_info:
+        doc.add_item("A", "A perfectly normal title.")
+    message = str(exc_info.value)
+    assert "did not parse back" in message
+    assert "this line does not match ITEM_RE at all" in message
+
+
 def test_public_add_item_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent
@@ -706,6 +766,45 @@ def test_public_add_item_writes_file_and_commit_message(paths, mock_git):
     )
     commit_call = mock_git.call_args_list[1]
     assert "backlog: A4 added by claude" in commit_call.args[0]
+
+
+# ---------------------------------------------------------------------
+# Real board regression guard: every checkbox line in the real TODO.md
+# (sections A-H) must parse into an item. Read-only via BACKLOG_ROOT /
+# load(todo_path=...) so this never touches the real board.
+# ---------------------------------------------------------------------
+
+
+def test_real_todo_board_every_checkbox_line_parses_into_an_item():
+    # The shared board, not this worktree's copy (which may be behind) —
+    # read-only via load(todo_path=...), never written to.
+    real_todo_path = Path("/root/ai-wealth-dashboard/TODO.md")
+    if not real_todo_path.exists():
+        pytest.skip(f"shared board not present at {real_todo_path} in this environment")
+
+    lines = real_todo_path.read_text(encoding="utf-8").split("\n")
+    section_heading_re = backlog.SECTION_HEADING_RE
+    checkbox_re = re.compile(r"^- \[[ xX]\]")
+
+    current_section = None
+    checkbox_line_count = 0
+    for line in lines:
+        heading = section_heading_re.match(line)
+        if heading:
+            current_section = heading.group(1)
+            continue
+        if current_section in set("ABCDEFGH") and checkbox_re.match(line):
+            checkbox_line_count += 1
+
+    snapshot = backlog.load(todo_path=real_todo_path)
+    item_count = len(snapshot.todo.items)
+
+    assert checkbox_line_count > 0, "sanity check: the real board should have items"
+    assert item_count == checkbox_line_count, (
+        f"{checkbox_line_count} checkbox lines in sections A-H but only "
+        f"{item_count} parsed into items; some line failed ITEM_RE "
+        "(check for punctuation in titles that defeats the parser)"
+    )
 
 
 # ---------------------------------------------------------------------

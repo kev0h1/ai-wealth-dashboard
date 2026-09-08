@@ -95,7 +95,7 @@ DEFAULT_PRIORITY = "p3"
 
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
-    r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>[^*]*)\*\*)"
+    r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>.*?)\*\*)"
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude)\]")
@@ -428,6 +428,14 @@ class TodoDoc:
             raise BacklogError(f"unknown section: {section!r} (no '## {section}. ...' heading in the board)")
         if owner is not None and owner not in OWNERS:
             raise BacklogError(f"invalid owner: {owner!r} (must be one of {OWNERS})")
+        if "**" in title:
+            # A literal double-asterisk in the title would close the
+            # markdown bold id marker (`**<id>. <title>**`) early and
+            # truncate everything after it, silently corrupting the item
+            # instead of failing loudly. Single asterisks, parentheses and
+            # `=` are all fine (see ITEM_RE, which stops at the first `**`
+            # non-greedily rather than the first `*`).
+            raise BacklogError(f"title cannot contain a literal '**': {title!r}")
 
         existing_nums = [
             int(m.group(1))
@@ -460,11 +468,22 @@ class TodoDoc:
             line_no=insert_at,
             raw_line="",
         )
-        self.lines.insert(insert_at, _render_item_line(new_item))
+        new_line = _render_item_line(new_item)
+        self.lines.insert(insert_at, new_line)
 
         reparsed = TodoDoc.parse(self.text())
         self.items = reparsed.items
         self.section_headings = reparsed.section_headings
+        if new_id not in self.items:
+            # The line was written but ITEM_RE could not parse it back (for
+            # example a title containing a literal "**" that closes the bold
+            # marker early) — show the raw line so the next person can see
+            # exactly what was written and why it did not round-trip,
+            # instead of just "<id> is not a known backlog item.".
+            raise BacklogError(
+                f"{new_id} is not a known backlog item after being written; "
+                f"the line did not parse back: {new_line!r}"
+            )
         return self.item(new_id)
 
     def set_owner(self, item_id: str, owner: str) -> BacklogItem:
