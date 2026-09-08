@@ -15,6 +15,12 @@ The repo is already prepared: backend `Dockerfile` (+ `.dockerignore`), Mongo
 pool capped at 20/process (`app/db/collections.py`), Next.js `output` gated for
 Vercel, and the `/api/*` → backend rewrite in `frontend/next.config.ts`.
 
+This file is the one-time setup: standing the infrastructure up the first
+time. Once it exists, every later production deploy (promoting `main` to
+the `release` branch Vercel and Railway actually run) goes through
+`docs/ops/RELEASE.md` and `scripts/release.py`, never a manual `git push`
+or CLI deploy command; see that runbook for the repeatable procedure.
+
 ---
 
 ## ⚠️ The one that will ruin your day: read first
@@ -377,6 +383,11 @@ explicitly before the build runs.
 ---
 
 ## Cutover & rollback
+
+This section is the one-time VPS-to-cloud migration cutover. For rolling
+back a normal production *release* once the infrastructure above exists,
+use `docs/ops/RELEASE.md`'s rollback section and `scripts/release.py
+rollback <tag-or-sha>`, not the steps below.
 
 - The old VPS keeps running until you flip DNS / update the OAuth+TrueLayer URLs.
   Do the migration + Railway/Vercel deploy first, verify on the temporary URLs,

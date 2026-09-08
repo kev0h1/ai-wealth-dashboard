@@ -1,10 +1,10 @@
-# AI Wealth Dashboard — Claude Instructions
+# AI Wealth Dashboard: Claude Instructions
 
 ## Design Context
 
 Before any UI work, read `PRODUCT.md` (strategy: users, positioning, personality,
 anti-references) and `DESIGN.md` (visual system: tokens, named rules, do's/don'ts).
-North Star: "The Calm Cockpit" — verdicts lead, colour is information, red means
+North Star: "The Calm Cockpit", verdicts lead, colour is information, red means
 genuine risk only, the indigo→violet gradient belongs to Penny alone.
 
 ## Surface map (reindexed 2026-09-04 after the Codex design round)
@@ -29,7 +29,7 @@ Open after this round (see session notes, not doctrine): dead `PlansDock` / `Com
 
 Nothing is worked off-board. If what you have been asked to do is not on the board, add it first (`backend/.venv/bin/python scripts/backlog.py add <section-letter> "<one-sentence title>" --owner claude`, or `scripts/session.sh start <new-id> --title "..."`), then start it. When you finish, block, or hand back an item, record it on the board in the same turn; the page at /ops/go-live is what Kevin reads, and it only knows what the board knows. Sessions do not edit TODO.md by hand.
 
-Picking up a backlog item is branch-per-item, not "edit the shared tree directly": a session must run `scripts/session.sh start <ID>` **before touching any code**, then do all its work inside the worktree that command prints (never in `/root/ai-wealth-dashboard` itself), and never restart `wealth-api` / `wealth-worker` / `wealth-frontend` from that worktree — UAT only changes when an integrate pass merges the branch into `main`. Feature branches are named `feature-<ID>[-slug]` (the slug is appended only when one is given or can be derived from the item's title, e.g. `feature-A2` or `feature-A2-pin-login`); `scripts/session.sh start` derives the branch and worktree name (`/root/worktrees/feature-<ID>[-slug]`) from this convention, and `scripts/session.sh list`/`abandon` also still recognise the older `item/<ID>-<slug>` names for worktrees created before this convention. Run `scripts/session.sh finish <ID>` once tests are green to push the branch and mark the item in review; `scripts/integrate.py` (run by the coordinator session, or the `integrate.timer` unit if installed — see `docs/ops/BACKLOG.md`) is what actually merges it, rebuilds/restarts UAT, and ticks the board — it merges whatever branch is recorded on the item regardless of prefix, but warns if that branch doesn't start with `feature-<ID>` for the item's own id. The board itself (`TODO.md`, `docs/compliance/...`) is still only ever edited from the shared tree via `scripts/backlog.py` — never from inside a worktree:
+Picking up a backlog item is branch-per-item, not "edit the shared tree directly": a session must run `scripts/session.sh start <ID>` **before touching any code**, then do all its work inside the worktree that command prints (never in `/root/ai-wealth-dashboard` itself), and never restart `wealth-api` / `wealth-worker` / `wealth-frontend` from that worktree; UAT only changes when an integrate pass merges the branch into `main`. Feature branches are named `feature-<ID>[-slug]` (the slug is appended only when one is given or can be derived from the item's title, e.g. `feature-A2` or `feature-A2-pin-login`); `scripts/session.sh start` derives the branch and worktree name (`/root/worktrees/feature-<ID>[-slug]`) from this convention, and `scripts/session.sh list`/`abandon` also still recognise the older `item/<ID>-<slug>` names for worktrees created before this convention. Run `scripts/session.sh finish <ID>` once tests are green to push the branch and mark the item in review; `scripts/integrate.py` (run by the coordinator session, or the `integrate.timer` unit if installed, see `docs/ops/BACKLOG.md`) is what actually merges it, rebuilds/restarts UAT, and ticks the board; it merges whatever branch is recorded on the item regardless of prefix, but warns if that branch doesn't start with `feature-<ID>` for the item's own id. The board itself (`TODO.md`, `docs/compliance/...`) is still only ever edited from the shared tree via `scripts/backlog.py`, never from inside a worktree:
 
 ```bash
 scripts/session.sh start <item-id> [slug] [--title "New item title"]
@@ -43,9 +43,11 @@ backend/.venv/bin/python scripts/backlog.py priority <item-id> p1|p2|p3
 backend/.venv/bin/python scripts/backlog.py unblocks <item-id> Q5,Q6
 ```
 
-Items also carry `priority` (`p1`/`p2`/`p3`, defaults to `p3` when unset) and `unblocks` (the compliance-questionnaire question ids an item is gating, e.g. `Q5,Q6`); pass an empty string to `unblocks` to clear it. `/ops/go-live` shows the reverse index on each question ("Unblocked by A1, A2") and has an owner/priority/state filter bar plus a List/Board (kanban) view — see `docs/ops/BACKLOG.md`.
+Items also carry `priority` (`p1`/`p2`/`p3`, defaults to `p3` when unset) and `unblocks` (the compliance-questionnaire question ids an item is gating, e.g. `Q5,Q6`); pass an empty string to `unblocks` to clear it. `/ops/go-live` shows the reverse index on each question ("Unblocked by A1, A2") and has an owner/priority/state filter bar plus a List/Board (kanban) view, see `docs/ops/BACKLOG.md`.
 
-## Scope restriction — CRITICAL
+Production releases: docs/ops/RELEASE.md, only via scripts/release.py.
+
+## Scope restriction: CRITICAL
 
 **Only run commands within `/root/ai-wealth-dashboard/`.**
 Never kill, restart, or modify any process or file outside this directory.
@@ -62,7 +64,7 @@ systemctl restart wealth-frontend   # after `npm run build` in frontend/
 sleep 5 && curl -s http://localhost:8000/health
 ```
 
-Frontend runs `next start` on a production build — changes require
+Frontend runs `next start` on a production build; changes require
 `cd frontend && npm run build` before restarting wealth-frontend.
 
 Check logs with:
@@ -73,7 +75,7 @@ journalctl -u wealth-worker -n 50
 
 Confirm health returns 200 before telling the user the change is live.
 
-## Git — CRITICAL
+## Git: CRITICAL
 
 **Never commit `backend/.env`, `backend/.session_secret`, or any file containing secrets, API keys, or tokens.**
 If any secrets file is already tracked, remove it with `git rm --cached <file>` before committing.
