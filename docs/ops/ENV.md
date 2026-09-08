@@ -78,6 +78,9 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `FINEXER_RETURN_URL` | `core/config.py` | present | absent (default matches production URL) | optional; UAT pins it explicitly. |
 | `FINEXER_WEBHOOK_SECRET` | `core/config.py` | absent (falls back to `backend/.finexer_webhook_secret`) | absent | optional; falls back to a generated per-environment file if unset. Railway has no persistent filesystem, so a fresh secret is generated on every deploy unless set explicitly, worth pinning as an env var to keep the webhook URL stable. |
 | `FINEXER_WEBHOOK_SIGNING_SECRET` | `core/config.py` | absent | absent | optional until Finexer's dashboard issues one; empty means "not registered yet", the receiver skips signature verification and logs a warning. |
+| `STRIPE_SECRET_KEY` | `core/config.py` | absent | absent | optional; B5 billing, test-mode only today, no Stripe account exists yet (see DEPLOY.md's "Stripe setup checklist"). Never auto-generated, must come from Stripe's dashboard. Combined with `STRIPE_PRICE_IDS` below to derive `BILLING_ENABLED`. |
+| `STRIPE_WEBHOOK_SECRET` | `core/config.py` | absent | absent | optional; the signing secret Stripe's dashboard issues once `POST /webhooks/stripe` is registered as an endpoint. Empty means the webhook route rejects every delivery with a 400 (fails closed, same shape as the missing-signature case) rather than skip verification the way `FINEXER_WEBHOOK_SIGNING_SECRET` does, since a Stripe webhook can grant real entitlements. |
+| `STRIPE_PRICE_IDS` | `core/config.py` | absent | absent | optional; comma-separated `key=price_id` pairs, one per paid tier (`lite`, `standard`, `connect`, `max`, Statements is free) and per pack (`penny_small`, `penny_medium`, `penny_large`, `mcp_1000`). `BILLING_ENABLED` only goes true once `STRIPE_SECRET_KEY` and every one of those eight keys is present, so a partially-configured value stays "not live" rather than checking a user out into a missing price. |
 | `RECONCILE_SPREAD_MINUTES` | `core/config.py` | absent (default `210`) | absent (default `210`) | optional; E2 — how many minutes of `task_reconcile_truelayer`'s 4-hourly run the spread is allowed to use. See DEPLOY.md's "Railway Pro and replicas (E2)" section. |
 | `RECONCILE_MAX_PER_MINUTE` | `core/config.py` | absent (default `40`) | absent (default `40`) | optional; E2 — the Finexer-safe sync-job ceiling per minute. Raise only once Finexer confirms a higher real rate limit. |
 | `RECONCILE_MIN_GAP_SECONDS` | `core/config.py` | absent (default `2`) | absent (default `2`) | optional; E2 — floor on the gap between any two spread-out reconcile jobs. |
@@ -161,6 +164,12 @@ the manifest has a complete picture of everything `deploy` reads.
 - **`MCP_CONNECTOR_ENABLED`** (Railway) and **`NEXT_PUBLIC_MCP_CONNECTOR`**
   (Vercel) being absent is *intentional*, not drift, see A17 in the
   backlog. Do not "fix" this by setting them.
+- **`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_IDS`** being
+  absent everywhere is also *intentional*, not drift, B5 (2026-09-09): no
+  Stripe account exists yet. `BILLING_ENABLED` correctly evaluates false
+  with these unset, and GET /subscription's `billing_live` follows it, so
+  the frontend keeps showing "Available soon". See DEPLOY.md's "Stripe
+  setup checklist" for what to do once the account exists.
 - **`TOKEN_KEY`** (Railway only) and **`MONGO_DB`** (UAT only) are
   orphaned names nothing in `backend/app` reads; see the legacy-scripts
   table above.

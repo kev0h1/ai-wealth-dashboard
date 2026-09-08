@@ -7,7 +7,7 @@ Tiers: Statements (free, statement upload only) < Lite < Standard < Connect
 when they have no subscription doc (or an expired/unrecognised one) is
 DEFAULT_TIER (app.core.config), which defaults to "max"."""
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import IntEnum
 from typing import Optional
 
@@ -452,6 +452,72 @@ async def mcp_allowance(email: str) -> dict:
         "pack_expires_soonest": pack_expires_soonest,
         "packs_bought_this_month": packs_bought_this_month,
     }
+
+
+async def grant_pack(email: str, kind: str, pack_id: str, *, source: str = "purchase") -> dict:
+    """Insert one top-up pack doc for `email` — the shared implementation
+    behind POST /subscription/admin/topup's catalogue-lookup branch
+    (`source="admin"`) and B5's Stripe checkout.session.completed webhook
+    handler (`app.services.billing._handle_checkout_completed`,
+    `source="purchase"`). `kind` is "penny" (PENNY_TOPUP_PACKS,
+    penny_topups_col) or "mcp" (MCP_CALL_PACKS, mcp_call_packs_col);
+    `pack_id` must be one of that catalogue's own ids ("small"/"medium"/
+    "large" for penny, "mcp_1000" for mcp). Raises ValueError for an
+    unknown kind/pack_id rather than a raw KeyError, so a bad Stripe
+    metadata value fails with a clear message in the webhook's own log
+    rather than a bare 500.
+
+    The stored doc's own `pack_id` field is `pack_id` for a genuine
+    purchase, but "admin" for an admin grant — preserving the admin
+    route's pre-existing behaviour (an admin grant must never be
+    mistaken for a real sale if that distinction matters later; see the
+    admin route's own docstring) while a Stripe-driven purchase keeps the
+    real pack id for reporting."""
+    if kind not in ("penny", "mcp"):
+        raise ValueError(f"kind must be 'penny' or 'mcp', got {kind!r}")
+
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+    stored_pack_id = pack_id if source != "admin" else "admin"
+
+    if kind == "mcp":
+        pack = next((p for p in MCP_CALL_PACKS if p["id"] == pack_id), None)
+        if pack is None:
+            raise ValueError(f"pack_id must be one of: {[p['id'] for p in MCP_CALL_PACKS]}")
+        from app.db.collections import mcp_call_packs_col
+        doc = {
+            "user_id":        email,
+            "pack_id":        stored_pack_id,
+            "calls":          pack["calls"],
+            "remaining":      pack["calls"],
+            "price_gbp":      pack["price_gbp"],
+            "purchased_at":   now,
+            "expires_at":     now + timedelta(days=PENNY_TOPUP_LIFETIME_DAYS),
+            "year_month":     ym,
+            "source":         source,
+            "settled_months": [],
+        }
+        await mcp_call_packs_col.insert_one(doc)
+        return doc
+
+    pack = next((p for p in PENNY_TOPUP_PACKS if p["id"] == pack_id), None)
+    if pack is None:
+        raise ValueError(f"pack_id must be one of: {[p['id'] for p in PENNY_TOPUP_PACKS]}")
+    from app.db.collections import penny_topups_col
+    doc = {
+        "user_id":        email,
+        "pack_id":        stored_pack_id,
+        "messages":       pack["messages"],
+        "remaining":      pack["messages"],
+        "price_gbp":      pack["price_gbp"],
+        "purchased_at":   now,
+        "expires_at":     now + timedelta(days=PENNY_TOPUP_LIFETIME_DAYS),
+        "year_month":     ym,
+        "source":         source,
+        "settled_months": [],
+    }
+    await penny_topups_col.insert_one(doc)
+    return doc
 
 
 async def check_connection_limit(email: str) -> None:

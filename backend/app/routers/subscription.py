@@ -4,20 +4,21 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
-from app.core.config import BOT_SECRET
+from app.core.config import BILLING_ENABLED, BOT_SECRET
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    get_subscription, mcp_allowance, penny_allowance,
+    get_subscription, grant_pack, mcp_allowance, penny_allowance,
 )
 from app.db.collections import subscriptions_col
 
-# Billing (item B5) hasn't landed yet — DEFAULT_TIER is "max" so everyone
-# gets the Max tier's full allowances (including 5000 free MCP calls/month)
-# with no card on file. GET /subscription's `billing_live: false` lets the
-# frontend show that as a temporary state ("Everyone is on the Max plan...")
-# rather than a permanent feature, without hardcoding the copy server-side.
-BILLING_LIVE = False
+# B5: real billing now exists (Stripe, test mode, behind BILLING_ENABLED in
+# app.core.config) but no Stripe account has been created yet, so this is
+# false in every environment today. Once BILLING_ENABLED flips true (a
+# secret key and every price id configured), GET /subscription's
+# `billing_live` follows it straight through and the frontend swaps
+# "Available soon" rows for real checkout/portal buttons (MoreMessagesSheet,
+# ConnectedAssistantsCard, the "Your plan" Settings card).
 
 router = APIRouter(tags=["subscription"])
 
@@ -85,7 +86,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "tier":         sub.tier_name,
         "status":       sub.status,
         "prices_gbp":   TIER_PRICES_GBP,
-        "billing_live": BILLING_LIVE,
+        "billing_live": BILLING_ENABLED,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.
         "topup":        PENNY_TOPUP,
@@ -159,19 +160,23 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
     if kind == "mcp":
         pack_id = body.get("pack_id")
         if pack_id:
-            pack = next((p for p in MCP_CALL_PACKS if p["id"] == pack_id), None)
-            if pack is None:
-                raise HTTPException(400, f"pack_id must be one of: {[p['id'] for p in MCP_CALL_PACKS]}")
-            calls = pack["calls"]
-            price_gbp = pack["price_gbp"]
-        else:
+            # B5: shared with the Stripe purchase webhook — see
+            # app.core.subscription.grant_pack's own docstring for why the
+            # stored doc's pack_id field stays "admin" here (source="admin"
+            # is the default already used by every caller below).
             try:
-                calls = int(body.get("calls"))
-            except (TypeError, ValueError):
-                raise HTTPException(400, "calls must be an integer")
-            if calls <= 0:
-                raise HTTPException(400, "calls must be positive")
-            price_gbp = 0.0
+                doc = await grant_pack(target_email, "mcp", pack_id, source="admin")
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+            return {"ok": True, "email": target_email, "calls": doc["calls"], "year_month": doc["year_month"]}
+
+        try:
+            calls = int(body.get("calls"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "calls must be an integer")
+        if calls <= 0:
+            raise HTTPException(400, "calls must be positive")
+        price_gbp = 0.0
 
         from app.db.collections import mcp_call_packs_col
 
@@ -191,19 +196,19 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
 
     pack_id = body.get("pack_id")
     if pack_id:
-        pack = next((p for p in PENNY_TOPUP_PACKS if p["id"] == pack_id), None)
-        if pack is None:
-            raise HTTPException(400, f"pack_id must be one of: {[p['id'] for p in PENNY_TOPUP_PACKS]}")
-        messages = pack["messages"]
-        price_gbp = pack["price_gbp"]
-    else:
         try:
-            messages = int(body.get("messages"))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "messages must be an integer")
-        if messages <= 0:
-            raise HTTPException(400, "messages must be positive")
-        price_gbp = 0.0
+            doc = await grant_pack(target_email, "penny", pack_id, source="admin")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return {"ok": True, "email": target_email, "messages": doc["messages"], "year_month": doc["year_month"]}
+
+    try:
+        messages = int(body.get("messages"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "messages must be an integer")
+    if messages <= 0:
+        raise HTTPException(400, "messages must be positive")
+    price_gbp = 0.0
 
     from app.db.collections import penny_topups_col
 

@@ -108,6 +108,20 @@ penny_topups_col        = db["penny_topups"]
 # /subscription/admin/topup (bot-only, kind="mcp").
 mcp_call_packs_col      = db["mcp_call_packs"]
 
+# B5: Stripe billing. billing_customers_col maps our own user_id (email) to
+# a Stripe customer id, {user_id, stripe_customer_id, created_at} — created
+# lazily the first time a user starts a checkout (app.services.billing's
+# _get_or_create_customer), one doc per user. billing_events_col is the
+# webhook idempotency ledger, {event_id (Stripe's own, unique), type,
+# received_at, processed_at (None until handled), result} — POST
+# /webhooks/stripe checks this before doing anything so a Stripe retry of
+# an already-processed event is a no-op, not a double-grant. No purchase
+# path is live yet (no Stripe account exists, see CLAUDE.md's Backlog B5
+# note) — both collections stay empty until BILLING_ENABLED is true
+# somewhere.
+billing_customers_col  = db["billing_customers"]
+billing_events_col     = db["billing_events"]
+
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
 

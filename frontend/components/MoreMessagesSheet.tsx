@@ -16,11 +16,13 @@
 // floating panel (header + thread + composer), not as its own portal/sheet
 // — see that file's own render for the exact positioning.
 //
-// Rows are NOT buttons yet (2026-09-06, contract in flight — there is no
-// purchase endpoint to call): each shows a muted "Available soon" trailing
-// label instead of looking like a live, tappable price row, so nothing here
-// reads as broken. Replace with real onClick handlers once a purchase flow
-// exists.
+// B5: rows are real buttons once `info.billing_live` is true (POST
+// /billing/checkout, api.startCheckout) — tapping a pack or the Move to Max
+// row starts a Stripe Checkout session and redirects the browser to it
+// (window.location.assign). Until BILLING_ENABLED flips true somewhere
+// (no Stripe account exists yet, see CLAUDE.md's Backlog B5 note), every
+// row still renders the muted "Available soon" trailing label instead, so
+// nothing here reads as broken.
 //
 // B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9):
 // replaced the single £2.99/100-message row with three packs, good/better/
@@ -34,8 +36,10 @@
 // Copy rules: no em dashes, British English, "Move to Max" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
+import { useState } from "react";
 import { X } from "lucide-react";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
+import { api } from "@/lib/api";
 import type { SubscriptionTopupPack } from "@wealth/shared";
 
 const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
@@ -44,9 +48,41 @@ const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
   { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
 ];
 
-function PackRow({ pack }: { pack: SubscriptionTopupPack }) {
+function TrailingPrice({
+  priceGbp, billingLive, busy,
+}: {
+  priceGbp: number | undefined;
+  billingLive: boolean;
+  busy: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+    <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
+      {typeof priceGbp === "number" && (
+        <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{priceGbp.toFixed(2)}</span>
+      )}
+      {billingLive ? (
+        <span className="text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+          {busy ? "Opening…" : "Buy"}
+        </span>
+      ) : (
+        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Available soon
+        </span>
+      )}
+    </span>
+  );
+}
+
+function PackRow({
+  pack, billingLive, busy, onBuy,
+}: {
+  pack: SubscriptionTopupPack;
+  billingLive: boolean;
+  busy: boolean;
+  onBuy: () => void;
+}) {
+  const inner = (
+    <>
       <span className="flex items-center gap-2 min-w-0 pr-2">
         <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100">
           {pack.messages} messages
@@ -57,13 +93,27 @@ function PackRow({ pack }: { pack: SubscriptionTopupPack }) {
           </span>
         )}
       </span>
-      <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
-        <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
-        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Available soon
-        </span>
-      </span>
-    </div>
+      <TrailingPrice priceGbp={pack.price_gbp} billingLive={billingLive} busy={busy} />
+    </>
+  );
+
+  if (!billingLive) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onBuy}
+      disabled={busy}
+      className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px] text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    >
+      {inner}
+    </button>
   );
 }
 
@@ -80,6 +130,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // itself is "statements" | "lite" | "standard" | "connect" | "max"), so
   // the Max tier's own monthly price is `prices_gbp.max`.
   const maxPrice = info?.prices_gbp?.max;
+  const billingLive = info?.billing_live ?? false;
   // Hide the Max row entirely once the user is already on it — there is
   // nothing to move to.
   const onMax = info?.tier === "max";
@@ -87,23 +138,54 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // (section 9's cannibalisation guard for the large pack).
   const maxLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onMax;
 
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  async function buy(kind: "subscription" | "pack", target: string) {
+    if (pendingId) return;
+    setErrorMsg(null);
+    setPendingId(target);
+    try {
+      const { url } = await api.startCheckout(kind, target);
+      window.location.assign(url);
+    } catch {
+      setErrorMsg("Could not start checkout. Try again in a moment.");
+      setPendingId(null);
+    }
+  }
+
   const maxRow = !onMax && (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
-      <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-        Move to Max, 400 a month
-      </span>
-      <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
-        {typeof maxPrice === "number" && (
-          <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{maxPrice.toFixed(2)}</span>
-        )}
-        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Available soon
+    billingLive ? (
+      <button
+        type="button"
+        onClick={() => buy("subscription", "max")}
+        disabled={!!pendingId}
+        className="w-full flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px] text-left active:scale-[0.99] transition-transform disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      >
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
+          Move to Max, 400 a month
         </span>
-      </span>
-    </div>
+        <TrailingPrice priceGbp={maxPrice} billingLive={billingLive} busy={pendingId === "max"} />
+      </button>
+    ) : (
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
+          Move to Max, 400 a month
+        </span>
+        <TrailingPrice priceGbp={maxPrice} billingLive={billingLive} busy={false} />
+      </div>
+    )
   );
 
-  const packRows = packs.map((pack) => <PackRow key={pack.id} pack={pack} />);
+  const packRows = packs.map((pack) => (
+    <PackRow
+      key={pack.id}
+      pack={pack}
+      billingLive={billingLive}
+      busy={pendingId === pack.id}
+      onBuy={() => buy("pack", pack.id)}
+    />
+  ));
 
   return (
     // Backdrop — tapping outside the card closes it, same convention as
@@ -150,6 +232,10 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
             </>
           )}
         </div>
+
+        {errorMsg && (
+          <p className="text-[11px] leading-snug text-red-500 dark:text-red-400">{errorMsg}</p>
+        )}
 
         <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
           Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free.

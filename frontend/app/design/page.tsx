@@ -50,6 +50,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "your-plan",
+    name: "your-plan",
+    description:
+      "Backlog B5: \"Your plan\" Settings card, real components/YourPlanCard.tsx (placed directly above the Penny card in app/settings/SettingsPage.tsx, hosting PennyUsageRow.tsx moved out of the Penny card) against fixtures, no data fetching · billing not live (\"Plans and packs are coming soon.\", today's state everywhere, no Stripe account exists yet) / billing live on Standard / billing live on Max (unlimited Penny messages, no pill) / loading / failed to load · \"Manage plan\" calls the real POST /billing/portal (api.openBillingPortal) and will show its own inline error on this unauthenticated preview, that is the correct failure mode to demonstrate here",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "app-only",
     name: "app-only",
     description:

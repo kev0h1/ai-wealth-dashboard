@@ -330,6 +330,77 @@ elif _finexer_webhook_signing_secret_file.exists():
 else:
     FINEXER_WEBHOOK_SIGNING_SECRET = ""
 
+# ── Stripe billing (B5) ──────────────────────────────────────────────────────
+# No Stripe account exists yet (Kevin, 2026-09-09 backlog decision) — this is
+# built entirely against Stripe TEST mode with placeholder keys so it is
+# ready the day the account exists; nothing here can go live before then.
+# All three names are optional and unlike the webhook secrets above, NEVER
+# auto-generated (a Stripe key/secret has to come from Stripe's dashboard,
+# there is nothing to generate locally). See docs/ops/ENV.md's Stripe rows
+# and DEPLOY.md's "Stripe setup checklist" for how to populate them, and
+# app/services/billing.py for what reads them.
+STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+
+def _parse_stripe_price_ids(raw: str) -> dict[str, str]:
+    """Parse STRIPE_PRICE_IDS ("key=price_id,key=price_id,...") into a
+    dict. One entry per paid subscription tier (lite/standard/connect/max
+    — Statements is free, it never checks out) and per purchasable pack
+    (penny_small/penny_medium/penny_large, matching
+    app.core.subscription.PENNY_TOPUP_PACKS' ids prefixed with "penny_" so
+    a tier name and a pack id can never collide in the same map; mcp_1000,
+    matching MCP_CALL_PACKS' own id verbatim since it's already
+    "mcp_1000"). A malformed entry (no "=", empty key or value) is skipped
+    with a warning rather than raising, so one typo in the env value
+    doesn't crash the whole app at import time — it just leaves that one
+    tier/pack unpurchasable, which BILLING_ENABLED below then correctly
+    reports as not fully configured."""
+    out: dict[str, str] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "=" not in chunk:
+            logging.getLogger("app.startup").warning("STRIPE_PRICE_IDS: skipping malformed entry %r", chunk)
+            continue
+        key, _, price_id = chunk.partition("=")
+        key, price_id = key.strip(), price_id.strip()
+        if key and price_id:
+            out[key] = price_id
+        else:
+            logging.getLogger("app.startup").warning("STRIPE_PRICE_IDS: skipping malformed entry %r", chunk)
+    return out
+
+
+STRIPE_PRICE_IDS: dict[str, str] = _parse_stripe_price_ids(os.getenv("STRIPE_PRICE_IDS", ""))
+
+# Every price id BILLING_ENABLED requires before it flips true: every paid
+# tier plus every purchasable pack. Kept as its own tuple (rather than
+# importing app.core.subscription's TIER_NAMES/PENNY_TOPUP_PACKS/
+# MCP_CALL_PACKS here) so this module has no import dependency on that one
+# — app.core.config is meant to be the leaf of the import graph, loaded
+# before almost everything else.
+_STRIPE_REQUIRED_PRICE_KEYS = (
+    "lite", "standard", "connect", "max",
+    "penny_small", "penny_medium", "penny_large", "mcp_1000",
+)
+
+# Derived, not independently settable: true only once a secret key AND
+# EVERY required price id above are present, so a partially-configured
+# environment (e.g. the secret key set but a price id still missing) fails
+# closed to "not live" rather than checking a user out into a broken or
+# mismatched price. GET /subscription's `billing_live` mirrors this
+# straight through so the frontend can gate real checkout/portal buttons
+# off one flag (see MoreMessagesSheet.tsx, ConnectedAssistantsCard.tsx,
+# the "Your plan" Settings card). Webhook signature verification has its
+# own independent guard (STRIPE_WEBHOOK_SECRET, checked in
+# app/services/billing.py) — a webhook can arrive and be correctly
+# rejected even while BILLING_ENABLED is false.
+BILLING_ENABLED: bool = bool(STRIPE_SECRET_KEY) and all(
+    key in STRIPE_PRICE_IDS for key in _STRIPE_REQUIRED_PRICE_KEYS
+)
+
 # ── Reconcile spread (E2) ────────────────────────────────────────────────────
 # task_reconcile_truelayer (app/workers/sync_worker.py) used to enqueue every
 # stale connection's sync job in one burst every 4 hours. That's fine at
