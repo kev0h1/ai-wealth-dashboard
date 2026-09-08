@@ -178,6 +178,37 @@ def test_protected_resource_metadata_shape():
     assert meta["bearer_methods_supported"] == ["header"]
 
 
+def test_openid_configuration_needs_no_auth():
+    # F12: called directly with no `user=` kwarg, the same way the sibling
+    # oauth-authorization-server test proves this handler has no auth
+    # dependency to satisfy.
+    meta = _run(oauth.openid_configuration_metadata())
+    assert meta["issuer"] == oauth.API_PUBLIC_URL
+
+
+def test_openid_configuration_matches_authorization_server_metadata(monkeypatch):
+    monkeypatch.setattr(oauth, "API_PUBLIC_URL", "https://example.test/api")
+    as_meta = _run(oauth.oauth_authorization_server_metadata())
+    oidc_meta = _run(oauth.openid_configuration_metadata())
+    assert oidc_meta["issuer"] == as_meta["issuer"] == "https://example.test/api"
+    assert oidc_meta["authorization_endpoint"] == as_meta["authorization_endpoint"]
+    assert oidc_meta["token_endpoint"] == as_meta["token_endpoint"]
+    assert oidc_meta["registration_endpoint"] == as_meta["registration_endpoint"]
+    assert oidc_meta["code_challenge_methods_supported"] == as_meta["code_challenge_methods_supported"]
+
+
+def test_openid_configuration_metadata_shape():
+    meta = _run(oauth.openid_configuration_metadata())
+    assert meta["response_types_supported"] == ["code"]
+    assert meta["subject_types_supported"] == ["public"]
+    assert meta["id_token_signing_alg_values_supported"] == ["RS256"]
+    assert "jwks_uri" not in meta
+
+
+def test_openid_configuration_path_is_mcp_open_path():
+    assert "/.well-known/openid-configuration" in auth_mod._MCP_OPEN_PATHS
+
+
 # ── dynamic client registration ─────────────────────────────────────────
 
 def test_register_rejects_missing_client_name(monkeypatch):
