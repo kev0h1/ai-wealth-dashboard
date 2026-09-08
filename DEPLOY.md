@@ -189,10 +189,16 @@ allowance (`TIER_LIMITS[...]["mcp_tool_calls_per_month"]`: 2,000 on Connect,
 5,000 on Max, 0 (not included) below that). Every `tools/call` writes one
 audit doc to `mcp_calls_col` (tool, client, ok, timestamp, latency, count of
 keys masked, never the values); a user can read their own rows back via
-`GET /mcp/audit?month=` (no UI for this yet, F4, not started, is the
-"Connected assistants" settings surface that will render it; F7's
-`limits` block on that same endpoint gives F9 the raw numbers below to
-display alongside the call log).
+`GET /mcp/audit?month=` (F4's "Connected assistants" settings surface,
+`components/ConnectedAssistantsCard.tsx`, renders it). F9 (2026-09-08)
+surfaces the allowance itself on that same card ("N of 2,000 calls this
+month, resets 1 Oct") from `app.core.subscription.mcp_allowance`, and adds
+one MCP call pack (`MCP_CALL_PACKS`, 1,000 calls for £2.99, same 90-day
+pack mechanics as the Penny top-up packs above, shared implementation via
+`_settle_packs`). There is no purchase flow yet (billing is item B5);
+until then the only way to grant a pack is `POST /subscription/admin/topup`
+with `{"kind": "mcp", "pack_id": "mcp_1000"}` (bot-only, same auth as the
+existing Penny grant path, `kind` defaults to `"penny"` when omitted).
 
 **Rate limits (F7, 2026-09-08):** the connector used to key its rate limit
 by IP, but Claude's and ChatGPT's connectors call from shared egress ranges,

@@ -15,6 +15,8 @@ from types import SimpleNamespace
 import pytest
 
 import app.core.ratelimit as ratelimit_mod
+import app.core.subscription as subscription_module
+import app.db.collections as db_collections_module
 import app.routers.mcp as mcp
 
 
@@ -159,6 +161,15 @@ def test_notification_and_unknown_methods_are_not_rate_limited():
 
 # ── integration through mcp_post: audit doc and allowance side effects ──
 
+class _FakeEmptyCursor:
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        return
+        yield  # pragma: no cover - makes this an async generator function
+
+
 class _FakeAuditCol:
     def __init__(self):
         self.docs: list[dict] = []
@@ -168,6 +179,12 @@ class _FakeAuditCol:
 
     async def count_documents(self, query):
         return 0
+
+    def find(self, query=None):
+        # Doubles as an empty `mcp_call_packs_col` fake (F9) — these tests
+        # carry no packs, so settle_mcp_packs' own `col.find(...)` just
+        # needs something iterable that yields nothing.
+        return _FakeEmptyCursor()
 
 
 class _FakeSubscription:
@@ -202,11 +219,16 @@ def test_rate_limited_call_writes_no_audit_doc_and_spends_no_monthly_allowance(m
     monkeypatch.setattr(mcp, "resolve_mcp_principal", fake_principal)
 
     audit = _FakeAuditCol()
+    # F9: mcp_allowance (behind check_mcp_allowance) counts/settles through
+    # app.db.collections' own names via a lazy import, not app.routers.mcp's
+    # top-level ones, so both need to point at the same fakes.
     monkeypatch.setattr(mcp, "mcp_calls_col", audit)
+    monkeypatch.setattr(db_collections_module, "mcp_calls_col", audit)
+    monkeypatch.setattr(db_collections_module, "mcp_call_packs_col", _FakeAuditCol())
 
     async def fake_get_subscription(uid):
         return _FakeSubscription()
-    monkeypatch.setattr(mcp, "get_subscription", fake_get_subscription)
+    monkeypatch.setattr(subscription_module, "get_subscription", fake_get_subscription)
 
     async def fake_execute_tool(uid, name, args):
         return {"accounts": []}

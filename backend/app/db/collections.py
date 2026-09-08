@@ -99,6 +99,15 @@ subscription_usage_col  = db["subscription_usage"]
 # today the only writer is POST /subscription/admin/topup (bot-only).
 penny_topups_col        = db["penny_topups"]
 
+# F9: MCP connector call-pack top-ups, same mechanics as penny_topups_col
+# above but for MCP tool calls (see app.core.subscription.mcp_allowance /
+# settle_mcp_packs). Doc shape: {user_id, pack_id, calls (int), remaining
+# (int), price_gbp, purchased_at, expires_at (90d from purchase),
+# year_month ("YYYY-MM"), source: "purchase" | "admin", settled_months}.
+# No purchase path exists yet; today the only writer is POST
+# /subscription/admin/topup (bot-only, kind="mcp").
+mcp_call_packs_col      = db["mcp_call_packs"]
+
 # Cashflow cache (computed after sync, read at page load)
 cashflow_cache_col      = db["cashflow_cache"]
 

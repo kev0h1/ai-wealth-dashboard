@@ -44,7 +44,6 @@ from app.core.config import (
 )
 from app.core.ratelimit import check_keyed_limit
 from app.core.redis_client import get_redis, redis_ok
-from app.core.subscription import get_subscription, _next_month_first_day
 from app.db.collections import mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
 from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
@@ -313,50 +312,49 @@ async def check_mcp_allowance(uid: str) -> dict:
     """Raise `McpError` if `uid` has no connector allowance left this
     calendar month, else return `{used, limit, resets_on, tier}`.
 
-    `TIER_LIMITS[...]["mcp_tool_calls_per_month"]` is 0 for Statements/
-    Lite/Standard (not included in the tier at all, a distinct error from
-    running out), 2000 for Connect, 5000 for Max. `None` would mean
-    unlimited (the TIER_LIMITS convention elsewhere in this codebase),
-    though no tier is configured that way for this key today."""
-    sub = await get_subscription(uid)
-    limit = sub.limit("mcp_tool_calls_per_month")
-    now = datetime.now(timezone.utc)
-    ym = now.strftime("%Y-%m")
-    resets_on = _next_month_first_day(now).isoformat()
+    Backed by `app.core.subscription.mcp_allowance`, which folds any active
+    MCP call pack (F9) into `limit` — `limit` is 0 for Statements/Lite/
+    Standard (not included in the tier at all, a distinct error from
+    running out, and packs don't apply), tier + pack calls for Connect/Max
+    (2000/5000 base), `None` if the tier were ever configured unlimited
+    (no tier is today)."""
+    from app.core.subscription import mcp_allowance
+
+    allowance = await mcp_allowance(uid)
+    limit = allowance["limit"]
+    resets_on = allowance["resets_on"]
 
     if limit is None:
-        return {"used": 0, "limit": None, "resets_on": resets_on, "tier": sub.tier_name}
+        return {"used": 0, "limit": None, "resets_on": resets_on, "tier": allowance["tier"]}
 
     if limit == 0:
         raise McpError(
             -32002,
             "The connector is included in Connect and Max",
-            {"tier": sub.tier_name, "limit": 0, "resets_on": resets_on},
+            {"tier": allowance["tier"], "limit": 0, "resets_on": resets_on},
         )
 
-    used = await mcp_calls_col.count_documents({"user_id": uid, "year_month": ym})
-    if used >= limit:
+    if allowance["used"] >= limit:
         raise McpError(
             -32000,
             "Monthly connector allowance reached",
-            {"used": used, "limit": limit, "resets_on": resets_on},
+            {"used": allowance["used"], "limit": limit, "resets_on": resets_on},
         )
-    return {"used": used, "limit": limit, "resets_on": resets_on, "tier": sub.tier_name}
+    return {"used": allowance["used"], "limit": limit, "resets_on": resets_on, "tier": allowance["tier"]}
 
 
 async def _mcp_allowance_status(uid: str) -> dict:
     """Same `{used, limit, resets_on, tier}` shape as a successful
     `check_mcp_allowance` return, but never raises, for GET /mcp/audit's
-    `limits` block (F9), which wants the numbers whether or not the
+    `limits` block (F7), which wants the numbers whether or not the
     allowance has been reached, not just the happy path."""
-    sub = await get_subscription(uid)
-    limit = sub.limit("mcp_tool_calls_per_month")
-    now = datetime.now(timezone.utc)
-    resets_on = _next_month_first_day(now).isoformat()
-    if limit is None:
-        return {"used": 0, "limit": None, "resets_on": resets_on, "tier": sub.tier_name}
-    used = await mcp_calls_col.count_documents({"user_id": uid, "year_month": now.strftime("%Y-%m")})
-    return {"used": used, "limit": limit, "resets_on": resets_on, "tier": sub.tier_name}
+    from app.core.subscription import mcp_allowance
+
+    allowance = await mcp_allowance(uid)
+    return {
+        "used": allowance["used"], "limit": allowance["limit"],
+        "resets_on": allowance["resets_on"], "tier": allowance["tier"],
+    }
 
 
 async def _write_audit(principal: dict, tool: str, ok: bool, latency_ms: float, dropped_keys: int) -> None:

@@ -6,11 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import BOT_SECRET
 from app.core.subscription import (
-    PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
+    MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
     TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
-    get_subscription, penny_allowance,
+    get_subscription, mcp_allowance, penny_allowance,
 )
 from app.db.collections import subscriptions_col
+
+# Billing (item B5) hasn't landed yet — DEFAULT_TIER is "max" so everyone
+# gets the Max tier's full allowances (including 5000 free MCP calls/month)
+# with no card on file. GET /subscription's `billing_live: false` lets the
+# frontend show that as a temporary state ("Everyone is on the Max plan...")
+# rather than a permanent feature, without hardcoding the copy server-side.
+BILLING_LIVE = False
 
 router = APIRouter(tags=["subscription"])
 
@@ -55,16 +62,38 @@ async def get_subscription_info(user: dict = Depends(current_user)):
     except Exception:
         pass
 
+    # F9: MCP connector call allowance, same shape family as the `usage`
+    # penny_* fields above but kept as its own block since ConnectedAssistantsCard
+    # (not the Penny sheet) is what reads it. `limit`/`remaining` are None
+    # for a tier that would be unlimited (no tier is today) and 0 for a
+    # tier without the connector at all (Statements/Lite/Standard).
+    mcp = {
+        "limit": 0, "used": 0, "remaining": 0,
+        "resets_on": None, "packs": MCP_CALL_PACKS, "pack_calls": 0,
+    }
+    try:
+        mcp_allow = await mcp_allowance(email)
+        mcp["limit"]      = mcp_allow["limit"]
+        mcp["used"]       = mcp_allow["used"]
+        mcp["remaining"]  = mcp_allow["remaining"]
+        mcp["resets_on"]  = mcp_allow["resets_on"]
+        mcp["pack_calls"] = mcp_allow["pack_calls"]
+    except Exception:
+        pass
+
     return {
-        "tier":        sub.tier_name,
-        "status":      sub.status,
-        "prices_gbp":  TIER_PRICES_GBP,
+        "tier":         sub.tier_name,
+        "status":       sub.status,
+        "prices_gbp":   TIER_PRICES_GBP,
+        "billing_live": BILLING_LIVE,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.
-        "topup":       PENNY_TOPUP,
-        "topups":      PENNY_TOPUP_PACKS,
-        "limits":      TIER_LIMITS[sub.tier],
-        "usage":       usage,
+        "topup":        PENNY_TOPUP,
+        "topups":       PENNY_TOPUP_PACKS,
+        "limits":       TIER_LIMITS[sub.tier],
+        "usage":        usage,
+        "mcp":          mcp,
+        "mcp_packs":    MCP_CALL_PACKS,
     }
 
 
@@ -101,22 +130,64 @@ async def admin_set_tier(body: dict, user: dict = Depends(current_user)):
 
 @router.post("/subscription/admin/topup")
 async def admin_topup(body: dict, user: dict = Depends(current_user)):
-    """Bot/admin only — grant a Penny message top-up pack, no purchase flow
-    behind it yet (billing is item B5). Exists so the message cap
-    (app.core.subscription.penny_allowance, checked in POST /can-i) can be
-    tested/lifted without billing being live.
+    """Bot/admin only — grant a Penny message top-up pack (`kind: "penny"`,
+    the default) or an MCP connector call-pack (`kind: "mcp"`, F9), no
+    purchase flow behind either yet (billing is item B5). Exists so the
+    message/call caps (app.core.subscription.penny_allowance /
+    mcp_allowance) can be tested/lifted without billing being live.
 
-    Accepts either `pack_id` (one of PENNY_TOPUP_PACKS' ids — messages and
-    price are looked up from there) or a raw `messages` count. Either way
-    the stored doc's own `pack_id` is "admin", not the referenced pack's id
-    — this is an admin grant, not a purchase, so it must never count as a
-    genuine pack sale if that distinction matters later."""
+    Accepts either `pack_id` (one of PENNY_TOPUP_PACKS' or MCP_CALL_PACKS'
+    ids, depending on `kind` — the amount and price are looked up from
+    there) or a raw `messages`/`calls` count. Either way the stored doc's
+    own `pack_id` is "admin", not the referenced pack's id — this is an
+    admin grant, not a purchase, so it must never count as a genuine pack
+    sale if that distinction matters later."""
     if user.get("name") != "Bot":
         raise HTTPException(403, "Admin only")
 
     target_email = body.get("email")
     if not target_email:
         raise HTTPException(400, "email required")
+
+    kind = (body.get("kind") or "penny").lower()
+    if kind not in ("penny", "mcp"):
+        raise HTTPException(400, "kind must be 'penny' or 'mcp'")
+
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+
+    if kind == "mcp":
+        pack_id = body.get("pack_id")
+        if pack_id:
+            pack = next((p for p in MCP_CALL_PACKS if p["id"] == pack_id), None)
+            if pack is None:
+                raise HTTPException(400, f"pack_id must be one of: {[p['id'] for p in MCP_CALL_PACKS]}")
+            calls = pack["calls"]
+            price_gbp = pack["price_gbp"]
+        else:
+            try:
+                calls = int(body.get("calls"))
+            except (TypeError, ValueError):
+                raise HTTPException(400, "calls must be an integer")
+            if calls <= 0:
+                raise HTTPException(400, "calls must be positive")
+            price_gbp = 0.0
+
+        from app.db.collections import mcp_call_packs_col
+
+        await mcp_call_packs_col.insert_one({
+            "user_id":        target_email,
+            "pack_id":        "admin",
+            "calls":          calls,
+            "remaining":      calls,
+            "price_gbp":      price_gbp,
+            "purchased_at":   now,
+            "expires_at":     now + timedelta(days=PENNY_TOPUP_LIFETIME_DAYS),
+            "year_month":     ym,
+            "source":         "admin",
+            "settled_months": [],
+        })
+        return {"ok": True, "email": target_email, "calls": calls, "year_month": ym}
 
     pack_id = body.get("pack_id")
     if pack_id:
@@ -136,8 +207,6 @@ async def admin_topup(body: dict, user: dict = Depends(current_user)):
 
     from app.db.collections import penny_topups_col
 
-    now = datetime.now(timezone.utc)
-    ym = now.strftime("%Y-%m")
     await penny_topups_col.insert_one({
         "user_id":        target_email,
         "pack_id":        "admin",

@@ -879,6 +879,10 @@ export default function SettingsPage() {
             activityOpen={activityOpen}
             onToggleActivity={handleToggleActivity}
             tierAllowance={pennyUsage.info?.limits?.mcp_tool_calls_per_month ?? null}
+            allowance={pennyUsage.info?.mcp ?? null}
+            mcpPacks={pennyUsage.info?.mcp_packs ?? []}
+            tier={pennyUsage.info?.tier ?? null}
+            billingLive={pennyUsage.info?.billing_live ?? false}
           />
         )}
 

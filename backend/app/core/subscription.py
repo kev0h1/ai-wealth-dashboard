@@ -65,6 +65,16 @@ PENNY_TOPUP_LIFETIME_DAYS = 90
 # /subscription now also serves the full list as `topups`.
 PENNY_TOPUP = {"messages": PENNY_TOPUP_PACKS[1]["messages"], "price_gbp": PENNY_TOPUP_PACKS[1]["price_gbp"]}
 
+# F9: one MCP connector call pack, same mechanics as the Penny packs above
+# (`_settle_packs`/`mcp_allowance` below share the implementation with
+# `settle_topups`/`penny_allowance`). Only Connect and Max have the
+# connector at all (`mcp_tool_calls_per_month` 2000/5000), so this is the
+# only pack a Connect user would reach for; Max's 5000/month is the
+# DEFAULT_TIER today (see module docstring) so nobody needs it yet.
+MCP_CALL_PACKS = [
+    {"id": "mcp_1000", "calls": 1000, "price_gbp": 2.99, "badge": None},
+]
+
 # None = unlimited
 TIER_LIMITS = {
     Tier.STATEMENTS: {
@@ -201,25 +211,28 @@ def _pack_covers_month(pack: dict, ym: str) -> bool:
     return expires_at.strftime("%Y-%m") >= ym
 
 
-async def settle_topups(email: str, now: datetime) -> list[dict]:
-    """Lazily settle every PAST calendar month (up to but excluding the
-    current one) that this user's top-up packs haven't already accounted
-    for, attributing each month's overflow (messages used past the tier's
-    own allowance that month) to the OLDEST covering pack's `remaining`
-    first. Idempotent: each (pack, month) pair is written at most once,
-    tracked in the pack doc's own `settled_months` list, so re-running
-    this for a month already settled is a no-op check with no DB write.
+async def _settle_packs(email: str, now: datetime, *, col, tier_limit_key: str, usage_fn) -> list[dict]:
+    """Shared implementation behind `settle_topups` (Penny message packs,
+    B11) and `settle_mcp_packs` (MCP connector call packs, F9) — the two
+    only differ in which collection holds the pack docs, which
+    `TIER_LIMITS[...]` key is the tier's own monthly allowance, and how
+    that month's usage is counted (`usage_fn(email, ym) -> int`).
+
+    Lazily settles every PAST calendar month (up to but excluding the
+    current one) that this user's packs haven't already accounted for,
+    attributing each month's overflow (usage past the tier's own allowance
+    that month) to the OLDEST covering pack's `remaining` first. Idempotent:
+    each (pack, month) pair is written at most once, tracked in the pack
+    doc's own `settled_months` list, so re-running this for a month already
+    settled is a no-op check with no DB write.
 
     The current month is never settled here — its usage is still moving,
-    so `penny_allowance` reads it live (this month's overflow is simply
-    tier_limit vs used, no pack draw-down needed against it beyond the
-    ordinary `limit = tier_limit + topup_messages` sum below). Returns the
-    user's full (possibly just-mutated) list of top-up pack docs so
-    `penny_allowance` doesn't have to re-query."""
-    from app.core.llm import monthly_usage
-    from app.db.collections import penny_topups_col
-
-    packs = [doc async for doc in penny_topups_col.find({"user_id": email})]
+    so the caller (`penny_allowance`/`mcp_allowance`) reads it live (this
+    month's overflow is simply tier_limit vs used, no pack draw-down
+    needed against it beyond the ordinary `limit = tier_limit + pack
+    remaining` sum). Returns the user's full (possibly just-mutated) list
+    of pack docs so the caller doesn't have to re-query."""
+    packs = [doc async for doc in col.find({"user_id": email})]
     if not packs:
         return packs
 
@@ -234,12 +247,12 @@ async def settle_topups(email: str, now: datetime) -> list[dict]:
             ym = _ym_after(ym)
             continue
 
-        tier_limit = (await get_subscription(email)).limit("penny_messages_per_month")
+        tier_limit = (await get_subscription(email)).limit(tier_limit_key)
         if tier_limit is None:
             overflow = 0
         else:
-            usage = await monthly_usage(email, ym)
-            overflow = max(0, int(usage.get("penny_messages") or 0) - tier_limit)
+            used = await usage_fn(email, ym)
+            overflow = max(0, int(used) - tier_limit)
 
         covering = sorted(
             (p for p in unsettled if _pack_covers_month(p, ym)),
@@ -254,7 +267,7 @@ async def settle_topups(email: str, now: datetime) -> list[dict]:
             settled_months = list(p.get("settled_months") or []) + [ym]
             p["remaining"] = new_remaining
             p["settled_months"] = settled_months
-            await penny_topups_col.update_one(
+            await col.update_one(
                 {"_id": p["_id"]},
                 {"$set": {"remaining": new_remaining, "settled_months": settled_months}},
             )
@@ -262,13 +275,50 @@ async def settle_topups(email: str, now: datetime) -> list[dict]:
         for p in not_covering:
             settled_months = list(p.get("settled_months") or []) + [ym]
             p["settled_months"] = settled_months
-            await penny_topups_col.update_one(
+            await col.update_one(
                 {"_id": p["_id"]}, {"$set": {"settled_months": settled_months}},
             )
 
         ym = _ym_after(ym)
 
     return packs
+
+
+async def settle_topups(email: str, now: datetime) -> list[dict]:
+    """Thin wrapper around `_settle_packs` for Penny message top-up packs
+    (`penny_topups_col`, B11) — kept as its own name/signature so existing
+    callers and tests are unaffected by the F9 refactor. See
+    `_settle_packs` for the shared algorithm and `penny_allowance` for how
+    the result is folded into this month's limit."""
+    from app.core.llm import monthly_usage
+    from app.db.collections import penny_topups_col
+
+    async def _penny_usage(email: str, ym: str) -> int:
+        usage = await monthly_usage(email, ym)
+        return int(usage.get("penny_messages") or 0)
+
+    return await _settle_packs(
+        email, now, col=penny_topups_col,
+        tier_limit_key="penny_messages_per_month", usage_fn=_penny_usage,
+    )
+
+
+async def settle_mcp_packs(email: str, now: datetime) -> list[dict]:
+    """Thin wrapper around `_settle_packs` for MCP connector call packs
+    (`mcp_call_packs_col`, F9). Usage is counted straight off
+    `mcp_calls_col` (one doc per successful `tools/call`) rather than
+    through `app.core.llm.monthly_usage`, which only knows about LLM
+    pipelines. See `mcp_allowance` for how the result is folded into this
+    month's limit."""
+    from app.db.collections import mcp_call_packs_col, mcp_calls_col
+
+    async def _mcp_usage(email: str, ym: str) -> int:
+        return await mcp_calls_col.count_documents({"user_id": email, "year_month": ym})
+
+    return await _settle_packs(
+        email, now, col=mcp_call_packs_col,
+        tier_limit_key="mcp_tool_calls_per_month", usage_fn=_mcp_usage,
+    )
 
 
 async def penny_allowance(email: str) -> dict:
@@ -337,6 +387,69 @@ async def penny_allowance(email: str) -> dict:
         "resets_on": resets_on.isoformat(),
         "topup_messages": topup_messages,
         "topup_expires_soonest": topup_expires_soonest,
+        "packs_bought_this_month": packs_bought_this_month,
+    }
+
+
+async def mcp_allowance(email: str) -> dict:
+    """This calendar month's MCP connector call allowance for `email` — the
+    F9 twin of `penny_allowance` above, sharing `_settle_packs` via
+    `settle_mcp_packs`. Only Connect and Max have `mcp_tool_calls_per_month`
+    set at all (0 for every tier below); a tier without the connector gets
+    NO pack credit folded in even if it somehow holds an active pack
+    (`limit` stays 0), since a pack only makes sense on top of a tier that
+    already has the connector.
+
+    Returns `{"tier", "limit" (tier limit + active pack remaining; None
+    when the tier itself is unlimited; 0 stays 0, packs not applied),
+    "used" (this month's `mcp_calls_col` count), "remaining" (None when
+    unlimited), "resets_on" ("YYYY-MM-DD", the 1st of next month UTC),
+    "pack_calls" (active pack remaining total, 0 if none — reported even
+    when the tier is 0 and it isn't folded into `limit`, so the UI can
+    still explain an unused pack), "pack_expires_soonest" (ISO date of the
+    soonest-expiring ACTIVE pack, or None), "packs_bought_this_month"
+    (count of packs with this calendar month as their purchase month, any
+    source)}`."""
+    from app.db.collections import mcp_calls_col
+
+    sub = await get_subscription(email)
+    tier_limit = sub.limit("mcp_tool_calls_per_month")
+
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+
+    packs = await settle_mcp_packs(email, now)
+
+    active_packs = [
+        p for p in packs
+        if int(p.get("remaining") or 0) > 0
+        and (p.get("expires_at") is None or p["expires_at"] > now)
+    ]
+    pack_calls = sum(int(p.get("remaining") or 0) for p in active_packs)
+    expiring_dates = [p["expires_at"] for p in active_packs if p.get("expires_at")]
+    pack_expires_soonest = min(expiring_dates).date().isoformat() if expiring_dates else None
+    packs_bought_this_month = sum(1 for p in packs if (p.get("year_month") or "") == ym)
+
+    if tier_limit is None:
+        limit = None
+    elif tier_limit == 0:
+        limit = 0
+    else:
+        limit = tier_limit + pack_calls
+
+    used = await mcp_calls_col.count_documents({"user_id": email, "year_month": ym})
+    remaining = None if limit is None else max(0, limit - used)
+
+    resets_on = _next_month_first_day(now)
+
+    return {
+        "tier": sub.tier_name,
+        "limit": limit,
+        "used": used,
+        "remaining": remaining,
+        "resets_on": resets_on.isoformat(),
+        "pack_calls": pack_calls,
+        "pack_expires_soonest": pack_expires_soonest,
         "packs_bought_this_month": packs_bought_this_month,
     }
 
