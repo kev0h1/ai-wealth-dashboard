@@ -34,7 +34,12 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `get_fill_candidates(account_id_or_name?)` | read | `GET /allocations/fill-candidates` |
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 
-### Propose/write tools, 8, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L611-891)
+### Propose/write tools, 18, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L611-891)
+
+B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
+the original eight, for the covered creates only (planned, allocation,
+commitment, checkpoint delete, recurring skip/edit/clear-override) — see
+section 2's per-row status changes and section 3's revised counts.
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -46,6 +51,16 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `propose_create_commitment(name, amount, target_date, funding_pots?)` | propose | `app.routers.commitments.create_commitment` (`POST /commitments`) |
 | `propose_recategorise_transaction(transaction_id or merchant+date+amount, new_category, scope)` | propose | `app.routers.transactions.update_transaction` (`scope="just_once"`), + `app.routers.categories.add_rule` (`scope="always"`) |
 | `propose_set_card_apr(card_ref, apr_pct)` | propose | `app.routers.card_terms.save_card_terms` (read-modify-write, only `apr_pct` changes) |
+| `propose_update_planned(planned_ref, name?, amount?, date?)` | propose (B14) | `app.routers.planned.update_planned_expense` (`PATCH /planned/{id}`, name/amount/date only, not `account_id`) |
+| `propose_delete_planned(planned_ref)` | propose (B14) | `app.routers.planned.delete_planned_expense` (`DELETE /planned/{id}`) |
+| `propose_update_allocation(allocation_ref, name?, amount_per_period?, recurrence?, paused?)` | propose (B14) | `app.routers.allocations.update_allocation` (`PATCH /allocations/{id}`, name/amount_per_period/recurrence/active only, not `fill_account_id`/match rule/`effective_from`) |
+| `propose_delete_allocation(allocation_ref)` | propose (B14) | `app.routers.allocations.delete_allocation` (`DELETE /allocations/{id}`) |
+| `propose_update_commitment(commitment_ref, name?, amount?, target_date?)` | propose (B14) | `app.routers.commitments.update_commitment` (`PATCH /commitments/{id}`, name/amount/target_date only, not `funding_pots`/`status`/`contribute_delta`) |
+| `propose_delete_commitment(commitment_ref)` | propose (B14) | `app.routers.commitments.delete_commitment` (`DELETE /commitments/{id}`, a soft cancel — sets `status: "cancelled"`) |
+| `propose_delete_checkpoint(checkpoint_ref)` | propose (B14) | `app.routers.checkpoints.delete_checkpoint` (`DELETE /checkpoints/{id}`; no PATCH exists on this object, delete is the only twin) |
+| `propose_skip_occurrence(key_or_name, date)` | propose (B14) | `app.routers.analytics.skip_occurrence` (`POST /cashflow/skip-occurrence`) |
+| `propose_edit_occurrence(key_or_name, date, new_date?, new_amount?, scope)` | propose (B14) | `app.routers.analytics.edit_upcoming` (`POST /cashflow/edit-upcoming`; `scope` is `one`\|`future`, matching the router exactly) |
+| `propose_clear_override(key_or_name, date)` | propose (B14) | `app.routers.analytics.clear_override` (`POST /cashflow/clear-override`) |
 
 ### Agent-mode consent gate
 
@@ -95,20 +110,20 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 |---|---|---|---|---|
 | Dismiss a recurring series ("not a bill") | `app/planning/PlanningPage.tsx:791`, `app/planning/dismissed/SetAsideClient.tsx:125` | `POST /cashflow/dismiss-recurring` (`dismissRecurring`) | `propose_dismiss_recurring` | covered |
 | Restore a dismissed series | `app/planning/PlanningPage.tsx:848`, `app/planning/dismissed/SetAsideClient.tsx:120` | `POST /cashflow/restore-recurring` (`restoreRecurring`) | `propose_restore_recurring` | covered |
-| Skip one upcoming occurrence | `app/planning/PlanningPage.tsx:817`, `components/UpcomingEditSheet.tsx:128`, `components/HomeBrief.tsx:553` | `POST /cashflow/skip-occurrence` (`skipUpcomingOccurrence`) | `get_upcoming_bills` reads the occurrence | partial |
-| Edit an upcoming bill's date/amount (one / future) | `components/UpcomingEditSheet.tsx:103` | `POST /cashflow/edit-upcoming` (`editUpcoming`) | `get_upcoming_bills` reads `edited`/`original_date` | partial |
-| Clear an upcoming override | `components/UpcomingEditSheet.tsx:117` | `POST /cashflow/clear-override` (`clearUpcomingOverride`) | `get_upcoming_bills` | partial |
+| Skip one upcoming occurrence | `app/planning/PlanningPage.tsx:817`, `components/UpcomingEditSheet.tsx:128`, `components/HomeBrief.tsx:553` | `POST /cashflow/skip-occurrence` (`skipUpcomingOccurrence`) | `propose_skip_occurrence` (B14) | covered |
+| Edit an upcoming bill's date/amount (one / future) | `components/UpcomingEditSheet.tsx:103` | `POST /cashflow/edit-upcoming` (`editUpcoming`) | `propose_edit_occurrence` (B14) | covered |
+| Clear an upcoming override | `components/UpcomingEditSheet.tsx:117` | `POST /cashflow/clear-override` (`clearUpcomingOverride`) | `propose_clear_override` (B14) | covered |
 | Preview a natural-language schedule rule | `components/UpcomingEditSheet.tsx:143` | `POST /cashflow/preview-rule` (`previewUpcomingRule`) | `get_recurring_payments` reads cadence | partial |
 | Apply a schedule rule to a series | `components/UpcomingEditSheet.tsx:169` | `POST /cashflow/apply-rule` (`applyUpcomingRule`) | `get_upcoming_bills` reads `rule_label` | partial |
 | Clear a schedule rule | `components/UpcomingEditSheet.tsx:183` | `POST /cashflow/clear-rule` (`clearUpcomingRule`) | `get_upcoming_bills` reads `rule_label` | partial |
 | Hide / unhide a "set aside" row | `app/planning/dismissed/SetAsideClient.tsx:140,143` | `POST /dismissed-series/hide` (`hideDismissedSeries`) | none | gap |
 | Bring back an engine-vetoed series | `app/planning/dismissed/SetAsideClient.tsx:132` | `POST /dismissed-series/override` (`overrideDismissedSeries`) | none | gap |
 | Create a set-aside allocation | `components/SetAsideSheet.tsx:124` | `POST /allocations` (`createAllocation`) | `propose_create_allocation`, no `fill_display_name` param | partial |
-| Edit / pause an allocation | `components/AllocationSheet.tsx:110,137` | `PATCH /allocations/{id}` (`updateAllocation`) | none | gap |
-| Delete an allocation | `components/AllocationSheet.tsx:153` | `DELETE /allocations/{id}` (`deleteAllocation`) | none | gap |
+| Edit / pause an allocation | `components/AllocationSheet.tsx:110,137` | `PATCH /allocations/{id}` (`updateAllocation`) | `propose_update_allocation` (B14; name/amount_per_period/recurrence/paused only, not the fill account or match rule) | partial |
+| Delete an allocation | `components/AllocationSheet.tsx:153` | `DELETE /allocations/{id}` (`deleteAllocation`) | `propose_delete_allocation` (B14) | covered |
 | Add a planned one-off payment | `components/PlanOneOffSheet.tsx:86` | `POST /planned` (`addPlanned`) | `propose_add_planned` | covered |
-| Edit a planned one-off | `components/PlannedEditSheet.tsx:95` | `PATCH /planned/{id}` (`updatePlanned`) | `get_upcoming_bills` returns `planned`/`planned_id` | partial |
-| Delete a planned one-off | `app/planning/PlanningPage.tsx:744,757` | `DELETE /planned/{id}` (`deletePlanned`) | `get_upcoming_bills` | partial |
+| Edit a planned one-off | `components/PlannedEditSheet.tsx:95` | `PATCH /planned/{id}` (`updatePlanned`) | `propose_update_planned` (B14; name/amount/date only, not `account_id`) | partial |
+| Delete a planned one-off | `app/planning/PlanningPage.tsx:744,757` | `DELETE /planned/{id}` (`deletePlanned`) | `propose_delete_planned` (B14) | covered |
 
 ### Plans, commitments, goals
 
@@ -116,8 +131,8 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 |---|---|---|---|---|
 | Create a commitment / goal | `components/CommitmentSheet.tsx:293` | `POST /commitments` (`createCommitment`) | `propose_create_commitment` | covered |
 | Preview commitment feasibility | `components/CommitmentSheet.tsx:205` | `POST /commitments/preview` (`previewCommitment`) | `get_goals` + `check_affordability` adjacent, no per-commitment preview | partial |
-| Edit a commitment / contribute / mark done | `components/CommitmentSheet.tsx:276-291` | `PATCH /commitments/{id}` (`updateCommitment`) | `get_goals` reads it | partial |
-| Cancel a commitment | `components/CommitmentSheet.tsx:331` | `DELETE /commitments/{id}` (`cancelCommitment`) | `get_goals` reads it | partial |
+| Edit a commitment / contribute / mark done | `components/CommitmentSheet.tsx:276-291` | `PATCH /commitments/{id}` (`updateCommitment`) | `propose_update_commitment` (B14; name/amount/target_date only, not `funding_pots`/`contribute_delta`/`status`) | partial |
+| Cancel a commitment | `components/CommitmentSheet.tsx:331` | `DELETE /commitments/{id}` (`cancelCommitment`) | `propose_delete_commitment` (B14) | covered |
 | Save / replace the savings goal | `components/SavingsGoalSheet.tsx:87` | `PUT /savings/goal` (`saveSavingsGoal`) | `get_savings_position` returns `configured`/`target_amount` | partial |
 | Add an offline savings pot | `components/SavingsGoalSheet.tsx:60` | `POST /savings/manual-account` (`addSavingsManualAccount`) | none | gap |
 | Edit an offline savings pot | `components/SavingsGoalSheet.tsx:57` | `PATCH /savings/manual-account/{id}` (`updateSavingsManualAccount`) | none | gap |
@@ -126,7 +141,7 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | Delete a savings-plan step | `app/planning/GrowPanel.tsx:834` | `DELETE /savings/plan/step/{id}` (`deleteSavingsPlanStep`) | none | gap |
 | Delete the whole savings plan | `app/planning/GrowPanel.tsx:841` | `DELETE /savings/plan` (`deleteSavingsPlan`) | none | gap |
 | Set an aim / checkpoint on a category | `components/AimSheet.tsx:80`, `components/SpendVerdictView.tsx:195` | `POST /checkpoints` (`createCheckpoint`) | `get_mirror` returns active aims | partial |
-| Cancel an aim / checkpoint | `components/SpendVerdictView.tsx:154`, `app/mirror/MirrorPage.tsx:272` | `DELETE /checkpoints/{id}` (`cancelCheckpoint`) | `get_mirror` returns active aims | partial |
+| Cancel an aim / checkpoint | `components/SpendVerdictView.tsx:154`, `app/mirror/MirrorPage.tsx:272` | `DELETE /checkpoints/{id}` (`cancelCheckpoint`) | `propose_delete_checkpoint` (B14) | covered |
 
 ### Cards and terms
 
@@ -200,23 +215,29 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 
 ## 3. Counts
 
+Revised 2026-09-08 (B14, B12 stage 1 shipped): edit/delete twins for the
+seven originally-covered creates (planned, allocation, commitment,
+checkpoint delete, recurring skip/edit/clear-override) moved 7 rows from
+partial/gap to covered and 1 row from gap to partial (allocation edit,
+scoped narrower than the UI's own sheet — see its row above).
+
 | | Count |
 |---|---|
 | Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 93 |
-| Covered | 7 |
-| Partial | 29 |
-| Gap | 56 |
+| Covered | 14 |
+| Partial | 24 |
+| Gap | 54 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
-The 7 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`.
+The 14 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`.
 
-## 4. Gaps grouped (56)
+## 4. Gaps grouped (54)
 
 Accounts and connections (11): sync accounts, sync history, delete bank account, Mono exchange, create offline account, add offline-ledger entry, create mirror rule, edit/pause mirror rule, delete mirror rule, refresh investment prices, delete investment account.
 
 Transactions and categories (7): undo a rule, resolve a movement, add custom category, delete custom category, dismiss miscategorised series, confirm transfer pair, dismiss transfer pair (the last three deliberate).
 
-Bills, upcoming, allocations (4): hide/unhide a set-aside row, bring back an engine-vetoed series, edit/pause an allocation, delete an allocation.
+Bills, upcoming, allocations (2): hide/unhide a set-aside row, bring back an engine-vetoed series.
 
 Plans, commitments, goals (6): add/edit/delete an offline savings pot, tick a savings-plan step, delete a savings-plan step, delete the savings plan.
 

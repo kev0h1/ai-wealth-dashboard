@@ -795,6 +795,75 @@ async def _execute_set_card_apr(uid: str, params: dict) -> dict:
     return await _route_save_card_terms(account_id, body, user={"email": uid})
 
 
+async def _execute_update_planned(uid: str, params: dict) -> dict:
+    from app.routers.planned import update_planned_expense as _route_update_planned
+
+    body = {k: v for k, v in params.items() if k != "planned_id"}
+    return await _route_update_planned(params["planned_id"], body, user={"email": uid})
+
+
+async def _execute_delete_planned(uid: str, params: dict) -> dict:
+    from app.routers.planned import delete_planned_expense as _route_delete_planned
+
+    return await _route_delete_planned(params["planned_id"], user={"email": uid})
+
+
+async def _execute_update_allocation(uid: str, params: dict) -> dict:
+    from app.routers.allocations import update_allocation as _route_update_allocation
+
+    body = {k: v for k, v in params.items() if k != "allocation_id"}
+    return await _route_update_allocation(params["allocation_id"], body, user={"email": uid})
+
+
+async def _execute_delete_allocation(uid: str, params: dict) -> dict:
+    from app.routers.allocations import delete_allocation as _route_delete_allocation
+
+    return await _route_delete_allocation(params["allocation_id"], user={"email": uid})
+
+
+async def _execute_update_commitment(uid: str, params: dict) -> dict:
+    from app.routers.commitments import update_commitment as _route_update_commitment
+
+    body = {k: v for k, v in params.items() if k != "commitment_id"}
+    return await _route_update_commitment(params["commitment_id"], body, user={"email": uid})
+
+
+async def _execute_delete_commitment(uid: str, params: dict) -> dict:
+    from app.routers.commitments import delete_commitment as _route_delete_commitment
+
+    return await _route_delete_commitment(params["commitment_id"], user={"email": uid})
+
+
+async def _execute_delete_checkpoint(uid: str, params: dict) -> dict:
+    from app.routers.checkpoints import delete_checkpoint as _route_delete_checkpoint
+
+    return await _route_delete_checkpoint(params["checkpoint_id"], user={"email": uid})
+
+
+async def _execute_skip_occurrence(uid: str, params: dict) -> dict:
+    from app.routers.analytics import skip_occurrence as _route_skip_occurrence
+
+    body = {"key": params["key"], "date": params["date"]}
+    return await _route_skip_occurrence(body, user={"email": uid})
+
+
+async def _execute_edit_occurrence(uid: str, params: dict) -> dict:
+    from app.routers.analytics import edit_upcoming as _route_edit_upcoming
+
+    body = {
+        "key": params["key"], "date": params["date"], "scope": params.get("scope", "one"),
+        "new_date": params.get("new_date"), "new_amount": params.get("new_amount"),
+    }
+    return await _route_edit_upcoming(body, user={"email": uid})
+
+
+async def _execute_clear_override(uid: str, params: dict) -> dict:
+    from app.routers.analytics import clear_override as _route_clear_override
+
+    body = {"key": params["key"], "date": params["date"]}
+    return await _route_clear_override(body, user={"email": uid})
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -804,6 +873,16 @@ _PROPOSAL_EXECUTORS = {
     "create_commitment":          _execute_create_commitment,
     "recategorise_transaction":   _execute_recategorise_transaction,
     "set_card_apr":               _execute_set_card_apr,
+    "update_planned":             _execute_update_planned,
+    "delete_planned":             _execute_delete_planned,
+    "update_allocation":          _execute_update_allocation,
+    "delete_allocation":          _execute_delete_allocation,
+    "update_commitment":          _execute_update_commitment,
+    "delete_commitment":          _execute_delete_commitment,
+    "delete_checkpoint":          _execute_delete_checkpoint,
+    "skip_occurrence":            _execute_skip_occurrence,
+    "edit_occurrence":            _execute_edit_occurrence,
+    "clear_override":             _execute_clear_override,
 }
 
 
