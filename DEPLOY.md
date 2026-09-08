@@ -151,6 +151,79 @@ migrated **encrypted tokens decrypt**, the TOKEN_KEY proof), trigger a sync
 
 ---
 
+## Railway Pro and replicas (E2)
+
+Scaling the worker/web services past a single Railway instance each — the
+item's own framing: "Railway Pro and replicas, once D4 is done". D4 is
+done (Step 3 above): the rate limiter and the mobile login "pending"
+hand-off store both live in Redis (`REDIS_URL`), not in-process memory, so
+multiple `web` replicas already see consistent state. That's the blocker
+E2 was waiting on; it's clear.
+
+**What's Kevin's to do** (account actions, not code):
+
+1. Upgrade the Railway project to the **Pro** plan (Hobby caps replicas
+   and concurrent resources).
+2. Turn on **replicas** for the `web` service in Railway's service
+   settings (worker stays single-replica — see "why the worker stays
+   single-replica" below).
+3. Confirm both `web` replicas and the `worker` service still point at
+   the **same** `REDIS_URL` and `MONGO_URI` (Railway reference variables
+   already guarantee this if unchanged since Step 3/4/5 — nothing to
+   re-enter, just worth eyeballing after the plan upgrade).
+
+**Why the worker stays single-replica.** arq's cron jobs (including
+`task_reconcile_truelayer`) run on every worker process that boots with
+that `WorkerSettings`. Two worker replicas would double-fire the 4-hourly
+reconcile (and every other cron), each building its own candidate list and
+racing to enqueue the same jobs — the `_job_id` dedupe
+(`reconcile:<id>`/`fx_reconcile:<id>`) stops the *sync* jobs from running
+twice, but not the redundant Mongo scan/candidate-building work itself.
+Scaling sync throughput is `max_jobs` (currently 5, in `WorkerSettings`)
+and the spread below, not worker replica count. If reconcile ever needs to
+run across multiple worker processes, that needs a leader-election step
+first — out of scope for E2.
+
+**What the code already does** (this item's own half, shipped): before E2,
+`task_reconcile_truelayer` enqueued every stale connection's sync job in
+one burst, every 4 hours. At today's connection counts that's harmless,
+but the item's own arithmetic makes the risk concrete once the user base
+(and therefore connection count) grows: **10,000 connections fired in one
+burst is about 42 syncs a minute** if the worker could somehow process
+them all inside one minute — an unknown but real risk against whatever
+Finexer's actual (undocumented) rate limit turns out to be. So the burst
+is now spread across a window instead:
+
+| Env var | Default | What it controls |
+|---|---|---|
+| `RECONCILE_SPREAD_MINUTES` | `210` | How much of the window each job's `_defer_by` is allowed to use. Deliberately a little inside the connection's own 3h30 staleness window (`_DEFAULT_REFRESH_WINDOW` in `app/workers/sync_worker.py`), so a connection spread to the very end of one run is still safely re-evaluated as "due" by the next 4-hourly tick. |
+| `RECONCILE_MAX_PER_MINUTE` | `40` | The Finexer-safe ceiling — 10,000 / 240 minutes ≈ 42/min; 40 leaves headroom. |
+| `RECONCILE_MIN_GAP_SECONDS` | `2` | Floor on the gap between any two jobs, independent of the per-minute ceiling (matters if the ceiling above is ever raised a lot). |
+
+The math to re-run if the connection count keeps growing: at the default
+40/min ceiling, 10,000 connections takes 10,000 / 40 = **250 minutes** to
+fully spread — already past the 210-minute default window. That's the
+overflow path: nothing is dropped (every job still gets enqueued, just
+later than the window), but `task_reconcile_truelayer`'s summary logs a
+WARNING with the overflow count, and it's a sign either
+`RECONCILE_MAX_PER_MINUTE` needs raising (once Finexer confirms a higher
+real limit) or the cron's own 4-hourly interval needs widening so the
+window has more room. `GET /admin/sync-stats` (bot or owner, same gate as
+`/admin/llm-usage`) surfaces the last reconcile's summary (including
+`overflow`) and the observed distribution of Finexer requests per sync
+across all consents, so this can be watched rather than guessed at.
+
+Finexer's own documented rate limit is unknown as of this writing — there's
+nothing about it in their API docs available to this codebase. The 40/min
+default is derived entirely from the item's own back-of-envelope sum, not
+a number Finexer confirmed. `app/services/finexer_sync.py` now also
+retries a real HTTP 429 (honouring `Retry-After`, capped at 30s, up to 3
+retries before giving up on that one consent) and records
+`last_sync_requests`/`last_sync_429s` on every consent it syncs, so the
+first real 429 — or the `/admin/sync-stats` distribution creeping up — is
+the signal to tighten `RECONCILE_MAX_PER_MINUTE` down from 40, not a
+guess.
+
 ## MCP connector
 
 F3 (2026-09-08): `/mcp` is a read-only Streamable HTTP MCP endpoint exposing

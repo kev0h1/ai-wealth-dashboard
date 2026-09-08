@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL, mask_email
 from app.core.subscription import get_subscription
-from app.db.collections import llm_usage_col
+from app.db.collections import llm_usage_col, worker_runs_col, finexer_consents_col
 
 router = APIRouter(tags=["admin"])
 
@@ -209,4 +209,45 @@ async def admin_llm_usage(month: str | None = None, user: dict = Depends(current
             'Per-user cost, call and token figures here supersede the estimate in '
             'docs/pricing/tiering-unit-economics-mcp-2026-09.md, section "Usage metering".'
         ),
+    }
+
+
+@router.get("/admin/sync-stats")
+async def admin_sync_stats(user: dict = Depends(current_user)):
+    """E2: visibility into the reconcile spread and Finexer's real
+    per-connection request volume, ahead of Railway Pro + replicas.
+
+    `last_reconcile` is whatever app.workers.sync_worker.task_reconcile_truelayer
+    last wrote to `worker_runs_col` (reconciled/skipped counts, the spread
+    window, the last job's defer offset, and any overflow — see that
+    function's summary dict). `finexer_requests` is the count/mean/max of
+    `last_sync_requests` across every Finexer consent that has synced at
+    least once since this field started being recorded (app.services.
+    finexer_sync.sync_finexer_consent) — the ground truth for whether
+    RECONCILE_MAX_PER_MINUTE is still comfortably under whatever Finexer's
+    real rate limit turns out to be.
+    """
+    _require_admin(user)
+
+    run_doc = await worker_runs_col.find_one({"_id": "task_reconcile_truelayer"})
+    last_reconcile = (run_doc or {}).get("summary")
+
+    counts: list[float] = []
+    cursor = finexer_consents_col.find(
+        {"last_sync_requests": {"$exists": True}}, {"last_sync_requests": 1},
+    )
+    async for doc in cursor:
+        v = doc.get("last_sync_requests")
+        if isinstance(v, (int, float)):
+            counts.append(float(v))
+
+    finexer_requests = {
+        "count": len(counts),
+        "mean": round(statistics.fmean(counts), 2) if counts else 0.0,
+        "max": max(counts) if counts else 0,
+    }
+
+    return {
+        "last_reconcile": last_reconcile,
+        "finexer_requests": finexer_requests,
     }

@@ -1,17 +1,21 @@
 """arq worker: bank sync tasks + reconciliation cron."""
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Optional
 
 from arq import ArqRedis, cron
 from arq.connections import RedisSettings
 
-from app.core.config import REDIS_URL
+from app.core.config import (
+    REDIS_URL, RECONCILE_SPREAD_MINUTES, RECONCILE_MAX_PER_MINUTE,
+    RECONCILE_MIN_GAP_SECONDS,
+)
 from app.core.push import send_push_to_user
 from app.db.collections import (
     accounts_col, connections_col, yapily_consents_col, mono_connections_col,
     webhook_events_col, push_subscriptions_col, apns_tokens_col, fcm_tokens_col,
-    finexer_consents_col,
+    finexer_consents_col, worker_runs_col,
 )
 from app.services.truelayer_sync import sync_connection, cull_orphaned_connections
 from app.services.yapily_sync import sync_yapily_consent
@@ -170,6 +174,44 @@ def _refresh_window(refresh: Optional[str]) -> Optional[timedelta]:
     return _DEFAULT_REFRESH_WINDOW
 
 
+def _spread_offsets(
+    n: int,
+    *,
+    max_per_minute: int,
+    min_gap_seconds: int,
+    spread_minutes: int,
+) -> tuple[list[int], int]:
+    """Return (offsets_in_seconds, overflow_count) for `n` jobs to be
+    enqueued with `_defer_by`, in the caller's own priority order (index 0
+    gets the earliest offset).
+
+    Both constraints — "no more than max_per_minute jobs in any 60s
+    minute" and "consecutive jobs at least min_gap_seconds apart" — are
+    satisfied at once by using a single constant per-job gap: the larger of
+    min_gap_seconds and enough spacing to keep any 60-second bucket at or
+    under max_per_minute (ceil(60 / max_per_minute)). Evenly spacing every
+    job by that one gap trivially can't put more than max_per_minute of
+    them in any 60s window, so there's no need for per-bucket bookkeeping.
+
+    Jobs are meant to land inside `spread_minutes` (kept a little inside
+    the connection's own staleness window, see RECONCILE_SPREAD_MINUTES's
+    docstring in app.core.config, so every connection still gets caught by
+    this cycle's cron run). If `n` needs longer than that at this gap, nothing
+    is dropped: the excess keeps counting up on the same gap past the
+    window, and `overflow_count` is how many landed after it, for the
+    caller to log."""
+    if n <= 0:
+        return [], 0
+    if max_per_minute > 0:
+        gap = max(min_gap_seconds, math.ceil(60 / max_per_minute))
+    else:
+        gap = max(min_gap_seconds, 1)
+    offsets = [i * gap for i in range(n)]
+    window_seconds = spread_minutes * 60
+    overflow = sum(1 for o in offsets if o > window_seconds)
+    return offsets, overflow
+
+
 async def task_reconcile_truelayer(ctx):
     """Keep every connection fresh (at its tier's own cadence) and catch
     missed webhooks.
@@ -253,14 +295,6 @@ async def task_reconcile_truelayer(ctx):
         [c for c in tl_candidates if _is_priority(c[1])]
         + [c for c in tl_candidates if not _is_priority(c[1])]
     )
-    for conn, uid in tl_ordered:
-        await arq.enqueue_job(
-            "task_sync_truelayer",
-            connection_id=str(conn["_id"]),
-            user_id=uid,
-            _job_id=f"reconcile:{conn['_id']}",  # deduplicate if already queued
-        )
-        reconciled += 1
 
     # Retry webhook events that failed or got stuck in pending > 15 minutes
     # — unconditional on tier, these are missed-webhook catch-ups, not the
@@ -274,21 +308,10 @@ async def task_reconcile_truelayer(ctx):
         },
         {"connection_id": 1, "resolved_connection_id": 1, "user_id": 1},
     ).to_list(50)
-
-    for ev in failed_events:
-        conn_id = ev.get("resolved_connection_id") or ev.get("connection_id")
-        if not conn_id:
-            continue
-        await arq.enqueue_job(
-            "task_sync_truelayer",
-            connection_id=conn_id,
-            user_id=ev["user_id"],
-            _job_id=f"retry:{ev['_id']}",
-        )
-        await webhook_events_col.update_one(
-            {"_id": ev["_id"]}, {"$set": {"status": "retried", "retried_at": now}}
-        )
-        reconciled += 1
+    retry_ordered = [
+        ev for ev in failed_events
+        if (ev.get("resolved_connection_id") or ev.get("connection_id"))
+    ]
 
     # Re-sync authorized Finexer consents whose last_synced is stale for
     # their user's tier.
@@ -316,22 +339,87 @@ async def task_reconcile_truelayer(ctx):
         [c for c in fx_candidates if _is_priority(c[1])]
         + [c for c in fx_candidates if not _is_priority(c[1])]
     )
+
+    # Spread every job this run is about to enqueue — TL syncs, webhook
+    # retries, then Finexer syncs, in that order, matching the priority
+    # ordering already applied within each of the first and third groups —
+    # across RECONCILE_SPREAD_MINUTES rather than firing them all at once.
+    # See _spread_offsets's own docstring and RECONCILE_* in app.core.config
+    # for why (Finexer rate limits, once Railway Pro + replicas land, E2).
+    total_jobs = len(tl_ordered) + len(retry_ordered) + len(fx_ordered)
+    offsets, overflow = _spread_offsets(
+        total_jobs,
+        max_per_minute=RECONCILE_MAX_PER_MINUTE,
+        min_gap_seconds=RECONCILE_MIN_GAP_SECONDS,
+        spread_minutes=RECONCILE_SPREAD_MINUTES,
+    )
+    offset_iter = iter(offsets)
+
+    for conn, uid in tl_ordered:
+        await arq.enqueue_job(
+            "task_sync_truelayer",
+            connection_id=str(conn["_id"]),
+            user_id=uid,
+            _job_id=f"reconcile:{conn['_id']}",  # deduplicate if already queued
+            _defer_by=timedelta(seconds=next(offset_iter)),
+        )
+        reconciled += 1
+
+    for ev in retry_ordered:
+        conn_id = ev.get("resolved_connection_id") or ev.get("connection_id")
+        await arq.enqueue_job(
+            "task_sync_truelayer",
+            connection_id=conn_id,
+            user_id=ev["user_id"],
+            _job_id=f"retry:{ev['_id']}",
+            _defer_by=timedelta(seconds=next(offset_iter)),
+        )
+        await webhook_events_col.update_one(
+            {"_id": ev["_id"]}, {"$set": {"status": "retried", "retried_at": now}}
+        )
+        reconciled += 1
+
     for fx, uid in fx_ordered:
         await arq.enqueue_job(
             "task_sync_finexer",
             consent_id=str(fx["_id"]),
             user_id=uid,
             _job_id=f"fx_reconcile:{fx['_id']}",
+            _defer_by=timedelta(seconds=next(offset_iter)),
         )
         reconciled += 1
+
+    last_offset_seconds = offsets[-1] if offsets else 0
+    if overflow:
+        logger.warning(
+            "reconcile: %d of %d jobs spread past the %d-minute window "
+            "(last offset %ds) — connection count is outgrowing "
+            "RECONCILE_MAX_PER_MINUTE=%d at RECONCILE_SPREAD_MINUTES=%d; "
+            "consider raising the ceiling or widening the cron interval",
+            overflow, total_jobs, RECONCILE_SPREAD_MINUTES, last_offset_seconds,
+            RECONCILE_MAX_PER_MINUTE, RECONCILE_SPREAD_MINUTES,
+        )
 
     summary = {
         "reconciled": reconciled,
         "skipped_on_upload": skipped_on_upload,
         "skipped_fresh": skipped_fresh,
+        "spread_minutes": RECONCILE_SPREAD_MINUTES,
+        "last_offset_seconds": last_offset_seconds,
+        "overflow": overflow,
         "at": now.isoformat(),
     }
     logger.info("reconcile: %s", summary)
+
+    try:
+        await worker_runs_col.update_one(
+            {"_id": "task_reconcile_truelayer"},
+            {"$set": {"summary": summary, "updated_at": now}},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("reconcile: failed to persist run summary to worker_runs_col")
+
     return summary
 
 

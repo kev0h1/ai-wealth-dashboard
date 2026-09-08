@@ -57,7 +57,8 @@ class _FakeCursor:
 class FakeCol:
     """Stand-in for a Motor collection: supports exactly the ops
     task_reconcile_truelayer performs (find/sort/to_list, count_documents,
-    update_one with $set)."""
+    update_one with $set, optionally upserting — E2's worker_runs_col write
+    needs upsert=True to create its one summary doc on the first run)."""
 
     def __init__(self, docs=None):
         self.docs = [dict(d) for d in (docs or [])]
@@ -69,12 +70,16 @@ class FakeCol:
         n = sum(1 for d in self.docs if _matches(d, filt))
         return min(n, limit) if limit is not None else n
 
-    async def update_one(self, filt, update):
+    async def update_one(self, filt, update, upsert=False):
         for d in self.docs:
             if _matches(d, filt):
                 for k, v in (update.get("$set") or {}).items():
                     d[k] = v
                 return
+        if upsert:
+            new_doc = {k: v for k, v in filt.items() if not isinstance(v, dict)}
+            new_doc.update(update.get("$set") or {})
+            self.docs.append(new_doc)
 
 
 class FakeArq:
@@ -104,6 +109,9 @@ def _patch_common(monkeypatch, *, connections=None, accounts=None, finexer=None)
     monkeypatch.setattr(sync_worker, "accounts_col", accounts or FakeCol())
     monkeypatch.setattr(sync_worker, "finexer_consents_col", finexer or FakeCol())
     monkeypatch.setattr(sync_worker, "webhook_events_col", FakeCol())
+    # E2: task_reconcile_truelayer now writes its run summary here — a
+    # FakeCol so this never touches a real Mongo connection in tests.
+    monkeypatch.setattr(sync_worker, "worker_runs_col", FakeCol())
 
     async def _no_op_cull():
         return None

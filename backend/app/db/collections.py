@@ -144,6 +144,12 @@ excluded_accounts_col   = db["excluded_accounts"]
 # Distributed locks (startup migrations etc.)
 locks_col               = db["locks"]
 
+# Per-task cron run summaries (E2), one doc per task name (`_id`), overwritten
+# on every run — a lightweight "what happened last time" store for
+# GET /admin/sync-stats (app/routers/admin_usage.py) rather than a full run
+# history. See app/workers/sync_worker.py's task_reconcile_truelayer.
+worker_runs_col         = db["worker_runs"]
+
 # Finexer
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]

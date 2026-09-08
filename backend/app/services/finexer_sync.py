@@ -27,13 +27,83 @@ def _client() -> httpx.AsyncClient:
     )
 
 
-async def list_providers() -> list[dict]:
-    """Return all AIS-capable providers from GET /providers (paginated)."""
+# E2: Finexer's documented rate limit is unknown (see DEPLOY.md's "Railway
+# Pro and replicas (E2)" section), so a real 429 is the ground truth. Rather
+# than fail a whole sync the first time the API pushes back, this backs off
+# and retries a bounded number of times before giving up on just that GET.
+_MAX_429_RETRIES = 3
+# Cap on how long any single sleep (whether honouring Finexer's own
+# Retry-After header or our own backoff) is allowed to run — a huge or
+# malformed Retry-After value must not stall a worker job anywhere near its
+# 600s job_timeout (app.workers.sync_worker.WorkerSettings).
+_MAX_RETRY_AFTER_SECONDS = 30.0
+
+
+async def _get(
+    client: httpx.AsyncClient,
+    url: str,
+    params: Optional[dict] = None,
+    *,
+    counter: Optional[dict] = None,
+) -> httpx.Response:
+    """GET through Finexer's rate limit.
+
+    Counts every attempt (including retries) in `counter["requests"]` and
+    every 429 seen in `counter["429s"]`, when a counter dict is passed, so
+    the real per-sync request volume becomes visible (see
+    sync_finexer_consent's `last_sync_requests`/`last_sync_429s` and
+    GET /admin/sync-stats). `counter` is optional so callers outside a sync
+    (e.g. the standalone /finexer/providers route) can skip it.
+
+    On a 429, sleeps for the response's `Retry-After` header (falling back
+    to exponential backoff if absent/unparseable, both capped at
+    `_MAX_RETRY_AFTER_SECONDS`) and retries, up to `_MAX_429_RETRIES` times.
+    If still 429 after the last retry, gives up and returns that response —
+    the caller's existing non-200 handling takes it from there; this
+    function only logs the retry/give-up, not the final failure.
+    """
+    attempt = 0
+    resp: httpx.Response
+    while True:
+        if counter is not None:
+            counter["requests"] = counter.get("requests", 0) + 1
+        resp = await client.get(url, params=params)
+        if resp.status_code != 429:
+            return resp
+        if counter is not None:
+            counter["429s"] = counter.get("429s", 0) + 1
+        attempt += 1
+        if attempt > _MAX_429_RETRIES:
+            logger.warning(
+                "Finexer 429 on %s: giving up after %d retries", url, _MAX_429_RETRIES,
+            )
+            return resp
+        retry_after = resp.headers.get("Retry-After")
+        try:
+            sleep_s = float(retry_after) if retry_after is not None else float(2 ** attempt)
+        except (TypeError, ValueError):
+            sleep_s = float(2 ** attempt)
+        sleep_s = max(0.0, min(sleep_s, _MAX_RETRY_AFTER_SECONDS))
+        logger.warning(
+            "Finexer 429 on %s: retrying in %.1fs (attempt %d/%d)",
+            url, sleep_s, attempt, _MAX_429_RETRIES,
+        )
+        await asyncio.sleep(sleep_s)
+
+
+async def list_providers(counter: Optional[dict] = None) -> list[dict]:
+    """Return all AIS-capable providers from GET /providers (paginated).
+
+    `counter`: optional request/429 tally shared with the calling sync (see
+    `_get`'s docstring) — passed through by sync_finexer_consent since this
+    opens its own client but still counts against the same sync's Finexer
+    request budget. None for standalone callers (e.g. the providers route).
+    """
     providers = []
     offset = 0
     async with _client() as client:
         while True:
-            r = await client.get("/providers", params={"offset": offset})
+            r = await _get(client, "/providers", params={"offset": offset}, counter=counter)
             if r.status_code != 200:
                 logger.warning("Finexer /providers failed: HTTP %s %s", r.status_code, r.text[:200])
                 break
@@ -293,10 +363,15 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
     all_new_txns: list = []
     fetched_account_ids: list = []
     identity = await user_identity(user_id)
+    # E2: tallies every HTTP request (incl. 429 retries) this sync makes
+    # against Finexer, so the true per-connection request volume is
+    # observable (see `_get`, `last_sync_requests`/`last_sync_429s` below,
+    # and GET /admin/sync-stats).
+    counter: dict = {"requests": 0, "429s": 0}
 
     async with _client() as client:
         # Verify consent status remotely
-        cr = await client.get(f"/consents/{consent_id}")
+        cr = await _get(client, f"/consents/{consent_id}", counter=counter)
         if cr.status_code == 200:
             consent_doc = cr.json()
             remote_status = consent_doc.get("status")
@@ -313,6 +388,11 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             # measure the 30-day grace period from.
             if remote_status != local_consent.get("status"):
                 update_fields["status_changed_at"] = datetime.utcnow()
+            if remote_status != "authorized":
+                # This is the sync's final Finexer call — record the true
+                # totals now rather than leaving them stale from a previous run.
+                update_fields["last_sync_requests"] = counter["requests"]
+                update_fields["last_sync_429s"] = counter["429s"]
             await finexer_consents_col.update_one(
                 {"_id": consent_id},
                 {"$set": update_fields},
@@ -333,7 +413,12 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             await finexer_consents_col.update_one(
                 {"_id": consent_id},
                 # status_changed_at: see the retention-sweep note above.
-                {"$set": {"status": "revoked", "status_changed_at": datetime.utcnow()}},
+                # This is the sync's final Finexer call — record the true
+                # totals, same as the not-authorized branch above.
+                {"$set": {
+                    "status": "revoked", "status_changed_at": datetime.utcnow(),
+                    "last_sync_requests": counter["requests"], "last_sync_429s": counter["429s"],
+                }},
             )
             await _mark_finexer_accounts_expired(consent_id)
             return [], 0
@@ -343,7 +428,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             return [], 0
 
         # Fetch accounts
-        ar = await client.get("/bank_accounts", params={"consent": consent_id})
+        ar = await _get(client, "/bank_accounts", params={"consent": consent_id}, counter=counter)
         if ar.status_code != 200:
             logger.error("Finexer GET /bank_accounts failed: HTTP %s %s", ar.status_code, ar.text[:200])
             return [], 0
@@ -356,7 +441,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             logger.info("FINEXER raw first account JSON: %s", accounts[0])
 
         # Build provider info map once (id → full provider dict with name, logo, bg_colors)
-        provs = await list_providers()
+        provs = await list_providers(counter=counter)
         prov_map = {p["id"]: p for p in provs}
 
         for acc in accounts:
@@ -414,7 +499,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             # Fetch balance via dedicated endpoint
             balance: float = 0.0
             available = None
-            br = await client.get(f"/bank_accounts/{account_id}/balance")
+            br = await _get(client, f"/bank_accounts/{account_id}/balance", counter=counter)
             if br.status_code == 200:
                 bal_data = br.json()
                 bal_entries = bal_data.get("data") or []
@@ -476,7 +561,7 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             account_pending_rows: list = []
             fetch_failed = False
             while txn_url:
-                tr = await client.get(txn_url)
+                tr = await _get(client, txn_url, counter=counter)
                 if tr.status_code != 200:
                     logger.warning("Finexer transactions failed for %s: HTTP %s", account_id, tr.status_code)
                     fetch_failed = True
@@ -522,10 +607,15 @@ async def sync_finexer_consent(consent_id: str, user_id: str) -> tuple[list, int
             {"$set": {"status": "connected"}},
         )
 
-    # Update last_synced on the consent record
+    # Update last_synced on the consent record, alongside this sync's true
+    # Finexer request volume (E2 — see `_get`'s docstring).
     await finexer_consents_col.update_one(
         {"_id": consent_id},
-        {"$set": {"last_synced": datetime.utcnow()}},
+        {"$set": {
+            "last_synced": datetime.utcnow(),
+            "last_sync_requests": counter["requests"],
+            "last_sync_429s": counter["429s"],
+        }},
     )
 
     return fetched_account_ids, len(all_new_txns)

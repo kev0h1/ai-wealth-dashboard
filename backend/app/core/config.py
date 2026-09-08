@@ -400,3 +400,31 @@ _STRIPE_REQUIRED_PRICE_KEYS = (
 BILLING_ENABLED: bool = bool(STRIPE_SECRET_KEY) and all(
     key in STRIPE_PRICE_IDS for key in _STRIPE_REQUIRED_PRICE_KEYS
 )
+
+# ── Reconcile spread (E2) ────────────────────────────────────────────────────
+# task_reconcile_truelayer (app/workers/sync_worker.py) used to enqueue every
+# stale connection's sync job in one burst every 4 hours. That's fine at
+# today's single-worker scale, but once Railway Pro + replicas land (E2,
+# unlocked by D4 moving rate limiting and mobile login state to Redis — see
+# DEPLOY.md Step 3), a big burst of task_sync_finexer jobs firing at once
+# could slam Finexer's API: the item's own arithmetic is "10,000 connections
+# is about 42 syncs a minute" if fired in one go. These three spread that
+# burst into a trickle instead of dropping or throttling anything — see
+# DEPLOY.md's "Railway Pro and replicas (E2)" section for the worked sums.
+#
+# RECONCILE_SPREAD_MINUTES: how much of the connection's own staleness
+# window (see sync_worker._DEFAULT_REFRESH_WINDOW, 3h30) the spread is
+# allowed to use. Deliberately kept a little inside that window (210 of the
+# available 210 minutes) so a connection spread to the very end of one cron
+# run is still comfortably re-evaluated as "due" by the next 4-hourly tick,
+# not left to drift a cycle late.
+RECONCILE_SPREAD_MINUTES  = int(os.getenv("RECONCILE_SPREAD_MINUTES", "210"))
+# RECONCILE_MAX_PER_MINUTE: the Finexer-safe ceiling from the item's own
+# sums above (10,000 connections / 240 minutes ≈ 42/min; 40 gives a little
+# headroom under that).
+RECONCILE_MAX_PER_MINUTE  = int(os.getenv("RECONCILE_MAX_PER_MINUTE", "40"))
+# RECONCILE_MIN_GAP_SECONDS: floor on the gap between any two consecutive
+# jobs, independent of the per-minute ceiling above (matters once
+# RECONCILE_MAX_PER_MINUTE is raised very high — a floor still keeps jobs
+# from landing effectively simultaneously).
+RECONCILE_MIN_GAP_SECONDS = int(os.getenv("RECONCILE_MIN_GAP_SECONDS", "2"))
