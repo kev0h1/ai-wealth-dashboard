@@ -105,7 +105,7 @@ function deriveInitials(name: string | undefined): string {
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { darkMode, setDarkMode, rawPrefs } = usePreferences();
+  const { darkMode, setDarkMode, rawPrefs, refreshPreferences } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -197,6 +197,12 @@ export default function SettingsPage() {
   const [appleUnlinkOpen, setAppleUnlinkOpen] = useState(false);
   const [appleUnlinking, setAppleUnlinking] = useState(false);
 
+  // Penny agent-mode consent, "Turn off" control (B13). Confirm-gated since
+  // revoking also cancels any of the user's still-unconfirmed proposals.
+  const [pennyConsentOffOpen, setPennyConsentOffOpen] = useState(false);
+  const [pennyConsentRevoking, setPennyConsentRevoking] = useState(false);
+  const [pennyConsentMsg, setPennyConsentMsg] = useState<string | null>(null);
+
   // Penny messages usage row (backlog B4) — shared store, see
   // components/PennySheetProvider.tsx. `pennyUsageAttempted` flips once the
   // one-shot refresh below has settled; combined with a still-null `info`
@@ -262,6 +268,23 @@ export default function SettingsPage() {
       setAppleLinkMsg({ text: "Could not unlink. Try again.", ok: false });
     } finally {
       setAppleUnlinking(false);
+    }
+  }
+
+  // Penny agent-mode consent "Turn off" (B13). refreshPreferences() re-runs
+  // GET /preferences so rawPrefs.penny_agent_consent (read just below, in
+  // the Penny card) reflects the off state without a full page reload.
+  async function handleTurnOffPennyConsent() {
+    setPennyConsentRevoking(true);
+    try {
+      await api.revokePennyAgentConsent();
+      setPennyConsentOffOpen(false);
+      await refreshPreferences();
+      setPennyConsentMsg("Setting things up is off");
+    } catch {
+      setPennyConsentMsg("Could not turn this off. Try again.");
+    } finally {
+      setPennyConsentRevoking(false);
     }
   }
 
@@ -734,14 +757,17 @@ export default function SettingsPage() {
             preferences fetch every other row on this page already uses —
             no separate request.
 
-            GAP, flagged deliberately rather than guessed around: the
-            backend contract for this feature only specifies POST
-            /penny/agent-consent (grant). There is no revoke/toggle-off
-            endpoint in the contract, so this row is READ-ONLY — no Toggle
-            component — with "ask Penny to stop" copy instead of a switch,
-            per this feature's own instruction for exactly this situation.
-            If a revoke endpoint lands later, this becomes a normal
-            Toggle-backed row like every other preference on this page.
+            B13 (2026-09-08): consent is no longer one-way. DELETE
+            /penny/agent-consent (api.revokePennyAgentConsent) now exists —
+            same call Penny's own "stop setting things up" chat phrase
+            triggers server-side — so the "on" state gets a real "Turn off"
+            control instead of the old read-only "ask Penny to stop in
+            chat" line, which called nothing. Confirm-gated (ConfirmDialog,
+            same component the Apple-unlink row above uses) since revoking
+            also cancels any of the user's still-unconfirmed proposals, not
+            just the on/off flag. refreshPreferences() re-fetches
+            GET /preferences after a successful revoke so `rawPrefs` (and
+            this row) flips to the off branch without a page reload.
 
             Placement: this doesn't nest inside an existing card (no
             existing section is both an unconditional render and a clean
@@ -770,11 +796,21 @@ export default function SettingsPage() {
           <div className="px-4 py-3.5">
             {rawPrefs?.penny_agent_consent ? (
               <>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is on</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Penny can create envelopes, goals and one-off payments when you ask her to. You&apos;ll always see exactly what would change and confirm before anything happens.
-                </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">To turn this off, ask Penny to stop in chat.</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Setting things up is on</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Penny can create envelopes, goals and one-off payments when you ask her to. You&apos;ll always see exactly what would change and confirm before anything happens.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPennyConsentOffOpen(true)}
+                    className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
+                  >
+                    Turn off
+                  </button>
+                </div>
               </>
             ) : (
               <>
@@ -783,6 +819,9 @@ export default function SettingsPage() {
                   Penny can only answer questions right now. Ask her to set something up, like an envelope or a goal, and she&apos;ll offer to turn this on.
                 </p>
               </>
+            )}
+            {pennyConsentMsg && (
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">{pennyConsentMsg}</p>
             )}
           </div>
         </div>
@@ -1270,6 +1309,19 @@ export default function SettingsPage() {
         confirmDisabled={appleUnlinking}
         onConfirm={handleUnlinkApple}
         onCancel={() => setAppleUnlinkOpen(false)}
+      />
+
+      {/* Turn off Penny setting things up (B13). Not `destructive` — this
+          isn't a genuine-risk action (DESIGN.md: red means genuine risk
+          only), just an ordinary reversible preference. */}
+      <ConfirmDialog
+        open={pennyConsentOffOpen}
+        title="Turn off setting things up?"
+        message="Penny will stop proposing changes and any proposals you have not confirmed will be cancelled. You can turn it back on from chat at any time."
+        confirmLabel="Turn off"
+        confirmDisabled={pennyConsentRevoking}
+        onConfirm={handleTurnOffPennyConsent}
+        onCancel={() => setPennyConsentOffOpen(false)}
       />
 
       <BottomNav />

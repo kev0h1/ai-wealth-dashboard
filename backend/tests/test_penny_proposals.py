@@ -89,6 +89,27 @@ class _FakeCol:
         if upsert:
             self.docs.append(dict(doc))
 
+    async def update_many(self, filt, update):
+        """B13 addition: revoke_agent_consent cancels every PENDING proposal
+        (executed_at/cancelled_at both still None) for the revoking user in
+        one bulk update, mirroring Motor's own update_many(filter, update)
+        shape — no upsert, exact-key-equality matching only, same as every
+        other method on this fake."""
+        n = 0
+        for d in self.docs:
+            if self._match(d, filt):
+                d.update(update.get("$set") or {})
+                n += 1
+        return _ModifiedResult(n)
+
+
+class _ModifiedResult:
+    """Just enough of pymongo's UpdateResult for revoke_agent_consent's
+    `result.modified_count` read."""
+
+    def __init__(self, n):
+        self.modified_count = n
+
 
 # ═════════════════════════════════════════════════════════════════════════
 # Section A — propose tool executors (app.services.penny_tools)
@@ -1002,24 +1023,137 @@ def test_grant_agent_consent_sets_preference(monkeypatch):
 
 
 def test_revoke_agent_consent_clears_preference(monkeypatch):
+    # B13: the router's DELETE /penny/agent-consent (revoke_agent_consent_route)
+    # is now a thin wrapper over app.services.penny_tools.revoke_agent_consent
+    # — THAT module's own preferences_col/penny_proposals_col are the ones
+    # that must be patched, not can_i_module's (they're separate names bound
+    # in separate modules, even though both originally point at the same
+    # real Motor collection — see revoke_agent_consent's own docstring for
+    # why it had to move out of can_i.py in the first place).
     fake_prefs = _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}])
-    monkeypatch.setattr(can_i_module, "preferences_col", fake_prefs)
+    fake_proposals = _FakeCol()
+    monkeypatch.setattr(penny_tools_module, "preferences_col", fake_prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
 
-    result = asyncio.run(can_i_module.revoke_agent_consent(user={"email": UID}))
-    assert result == {"penny_agent_consent": None}
+    result = asyncio.run(can_i_module.revoke_agent_consent_route(user={"email": UID}))
+    assert result == {"penny_agent_consent": None, "proposals_cancelled": 0}
     assert fake_prefs.docs[0]["penny_agent_consent"] is None
 
 
 def test_revoke_agent_consent_idempotent_when_never_consented(monkeypatch):
     fake_prefs = _FakeCol()  # no doc at all yet
-    monkeypatch.setattr(can_i_module, "preferences_col", fake_prefs)
+    fake_proposals = _FakeCol()
+    monkeypatch.setattr(penny_tools_module, "preferences_col", fake_prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
 
-    result = asyncio.run(can_i_module.revoke_agent_consent(user={"email": UID}))
-    assert result == {"penny_agent_consent": None}
+    result = asyncio.run(can_i_module.revoke_agent_consent_route(user={"email": UID}))
+    assert result == {"penny_agent_consent": None, "proposals_cancelled": 0}
 
     # Revoking again (already off) still succeeds, never errors.
-    result2 = asyncio.run(can_i_module.revoke_agent_consent(user={"email": UID}))
-    assert result2 == {"penny_agent_consent": None}
+    result2 = asyncio.run(can_i_module.revoke_agent_consent_route(user={"email": UID}))
+    assert result2 == {"penny_agent_consent": None, "proposals_cancelled": 0}
+
+
+def test_revoke_agent_consent_cancels_pending_proposals_only(monkeypatch):
+    # The core B13 semantics: revoking consent must cancel every one of the
+    # user's still-PENDING proposals (never executed, never already
+    # cancelled) in the same call, but must never touch a confirmed/executed
+    # proposal (that's history, not an open door) nor another user's rows.
+    fake_prefs = _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}])
+    pending_1 = _live_doc("dismiss_recurring", {"key": "Netflix"}, _id="p-pending-1")
+    pending_2 = _live_doc("create_allocation", {"name": "X"}, _id="p-pending-2")
+    already_cancelled = _live_doc("dismiss_recurring", {"key": "Spotify"}, _id="p-cancelled",
+                                   cancelled_at=datetime(2026, 9, 1))
+    executed = _live_doc("dismiss_recurring", {"key": "Amazon"}, _id="p-executed",
+                          executed_at=datetime(2026, 9, 1), result={"ok": True})
+    someone_elses = _live_doc("dismiss_recurring", {"key": "Netflix"}, _id="p-other-user",
+                               user_id="someone-else")
+    fake_proposals = _FakeCol([pending_1, pending_2, already_cancelled, executed, someone_elses])
+    monkeypatch.setattr(penny_tools_module, "preferences_col", fake_prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
+
+    result = asyncio.run(can_i_module.revoke_agent_consent_route(user={"email": UID}))
+    assert result == {"penny_agent_consent": None, "proposals_cancelled": 2}
+
+    by_id = {d["_id"]: d for d in fake_proposals.docs}
+    assert by_id["p-pending-1"]["cancelled_at"] is not None
+    assert by_id["p-pending-2"]["cancelled_at"] is not None
+    # Already-cancelled and already-executed rows are left exactly as they
+    # were — not re-stamped, not touched.
+    assert by_id["p-cancelled"]["cancelled_at"] == datetime(2026, 9, 1)
+    assert by_id["p-executed"]["cancelled_at"] is None
+    assert by_id["p-executed"]["executed_at"] == datetime(2026, 9, 1)
+    # Another user's pending proposal is untouched.
+    assert by_id["p-other-user"]["cancelled_at"] is None
+
+
+# ── B13: "stop setting things up" deterministic phrase (app.services.penny_agent) ──
+
+def test_stop_consent_phrase_revokes_without_model_call(monkeypatch):
+    # THE core guarantee: this path never touches OpenRouter at all — the
+    # phrase match happens before the model is even consulted. A patched
+    # openrouter_chat that raises on any call proves that.
+    fake_prefs = _FakeCol([{"user_id": UID, "penny_agent_consent": "2026-08-30T00:00:00"}])
+    fake_proposals = _FakeCol([_live_doc("dismiss_recurring", {"key": "Netflix"}, _id="p-pending")])
+    monkeypatch.setattr(penny_tools_module, "preferences_col", fake_prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
+
+    async def fail_openrouter(*args, **kwargs):
+        raise AssertionError("must never call the model for a deterministic stop-consent message")
+
+    monkeypatch.setattr(penny_agent_module, "openrouter_chat", fail_openrouter)
+
+    result = asyncio.run(run_penny_agent(UID, "stop setting things up", [], None, ""))
+    assert result["headline"] == "Setting things up is off"
+    assert "off" in result["reply"].lower()
+    assert "—" not in result["reply"]  # no em dash in user-facing copy
+    assert result["tools_used"] == []
+    # The shared revoke actually ran: flag cleared, pending proposal cancelled.
+    assert fake_prefs.docs[0]["penny_agent_consent"] is None
+    assert fake_proposals.docs[0]["cancelled_at"] is not None
+
+
+@pytest.mark.parametrize("phrase", [
+    "Stop setting things up.",
+    "  stop setting things up  ",
+    "TURN OFF SETTING THINGS UP",
+    "stop proposing!",
+    "Revoke consent?",
+])
+def test_stop_consent_phrase_variants_match(monkeypatch, phrase):
+    fake_prefs = _FakeCol([{"user_id": UID, "penny_agent_consent": "x"}])
+    fake_proposals = _FakeCol()
+    monkeypatch.setattr(penny_tools_module, "preferences_col", fake_prefs)
+    monkeypatch.setattr(penny_tools_module, "penny_proposals_col", fake_proposals)
+
+    async def fail_openrouter(*args, **kwargs):
+        raise AssertionError("must never call the model for a matching stop-consent phrase")
+
+    monkeypatch.setattr(penny_agent_module, "openrouter_chat", fail_openrouter)
+
+    result = asyncio.run(run_penny_agent(UID, phrase, [], None, ""))
+    assert result["headline"] == "Setting things up is off"
+
+
+def test_non_matching_message_does_not_revoke_consent(monkeypatch):
+    # A sentence that merely MENTIONS "stop proposing" mid-thought, rather
+    # than saying it as the whole message, must fall through to the normal
+    # tool-calling loop and must never call revoke_agent_consent.
+    _patch_consent(monkeypatch, consented=True)
+    client = _ScriptedAsyncClient([_final_payload("HEADLINE: ok\nREPLY: fine.")])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    calls = {"n": 0}
+
+    async def fake_revoke(uid):
+        calls["n"] += 1
+        return {"penny_agent_consent": None, "proposals_cancelled": 0}
+
+    monkeypatch.setattr(penny_agent_module, "revoke_agent_consent", fake_revoke)
+
+    result = asyncio.run(run_penny_agent(UID, "why did it stop proposing halfway through", [], None, ""))
+    assert calls["n"] == 0
+    assert result["reply"] == "fine."
 
 
 def test_run_penny_agent_dispatch_gate_still_blocks_after_revocation(monkeypatch):

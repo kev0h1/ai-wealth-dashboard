@@ -32,6 +32,14 @@ interface PrefsCtx extends Prefs {
   setSpendWidgets: (v: string[]) => void;
   setHomePinnedWidget: (v: string | null) => void;
   setDebtBurndownOverrides: (v: DebtBurndownOverrides | null) => void;
+  /** Re-runs the same GET /preferences fetch the mount effect uses and
+   * re-applies every field, including `rawPrefs`. For callers (B13:
+   * Settings' Penny "Turn off" control) that just made a server-side
+   * preferences change through a DIFFERENT endpoint (DELETE
+   * /penny/agent-consent, not PATCH /preferences) and need the locally
+   * cached `rawPrefs` to catch up rather than issuing a second bespoke
+   * fetch. */
+  refreshPreferences: () => Promise<void>;
 }
 
 const todayYM = () => new Date().toISOString().slice(0, 7);
@@ -57,6 +65,7 @@ const Ctx = createContext<PrefsCtx>({
   setSpendWidgets: () => {},
   setHomePinnedWidget: () => {},
   setDebtBurndownOverrides: () => {},
+  refreshPreferences: () => Promise.resolve(),
 });
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
@@ -84,8 +93,15 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [debtBurndownOverrides, setDebtBurndownOverridesState] = useState<DebtBurndownOverrides | null>(null);
   const [rawPrefs, setRawPrefs] = useState<Record<string, any> | null>(null);
 
-  useEffect(() => {
-    api.getPreferences().then(p => {
+  // Shared by the mount effect below and refreshPreferences() (B13): ONE
+  // place that fetches GET /preferences and applies every field, so a
+  // caller that changed a preference through a different endpoint (DELETE
+  // /penny/agent-consent, not PATCH /preferences) can bring this context's
+  // cached state back in sync without duplicating the field-by-field apply
+  // logic. useCallback with no deps: every setter here is itself a stable
+  // setState function, so this identity never needs to change.
+  const loadPreferences = useCallback(() => {
+    return api.getPreferences().then(p => {
       setHideNetWorthState(p.hide_net_worth);
       try { localStorage.setItem("wd_hide_balances", p.hide_net_worth ? "1" : "0"); } catch {}
       if (p.dark_mode !== undefined) {
@@ -100,8 +116,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       if (p.home_pinned_widget !== undefined) setHomePinnedWidgetState(p.home_pinned_widget ?? null);
       if ((p as any).debt_burndown_overrides !== undefined) setDebtBurndownOverridesState((p as any).debt_burndown_overrides ?? null);
       setRawPrefs(p as any);
-    }).catch(() => {}).finally(() => setPreferencesReady(true));
+    }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadPreferences().finally(() => setPreferencesReady(true));
+  }, [loadPreferences]);
+
+  const refreshPreferences = useCallback(() => loadPreferences(), [loadPreferences]);
 
   useEffect(() => {
     if (darkMode) {
@@ -160,7 +182,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       hideNetWorth, preferencesReady, darkMode, payPeriodConfig, region, debtTargetMonths, debtTrackingStart,
       spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs,
       setHideNetWorth, setDarkMode, setPayPeriodConfig, setRegion, setDebtTargetMonths, setDebtTrackingStart,
-      setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides,
+      setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,
     }}>
       {children}
     </Ctx.Provider>

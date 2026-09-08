@@ -39,6 +39,7 @@ from app.routers.scenario import looks_like_scenario, parse_question
 from app.services.affordability import _nothing_spare_line
 from app.services.categories import get_category_kinds, is_discretionary
 from app.services.penny_agent import run_penny_agent
+from app.services.penny_tools import revoke_agent_consent
 
 # Same convention as app.routers.analytics (this module's own neighbour,
 # already imported above): module-level stdlib logger, `.exception()` inside
@@ -823,24 +824,33 @@ async def grant_agent_consent(user: dict = Depends(current_user)):
 
 
 @router.delete("/penny/agent-consent")
-async def revoke_agent_consent(user: dict = Depends(current_user)):
-    """The Settings toggle's OFF path (added on top of the original
-    grant-only contract, 2026-08-30, same day). Clears
-    `penny_agent_consent` back to falsy. Idempotent — revoking when already
-    not consented just confirms the off state, never errors.
+async def revoke_agent_consent_route(user: dict = Depends(current_user)):
+    """The Settings "Turn off" control's path (B13, 2026-09-08 — this
+    endpoint originally only cleared the flag; there was no caller for it
+    anywhere in the app, since Settings rendered a read-only "ask Penny to
+    stop in chat" line that called nothing, per that row's own now-removed
+    GAP comment). Idempotent — revoking when already not consented just
+    confirms the off state, never errors.
+
+    Body is a thin wrapper: app.services.penny_tools.revoke_agent_consent
+    is the ONE place the actual revoke happens (also called from
+    app.services.penny_agent's deterministic "stop setting things up"
+    phrase match in chat), so this route and that phrase always do
+    identically the same thing — clear the flag AND cancel every pending
+    proposal, see that function's own docstring for why the cancel is part
+    of the same operation, not an optional extra.
 
     Takes effect immediately and in two places: `app.services.penny_agent`
-    reads this field live on every call (no caching), so the very next
+    reads the flag live on every call (no caching), so the very next
     question excludes the propose-tool schemas again exactly as a
     never-consented user's would; and `execute_proposal` below re-checks
     consent at EXECUTE time, not just at proposal-creation time, so a
     proposal built while consented but still sitting unactioned in the
-    15-minute window cannot be executed after this fires."""
+    15-minute window cannot be executed after this fires (belt-and-braces
+    with the explicit cancel above, which already stops it being confirmed
+    at all)."""
     uid = user["email"]
-    await preferences_col.update_one(
-        {"user_id": uid}, {"$set": {"penny_agent_consent": None, "user_id": uid}}, upsert=True,
-    )
-    return {"penny_agent_consent": None}
+    return await revoke_agent_consent(uid)
 
 
 @router.post("/penny/proposals/{proposal_id}/execute")

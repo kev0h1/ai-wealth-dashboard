@@ -2220,10 +2220,21 @@ export const api = {
     }).then((r) => toJson<{ ok: boolean }>(r)),
   // Agent mode v1's one-time consent moment (ConsentCard). Records consent;
   // preferences then carry a `penny_agent_consent` timestamp (see
-  // getPreferences below). No corresponding revoke/toggle-off endpoint is
-  // in the contract yet — SettingsPage.tsx renders that state read-only
-  // until one exists (flagged there and in this feature's own report).
+  // getPreferences below).
   grantPennyAgentConsent: () => post<{ ok: boolean }>("/penny/agent-consent", {}),
+  // B13: Settings' "Turn off" control (and Penny's own "stop setting things
+  // up" chat phrase, handled server-side) both land here. Clears
+  // `penny_agent_consent` back to falsy AND cancels every one of the user's
+  // still-unconfirmed proposals in the same call — see
+  // backend/app/services/penny_tools.py's revoke_agent_consent for why the
+  // two happen together. Callers should follow a successful call with
+  // PreferencesContext's refreshPreferences() so `rawPrefs.penny_agent_consent`
+  // (read by SettingsPage.tsx) reflects the off state immediately.
+  revokePennyAgentConsent: () =>
+    fetch(`${API_BASE}/penny/agent-consent`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ penny_agent_consent: null; proposals_cancelled: number }>(r)),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
   createCommitment: (body: {
     name: string;
