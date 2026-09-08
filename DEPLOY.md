@@ -277,6 +277,13 @@ so a prod mobile build built on this VPS can't pick up the UAT frontend's
 gitignored `.env.local` (which carries `NEXT_PUBLIC_TRUELAYER_PICKER=on`)
 either.
 
+`build-mobile.sh` also refuses to run at all unless its own resolved
+directory contains `package.json`, `next.config.ts` and `app/`, and refuses
+to let its scratch directory resolve outside that directory — a guard added
+after a copy of the script run from `/tmp` on 2026-09-08 `cd`'d to `/` and
+started mirroring the root filesystem into `/.mobile-build` before being
+killed (`npm run check:build-mobile-guard` tests the guard in isolation).
+
 ## Mobile — Codemagic TestFlight builds
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a

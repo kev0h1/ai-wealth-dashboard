@@ -28,6 +28,50 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# --------------------------------------------------------------------------
+# Directory guard (2026-09-08 incident): a copy of this script run from
+# /tmp `cd`'d to `/` (the copy's own dirname resolved outside frontend/),
+# and the old unconditional `rm -rf "$SCRATCH"` / `rsync --delete ...
+# "$SCRATCH/"` below started mirroring the *root filesystem* into
+# /.mobile-build before it was killed. This script must only ever run from
+# its own checked-in location inside frontend/, and SCRATCH must never be
+# allowed to resolve outside that directory.
+#
+# require_project_dir is its own function (rather than inline checks) so
+# build-mobile-guard.test.sh can source this file with
+# BUILD_MOBILE_GUARD_ONLY=1 and exercise it directly, without ever running
+# an rm/mkdir/trap/rsync.
+require_project_dir() {
+  local dir="$1"
+  if [ ! -f "$dir/package.json" ] || [ ! -f "$dir/next.config.ts" ] || [ ! -d "$dir/app" ]; then
+    echo "error: build-mobile.sh must be run from its own location inside frontend/; resolved $dir" >&2
+    return 2
+  fi
+  return 0
+}
+
+if [ "${BUILD_MOBILE_GUARD_ONLY:-}" = "1" ]; then
+  # Test-only escape hatch: stop right after defining the guard function
+  # above, before touching the filesystem at all.
+  return 0 2>/dev/null || exit 0
+fi
+
+PROJECT_DIR="$(pwd -P)"
+require_project_dir "$PROJECT_DIR" || exit 2
+
+SCRATCH="$PROJECT_DIR/.mobile-build"
+case "$SCRATCH" in
+  "$PROJECT_DIR"/*) ;;
+  *)
+    echo "error: SCRATCH ($SCRATCH) resolved outside PROJECT_DIR ($PROJECT_DIR); refusing to run" >&2
+    exit 2
+    ;;
+esac
+if [ "$PROJECT_DIR" = "/" ]; then
+  echo "error: PROJECT_DIR resolved to /; refusing to run" >&2
+  exit 2
+fi
+
 # Precompute the login/biometric-lock build tag (see frontend/lib/buildTag.ts)
 # HERE, before the rsync below. `next.config.ts` normally derives this itself
 # at config-load time via `git rev-parse --short HEAD`, but that rsync
@@ -49,11 +93,18 @@ if [ -z "${NEXT_PUBLIC_BUILD_TAG:-}" ]; then
   fi
 fi
 
-SCRATCH="$(pwd)/.mobile-build"
-
 rm -rf "$SCRATCH"
 mkdir -p "$SCRATCH"
-trap 'rm -rf "$SCRATCH"' EXIT
+# Only ever remove SCRATCH itself, and only if it is still under
+# PROJECT_DIR — belt and braces alongside the case guard above, in case a
+# future edit changes how SCRATCH is computed and forgets to re-check it.
+trap '
+  if [ -n "${SCRATCH:-}" ]; then
+    case "$SCRATCH" in
+      "$PROJECT_DIR"/*) rm -rf "$SCRATCH" ;;
+    esac
+  fi
+' EXIT
 
 rsync -a --delete \
   --exclude='.next/' \
