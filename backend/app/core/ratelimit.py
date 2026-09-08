@@ -31,6 +31,14 @@ RULES = [
     # than /push/test's limit because a client-side registration retry loop
     # could otherwise flood this endpoint with failure reports.
     ("/push/client-diagnostic", 20, 60),
+    # F3: app/routers/mcp.py's POST /mcp calls check_rate_limit() itself as
+    # its first line, same pattern as /push/test above. The auth
+    # middleware doesn't call it for arbitrary prefixes, only /auth/,
+    # /webhooks/ and /logo/. Per-IP, not per-user: an external assistant
+    # hammering the connector from one IP is the failure mode this guards,
+    # separate from the tier's own per-user monthly call allowance
+    # (app.routers.mcp.check_mcp_allowance).
+    ("/mcp", 60, 60),
 ]
 
 

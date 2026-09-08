@@ -145,6 +145,44 @@ migrated **encrypted tokens decrypt** — the TOKEN_KEY proof), trigger a sync
 
 ---
 
+## MCP connector
+
+F3 (2026-09-08): `/mcp` is a read-only Streamable HTTP MCP endpoint exposing
+Penny's own read tools (never the propose/write tools) to a user's own AI
+assistant. Included in the Connect and Max tiers only. See
+`PENNY_TOOLS.md`'s "Not-MCP decision" section for the tool/scope/masking
+rules and `app/routers/mcp.py` for the implementation.
+
+**Connecting Claude's custom connector, until F2 (OAuth 2.1) ships:**
+
+1. In the Claude app, add a custom connector pointing at
+   `https://api.wealth.auriqltd.co.uk/mcp`.
+2. Authenticate with a bearer token. v1 has no OAuth flow yet, so this is
+   the SAME session bearer the web/mobile app itself uses (mint one by
+   signing in and reading it from the app's own auth cookie/local storage;
+   there is no separate "connector token" to generate). It carries all
+   three v1 scopes (`accounts:read`, `plans:read`, `insights:read`) and
+   expires the same way any other session does (`SESSION_MAX_AGE`), so a
+   connector that stops working after a while has an expired session, not a
+   bug. F2 will replace this with a proper OAuth 2.1 + PKCE flow, a consent
+   page, and revocable long-lived access tokens; nothing about the tool
+   catalogue or masking rules changes when that lands.
+3. `search_transactions` and every `propose_*` tool are not offered to the
+   assistant at all; the 18 read tools that are offered never return raw
+   transaction rows (see `app/services/mcp_mask.py`), only aggregates,
+   verdicts and figures.
+
+**Allowance and audit:** the connector shares the tier's own monthly call
+allowance (`TIER_LIMITS[...]["mcp_tool_calls_per_month"]`: 2,000 on Connect,
+5,000 on Max, 0 (not included) below that) plus a 60-requests/minute
+per-IP rate limit. Every `tools/call` writes one audit doc to `mcp_calls_col`
+(tool, client, ok, timestamp, latency, count of keys masked, never the
+values); a user can read their own rows back via `GET /mcp/audit?month=`
+(no UI for this yet, F4, not started, is the "Connected assistants"
+settings surface that will render it).
+
+---
+
 ## Backend env vars (Railway — web AND worker)
 
 | Var | Source | Notes |

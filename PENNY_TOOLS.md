@@ -484,3 +484,36 @@ cataloguing for third-party clients; Penny is first-party, so the catalog
 goes in the OpenRouter request payload and the loop lives in our backend. An
 MCP wrapper becomes worthwhile only if external assistants should ever talk
 to Sorted, and the tool layer here is shaped so that wrapper would be thin.
+
+**Update, 2026-09-08 (F3):** that wrapper now exists. A real MCP read
+connector lives at `/mcp` (`app/routers/mcp.py`), for a user's own external
+AI assistant (Claude, ChatGPT, ...) to read their Sorted data. This does not
+reverse the decision above: Penny's own loop still calls `execute_tool`
+directly with the OpenRouter-shaped catalog, unchanged. `/mcp` is a second,
+outward-facing caller of that same dispatch, not a replacement for the
+first. v1 rules, all owner decisions from 2026-09-08:
+
+- Only the read tools in `TOOL_SCHEMAS` are reachable, minus
+  `search_transactions` (excluded outright). `PROPOSE_TOOL_SCHEMAS` is never
+  reachable from `/mcp` and never will be without a separate, explicit
+  decision, since v1 has no write path and no consent flow for one.
+- No raw transaction rows cross the connector at all, under any scope.
+  `app/services/mcp_mask.py` strips every per-transaction row (a dict with
+  a description/merchant name, an amount AND a date, the shape of an
+  actual bank transaction) from every tool's output, plus
+  `get_account_activity`'s `first_transaction`/`last_transaction` and
+  `get_spend_verdict`'s `unresolved.largest` specifically, plus banking
+  identifiers (account numbers, sort codes, IBANs, consent ids, tokens) by
+  key name anywhere in the tree. Assistants get aggregates, verdicts and
+  figures, same as this doc's "tools return facts a person would actually
+  understand" doctrine, just for a different reader.
+- Scopes are `accounts:read`, `plans:read`, `insights:read`. A session
+  bearer token (the same one the app itself uses) is granted all three
+  until F2 (OAuth 2.1 authorisation server, not started) issues real
+  per-token scopes. `transactions:read` does not exist yet; v1 has nothing
+  for it to gate.
+- Included in Connect (2,000 calls/month) and Max (5,000/month); not
+  included in Statements/Lite/Standard. Per-IP rate limit plus the tier's
+  monthly allowance, both enforced in `app/routers/mcp.py`; every
+  `tools/call` writes one audit doc (`mcp_calls_col`) the caller can read
+  back via `GET /mcp/audit`.

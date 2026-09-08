@@ -21,7 +21,7 @@ from app.db.collections import (
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col,
-    response_cache_col,
+    response_cache_col, mcp_calls_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -35,7 +35,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
-    penny_chip, ops, admin_usage,
+    penny_chip, ops, admin_usage, mcp as mcp_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -127,6 +127,7 @@ for router in [
     penny_chip.router,
     ops.router,
     admin_usage.router,
+    mcp_router.router,
 ]:
     app.include_router(router)
 
@@ -217,6 +218,9 @@ async def _create_indexes():
     await response_cache_col.create_index(
         "computed_at", expireAfterSeconds=6 * 3600, name="response_cache_ttl"
     )
+    # F3 /mcp connector audit log (app/routers/mcp.py), backs both
+    # check_mcp_allowance's monthly count and GET /mcp/audit's per-user read.
+    await mcp_calls_col.create_index([("user_id", 1), ("year_month", 1)])
 
 
 async def _acquire_migration_lock() -> bool:
