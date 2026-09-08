@@ -63,6 +63,22 @@ const JOB_MEANING: Record<MoneyShapeJob["id"], string> = {
 };
 const OVERSPENT_MEANING = "Spend that went beyond your take-home pay";
 
+// Single source of truth for the one-line legend under the job rows here
+// AND under components/SpendShapeCard.tsx's four cells — exported so that
+// file imports this instead of holding its own copy (G13), which makes the
+// "must never disagree" promise structural rather than just a comment.
+// Shortened 2026-09-08 (G13) so it fits one line at 12px on a 390px phone
+// without SpendShapeCard.tsx's `truncate` cutting it off mid-word. The
+// legend sits in a flex row next to a chevron icon there, so its real
+// column is ~300px, not the full ~358px card width — measured live via
+// headless Chrome against components/SpendShapeCard.tsx's own DOM
+// (naturalTextWidth 237px in a 300px column, comfortable margin). Dropped
+// "and commitments" to make that width; "and investing" was kept per
+// Kevin's ask since it still fit. JOB_MEANING above still spells out the
+// fuller "Bills and commitments" per job row, so nothing here is lost, just
+// summarised shorter for the one-line caption.
+export const SHAPE_LEGEND = "Fixed is bills, moved is savings and investing.";
+
 const JOB_ORDER: MoneyShapeJob["id"][] = ["fixed", "moved", "free", "left"];
 
 // Fallback ONLY — used when a job carries no `categories` (an older
@@ -485,11 +501,12 @@ export default function MoneyShapeHero({
         })}
       </div>
 
-      {/* Matches components/SpendShapeCard.tsx's own SHAPE_LEGEND word for
-          word (G7) — the shape card and this hero must never disagree on
-          what a job means, same as they already agree on JOB_COLOR. */}
+      {/* SHAPE_LEGEND (defined above) is imported by
+          components/SpendShapeCard.tsx too (G13), so it can't drift — the
+          shape card and this hero can no longer disagree on what a job
+          means, same as they already agree on JOB_COLOR. */}
       <p className="mt-2 text-[12px] text-slate-500 dark:text-slate-400 text-pretty">
-        Fixed is bills and commitments, moved is money sent to savings and investing.
+        {SHAPE_LEGEND}
       </p>
       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Tap a job to see the transactions behind it.</p>
 
