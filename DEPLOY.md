@@ -1,4 +1,4 @@
-# Deployment runbook — Vercel (frontend) + Railway (backend) + Atlas M0
+# Deployment runbook: Vercel (frontend) + Railway (backend) + Atlas M0
 
 Target architecture:
 
@@ -17,20 +17,20 @@ Vercel, and the `/api/*` → backend rewrite in `frontend/next.config.ts`.
 
 ---
 
-## ⚠️ The one that will ruin your day — read first
+## ⚠️ The one that will ruin your day: read first
 
 `TOKEN_KEY` is the Fernet key that **encrypts every stored bank token**. The
 migrated data contains those tokens as encrypted blobs. They decrypt at runtime
 **only if the Railway backend's `TOKEN_KEY` env var equals the current key**.
 
 If `TOKEN_KEY` is wrong/absent, the backend regenerates a new one and **every
-bank connection becomes permanently undecryptable** — every user must reconnect
+bank connection becomes permanently undecryptable**, every user must reconnect
 every bank. The same "regenerates on each deploy" trap applies to
 `SESSION_SECRET`, `TRUELAYER_WEBHOOK_SECRET`, and `VAPID_PRIVATE_KEY`.
 
 **Set all four from the current values before the first deploy.**
 
-Retrieve the current values from this server (copy each directly into Railway —
+Retrieve the current values from this server (copy each directly into Railway,
 do not paste them into chat/tickets):
 
 ```bash
@@ -43,15 +43,15 @@ grep -v '^#' backend/.env          # → all the API keys / client secrets below
 
 ---
 
-## Step 1 — Atlas M0
+## Step 1: Atlas M0
 
 1. In the M0 cluster: **Network Access** → allow `0.0.0.0/0` (Railway egress IPs
-   aren't static on the hobby plan) — M0 access is still gated by the DB user
+   aren't static on the hobby plan), M0 access is still gated by the DB user
    credentials, so this is acceptable for M0.
 2. **Database Access** → create a user with read/write on the `wealth` DB.
 3. Copy the `mongodb+srv://…` connection string → this is `MONGO_URI`.
 
-## Step 2 — Migrate the data
+## Step 2: Migrate the data
 
 A dump of the current DB is at `/root/wealth-migration/wealth-*.gz` (153 KB).
 Restore it into M0 (run from this server; `<M0_SRV_URI>` is the string from Step 1):
@@ -69,10 +69,10 @@ mongosh "<M0_SRV_URI>" --quiet --eval \
   'db.getSiblingDB("wealth").transactions.countDocuments()'
 ```
 
-## Step 3 — Railway: Redis
+## Step 3: Railway: Redis
 
 Add the **Redis** plugin to the project. Railway exposes it as a reference
-variable (e.g. `${{Redis.REDIS_URL}}`) — use that for `REDIS_URL` on both
+variable (e.g. `${{Redis.REDIS_URL}}`), use that for `REDIS_URL` on both
 services below.
 
 The API's rate limiter and the mobile login "pending" hand-off store are
@@ -86,24 +86,24 @@ degraded mode is only correct with a single replica, so treat sustained
 Redis unavailability as a page, not a shrug. With this in place, E2
 (Railway Pro and replicas) can proceed.
 
-## Step 4 — Railway: web service
+## Step 4: Railway: web service
 
 - **New service** → deploy from this GitHub repo.
 - **Root directory:** `backend`  · **Builder:** Dockerfile (auto-detected).
 - Railway sets `$PORT`; the Dockerfile already binds it. Health check path: `/health`.
 - Set the env vars from the **Backend env vars** table below.
 
-## Step 5 — Railway: worker service
+## Step 5: Railway: worker service
 
 - **New service** → same repo, **root directory `backend`**, same Dockerfile.
 - **Override the start command:**
   `arq app.workers.sync_worker.WorkerSettings`
 - Give it the **same env vars** as the web service (it needs Mongo, Redis,
   TOKEN_KEY, TrueLayer creds, OpenRouter, etc.). No `$PORT` needed.
-- The 4-hourly reconcile and daily digest are in-process arq crons — the worker
+- The 4-hourly reconcile and daily digest are in-process arq crons; the worker
   just needs to stay running. No external scheduler.
 
-## Step 6 — Vercel: frontend
+## Step 6: Vercel: frontend
 
 - Import the repo, **root directory `frontend`**.
 - Env var: `BACKEND_URL` = the Railway **web** service public URL
@@ -111,7 +111,7 @@ Redis unavailability as a page, not a shrug. With this in place, E2
   proxies to it, so the app stays same-origin (no CORS, cookie-ready).
 - Deploy → note the Vercel URL (or attach your domain). This URL is `APP_URL`.
 
-## Step 7 — Point APP_URL + OAuth/webhook back
+## Step 7: Point APP_URL + OAuth/webhook back
 
 1. Set `APP_URL` on **both** Railway services to the Vercel URL, then redeploy them.
 2. **Google Cloud Console** → OAuth client → Authorized redirect URIs → add
@@ -122,7 +122,7 @@ Redis unavailability as a page, not a shrug. With this in place, E2
    `TRUELAYER_REDIRECT_URI`). Webhook URI is
    `https://<APP_URL>/api/webhooks/truelayer/<TRUELAYER_WEBHOOK_SECRET>`.
 
-## Step 8 — Backups (Cloudflare R2)
+## Step 8: Backups (Cloudflare R2)
 
 - Create an R2 bucket + an API token (Access Key ID / Secret).
 - Add these **repo secrets** (Settings → Secrets → Actions):
@@ -132,7 +132,7 @@ Redis unavailability as a page, not a shrug. With this in place, E2
 - `.github/workflows/backup.yml` runs nightly (03:00 UTC) and on demand
   (Actions → run workflow). It dumps M0 → R2 and prunes >30-day-old archives.
 
-## Step 9 — Verify
+## Step 9: Verify
 
 ```bash
 curl -s https://<railway-web-url>/health          # {"status":"ok",...}
@@ -140,7 +140,7 @@ curl -s https://<APP_URL>/api/health              # same, via the Vercel proxy
 ```
 
 Then in the app: sign in with Google, open a bank account detail (confirms the
-migrated **encrypted tokens decrypt** — the TOKEN_KEY proof), trigger a sync
+migrated **encrypted tokens decrypt**, the TOKEN_KEY proof), trigger a sync
 (confirms the worker + Redis), and check the worker logs show the reconcile cron.
 
 ---
@@ -153,7 +153,7 @@ assistant. Included in the Connect and Max tiers only. See
 `PENNY_TOOLS.md`'s "Not-MCP decision" section for the tool/scope/masking
 rules and `app/routers/mcp.py` for the implementation.
 
-F2 (2026-09-08): the OAuth 2.1 authorisation server shipped —
+F2 (2026-09-08): the OAuth 2.1 authorisation server shipped:
 `app/routers/oauth.py`. `/mcp` now discovers OAuth automatically via RFC
 9728 (`GET /.well-known/oauth-protected-resource`), so connecting Claude's
 or ChatGPT's custom connector is just:
@@ -167,13 +167,13 @@ or ChatGPT's custom connector is just:
 3. `search_transactions` and every `propose_*` tool are still not offered
    at all; the 18 read tools that are offered never return raw transaction
    rows (see `app/services/mcp_mask.py`), only aggregates, verdicts and
-   figures — and now the token itself is scoped to only what the user
+   figures, and now the token itself is scoped to only what the user
    approved (`accounts:read` / `plans:read` / `insights:read`).
 
 Tokens: access tokens last 1 hour, refresh tokens 30 days with rotation
 (the old refresh token is revoked the instant a new one is issued); PKCE
 (S256) is mandatory since every connector is a public client (no client
-secret is ever issued — `token_endpoint_auth_method: "none"`). Revoke a
+secret is ever issued, `token_endpoint_auth_method: "none"`). Revoke a
 connection with `POST /auth/oauth/revoke` (RFC 7009) or, once F4 ships, from
 Settings' "Connected assistants" list (`GET /oauth/connections`,
 `DELETE /oauth/connections/{client_id}`, both session-authenticated today).
@@ -226,13 +226,18 @@ then `npx next start -p <free-port>`, then `google-chrome --headless=new
 
 ---
 
-## Backend env vars (Railway — web AND worker)
+## Backend env vars (Railway: web AND worker)
+
+`docs/ops/ENV.md` is the canonical, exhaustive list of every backend
+variable name (with the expected presence per environment); the table
+below is the deploy-time quick reference, run `backend/.venv/bin/python
+scripts/env_drift.py` to check the two against what Railway actually has.
 
 | Var | Source | Notes |
 |-----|--------|-------|
 | `MONGO_URI` | Atlas M0 SRV string | Step 1 |
 | `REDIS_URL` | Railway Redis reference | `${{Redis.REDIS_URL}}` |
-| `TOKEN_KEY` | `cat backend/.token_key` | 🔴 must match — see top |
+| `TOKEN_KEY` | `cat backend/.token_key` | 🔴 must match, see top |
 | `SESSION_SECRET` | `cat backend/.session_secret` | 🔴 or everyone re-logs-in |
 | `TRUELAYER_WEBHOOK_SECRET` | `cat backend/.webhook_secret` | 🔴 in the webhook URL |
 | `VAPID_PRIVATE_KEY` | `cat backend/.vapid_private_key` | PEM. Paste multiline, or replace newlines with `\n` (config.py un-escapes `\n`) |
@@ -251,13 +256,13 @@ then `npx next start -p <free-port>`, then `google-chrome --headless=new
 | `SENTRY_DSN` | optional | error monitoring |
 | `API_PUBLIC_URL` | optional, defaults to `https://api.wealth.auriqltd.co.uk` | the API's own domain, reached directly by Capacitor mobile builds (`build:mobile:prod`); added to CORS alongside `APP_URL` |
 
-**Do NOT set** `PORT` (Railway injects it). Do not set the secret *file* paths —
+**Do NOT set** `PORT` (Railway injects it). Do not set the secret *file* paths,
 env vars take precedence and the files are excluded from the image.
 
 ### Sign-up mode
 
 `OPEN_SIGNUP` controls whether new accounts can be created at all. Default
-`false` (unset) keeps registration restricted to `ALLOWED_EMAILS` — unchanged
+`false` (unset) keeps registration restricted to `ALLOWED_EMAILS`, unchanged
 behaviour, the safe default until public launch. Set `true` to let any
 verified Google or Apple identity create an account. Either way, sign-in
 resolves through one identity path (`app/core/identity.py`): a verified
@@ -271,11 +276,15 @@ Phase 1's explicit Apple linking already used.
 
 ## Frontend env vars (Vercel)
 
+`docs/ops/ENV.md` is the canonical, exhaustive list of every frontend
+variable name, including all the `NEXT_PUBLIC_*` flags below; the table
+here is the deploy-time quick reference.
+
 | Var | Value |
 |-----|-------|
 | `BACKEND_URL` | Railway **web** public URL (no trailing slash) |
 
-Leave `NEXT_PUBLIC_API_URL` unset — it defaults to `/api`, which the rewrite proxies.
+Leave `NEXT_PUBLIC_API_URL` unset, it defaults to `/api`, which the rewrite proxies.
 
 ### Web product flag
 
@@ -287,18 +296,18 @@ The owner can still sign in and use the full product on the web.
 
 Set this on the **Vercel production project** only. Leave it unset on UAT
 (this VPS) so the whole team keeps testing the real app there, and never set
-it for a mobile build — `frontend/scripts/build-mobile.sh` already forces
+it for a mobile build; `frontend/scripts/build-mobile.sh` already forces
 `NEXT_PUBLIC_WEB_PRODUCT=on` on its own `next build`, so a Capacitor export
 can never ship locked regardless of what's in the environment that invokes
 it.
 
 `/terms`, `/privacy`, the design previews (`/design/*`), and the
 OAuth/webhook return routes (`app/auth/*/callback/route.ts`) stay reachable
-either way — they don't go through the product gate at all.
+either way, they don't go through the product gate at all.
 
 Optional companion vars, read by `components/StoreBadges.tsx`
 (`frontend/lib/webProduct.ts`): `NEXT_PUBLIC_APP_STORE_URL` and
-`NEXT_PUBLIC_PLAY_STORE_URL`. Leave unset until the store listings exist —
+`NEXT_PUBLIC_PLAY_STORE_URL`. Leave unset until the store listings exist;
 the badge renders a "coming soon" placeholder instead of a dead link.
 
 ### TrueLayer picker flag
@@ -322,16 +331,16 @@ either.
 
 `build-mobile.sh` also refuses to run at all unless its own resolved
 directory contains `package.json`, `next.config.ts` and `app/`, and refuses
-to let its scratch directory resolve outside that directory — a guard added
+to let its scratch directory resolve outside that directory, a guard added
 after a copy of the script run from `/tmp` on 2026-09-08 `cd`'d to `/` and
 started mirroring the root filesystem into `/.mobile-build` before being
 killed (`npm run check:build-mobile-guard` tests the guard in isolation).
 
-## Mobile — Codemagic TestFlight builds
+## Mobile: Codemagic TestFlight builds
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a
 Capacitor TestFlight build from the same pipeline (Capacitor sync,
-entitlements, signing, IPA, App Store Connect publish) — they differ only in
+entitlements, signing, IPA, App Store Connect publish); they differ only in
 which backend the static export bakes in:
 
 | Workflow | API baked in | When to use |
@@ -375,5 +384,5 @@ explicitly before the build runs.
 - **Rollback:** the VPS + its Mongo are untouched by the migration (dump is a
   copy). If anything fails, revert the OAuth/TrueLayer URIs and DNS to the VPS.
 - Capacity headroom on M0: data is ~3.6 MB of 512 MB. You'll hit M0's throttled
-  throughput or the 500-connection cap long before storage — move to M2/M10 then.
+  throughput or the 500-connection cap long before storage, move to M2/M10 then.
 ```
