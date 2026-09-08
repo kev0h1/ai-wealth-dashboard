@@ -40,6 +40,7 @@ _OPEN_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 _MCP_OPEN_PATHS = {
     "/.well-known/oauth-authorization-server",
     "/.well-known/oauth-protected-resource",
+    "/.well-known/openid-configuration",
 }
 
 

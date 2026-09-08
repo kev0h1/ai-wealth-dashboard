@@ -121,6 +121,26 @@ async def oauth_authorization_server_metadata():
     }
 
 
+@router.get("/.well-known/openid-configuration")
+async def openid_configuration_metadata():
+    # F12: Anthropic's MCP SDK's OAuth discovery fallback chain tries, after
+    # the path-aware RFC 8414 forms 404 (blocked by nginx routing outside
+    # this repo), the OIDC-issuer-suffix form /.well-known/openid-configuration
+    # under the resource path. We issue no id_tokens, so we are not really an
+    # OpenID Provider, but strict OIDC discovery parsers still require this
+    # document to exist and to carry a minimum set of keys. The three extra
+    # keys below (subject_types_supported, id_token_signing_alg_values_supported,
+    # plus response_types_supported, already present in the base document) exist
+    # purely to satisfy that parsing, and jwks_uri is deliberately omitted
+    # since we have no signing keys to publish.
+    base = await oauth_authorization_server_metadata()
+    return {
+        **base,
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+    }
+
+
 @router.get("/.well-known/oauth-protected-resource")
 async def oauth_protected_resource_metadata():
     # F8: `resource` is the connector's own URL (MCP_PUBLIC_URL, a dedicated
