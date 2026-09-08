@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "oauth-consent",
+    name: "oauth-consent",
+    description:
+      "F2: the OAuth 2.1 consent page's real card (app/oauth/consent/OAuthConsentCard.tsx) against a Claude fixture requesting all three v1 scopes, no fetching, no session, Approve/Deny just log to the console · plain indigo (Penny Gradient Rule reserves the gradient for the AI adviser, this is a plain authorisation screen) · ?mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "home-brief-width",
     name: "home-brief-width",
     description:

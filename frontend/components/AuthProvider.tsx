@@ -77,6 +77,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           if (data.email) {
             setUser({ email: data.email, name: data.name || "", owner: !!data.owner });
+
+            // F2: the OAuth consent page (/oauth/consent) stashes its own
+            // `req` id in sessionStorage before sending the browser off to
+            // Google, because the sign-in round trip always lands back on
+            // this root path (backend's google_callback redirects to
+            // `${APP_URL}/?token=...`, never back to /oauth/consent
+            // itself). Once a session is confirmed here, restore that
+            // detour rather than falling through to the normal app shell.
+            if (urlToken) {
+              try {
+                const pendingOauthReq = sessionStorage.getItem("wd_oauth_consent_req");
+                if (pendingOauthReq) {
+                  sessionStorage.removeItem("wd_oauth_consent_req");
+                  window.location.replace(`/oauth/consent?req=${encodeURIComponent(pendingOauthReq)}`);
+                  return;
+                }
+              } catch {}
+            }
+
             const profile = await profileP;
             if (profile && !profile.onboarding_complete) setNeedsOnboarding(true);
           } else {
@@ -127,7 +146,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // /design/* pages are static mockups with zero user data — always public.
   // /terms and /privacy are the published legal documents — anonymous
   // visitors and regulators need to read them without signing in.
-  if (pathname?.startsWith("/design") || pathname === "/terms" || pathname === "/privacy") {
+  // /oauth/consent (F2) manages its own auth: an MCP client's browser
+  // lands there straight off GET /auth/oauth/authorize with no session at
+  // all, so the page renders LoginScreen itself when needed rather than
+  // this provider's own gate below.
+  if (pathname?.startsWith("/design") || pathname === "/terms" || pathname === "/privacy" || pathname?.startsWith("/oauth/consent")) {
     return <>{children}</>;
   }
 

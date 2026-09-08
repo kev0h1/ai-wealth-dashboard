@@ -153,24 +153,30 @@ assistant. Included in the Connect and Max tiers only. See
 `PENNY_TOOLS.md`'s "Not-MCP decision" section for the tool/scope/masking
 rules and `app/routers/mcp.py` for the implementation.
 
-**Connecting Claude's custom connector, until F2 (OAuth 2.1) ships:**
+F2 (2026-09-08): the OAuth 2.1 authorisation server shipped —
+`app/routers/oauth.py`. `/mcp` now discovers OAuth automatically via RFC
+9728 (`GET /.well-known/oauth-protected-resource`), so connecting Claude's
+or ChatGPT's custom connector is just:
 
-1. In the Claude app, add a custom connector pointing at
-   `https://api.wealth.auriqltd.co.uk/mcp`.
-2. Authenticate with a bearer token. v1 has no OAuth flow yet, so this is
-   the SAME session bearer the web/mobile app itself uses (mint one by
-   signing in and reading it from the app's own auth cookie/local storage;
-   there is no separate "connector token" to generate). It carries all
-   three v1 scopes (`accounts:read`, `plans:read`, `insights:read`) and
-   expires the same way any other session does (`SESSION_MAX_AGE`), so a
-   connector that stops working after a while has an expired session, not a
-   bug. F2 will replace this with a proper OAuth 2.1 + PKCE flow, a consent
-   page, and revocable long-lived access tokens; nothing about the tool
-   catalogue or masking rules changes when that lands.
-3. `search_transactions` and every `propose_*` tool are not offered to the
-   assistant at all; the 18 read tools that are offered never return raw
-   transaction rows (see `app/services/mcp_mask.py`), only aggregates,
-   verdicts and figures.
+1. Add a custom connector pointing at `https://api.wealth.auriqltd.co.uk/mcp`
+   (UAT: use the UAT host instead).
+2. The client discovers `/.well-known/oauth-authorization-server`, registers
+   itself dynamically (RFC 7591, no manual client setup), and opens the
+   sign-in/consent flow in a browser: sign in with Google (or Apple), see
+   the three scopes in plain language, approve. No pasting a token by hand.
+3. `search_transactions` and every `propose_*` tool are still not offered
+   at all; the 18 read tools that are offered never return raw transaction
+   rows (see `app/services/mcp_mask.py`), only aggregates, verdicts and
+   figures — and now the token itself is scoped to only what the user
+   approved (`accounts:read` / `plans:read` / `insights:read`).
+
+Tokens: access tokens last 1 hour, refresh tokens 30 days with rotation
+(the old refresh token is revoked the instant a new one is issued); PKCE
+(S256) is mandatory since every connector is a public client (no client
+secret is ever issued — `token_endpoint_auth_method: "none"`). Revoke a
+connection with `POST /auth/oauth/revoke` (RFC 7009) or, once F4 ships, from
+Settings' "Connected assistants" list (`GET /oauth/connections`,
+`DELETE /oauth/connections/{client_id}`, both session-authenticated today).
 
 **Allowance and audit:** the connector shares the tier's own monthly call
 allowance (`TIER_LIMITS[...]["mcp_tool_calls_per_month"]`: 2,000 on Connect,

@@ -2,8 +2,27 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
-from app.core.config import BOT_SECRET, SESSION_MAX_AGE, serializer
+from app.core.config import API_PUBLIC_URL, BOT_SECRET, SESSION_MAX_AGE, serializer
 from app.core.ratelimit import check_rate_limit
+
+# F2: the value an unauthenticated (or expired-token) request to /mcp gets
+# back in its 401's WWW-Authenticate header, per RFC 9728 — this is how an
+# MCP client (Claude, ChatGPT, ...) discovers that this resource has an
+# OAuth authorisation server at all, without a human having to paste a URL
+# into it first. Shared with app.routers.mcp.resolve_mcp_principal, which
+# raises the SAME header on a present-but-invalid/revoked/expired
+# `sorted_at_...` access token (a different failure path, same signal).
+MCP_WWW_AUTHENTICATE = f'Bearer resource_metadata="{API_PUBLIC_URL}/.well-known/oauth-protected-resource"'
+
+# Paths open to anyone, no bearer token required at all (distinct from the
+# /auth/, /webhooks/, /logo/ prefixes above, which are open but still
+# rate-limited). The two discovery documents below (RFC 8414 / RFC 9728)
+# must be readable by an MCP client before it has ANY credential.
+_OPEN_PATHS = {
+    "/health", "/docs", "/openapi.json", "/redoc",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource",
+}
 
 
 async def current_user(request: Request) -> dict:
@@ -40,16 +59,31 @@ async def auth_middleware(request: Request, call_next):
         if limited := await check_rate_limit(request):
             return limited
         return await call_next(request)
-    if path in {"/health", "/docs", "/openapi.json", "/redoc"}:
+    if path in _OPEN_PATHS:
         return await call_next(request)
+    # F2/F3: an unauthenticated hit on /mcp gets the discovery header
+    # attached to its 401 (both branches below), so an MCP client can find
+    # this server's authorisation server on its very first, credential-less
+    # request rather than needing it hand-configured.
+    mcp_headers = {"WWW-Authenticate": MCP_WWW_AUTHENTICATE} if path == "/mcp" else None
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
     token = auth[7:]
     if BOT_SECRET and token == BOT_SECRET:
+        return await call_next(request)
+    if token.startswith("sorted_at_") or token.startswith("sorted_rt_"):
+        # F2 OAuth access/refresh token: this is not an itsdangerous session
+        # token, so the signature check below would always fail it. Real
+        # per-token validation (hash lookup, kind, revocation, expiry) is
+        # app.routers.mcp.resolve_mcp_principal's job, the only consumer of
+        # these tokens today; every OTHER route's own `current_user`
+        # dependency still rejects one (it isn't a valid session token),
+        # so letting it through this blanket check doesn't widen access
+        # anywhere else.
         return await call_next(request)
     try:
         serializer.loads(token, max_age=SESSION_MAX_AGE)
     except (SignatureExpired, BadSignature):
-        return JSONResponse(status_code=401, content={"detail": "Session expired"})
+        return JSONResponse(status_code=401, content={"detail": "Session expired"}, headers=mcp_headers)
     return await call_next(request)

@@ -131,7 +131,9 @@ What this changes for Finexer and the legal pages (this is the "material change"
 
 Engineering estimate: the tool layer is already shaped for this (see the "Not-MCP decision" note in PENNY_TOOLS.md). The real work is the OAuth 2.1 authorisation server, the consent page, token storage and revocation, the audit log and the rate limits, then the two policy updates. Roughly two to three weeks of agent work with review, best started after the Finexer production approval so it does not land inside the due diligence window.
 
-F3 status (2026-09-08): the read-only `/mcp` endpoint itself shipped to UAT. Tool exposure, masking, scopes, the per-user rate limit, the tier allowance and the audit log are all live, authenticated with the app's own session bearer. F2 (the OAuth 2.1 authorisation server above) is still not started, so there is no consent page or per-token revocation yet; see DEPLOY.md's "MCP connector" section for how to point a connector at it in the meantime.
+F3 status (2026-09-08): the read-only `/mcp` endpoint itself shipped to UAT. Tool exposure, masking, scopes, the per-user rate limit, the tier allowance and the audit log are all live, authenticated with the app's own session bearer.
+
+F2 status (2026-09-08): the OAuth 2.1 authorisation server above shipped — dynamic client registration, PKCE (S256, mandatory), the consent page reusing Google/Apple sign-in, and revocable opaque access/refresh tokens with rotation. `/mcp` now advertises itself via RFC 9728 (`/.well-known/oauth-protected-resource`) so Claude/ChatGPT discover and connect without a hand-pasted session bearer. See DEPLOY.md's "MCP connector" section for the connector-facing flow and `app/routers/oauth.py` for the implementation. Not yet built: F4's "Connected assistants" Settings UI (the backend list/revoke endpoints exist, `GET /oauth/connections` / `DELETE /oauth/connections/{client_id}`) and the Privacy Policy / Finexer questionnaire updates described below.
 
 ## 8. Retention jobs still missing
 

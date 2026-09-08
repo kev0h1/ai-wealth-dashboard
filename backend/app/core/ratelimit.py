@@ -20,6 +20,11 @@ _hits: dict[str, deque] = defaultdict(deque)
 
 # (path prefix, max requests, window seconds) — first match wins
 RULES = [
+    # F2: dynamic client registration (RFC 7591) is unauthenticated by
+    # design (that's the point of "dynamic"), so it needs its own tighter
+    # cap ahead of the generic "/auth/" rule below (which would otherwise
+    # win first and give it the ordinary 30/60 login-attempt budget).
+    ("/auth/oauth/register", 10, 60),
     ("/auth/",    30, 60),
     ("/webhooks/", 60, 60),
     # The auth middleware only calls check_rate_limit() for /auth/, /webhooks/
