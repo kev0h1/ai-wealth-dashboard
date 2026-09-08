@@ -64,23 +64,34 @@ async def auth_middleware(request: Request, call_next):
     # F2/F3: an unauthenticated hit on /mcp gets the discovery header
     # attached to its 401 (both branches below), so an MCP client can find
     # this server's authorisation server on its very first, credential-less
-    # request rather than needing it hand-configured.
-    mcp_headers = {"WWW-Authenticate": MCP_WWW_AUTHENTICATE} if path == "/mcp" else None
+    # request rather than needing it hand-configured. Deliberately scoped to
+    # /mcp itself (exact path or a sub-path) — this header is an MCP-specific
+    # discovery signal, not a generic "you're unauthenticated" hint, so no
+    # other route should ever emit it.
+    is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
+    mcp_headers = {"WWW-Authenticate": MCP_WWW_AUTHENTICATE} if is_mcp_path else None
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"}, headers=mcp_headers)
     token = auth[7:]
     if BOT_SECRET and token == BOT_SECRET:
         return await call_next(request)
-    if token.startswith("sorted_at_") or token.startswith("sorted_rt_"):
-        # F2 OAuth access/refresh token: this is not an itsdangerous session
-        # token, so the signature check below would always fail it. Real
-        # per-token validation (hash lookup, kind, revocation, expiry) is
+    if token.startswith("sorted_at_") and is_mcp_path:
+        # F2 OAuth access token, on the one path it's ever valid for: this
+        # is not an itsdangerous session token, so the signature check
+        # below would always fail it. Real per-token validation (hash
+        # lookup, kind, revocation, expiry) is
         # app.routers.mcp.resolve_mcp_principal's job, the only consumer of
-        # these tokens today; every OTHER route's own `current_user`
-        # dependency still rejects one (it isn't a valid session token),
-        # so letting it through this blanket check doesn't widen access
-        # anywhere else.
+        # these tokens. Scoped to /mcp specifically (not a blanket
+        # "any sorted_at_ token passes"): letting a connector's access
+        # token clear the middleware for every OTHER route too would rely
+        # entirely on each handler's own `current_user` dependency to
+        # reject it, which is not a bet this middleware should make.
+        # `sorted_rt_` refresh tokens never get a pass here at all — they
+        # are only ever presented to /auth/oauth/token and
+        # /auth/oauth/revoke, both under the already-public /auth/ prefix
+        # handled above, so a refresh token never even reaches this line
+        # for its own legitimate use.
         return await call_next(request)
     try:
         serializer.loads(token, max_age=SESSION_MAX_AGE)

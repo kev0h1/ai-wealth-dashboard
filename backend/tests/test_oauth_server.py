@@ -672,15 +672,53 @@ def test_other_routes_401_has_no_www_authenticate_header():
     assert "www-authenticate" not in resp.headers
 
 
-def test_middleware_lets_a_sorted_at_prefixed_bearer_through_to_call_next():
+def test_middleware_lets_a_sorted_at_prefixed_bearer_through_to_call_next_on_mcp():
     """The middleware itself never validates an OAuth access token (it
-    can't — it isn't a session token); it just avoids rejecting it outright
-    so resolve_mcp_principal downstream gets a chance to do the real
-    check."""
+    can't — it isn't a session token); on /mcp specifically it just avoids
+    rejecting it outright so resolve_mcp_principal downstream gets a
+    chance to do the real check."""
     async def call_next(request):
         return "reached"
     result = _run(auth_mod.auth_middleware(
         _FakeMiddlewareRequest("/mcp", headers={"Authorization": "Bearer sorted_at_whatever"}),
+        call_next,
+    ))
+    assert result == "reached"
+
+
+def test_sorted_at_bearer_on_a_non_mcp_route_is_rejected_by_the_middleware():
+    """A connector's access token must never clear the middleware for any
+    route other than /mcp — it isn't a session token, so it should get the
+    same 401 an invalid bearer gets anywhere else, with no MCP discovery
+    header (that header is an /mcp-specific signal, not a generic hint)."""
+    resp = _run(auth_mod.auth_middleware(
+        _FakeMiddlewareRequest("/profile", headers={"Authorization": "Bearer sorted_at_whatever"}),
+        _unreachable_call_next,
+    ))
+    assert resp.status_code == 401
+    assert "www-authenticate" not in resp.headers
+
+
+def test_sorted_rt_refresh_token_on_mcp_is_rejected_by_the_middleware():
+    """Refresh tokens are never valid bearer credentials on /mcp (or
+    anywhere else) — they're only ever presented as a form field to
+    /auth/oauth/token or /auth/oauth/revoke, both already-public /auth/
+    paths handled earlier in the middleware, never as an Authorization
+    header."""
+    resp = _run(auth_mod.auth_middleware(
+        _FakeMiddlewareRequest("/mcp", headers={"Authorization": "Bearer sorted_rt_whatever"}),
+        _unreachable_call_next,
+    ))
+    assert resp.status_code == 401
+
+
+def test_valid_shaped_sorted_at_bearer_still_reaches_call_next_on_mcp_subpath():
+    """The /mcp scoping check covers sub-paths too (e.g. a future /mcp/foo),
+    not just the exact string "/mcp"."""
+    async def call_next(request):
+        return "reached"
+    result = _run(auth_mod.auth_middleware(
+        _FakeMiddlewareRequest("/mcp/audit", headers={"Authorization": "Bearer sorted_at_whatever"}),
         call_next,
     ))
     assert result == "reached"
