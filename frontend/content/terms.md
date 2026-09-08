@@ -63,6 +63,14 @@ You can withdraw your consent at any time by:
 
 If you withdraw consent, we will stop retrieving new information from that account, though information already retrieved may be retained in line with our Privacy Policy and Section 15 below.
 
+### Connecting an AI assistant
+
+You may connect your own AI assistant, such as Claude or ChatGPT, to read your Sorted data through our connector. The assistant acts on your instructions, and you are responsible for the assistant you choose, for its provider's own terms, and for anything you do on the basis of what it tells you.
+
+We provide the connector with only your own data and our own deterministic figures, on a read-only basis; it cannot move money, change your settings, or make any changes in Sorted. Connector use counts against your plan's monthly allowance and is available on the plans that include it. We may suspend a connection that breaches Section 8.
+
+The disclaimer in Section 6 (information, not financial advice) applies equally to anything an AI assistant tells you based on your Sorted data.
+
 ## 6. Important: information, not financial advice
 
 Sorted provides **information and general guidance only**. It does **not** provide regulated financial advice, investment advice, tax advice, or debt counselling, and nothing in the app should be treated as a personal recommendation.
