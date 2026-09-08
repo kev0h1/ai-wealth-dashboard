@@ -11,15 +11,16 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import OAuthConsentCard from "@/app/oauth/consent/OAuthConsentCard";
+import { OAUTH_SCOPE_LABELS } from "@/lib/oauthScopes";
 
 const FIXTURE = {
   clientName: "Claude",
   redirectHost: "claude.ai",
-  scopes: [
-    { scope: "accounts:read", description: "Balances and account names" },
-    { scope: "plans:read", description: "Bills, plans, goals and your tax position figures" },
-    { scope: "insights:read", description: "Spending verdicts and insights" },
-  ],
+  // F4: sourced from the shared label map (lib/oauthScopes.ts) so this
+  // fixture can't drift from the "Connected assistants" card's own scope
+  // wording — both are kept word for word in sync with the backend's
+  // SCOPE_DESCRIPTIONS (backend/app/routers/oauth.py).
+  scopes: Object.entries(OAUTH_SCOPE_LABELS).map(([scope, description]) => ({ scope, description })),
 };
 
 function PreviewBody() {

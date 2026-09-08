@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";
+import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection, McpAuditCall } from "@/lib/api";
+import ConnectedAssistantsCard, { ConnectionsState, ActivityState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import { getAccountsCached } from "@/lib/accountsCache";
@@ -202,6 +203,44 @@ export default function SettingsPage() {
   const [pennyConsentOffOpen, setPennyConsentOffOpen] = useState(false);
   const [pennyConsentRevoking, setPennyConsentRevoking] = useState(false);
   const [pennyConsentMsg, setPennyConsentMsg] = useState<string | null>(null);
+
+  // F4: "Connected assistants" card. Connections load on mount; the audit
+  // log (GET /mcp/audit) is only fetched the first time "View activity"
+  // opens (auditFetched guards against refetching on every collapse/expand
+  // toggle within the same page visit).
+  const [connectionsState, setConnectionsState] = useState<ConnectionsState>({ status: "loading" });
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityState, setActivityState] = useState<ActivityState>({ status: "idle" });
+  const [auditFetched, setAuditFetched] = useState(false);
+
+  function fetchConnections() {
+    api.listOAuthConnections()
+      .then((r) => setConnectionsState({ status: "ready", connections: r.connections }))
+      .catch(() => setConnectionsState({ status: "error" }));
+  }
+  useEffect(() => { fetchConnections(); }, []);
+
+  async function handleDisconnectAssistant(clientId: string): Promise<boolean> {
+    try {
+      await api.revokeOAuthConnection(clientId);
+      fetchConnections();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function handleToggleActivity() {
+    const next = !activityOpen;
+    setActivityOpen(next);
+    if (next && !auditFetched) {
+      setAuditFetched(true);
+      setActivityState({ status: "loading" });
+      api.getMcpAudit()
+        .then((r) => setActivityState({ status: "ready", calls: r.calls }))
+        .catch(() => setActivityState({ status: "error" }));
+    }
+  }
 
   // Penny messages usage row (backlog B4) — shared store, see
   // components/PennySheetProvider.tsx. `pennyUsageAttempted` flips once the
@@ -825,6 +864,15 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* ── Connected assistants (F4) ── */}
+        <ConnectedAssistantsCard
+          state={connectionsState}
+          onDisconnect={handleDisconnectAssistant}
+          activity={activityState}
+          activityOpen={activityOpen}
+          onToggleActivity={handleToggleActivity}
+        />
 
         {/* ── Notifications ── */}
         <div className="glass-card rounded-2xl overflow-hidden">

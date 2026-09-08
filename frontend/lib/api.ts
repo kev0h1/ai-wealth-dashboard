@@ -76,6 +76,16 @@ export interface OAuthConnection {
   active_tokens: number;
 }
 
+// F3/F4: one row of a user's own `/mcp` audit log (backend/app/routers/mcp.py
+// GET /mcp/audit), masked server-side down to tool/client/ts/ok — for F4's
+// "Connected assistants" card's "View activity" expander.
+export interface McpAuditCall {
+  tool: string;
+  client: string;
+  ts: string;
+  ok: boolean;
+}
+
 export type NotificationPrefs = {
   transactions: boolean;
   goal_milestones: boolean;
@@ -2026,7 +2036,7 @@ export const api = {
     get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
   // F2: OAuth 2.1 authorisation server. getOAuthRequest/decideOAuthRequest
   // back the /oauth/consent page; listOAuthConnections/revokeOAuthConnection
-  // are for F4's not-yet-built "Connected assistants" settings surface.
+  // back F4's "Connected assistants" settings card.
   getOAuthRequest: (reqId: string) => get<OAuthRequestDetails>(`/oauth/request/${encodeURIComponent(reqId)}`),
   decideOAuthRequest: (reqId: string, approve: boolean) =>
     post<{ redirect: string }>("/oauth/decision", { req_id: reqId, approve }),
@@ -2036,6 +2046,11 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean; revoked: number }>(r)),
+  // F3/F4: the caller's own `/mcp` calls for one calendar month (default
+  // current month), most recent first — the "Connected assistants" card's
+  // "View activity" expander.
+  getMcpAudit: (month?: string) =>
+    get<{ year_month: string; calls: McpAuditCall[] }>(`/mcp/audit${month ? `?month=${encodeURIComponent(month)}` : ""}`),
   setMirrorChoice: (trait_id: string, choice: "keep" | "change") =>
     post<{ ok: boolean; trait_id: string; choice: string }>("/mirror/choice", { trait_id, choice }),
   transportSummary: () => get<TransportSummary>("/transport/summary"),

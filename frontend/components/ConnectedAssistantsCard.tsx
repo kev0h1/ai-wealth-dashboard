@@ -1,0 +1,245 @@
+"use client";
+
+// F4: "Connected assistants" — Settings card listing the OAuth 2.1
+// connectors (F2, backend/app/routers/oauth.py) a user has approved to
+// read their Sorted data over MCP (F3, app/routers/mcp.py), with a
+// per-connector Disconnect and an expander onto the user's own `/mcp`
+// audit log (F3's GET /mcp/audit).
+//
+// Fully presentational, no fetching of its own — same convention as
+// OAuthConsentCard.tsx and PennyUsageRow.tsx, so the live card
+// (app/settings/SettingsPage.tsx) and its design preview
+// (app/design/connected-assistants/page.tsx) render the exact same
+// markup against real vs. fixture data. The caller owns:
+//   - `state`: the GET /oauth/connections result (or loading/error).
+//   - `onDisconnect(clientId)`: perform DELETE /oauth/connections/{id}
+//     and refetch `state`; resolves to whether it succeeded.
+//   - `activity` / `activityOpen` / `onToggleActivity`: the GET
+//     /mcp/audit result for the current month, fetched lazily the first
+//     time the expander opens (SettingsPage owns the "already fetched"
+//     guard, this component just renders whatever state it's given).
+//
+// A connection only counts as "connected" while it still has at least
+// one live token (`active_tokens > 0`) — a fully revoked client's docs
+// stay in Mongo for history (see oauth.py's list_connections comment),
+// but showing a dead entry forever with a Disconnect button that does
+// nothing would be confusing, so the populated list filters them out.
+// The "{name} disconnected" confirmation line above the list covers the
+// gap between an optimistic disconnect and the next refetch dropping the
+// row.
+import { useEffect, useState } from "react";
+import { Plug, Check, ChevronDown } from "lucide-react";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import type { OAuthConnection, McpAuditCall } from "@/lib/api";
+import { describeScopes } from "@/lib/oauthScopes";
+
+const INDIGO = "#4f46e5";
+const CONNECT_URL = "https://api.wealth.auriqltd.co.uk/mcp";
+
+export type ConnectionsState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; connections: OAuthConnection[] };
+
+export type ActivityState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; calls: McpAuditCall[] };
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${date}, ${time}`;
+}
+
+// No shared TOOL_LABELS map exists yet (grepped, nothing else needs one) —
+// "get_safe_to_spend" -> "get safe to spend" reads fine for an audit log.
+function toolLabel(tool: string): string {
+  return tool.replace(/_/g, " ");
+}
+
+export default function ConnectedAssistantsCard({
+  state,
+  onDisconnect,
+  activity,
+  activityOpen,
+  onToggleActivity,
+}: {
+  state: ConnectionsState;
+  onDisconnect: (clientId: string) => Promise<boolean>;
+  activity: ActivityState;
+  activityOpen: boolean;
+  onToggleActivity: () => void;
+}) {
+  const [confirmClient, setConfirmClient] = useState<OAuthConnection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [disconnectedName, setDisconnectedName] = useState<string | null>(null);
+
+  // "Brief" per the brief: the confirmation line clears itself so it
+  // doesn't linger as a stale caption on a settings screen the user may
+  // leave open.
+  useEffect(() => {
+    if (!disconnectedName) return;
+    const t = setTimeout(() => setDisconnectedName(null), 5000);
+    return () => clearTimeout(t);
+  }, [disconnectedName]);
+
+  async function handleConfirm() {
+    if (!confirmClient) return;
+    setBusy(true);
+    const ok = await onDisconnect(confirmClient.client_id);
+    setBusy(false);
+    const name = confirmClient.client_name;
+    setConfirmClient(null);
+    if (ok) setDisconnectedName(name);
+  }
+
+  const connected = state.status === "ready" ? state.connections.filter((c) => c.active_tokens > 0) : [];
+
+  return (
+    <div className="glass-card rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-start gap-2.5">
+        <span
+          className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: `${INDIGO}26` }}
+          aria-hidden="true"
+        >
+          <Plug size={16} style={{ color: INDIGO }} />
+        </span>
+        <div className="min-w-0 pt-0.5">
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Connected assistants</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">AI assistants that can read your Sorted data</p>
+        </div>
+      </div>
+
+      {state.status === "loading" && (
+        <div className="px-4 py-3.5">
+          <p className="text-xs text-slate-400 dark:text-slate-500">Checking…</p>
+        </div>
+      )}
+
+      {state.status === "error" && (
+        <div className="px-4 py-3.5">
+          <p className="text-xs text-slate-400 dark:text-slate-500">Could not load connected assistants</p>
+        </div>
+      )}
+
+      {state.status === "ready" && (
+        <>
+          {disconnectedName && (
+            <p className="px-4 pt-3 text-xs text-emerald-600 dark:text-emerald-400">{disconnectedName} disconnected</p>
+          )}
+
+          {connected.length === 0 ? (
+            <div className="px-4 py-3.5">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">No assistants connected</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Connect Claude or another assistant to Sorted at {CONNECT_URL} and it will appear here.
+              </p>
+            </div>
+          ) : (
+            connected.map((c, i) => (
+              <div
+                key={c.client_id}
+                className={`flex items-center justify-between gap-3 px-4 py-3.5 ${i < connected.length - 1 ? "border-b border-slate-100 dark:border-slate-700" : ""}`}
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{c.client_name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {describeScopes(c.scopes)} · last used {c.last_used_at ? formatDate(c.last_used_at) : "never"} · connected {formatDate(c.created_at)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmClient(c)}
+                  className="flex-shrink-0 min-h-[44px] px-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ))
+          )}
+        </>
+      )}
+
+      {state.status !== "loading" && (
+        <>
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700">
+            <p className="text-xs text-slate-400 dark:text-slate-500">Every request is logged</p>
+            <button
+              type="button"
+              onClick={onToggleActivity}
+              aria-expanded={activityOpen}
+              className="flex-shrink-0 min-h-[44px] px-3 flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
+            >
+              {activityOpen ? "Hide activity" : "View activity"}
+              <ChevronDown
+                size={14}
+                className={`transition-transform duration-200 ${activityOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+
+          <div
+            className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
+              activityOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+            }`}
+            inert={!activityOpen}
+          >
+            <div className="overflow-hidden">
+              <div className="px-4 pb-3.5">
+                {activity.status === "loading" && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">Checking…</p>
+                )}
+                {activity.status === "error" && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">Could not load activity</p>
+                )}
+                {activity.status === "ready" && activity.calls.length === 0 && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">No activity this month</p>
+                )}
+                {activity.status === "ready" && activity.calls.length > 0 && (
+                  <ul className="space-y-2 pt-1">
+                    {activity.calls.slice(0, 20).map((call, i) => (
+                      <li key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        {call.ok ? (
+                          <Check size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+                        ) : (
+                          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                            Failed
+                          </span>
+                        )}
+                        <span className="truncate">
+                          {toolLabel(call.tool)} · {call.client} · {formatDateTime(call.ts)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={!!confirmClient}
+        title={confirmClient ? `Disconnect ${confirmClient.client_name}?` : undefined}
+        message="It will lose access straight away. You can connect it again from the assistant at any time."
+        confirmLabel="Disconnect"
+        confirmDisabled={busy}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirmClient(null)}
+      />
+    </div>
+  );
+}
