@@ -864,6 +864,24 @@ async def _execute_clear_override(uid: str, params: dict) -> dict:
     return await _route_clear_override(body, user={"email": uid})
 
 
+async def _execute_update_preferences(uid: str, params: dict) -> dict:
+    """Shared executor for every B15 (2026-09-08, B12 stage 2) preferences
+    propose-kind: set_pay_period, set_income, set_pension,
+    set_child_benefit, set_debt_target, set_debt_tracking_start,
+    set_cover_plan_exclusions, set_hide_balances. Each one's stored
+    `params` is already exactly the {key: value} PATCH body
+    app.routers.preferences.update_preferences expects (see each
+    `_exec_propose_set_*` builder in penny_tools.py) — replaying it through
+    that SAME function picks up its response-cache wipe and, for
+    set_pay_period, its best-effort cashflow recompute, for free, exactly
+    as a Settings edit would. All eight kinds sharing one executor (rather
+    than eight near-identical wrappers) is deliberate: there is nothing
+    kind-specific left to do once `params` already IS the PATCH body."""
+    from app.routers.preferences import update_preferences as _route_update_preferences
+
+    return await _route_update_preferences(dict(params), user={"email": uid})
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -883,6 +901,14 @@ _PROPOSAL_EXECUTORS = {
     "skip_occurrence":            _execute_skip_occurrence,
     "edit_occurrence":            _execute_edit_occurrence,
     "clear_override":             _execute_clear_override,
+    "set_pay_period":             _execute_update_preferences,
+    "set_income":                 _execute_update_preferences,
+    "set_pension":                _execute_update_preferences,
+    "set_child_benefit":          _execute_update_preferences,
+    "set_debt_target":            _execute_update_preferences,
+    "set_debt_tracking_start":    _execute_update_preferences,
+    "set_cover_plan_exclusions":  _execute_update_preferences,
+    "set_hide_balances":          _execute_update_preferences,
 }
 
 

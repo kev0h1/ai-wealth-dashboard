@@ -1124,6 +1124,214 @@ PROPOSE_TOOL_SCHEMAS = [
             },
         },
     },
+    # ── B15 (2026-09-08, B12 stage 2) — preferences that change money maths.
+    # All eight tools below replay through app.routers.preferences's own
+    # `update_preferences` (the SAME function PATCH /preferences calls, so
+    # the response-cache wipe and the pay-period cashflow recompute happen
+    # identically to a Settings edit, never a second write path), each
+    # wrapped in validation this module owns because the router itself
+    # barely validates its body (see `_exec_propose_set_pay_period`'s own
+    # comment). Doctrine unchanged: every one of these BUILDS A PROPOSAL,
+    # never writes preferences directly.
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_pay_period",
+            "description": (
+                "Propose changing how the user's pay period is worked "
+                "out, the same thing the Pay Period sheet in Settings "
+                "does. This changes the period window Safe-to-Spend, "
+                "Upcoming and Planning all use, so only call it when the "
+                "user has clearly asked to change their pay period or "
+                "payday pattern, not merely mentioned a date.\n\n"
+                "`config.type` must be one of: 'calendar_month' (1st to "
+                "last day of each month, no other fields), "
+                "'monthly_pay_date' (needs `config.day`, 1-28), "
+                "'biweekly' (needs `config.weekday` 0-6, Sunday=0, and "
+                "`config.referenceDate`, an ISO date the user was "
+                "actually paid on), 'last_weekday_of_month' (needs "
+                "`config.weekday` 0-6). These are the only four options "
+                "the Settings sheet itself offers."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "config": {
+                        "type": "object",
+                        "description": (
+                            "The new pay period config, e.g. "
+                            "{\"type\": \"monthly_pay_date\", \"day\": 25}."
+                        ),
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "calendar_month", "monthly_pay_date",
+                                    "biweekly", "last_weekday_of_month",
+                                ],
+                            },
+                            "day": {"type": "integer", "description": "1-28, only for 'monthly_pay_date'."},
+                            "weekday": {"type": "integer", "description": "0 (Sunday) to 6 (Saturday)."},
+                            "referenceDate": {"type": "string", "description": "ISO date (YYYY-MM-DD), only for 'biweekly'."},
+                        },
+                        "required": ["type"],
+                    },
+                },
+                "required": ["config"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_income",
+            "description": (
+                "Propose setting the user's approximate annual income on "
+                "file, the same field Settings' 'Financial profile' "
+                "saves. Feeds the tax position (personal allowance, "
+                "Child Benefit charge check). `amount_annual` must be a "
+                "real £/yr figure the user has told you, never "
+                "estimated. `bracket` (one of 'under_100k', "
+                "'100k_125k', '125k_plus') is accepted only as a way to "
+                "recognise the user naming a band rather than a figure, "
+                "it can never set income by itself, if only a bracket is "
+                "given this asks for an approximate number instead of "
+                "inventing one."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount_annual": {"type": "number", "description": "The user's approximate annual income in GBP, must not be negative."},
+                    "bracket": {
+                        "type": "string",
+                        "enum": ["under_100k", "100k_125k", "125k_plus"],
+                        "description": "A named income band, only when the user hasn't given an exact figure.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_pension_contributions",
+            "description": (
+                "Propose setting the user's annual pension contribution "
+                "figure on file, the same field Settings' 'Financial "
+                "profile' saves. Feeds adjusted net income and the "
+                "personal allowance taper. `amount_annual` must be a "
+                "real £/yr figure the user has told you, never "
+                "estimated, and must not be negative."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount_annual": {"type": "number", "description": "The user's approximate annual pension contribution in GBP, must not be negative."},
+                },
+                "required": ["amount_annual"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_child_benefit",
+            "description": (
+                "Propose recording whether the user is currently "
+                "receiving Child Benefit, the same toggle Settings' "
+                "'Financial profile' has. Feeds the High Income Child "
+                "Benefit Charge check in the tax position."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "receiving": {"type": "boolean", "description": "True if the user is receiving Child Benefit, false otherwise."},
+                },
+                "required": ["receiving"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_debt_target",
+            "description": (
+                "Propose setting how many months the user is targeting "
+                "to clear their debt in. Feeds the repayment timelines "
+                "shown on Cards and Planning."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "months": {"type": "integer", "description": "A whole number of months, 1-360."},
+                },
+                "required": ["months"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_debt_tracking_start",
+            "description": (
+                "Propose setting the reference date the user's debt "
+                "movement is measured from on Cards and Planning."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string", "description": "An ISO date (YYYY-MM-DD) or year-month (YYYY-MM)."},
+                },
+                "required": ["date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_cover_plan_exclusions",
+            "description": (
+                "Propose which of the user's own accounts should NEVER "
+                "be pulled from to cover a bill shortfall, the same list "
+                "Settings' cover-plan section keeps. Changes which "
+                "accounts count towards covering bills. `account_refs` "
+                "replaces the whole list; pass an empty list to stop "
+                "excluding any accounts. Each entry may be an account id "
+                "(from get_accounts) or a name, an unknown or ambiguous "
+                "name refuses rather than guessing."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Account ids or names to exclude from the cover plan. Empty list clears all exclusions.",
+                    },
+                },
+                "required": ["account_refs"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_hide_balances",
+            "description": (
+                "Propose turning the app's 'hide balances' privacy mode "
+                "on or off, the same toggle available elsewhere in the "
+                "app. Only changes what is shown on screen, never what's "
+                "included in any calculation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hidden": {"type": "boolean", "description": "True to hide balances, false to show them."},
+                },
+                "required": ["hidden"],
+            },
+        },
+    },
 ]
 
 PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)
@@ -4314,6 +4522,302 @@ async def _exec_propose_set_card_apr(uid: str, card_ref, apr_pct, user_texts=Non
     return await _create_proposal(uid, "set_card_apr", params, summary, consequence)
 
 
+# ── B15 (2026-09-08, B12 stage 2) — preferences that change money maths ────
+#
+# app.routers.preferences's `PATCH /preferences` barely validates its own
+# body: most fields are `$set` straight from the client dict with no shape
+# check at all (only income_value/pension_annual are coerced to a number,
+# only cover_plan_excluded_accounts is de-duped). Mirroring "the router's
+# validation" therefore means mirroring the UI's own rules (Settings /
+# PayPeriodSettingsSheet), which is what every validator below actually
+# does, each with a comment pointing at the UI control it mirrors. Every
+# executor still ends by replaying `update_preferences` (see
+# `can_i._execute_update_preferences` below) so the response-cache wipe and
+# pay-period cashflow recompute happen exactly as a Settings edit would,
+# never a second write path.
+_PAY_PERIOD_WEEKDAY_NAMES = [
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+]
+
+
+def _ordinal(n: int) -> str:
+    """1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th', 11-13 -> 'th'."""
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+async def _current_prefs(uid: str) -> dict:
+    return await preferences_col.find_one({"user_id": uid}) or {}
+
+
+def _describe_pay_period_config(cfg: dict) -> str:
+    """Human words for a pay_period_config dict, mirroring
+    PayPeriodSettingsSheet.tsx's own MODES labels. Used both for the new
+    config (required, per the build brief) and, where known, the old one,
+    so a proposal summary never states a bare enum value like
+    'monthly_pay_date' the user never sees anywhere in the app."""
+    t = (cfg or {}).get("type", "calendar_month")
+    if t == "calendar_month":
+        return "calendar month (1st to last day of each month)"
+    if t == "monthly_pay_date":
+        day = cfg.get("day", 1)
+        return f"monthly, paid on the {_ordinal(int(day))} of each month"
+    if t == "biweekly":
+        wd = _PAY_PERIOD_WEEKDAY_NAMES[cfg.get("weekday", 5) % 7]
+        ref = cfg.get("referenceDate", "")
+        ref_label = ""
+        try:
+            ref_label = f", from {date.fromisoformat(ref).strftime('%-d %b %Y')}"
+        except (TypeError, ValueError):
+            pass
+        return f"every two weeks, paid on {wd}s{ref_label}"
+    if t == "last_weekday_of_month":
+        wd = _PAY_PERIOD_WEEKDAY_NAMES[cfg.get("weekday", 4) % 7]
+        return f"monthly, paid on the last {wd} of each month"
+    if t == "last_friday":
+        return "monthly, paid on the last Friday of each month"
+    return t
+
+
+def _validate_pay_period_config(config) -> tuple[dict | None, str | None]:
+    """Mirrors PayPeriodSettingsSheet.tsx's `buildConfig()`: only the four
+    types that sheet actually offers are accepted (last_friday/weekly/
+    custom exist in the TS union and/or the pay-period engine but have no
+    live control to set them from, so a Penny proposal doesn't invent a
+    reachable-only-by-API state), and only the fields each type uses are
+    kept — an extra field the model hallucinated onto the dict is silently
+    dropped rather than stored, exactly like the sheet's own switch."""
+    if not isinstance(config, dict):
+        return None, "config must be an object"
+    t = config.get("type")
+    if t not in ("calendar_month", "monthly_pay_date", "biweekly", "last_weekday_of_month"):
+        return None, (
+            "config.type must be one of 'calendar_month', 'monthly_pay_date', "
+            "'biweekly', 'last_weekday_of_month' (the options Settings' own "
+            "Pay Period sheet offers)"
+        )
+    if t == "calendar_month":
+        return {"type": "calendar_month"}, None
+    if t == "monthly_pay_date":
+        try:
+            day = int(config.get("day"))
+        except (TypeError, ValueError):
+            return None, "config.day is required for 'monthly_pay_date' and must be a whole number"
+        if not (1 <= day <= 28):
+            return None, "config.day must be between 1 and 28"
+        return {"type": "monthly_pay_date", "day": day}, None
+    if t == "last_weekday_of_month":
+        try:
+            weekday = int(config.get("weekday"))
+        except (TypeError, ValueError):
+            return None, "config.weekday is required for 'last_weekday_of_month' and must be 0-6"
+        if not (0 <= weekday <= 6):
+            return None, "config.weekday must be between 0 (Sunday) and 6 (Saturday)"
+        return {"type": "last_weekday_of_month", "weekday": weekday}, None
+    # biweekly
+    try:
+        weekday = int(config.get("weekday"))
+    except (TypeError, ValueError):
+        return None, "config.weekday is required for 'biweekly' and must be 0-6"
+    if not (0 <= weekday <= 6):
+        return None, "config.weekday must be between 0 (Sunday) and 6 (Saturday)"
+    ref = config.get("referenceDate")
+    try:
+        date.fromisoformat(str(ref))
+    except (TypeError, ValueError):
+        return None, "config.referenceDate is required for 'biweekly' and must be an ISO date (YYYY-MM-DD)"
+    return {"type": "biweekly", "weekday": weekday, "referenceDate": str(ref)}, None
+
+
+async def _exec_propose_set_pay_period(uid: str, config) -> dict:
+    clean, err = _validate_pay_period_config(config)
+    if err:
+        return _tool_error(err)
+    prefs = await _current_prefs(uid)
+    old_cfg = prefs.get("pay_period_config")
+    new_label = _describe_pay_period_config(clean)
+    if old_cfg and old_cfg != clean:
+        old_label = _describe_pay_period_config(old_cfg)
+        summary = f"Change your pay period from {old_label} to {new_label}"
+    else:
+        summary = f"Set your pay period to {new_label}"
+    consequence = (
+        "Resets your current pay period window, Safe-to-Spend recalculates "
+        "against it, this can change what Home, Upcoming and Planning show."
+    )
+    params = {"pay_period_config": clean}
+    return await _create_proposal(uid, "set_pay_period", params, summary, consequence)
+
+
+async def _exec_propose_set_income(uid: str, amount_annual=None, bracket=None) -> dict:
+    if amount_annual is None and bracket:
+        return {
+            "needs_input": True,
+            "ask": "What's your approximate annual income? I can only set an exact figure, not just a band.",
+        }
+    if amount_annual is None:
+        return _tool_error("amount_annual is required")
+    try:
+        amount = float(amount_annual)
+    except (TypeError, ValueError):
+        return _tool_error("amount_annual must be a number")
+    if amount < 0:
+        return _tool_error("amount_annual must not be negative")
+    amount = round(amount)
+    prefs = await _current_prefs(uid)
+    before = prefs.get("income_value")
+    if before:
+        summary = f"Change your income on file from {_money(before)['formatted']} to {_money(amount)['formatted']}"
+    else:
+        summary = f"Set your income on file to {_money(amount)['formatted']}"
+    consequence = "Changes your tax position figures: personal allowance and the Child Benefit charge check use this number."
+    params = {"income_value": amount}
+    return await _create_proposal(uid, "set_income", params, summary, consequence)
+
+
+async def _exec_propose_set_pension_contributions(uid: str, amount_annual=None) -> dict:
+    if amount_annual is None:
+        return _tool_error("amount_annual is required")
+    try:
+        amount = float(amount_annual)
+    except (TypeError, ValueError):
+        return _tool_error("amount_annual must be a number")
+    if amount < 0:
+        return _tool_error("amount_annual must not be negative")
+    amount = round(amount)
+    prefs = await _current_prefs(uid)
+    before = prefs.get("pension_annual")
+    if before:
+        summary = f"Change your pension contributions on file from {_money(before)['formatted']} to {_money(amount)['formatted']} a year"
+    else:
+        summary = f"Set your pension contributions on file to {_money(amount)['formatted']} a year"
+    consequence = "Changes your adjusted net income and personal allowance taper figures."
+    params = {"pension_annual": amount}
+    return await _create_proposal(uid, "set_pension", params, summary, consequence)
+
+
+async def _exec_propose_set_child_benefit(uid: str, receiving=None) -> dict:
+    if not isinstance(receiving, bool):
+        return _tool_error("receiving must be true or false")
+    prefs = await _current_prefs(uid)
+    before = bool(prefs.get("has_child_benefit", False))
+    new_label = "receiving" if receiving else "not receiving"
+    if "has_child_benefit" in prefs and before != receiving:
+        old_label = "receiving" if before else "not receiving"
+        summary = f"Change your Child Benefit record from {old_label} to {new_label}"
+    else:
+        summary = f"Record that you are {new_label} Child Benefit"
+    consequence = "Changes whether the High Income Child Benefit Charge check applies to your tax position."
+    params = {"has_child_benefit": receiving}
+    return await _create_proposal(uid, "set_child_benefit", params, summary, consequence)
+
+
+async def _exec_propose_set_debt_target(uid: str, months=None) -> dict:
+    try:
+        n = int(months)
+    except (TypeError, ValueError):
+        return _tool_error("months is required and must be a whole number")
+    if not (1 <= n <= 360):
+        return _tool_error("months must be between 1 and 360")
+    prefs = await _current_prefs(uid)
+    before = prefs.get("debt_target_months")
+    if before and before != n:
+        summary = f"Change your debt payoff target from {before} to {n} months"
+    else:
+        summary = f"Set your debt payoff target to {n} months"
+    consequence = "Changes the repayment timelines shown on Cards and Planning."
+    params = {"debt_target_months": n}
+    return await _create_proposal(uid, "set_debt_target", params, summary, consequence)
+
+
+def _parse_tracking_date(raw: str):
+    """Accepts either a full ISO date (YYYY-MM-DD) or a year-month
+    (YYYY-MM) — the only two shapes the app itself ever writes here
+    (PreferencesContext.tsx's own `todayYM()` default is YYYY-MM, but the
+    field is a free string with no backend consumer today, see this
+    module's docstring note in PENNY_TOOLS.md). Returns a human label or
+    None if unparsable."""
+    s = str(raw or "").strip()
+    try:
+        d = date.fromisoformat(s)
+        return d.strftime("%-d %b %Y")
+    except (TypeError, ValueError):
+        pass
+    try:
+        d = datetime.strptime(s, "%Y-%m")
+        return d.strftime("%b %Y")
+    except (TypeError, ValueError):
+        return None
+
+
+async def _exec_propose_set_debt_tracking_start(uid: str, date_str=None) -> dict:
+    if not date_str or not str(date_str).strip():
+        return _tool_error("date is required")
+    label = _parse_tracking_date(date_str)
+    if label is None:
+        return _tool_error("date must be an ISO date (YYYY-MM-DD) or year-month (YYYY-MM)")
+    prefs = await _current_prefs(uid)
+    before = prefs.get("debt_tracking_start")
+    before_label = _parse_tracking_date(before) if before else None
+    if before_label and before_label != label:
+        summary = f"Change your debt tracking start from {before_label} to {label}"
+    else:
+        summary = f"Set your debt tracking start to {label}"
+    consequence = "Changes the reference point your debt movement is measured from on Cards and Planning."
+    params = {"debt_tracking_start": str(date_str).strip()}
+    return await _create_proposal(uid, "set_debt_tracking_start", params, summary, consequence)
+
+
+async def _exec_propose_set_cover_plan_exclusions(uid: str, account_refs=None) -> dict:
+    if account_refs is None or not isinstance(account_refs, list):
+        return _tool_error("account_refs is required and must be a list (an empty list clears all exclusions)")
+    resolved_ids: list[str] = []
+    resolved_names: list[str] = []
+    for ref in account_refs:
+        ref = str(ref or "").strip()
+        if not ref:
+            continue
+        found = await _resolve_account_for_propose(uid, ref)
+        if found.get("ambiguous"):
+            return found
+        if found.get("error") or not found.get("account"):
+            return _tool_error(found.get("error") or f"no account matching '{ref}'")
+        acc = found["account"]
+        if acc.id not in resolved_ids:
+            resolved_ids.append(acc.id)
+            resolved_names.append(acc.name)
+    prefs = await _current_prefs(uid)
+    before_ids = sorted({str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])})
+    new_ids = sorted(resolved_ids)
+    if not resolved_names:
+        summary = "Stop excluding any accounts from the cover plan (all connected accounts count towards covering bills again)"
+    else:
+        label = ", ".join(resolved_names)
+        summary = f"Exclude {label} from the cover plan (never pulled from to cover a bill shortfall)"
+    if before_ids == new_ids:
+        summary += ", unchanged from today"
+    consequence = "Changes which accounts count towards covering bills in the cover plan."
+    params = {"cover_plan_excluded_accounts": resolved_ids}
+    return await _create_proposal(uid, "set_cover_plan_exclusions", params, summary, consequence)
+
+
+async def _exec_propose_set_hide_balances(uid: str, hidden=None) -> dict:
+    if not isinstance(hidden, bool):
+        return _tool_error("hidden must be true or false")
+    prefs = await _current_prefs(uid)
+    before = bool(prefs.get("hide_net_worth", False))
+    if before == hidden:
+        summary = f"{'Hide' if hidden else 'Show'} your balances (already set this way)"
+    else:
+        summary = "Hide your balances" if hidden else "Show your balances again"
+    consequence = "Only changes what is shown, nothing about your calculations changes."
+    params = {"hide_net_worth": hidden}
+    return await _create_proposal(uid, "set_hide_balances", params, summary, consequence)
+
+
 async def execute_tool(uid: str, name: str, args: dict) -> dict:
     """Dispatch one tool call to its executor. Never raises — every executor
     above already wraps its own engine call, and any error building the args
@@ -4430,6 +4934,22 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_propose_set_card_apr(
                 uid, args.get("card_ref"), args.get("apr_pct"), args.get("_user_texts"),
             )
+        if name == "propose_set_pay_period":
+            return await _exec_propose_set_pay_period(uid, args.get("config"))
+        if name == "propose_set_income":
+            return await _exec_propose_set_income(uid, args.get("amount_annual"), args.get("bracket"))
+        if name == "propose_set_pension_contributions":
+            return await _exec_propose_set_pension_contributions(uid, args.get("amount_annual"))
+        if name == "propose_set_child_benefit":
+            return await _exec_propose_set_child_benefit(uid, args.get("receiving"))
+        if name == "propose_set_debt_target":
+            return await _exec_propose_set_debt_target(uid, args.get("months"))
+        if name == "propose_set_debt_tracking_start":
+            return await _exec_propose_set_debt_tracking_start(uid, args.get("date"))
+        if name == "propose_set_cover_plan_exclusions":
+            return await _exec_propose_set_cover_plan_exclusions(uid, args.get("account_refs"))
+        if name == "propose_set_hide_balances":
+            return await _exec_propose_set_hide_balances(uid, args.get("hidden"))
         return _tool_error(f"unknown tool: {name}")
     except Exception as e:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
