@@ -34,12 +34,15 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `get_fill_candidates(account_id_or_name?)` | read | `GET /allocations/fill-candidates` |
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 
-### Propose/write tools, 18, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L611-891)
+### Propose/write tools, 26, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L611-891)
 
 B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
 the original eight, for the covered creates only (planned, allocation,
-commitment, checkpoint delete, recurring skip/edit/clear-override) — see
-section 2's per-row status changes and section 3's revised counts.
+commitment, checkpoint delete, recurring skip/edit/clear-override). B15
+(2026-09-08, B12 stage 2 shipped) added the eight preferences twins below
+that, for the money-maths preferences (pay period, income, pension, Child
+Benefit, debt target/tracking-start, cover-plan exclusions, hide balances)
+— see section 2's per-row status changes and section 3's revised counts.
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -61,6 +64,14 @@ section 2's per-row status changes and section 3's revised counts.
 | `propose_skip_occurrence(key_or_name, date)` | propose (B14) | `app.routers.analytics.skip_occurrence` (`POST /cashflow/skip-occurrence`) |
 | `propose_edit_occurrence(key_or_name, date, new_date?, new_amount?, scope)` | propose (B14) | `app.routers.analytics.edit_upcoming` (`POST /cashflow/edit-upcoming`; `scope` is `one`\|`future`, matching the router exactly) |
 | `propose_clear_override(key_or_name, date)` | propose (B14) | `app.routers.analytics.clear_override` (`POST /cashflow/clear-override`) |
+| `propose_set_pay_period(config)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {pay_period_config}`, scoped to the 4 types Settings' own Pay Period sheet offers) |
+| `propose_set_income(amount_annual?, bracket?)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {income_value}`, `income_bracket` auto-derived same as the router; `bracket` alone asks for a number rather than guessing one) |
+| `propose_set_pension_contributions(amount_annual)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {pension_annual}`) |
+| `propose_set_child_benefit(receiving)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {has_child_benefit}`) |
+| `propose_set_debt_target(months)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {debt_target_months}`) |
+| `propose_set_debt_tracking_start(date)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {debt_tracking_start}`) |
+| `propose_set_cover_plan_exclusions(account_refs)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {cover_plan_excluded_accounts}`, whole-list replace, empty list clears) |
+| `propose_set_hide_balances(hidden)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {hide_net_worth}`) |
 
 ### Agent-mode consent gate
 
@@ -156,16 +167,16 @@ section 2's per-row status changes and section 3's revised counts.
 |---|---|---|---|---|
 | Save name / postcode (and finish onboarding) | `app/settings/SettingsPage.tsx:319`, `components/Onboarding.tsx:139,153` | `PUT /profile` (`updateProfile`) | none | gap |
 | Delete my account and all data | `app/settings/SettingsPage.tsx:335` | `DELETE /account` (`deleteUserAccount`) | none | gap (deliberate) |
-| Toggle "hide net worth" | `components/PreferencesContext.tsx:117` | `PATCH /preferences` (`updatePreferences`) | none | gap |
+| Toggle "hide net worth" | `components/PreferencesContext.tsx:117` | `PATCH /preferences` (`updatePreferences`) | `propose_set_hide_balances` (B15) | covered |
 | Toggle dark mode | `components/PreferencesContext.tsx:123` | `PATCH /preferences` | none | gap (deliberate) |
-| Set the pay-period boundary | `components/PreferencesContext.tsx:128`, `components/Onboarding.tsx:165` | `PATCH /preferences {pay_period_config}` | none | gap |
+| Set the pay-period boundary | `components/PreferencesContext.tsx:128`, `components/Onboarding.tsx:165` | `PATCH /preferences {pay_period_config}` | `propose_set_pay_period` (B15) | covered |
 | Set region | `components/PreferencesContext.tsx:133` | `PATCH /preferences {region}` | none | gap |
-| Set debt target months | `components/PreferencesContext.tsx:138` | `PATCH /preferences {debt_target_months}` | none | gap |
-| Set debt tracking start | `components/PreferencesContext.tsx:143` | `PATCH /preferences {debt_tracking_start}` | none | gap |
-| Set income value | `app/settings/SettingsPage.tsx:354`, `components/Onboarding.tsx:179` | `PATCH /preferences {income_value}` | `get_tax_position` reads it | partial |
-| Set annual pension | `app/settings/SettingsPage.tsx:367` | `PATCH /preferences {pension_annual}` | `get_tax_position` reads it | partial |
-| Toggle Child Benefit | `app/settings/SettingsPage.tsx:378` | `PATCH /preferences {has_child_benefit}` | `get_tax_position` reads it | partial |
-| Exclude accounts from the cover plan | `app/settings/SettingsPage.tsx:389` | `PATCH /preferences {cover_plan_excluded_accounts}` | none | gap |
+| Set debt target months | `components/PreferencesContext.tsx:138` | `PATCH /preferences {debt_target_months}` | `propose_set_debt_target` (B15) | covered |
+| Set debt tracking start | `components/PreferencesContext.tsx:143` | `PATCH /preferences {debt_tracking_start}` | `propose_set_debt_tracking_start` (B15) | covered |
+| Set income value | `app/settings/SettingsPage.tsx:354`, `components/Onboarding.tsx:179` | `PATCH /preferences {income_value}` | `get_tax_position` reads it, `propose_set_income` (B15) writes it | covered |
+| Set annual pension | `app/settings/SettingsPage.tsx:367` | `PATCH /preferences {pension_annual}` | `get_tax_position` reads it, `propose_set_pension_contributions` (B15) writes it | covered |
+| Toggle Child Benefit | `app/settings/SettingsPage.tsx:378` | `PATCH /preferences {has_child_benefit}` | `get_tax_position` reads it, `propose_set_child_benefit` (B15) writes it | covered |
+| Exclude accounts from the cover plan | `app/settings/SettingsPage.tsx:389` | `PATCH /preferences {cover_plan_excluded_accounts}` | `propose_set_cover_plan_exclusions` (B15) | covered |
 | Change notification preferences | `app/settings/SettingsPage.tsx:398` | `PATCH /preferences {notification_prefs}` | none | gap |
 | Reorder Spend "over time" widgets | `components/SpendTrends.tsx:1030` | `PATCH /preferences {spend_widgets}` | none | gap (deliberate) |
 | Pin a widget to Home | `components/SpendTrends.tsx:1036` | `PATCH /preferences {home_pinned_widget}` | none | gap (deliberate) |
@@ -221,17 +232,24 @@ checkpoint delete, recurring skip/edit/clear-override) moved 7 rows from
 partial/gap to covered and 1 row from gap to partial (allocation edit,
 scoped narrower than the UI's own sheet — see its row above).
 
+Revised again 2026-09-08 (B15, B12 stage 2 shipped): eight preferences
+propose tools moved 5 rows from gap to covered (hide net worth, pay-period
+config, debt target months, debt tracking start, cover-plan exclusions) and
+3 rows from partial to covered (income value, annual pension, Child
+Benefit — all three were already readable via `get_tax_position`, now also
+writable).
+
 | | Count |
 |---|---|
 | Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 93 |
-| Covered | 14 |
-| Partial | 24 |
-| Gap | 54 |
+| Covered | 22 |
+| Partial | 21 |
+| Gap | 49 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
-The 14 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`.
+The 22 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`.
 
-## 4. Gaps grouped (54)
+## 4. Gaps grouped (49)
 
 Accounts and connections (11): sync accounts, sync history, delete bank account, Mono exchange, create offline account, add offline-ledger entry, create mirror rule, edit/pause mirror rule, delete mirror rule, refresh investment prices, delete investment account.
 
@@ -243,7 +261,7 @@ Plans, commitments, goals (6): add/edit/delete an offline savings pot, tick a sa
 
 Cards and terms (1): card-terms lookup.
 
-Settings and preferences (14): profile save, delete account, hide net worth, dark mode, pay-period config, region, debt target months, debt tracking start, cover-plan exclusions, notification prefs, spend-widget order, home widget pin, home card pins, test push.
+Settings and preferences (9): profile save, delete account, dark mode, region, notification prefs, spend-widget order, home widget pin, home card pins, test push. (Hide net worth, pay-period config, debt target months, debt tracking start and cover-plan exclusions moved to covered under B15; region stays a gap, it was never in B15's scope — see PENNY_TOOLS.md's B15 note.)
 
 Receipts, statements, uploads (8): scan receipt, delete basket, upload statement, upload M-Pesa CSV, upload investment statement, upload contract note, upload contract note cold-start, delete contract note.
 

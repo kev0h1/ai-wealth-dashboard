@@ -143,6 +143,52 @@ kind=... executed_at=... source=penny`) to `journalctl -u wealth-api`.
 | `propose_skip_occurrence(key_or_name, date)` | `app.routers.analytics.skip_occurrence` | Medium — skips one occurrence of a recurring bill/income, reversible via `propose_clear_override` |
 | `propose_edit_occurrence(key_or_name, date, new_date?, new_amount?, scope)` | `app.routers.analytics.edit_upcoming` | Medium — overrides one occurrence's date/amount (`scope` "one" or "future"), reversible via `propose_clear_override` |
 | `propose_clear_override(key_or_name, date)` | `app.routers.analytics.clear_override` | Low — reverts a prior skip/edit override on one occurrence |
+| `propose_set_pay_period(config)` | `app.routers.preferences.update_preferences` (`pay_period_config`) | Medium — resets the current pay period window, Safe-to-Spend recalculates against it; scoped to the four types Settings' own Pay Period sheet offers |
+| `propose_set_income(amount_annual?, bracket?)` | `app.routers.preferences.update_preferences` (`income_value`, `income_bracket` auto-derived) | Low — feeds the tax position (personal allowance, Child Benefit charge check); `bracket` alone never invents a figure, asks for a number instead |
+| `propose_set_pension_contributions(amount_annual)` | `app.routers.preferences.update_preferences` (`pension_annual`) | Low — feeds adjusted net income and the personal allowance taper |
+| `propose_set_child_benefit(receiving)` | `app.routers.preferences.update_preferences` (`has_child_benefit`) | Low — feeds the High Income Child Benefit Charge check |
+| `propose_set_debt_target(months)` | `app.routers.preferences.update_preferences` (`debt_target_months`) | Low — feeds the repayment timelines shown on Cards and Planning |
+| `propose_set_debt_tracking_start(date)` | `app.routers.preferences.update_preferences` (`debt_tracking_start`) | Low — feeds the reference point debt movement is measured from on Cards and Planning |
+| `propose_set_cover_plan_exclusions(account_refs)` | `app.routers.preferences.update_preferences` (`cover_plan_excluded_accounts`) | Medium — changes which of the user's own accounts count towards covering a bill shortfall |
+| `propose_set_hide_balances(hidden)` | `app.routers.preferences.update_preferences` (`hide_net_worth`) | Low — display only, never touches a calculation |
+
+**B15, 2026-09-08 (B12 stage 2).** Eight propose tools for the preferences
+that change money maths: pay period, income, pension, Child Benefit, debt
+target and tracking start, cover-plan exclusions, hide balances. Unlike
+every propose tool above, `app.routers.preferences.update_preferences`
+(`PATCH /preferences`'s own function) barely validates its own body — most
+fields are `$set` straight from the client dict with no shape check at all
+(only `income_value`/`pension_annual` are coerced to a number, only
+`cover_plan_excluded_accounts` is de-duped). "Mirrors the router's
+validation" here therefore means mirroring the UI's OWN rules instead
+(Settings' "Financial profile" section, `PayPeriodSettingsSheet.tsx`), each
+validator in `app.services.penny_tools` commented with the control it
+mirrors — `propose_set_pay_period` in particular only accepts the four
+`config.type` values the Pay Period sheet's own `MODES` array offers
+(`calendar_month`, `monthly_pay_date`, `biweekly`,
+`last_weekday_of_month`), not the two more the type union and the pay-period
+engine also understand (`last_friday`, a legacy default no live control
+sets any more; `weekly`, only ever produced by income-schedule
+auto-detection) — never inventing a reachable-only-by-Penny state. All
+eight share ONE execute-side function, `app.routers.can_i.
+_execute_update_preferences`: every proposal's stored `params` is already
+exactly the `{key: value}` PATCH body `update_preferences` expects, so
+replaying it through that SAME router function (never a second write path)
+picks up its response-cache wipe and, for pay period, its best-effort
+cashflow recompute, for free — identical side effects to a Settings edit.
+`propose_set_income`'s `bracket` argument exists only to recognise the user
+naming an income band in conversation; since `income_bracket` is DERIVED
+from `income_value` everywhere it's read (`build_tax_fact_pack`), a bracket
+alone can never itself change the tax position, so passing one without
+`amount_annual` returns `needs_input` asking for an approximate figure
+rather than inventing one, the same anti-fabrication instinct
+`propose_set_card_apr`'s verbatim-provenance rule embodies for APR.
+`propose_set_cover_plan_exclusions` reuses `_resolve_account_for_propose`
+(the SAME resolver `propose_add_planned`'s `account_id` uses) once per
+`account_refs` entry, REPLACING the whole exclusion list on every call (an
+empty list clears it), an unknown or ambiguous name refuses the whole
+proposal rather than silently dropping just that one account. Full
+inventory update in `docs/penny/action-inventory.md`.
 
 **B14, 2026-09-08 (B12 stage 1).** Ten edit/delete twins for the covered
 creates above, still entirely propose-only through the same
