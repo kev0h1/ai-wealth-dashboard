@@ -83,6 +83,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-08, claude): Built 2026-09-08 (session-bearer auth until F2). Two choices for Kevin to confirm: JSON-RPC error codes -32000 (monthly allowance spent) vs -32002 (tier has no connector); tools/list returns the full 18-tool catalogue to any authenticated principal, scope is enforced only at tools/call.
 - [ ] **F4. Settings "Connected assistants"** [owner: claude] list with client name, last used, revoke.
 - [ ] **F5. Policy updates:** [owner: claude] [state: review: feature-F5-assistant-policy-updates] Privacy Policy section "AI assistants you connect", Terms clause, Finexer Q2 and Q9 disclosure.
+  - note (2026-09-08, claude): 2026-09-08: Privacy section 6 and the Terms clause shipped (PDFs regenerated). The Finexer Q2/Q9 disclosure half moved to the new Kevin-owned item above.
 - [ ] **F6. Finexer questionnaire Q2 and Q9: disclose the AI-assistant connector (read-only, aggregates only, banking identifiers masked, per-user audit log, revocation path, no payment or write capability); wording in the pricing doc section 7 and Privacy section 6** [owner: kevin]
 
 ## G. Design and copy follow-ups
