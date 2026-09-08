@@ -638,6 +638,143 @@ def test_resolve_mcp_principal_rejects_expired_token(monkeypatch):
     assert exc.value.status_code == 401
 
 
+# ── F13: naive-datetime regression ──────────────────────────────────────
+#
+# The Motor client (app.db.collections) is not created with tz_aware=True,
+# so a real Mongo doc's expires_at comes back as a naive datetime, while the
+# code compares it against the aware datetime.now(timezone.utc). Before the
+# F13 fix (app.core.timeutil.as_utc), this raised TypeError: can't compare
+# offset-naive and offset-aware datetimes. The tests below simulate that by
+# storing naive datetimes directly, the same way the fakes above store aware
+# ones, and assert the affected paths behave correctly instead of raising.
+
+def test_token_exchange_succeeds_when_stored_code_expires_at_is_naive(monkeypatch):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    verifier, challenge = _pkce_pair()
+    code = secrets.token_urlsafe(32)
+    naive_now = datetime.utcnow()
+    code_doc = {
+        "_id": hashlib.sha256(code.encode()).hexdigest(),
+        "client_id": "client-1", "uid": "user@example.com", "redirect_uri": "https://claude.ai/cb",
+        "scopes": ["accounts:read", "plans:read"], "code_challenge": challenge,
+        "created_at": naive_now, "expires_at": naive_now + timedelta(minutes=5), "used_at": None,
+    }
+    codes.docs[code_doc["_id"]] = code_doc
+
+    resp = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    })))
+    import json
+    body = json.loads(resp.body)
+    assert resp.status_code == 200
+    assert body["access_token"].startswith("sorted_at_")
+    assert body["refresh_token"].startswith("sorted_rt_")
+
+
+def test_refresh_grant_succeeds_when_stored_expires_at_is_naive(monkeypatch):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+    import json
+    first = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    })))
+    first_body = json.loads(first.body)
+    refresh_hash = hashlib.sha256(first_body["refresh_token"].encode()).hexdigest()
+    # Simulate reading the doc back from the non-tz_aware Motor client: strip tzinfo.
+    tokens.docs[refresh_hash]["expires_at"] = tokens.docs[refresh_hash]["expires_at"].replace(tzinfo=None)
+
+    second = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": first_body["refresh_token"],
+        "client_id": "client-1",
+    })))
+    second_body = json.loads(second.body)
+    assert second.status_code == 200
+    assert second_body["access_token"] != first_body["access_token"]
+
+
+def test_refresh_grant_rejects_expired_naive_expires_at(monkeypatch):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+    import json
+    first = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    })))
+    first_body = json.loads(first.body)
+    refresh_hash = hashlib.sha256(first_body["refresh_token"].encode()).hexdigest()
+    # A naive expires_at in the past must still be treated as expired, not
+    # crash and not be mistaken for always-valid.
+    tokens.docs[refresh_hash]["expires_at"] = datetime.utcnow() - timedelta(minutes=5)
+
+    resp = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": first_body["refresh_token"],
+        "client_id": "client-1",
+    })))
+    body = json.loads(resp.body)
+    assert resp.status_code == 400
+    assert body["error"] == "invalid_grant"
+
+
+def test_revoke_endpoint_works_when_stored_expires_at_is_naive(monkeypatch):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code())
+    codes.docs[code_doc["_id"]] = code_doc
+    import json
+    issued = json.loads(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": code_doc["redirect_uri"], "client_id": "client-1",
+        "code_verifier": verifier,
+    }))).body)
+    # Downgrade every stored token's expires_at to naive, as if freshly read
+    # back from the non-tz_aware Motor client.
+    for doc in tokens.docs.values():
+        doc["expires_at"] = doc["expires_at"].replace(tzinfo=None)
+
+    resp = _run(oauth.revoke_token(_FakeFormRequest({"token": issued["access_token"], "client_id": "client-1"})))
+    assert resp.status_code == 200
+    assert all(t["revoked_at"] is not None for t in tokens.docs.values())
+
+    # list_connections reads the same naive expires_at values and must not
+    # raise, and must correctly report 0 active tokens now that all are revoked.
+    result = _run(oauth.list_connections(user={"email": "user@example.com"}))
+    assert result["connections"][0]["active_tokens"] == 0
+
+
+def test_resolve_mcp_principal_accepts_naive_future_expires_at(monkeypatch):
+    tokens = _FakeCollection()
+    monkeypatch.setattr(mcp, "oauth_tokens_col", tokens)
+    raw = _seed_access_token(tokens, scopes=["accounts:read"])
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    tokens.docs[token_hash]["expires_at"] = tokens.docs[token_hash]["expires_at"].replace(tzinfo=None)
+
+    principal = _run(mcp.resolve_mcp_principal(_FakeRequestWithAuth(raw)))
+    assert principal["uid"] == "user@example.com"
+    assert principal["scopes"] == {"accounts:read"}
+
+
+def test_resolve_mcp_principal_rejects_naive_past_expires_at(monkeypatch):
+    tokens = _FakeCollection()
+    monkeypatch.setattr(mcp, "oauth_tokens_col", tokens)
+    raw = _seed_access_token(tokens, scopes=["accounts:read"], expires_delta=timedelta(minutes=-5))
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    tokens.docs[token_hash]["expires_at"] = tokens.docs[token_hash]["expires_at"].replace(tzinfo=None)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(mcp.resolve_mcp_principal(_FakeRequestWithAuth(raw)))
+    assert exc.value.status_code == 401
+
+
 def test_tools_call_enforces_the_access_tokens_own_scopes(monkeypatch):
     tokens = _FakeCollection()
     monkeypatch.setattr(mcp, "oauth_tokens_col", tokens)
