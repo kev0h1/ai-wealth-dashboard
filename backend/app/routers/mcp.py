@@ -1,0 +1,369 @@
+"""F3: `/mcp` Streamable HTTP connector: read-only tools for a user's own
+external AI assistant (Claude, ChatGPT, ...), same data layer Penny uses.
+
+Owner decision 2026-09-08 (see docs/pricing/tiering-unit-economics-mcp-2026-09.md
+section 7 and PENNY_TOOLS.md's "Not-MCP decision"): v1 exposes exactly the
+read tools in `app.services.penny_tools.TOOL_SCHEMAS`, never the propose
+tools, through the SAME `execute_tool` dispatch Penny's own loop uses; every
+result is masked by `app.services.mcp_mask.mask_output` before it leaves
+this process. No raw transaction rows cross this boundary at all in v1:
+`search_transactions` is excluded outright and every other tool's output is
+scrubbed of per-transaction rows, never gated behind a scope. `transactions:read`
+does not exist yet.
+
+Transport: a minimal Streamable HTTP implementation of MCP (spec version
+"2025-06-18"), hand-rolled rather than a new dependency. `POST /mcp` takes
+one JSON-RPC 2.0 request or a batch (a JSON array of them); `GET /mcp` is
+405 (v1 never opens a server-initiated stream); `DELETE /mcp` is 204 (this
+server is stateless, no `Mcp-Session-Id` to tear down).
+
+Auth: the SAME bearer the rest of the app uses (`app.core.auth.current_user`,
+a session token, or `BOT_SECRET`), resolved once per request by
+`resolve_mcp_principal`. F2 (OAuth 2.1 authorisation server, not started)
+will swap in real per-token scopes from a different principal source; every
+other function in this module already takes a `principal` dict rather than
+re-deriving it, so that swap should not have to touch anything below
+`resolve_mcp_principal` itself. A v1 session-bearer principal is granted all
+three scopes and reports `client: "session"`.
+"""
+import json
+import logging
+import time
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
+
+from app.core.auth import current_user
+from app.core.ratelimit import check_rate_limit
+from app.core.subscription import get_subscription, _next_month_first_day
+from app.db.collections import mcp_calls_col
+from app.services.mcp_mask import mask_output_and_count
+from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["mcp"])
+
+MCP_PROTOCOL_VERSION = "2025-06-18"
+MCP_SERVER_NAME = "sorted"
+MCP_SERVER_VERSION = "0.1.0"
+
+# v1 scopes (docs/pricing section 7). `transactions:read` is deliberately
+# absent, deferred until a later version adds an explicit transaction-row
+# scope with its own consent line; v1 never returns transaction rows at all,
+# under any scope, so there is nothing for it to gate yet.
+V1_SCOPES = frozenset({"accounts:read", "plans:read", "insights:read"})
+
+# TOOL_SCHEMAS minus the one tool excluded outright (owner decision
+# 2026-09-08: no raw transactions over the connector in v1, see this
+# module's own docstring). PROPOSE_TOOL_SCHEMAS never enters this file at
+# all, so there is no separate exclusion list needed for those.
+_EXCLUDED_TOOLS = frozenset({"search_transactions"})
+
+# Every exposed tool's scope. Build step 2 of the F3 brief: accounts:read
+# for account-shaped facts (including get_today_brief and get_mirror, which
+# both read account/balance state), plans:read for forward-looking planning
+# tools, insights:read for spend-analysis tools. Kept as an explicit map
+# (not derived) so a new tool added to TOOL_SCHEMAS must be deliberately
+# opted into the connector here rather than silently inherited.
+TOOL_SCOPES: dict[str, str] = {
+    "get_accounts": "accounts:read",
+    "get_account_activity": "accounts:read",
+    "get_fill_candidates": "accounts:read",
+    "get_safe_to_spend": "accounts:read",
+    "get_today_brief": "accounts:read",
+    "get_mirror": "accounts:read",
+    "get_upcoming_bills": "plans:read",
+    "get_recurring_payments": "plans:read",
+    "get_savings_position": "plans:read",
+    "get_debt_position": "plans:read",
+    "get_goals": "plans:read",
+    "check_affordability": "plans:read",
+    "get_tax_position": "plans:read",
+    "calculate": "plans:read",
+    "get_spend_verdict": "insights:read",
+    "get_category_spend": "insights:read",
+    "get_insights": "insights:read",
+    "explain": "insights:read",
+}
+
+MCP_TOOLS = [
+    t for t in TOOL_SCHEMAS
+    if t["function"]["name"] not in _EXCLUDED_TOOLS and t["function"]["name"] in TOOL_SCOPES
+]
+
+# Defensive: a tool added to TOOL_SCHEMAS but forgotten in TOOL_SCOPES above
+# must fail loudly at import time, not silently vanish from the connector's
+# catalogue or (worse) reach tools/call with no scope to check.
+_unscoped = {
+    t["function"]["name"] for t in TOOL_SCHEMAS
+    if t["function"]["name"] not in _EXCLUDED_TOOLS and t["function"]["name"] not in TOOL_SCOPES
+}
+if _unscoped:
+    raise RuntimeError(f"mcp.py: TOOL_SCHEMAS tool(s) missing a TOOL_SCOPES entry: {sorted(_unscoped)}")
+
+
+class McpError(Exception):
+    """Raised by `check_mcp_allowance` or `_handle_tools_call` to surface as
+    a JSON-RPC error object rather than a `result`, caught in
+    `handle_jsonrpc_request`. `code`/`message`/`data` map straight onto the
+    JSON-RPC 2.0 error member."""
+
+    def __init__(self, code: int, message: str, data: dict | None = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.data = data
+
+
+async def resolve_mcp_principal(request: Request) -> dict:
+    """v1 principal resolution: the same bearer session every other route
+    validates via `current_user` (raises 401 on a missing/expired/invalid
+    token, handled by FastAPI before this router's body ever runs). Kept as
+    its own function, taking only `request`, so F2's OAuth access-token
+    principal (real per-token `client` name and a token-scoped subset of
+    scopes) can replace this body without any other function in this module
+    needing to change its own signature."""
+    user = await current_user(request)
+    return {"uid": user.get("email"), "client": "session", "scopes": set(V1_SCOPES)}
+
+
+def _mcp_tool_list() -> list[dict]:
+    out = []
+    for t in MCP_TOOLS:
+        fn = t["function"]
+        scope = TOOL_SCOPES[fn["name"]]
+        out.append({
+            "name": fn["name"],
+            "description": f"{fn['description']}\n\nScope: {scope}.",
+            "inputSchema": fn["parameters"],
+        })
+    return out
+
+
+async def check_mcp_allowance(uid: str) -> dict:
+    """Raise `McpError` if `uid` has no connector allowance left this
+    calendar month, else return `{used, limit, resets_on, tier}`.
+
+    `TIER_LIMITS[...]["mcp_tool_calls_per_month"]` is 0 for Statements/
+    Lite/Standard (not included in the tier at all, a distinct error from
+    running out), 2000 for Connect, 5000 for Max. `None` would mean
+    unlimited (the TIER_LIMITS convention elsewhere in this codebase),
+    though no tier is configured that way for this key today."""
+    sub = await get_subscription(uid)
+    limit = sub.limit("mcp_tool_calls_per_month")
+    now = datetime.now(timezone.utc)
+    ym = now.strftime("%Y-%m")
+    resets_on = _next_month_first_day(now).isoformat()
+
+    if limit is None:
+        return {"used": 0, "limit": None, "resets_on": resets_on, "tier": sub.tier_name}
+
+    if limit == 0:
+        raise McpError(
+            -32002,
+            "The connector is included in Connect and Max",
+            {"tier": sub.tier_name, "limit": 0, "resets_on": resets_on},
+        )
+
+    used = await mcp_calls_col.count_documents({"user_id": uid, "year_month": ym})
+    if used >= limit:
+        raise McpError(
+            -32000,
+            "Monthly connector allowance reached",
+            {"used": used, "limit": limit, "resets_on": resets_on},
+        )
+    return {"used": used, "limit": limit, "resets_on": resets_on, "tier": sub.tier_name}
+
+
+async def _write_audit(principal: dict, tool: str, ok: bool, latency_ms: float, dropped_keys: int) -> None:
+    """Metering must never turn a working tool call into a user-facing
+    failure (same doctrine as app.core.llm's record_llm_usage). Every
+    exception here is swallowed and logged, not raised."""
+    now = datetime.now(timezone.utc)
+    try:
+        await mcp_calls_col.insert_one({
+            "user_id": principal.get("uid"),
+            "client": principal.get("client", "session"),
+            "tool": tool,
+            "ok": bool(ok),
+            "ts": now,
+            "year_month": now.strftime("%Y-%m"),
+            "latency_ms": round(latency_ms, 1),
+            "dropped_keys": int(dropped_keys),
+        })
+    except Exception:
+        logger.exception("mcp: failed to write audit doc for %s/%s", principal.get("uid"), tool)
+
+
+async def _handle_tools_call(principal: dict, params: dict) -> dict:
+    name = (params or {}).get("name")
+    args = (params or {}).get("arguments") or {}
+    if not isinstance(name, str) or name not in TOOL_SCOPES:
+        raise McpError(-32602, f"Unknown or unavailable tool: {name!r}")
+
+    scope = TOOL_SCOPES[name]
+    if scope not in principal.get("scopes", set()):
+        raise McpError(-32001, "Scope not granted", {"tool": name, "required_scope": scope})
+
+    # Allowance is checked (and may raise) BEFORE the tool actually runs, so
+    # a capped user's rejected call costs nothing and writes no audit doc of
+    # its own, matching check_statement_upload_allowed's "call before any
+    # real work" convention in app.core.subscription.
+    await check_mcp_allowance(principal["uid"])
+
+    start = time.perf_counter()
+    ok = True
+    dropped = 0
+    try:
+        raw = await execute_tool(principal["uid"], name, args)
+        ok = not (isinstance(raw, dict) and "error" in raw)
+        masked, dropped = mask_output_and_count(name, raw)
+    except Exception:
+        logger.exception("mcp: tools/call crashed for %s/%s", principal.get("uid"), name)
+        ok = False
+        masked = {"error": "tool execution failed"}
+    latency_ms = (time.perf_counter() - start) * 1000
+    await _write_audit(principal, name, ok, latency_ms, dropped)
+
+    return {
+        "content": [{"type": "text", "text": json.dumps(masked)}],
+        "isError": not ok,
+    }
+
+
+def _error_obj(code: int, message: str, data: dict | None = None) -> dict:
+    err = {"code": code, "message": message}
+    if data is not None:
+        err["data"] = data
+    return err
+
+
+async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
+    """Dispatch one JSON-RPC 2.0 message. Returns the response object, or
+    `None` for a notification (a message with no `id`; per spec, the
+    server must never send a response for one). Never raises: every error
+    path is turned into a JSON-RPC error object (or swallowed, for a
+    notification)."""
+    is_notification = "id" not in msg
+    msg_id = msg.get("id")
+    method = msg.get("method")
+
+    if not isinstance(method, str):
+        return None if is_notification else {"jsonrpc": "2.0", "id": msg_id, "error": _error_obj(-32600, "Invalid Request")}
+
+    try:
+        if method == "initialize":
+            result = {
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": MCP_SERVER_NAME, "version": MCP_SERVER_VERSION},
+            }
+        elif method == "notifications/initialized":
+            return None
+        elif method == "ping":
+            result = {}
+        elif method == "tools/list":
+            result = {"tools": _mcp_tool_list()}
+        elif method == "tools/call":
+            result = await _handle_tools_call(principal, msg.get("params") or {})
+        else:
+            if is_notification:
+                return None
+            return {"jsonrpc": "2.0", "id": msg_id, "error": _error_obj(-32601, f"Method not found: {method}")}
+    except McpError as e:
+        if is_notification:
+            return None
+        return {"jsonrpc": "2.0", "id": msg_id, "error": _error_obj(e.code, e.message, e.data)}
+    except Exception:
+        logger.exception("mcp: unhandled error dispatching method=%s", method)
+        if is_notification:
+            return None
+        return {"jsonrpc": "2.0", "id": msg_id, "error": _error_obj(-32603, "Internal error")}
+
+    if is_notification:
+        return None
+    return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+
+@router.post("/mcp")
+async def mcp_post(request: Request):
+    if limited := await check_rate_limit(request):
+        return limited
+
+    principal = await resolve_mcp_principal(request)
+
+    body = await request.body()
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": _error_obj(-32700, "Parse error")})
+
+    is_batch = isinstance(payload, list)
+    messages = payload if is_batch else [payload]
+    if not messages:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": _error_obj(-32600, "Invalid Request")})
+
+    responses = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            responses.append({"jsonrpc": "2.0", "id": None, "error": _error_obj(-32600, "Invalid Request")})
+            continue
+        resp = await handle_jsonrpc_request(principal, msg)
+        if resp is not None:
+            responses.append(resp)
+
+    if not responses:
+        # Every message in the request was a notification (e.g. a lone
+        # notifications/initialized), so no JSON-RPC response object exists
+        # to send back, per spec.
+        return Response(status_code=202, content=b"")
+
+    if is_batch:
+        return JSONResponse(responses)
+    return JSONResponse(responses[0])
+
+
+@router.get("/mcp")
+async def mcp_get():
+    """No server-initiated stream in v1. Streamable HTTP callers that GET
+    to open one get a plain 405 rather than a hung connection."""
+    return Response(status_code=405)
+
+
+@router.delete("/mcp")
+async def mcp_delete():
+    """Stateless server: there is no `Mcp-Session-Id` to tear down, so a
+    DELETE always succeeds with no body."""
+    return Response(status_code=204)
+
+
+def _serialize_audit_row(doc: dict) -> dict:
+    ts = doc.get("ts")
+    return {
+        "tool": doc.get("tool"),
+        "client": doc.get("client"),
+        "ts": ts.isoformat() if isinstance(ts, datetime) else ts,
+        "ok": bool(doc.get("ok")),
+    }
+
+
+@router.get("/mcp/audit")
+async def get_mcp_audit(month: str | None = Query(None), user: dict = Depends(current_user)):
+    """The caller's own `/mcp` audit rows for one calendar month (default:
+    the current month), masked down to tool/client/ts/ok, for F4 (not yet
+    built) to render on a "Connected assistants" settings surface. Every
+    other audit field (latency_ms, dropped_keys) stays server-side. Not
+    rate-limited in v1 (check_rate_limit is only ever inert unless a
+    handler calls it itself, per app.core.ratelimit's own doctrine
+    comment): it is a cheap read of the caller's own already-written
+    rows, not a tool-call surface."""
+    uid = user.get("email")
+    ym = month or datetime.now(timezone.utc).strftime("%Y-%m")
+    cursor = mcp_calls_col.find(
+        {"user_id": uid, "year_month": ym},
+        {"_id": 0, "tool": 1, "client": 1, "ts": 1, "ok": 1},
+    ).sort("ts", -1)
+    rows = [_serialize_audit_row(d) async for d in cursor]
+    return {"year_month": ym, "calls": rows}

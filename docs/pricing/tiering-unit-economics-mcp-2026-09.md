@@ -131,6 +131,8 @@ What this changes for Finexer and the legal pages (this is the "material change"
 
 Engineering estimate: the tool layer is already shaped for this (see the "Not-MCP decision" note in PENNY_TOOLS.md). The real work is the OAuth 2.1 authorisation server, the consent page, token storage and revocation, the audit log and the rate limits, then the two policy updates. Roughly two to three weeks of agent work with review, best started after the Finexer production approval so it does not land inside the due diligence window.
 
+F3 status (2026-09-08): the read-only `/mcp` endpoint itself shipped to UAT. Tool exposure, masking, scopes, the per-user rate limit, the tier allowance and the audit log are all live, authenticated with the app's own session bearer. F2 (the OAuth 2.1 authorisation server above) is still not started, so there is no consent page or per-token revocation yet; see DEPLOY.md's "MCP connector" section for how to point a connector at it in the meantime.
+
 ## 8. Retention jobs still missing
 
 Both PRIVACY.md section 8 and SECURITY.md section 6 promise two automated sweeps that do not exist in code:

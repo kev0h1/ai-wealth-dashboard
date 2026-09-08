@@ -235,3 +235,12 @@ response_cache_col      = db["response_cache"]
 # year_month) for the monthly-usage rollup the /subscription surface reads,
 # and (ts) for time-boxed debugging queries.
 llm_usage_col           = db["llm_usage"]
+
+# F3: audit log for the /mcp read connector (app/routers/mcp.py), one doc
+# per `tools/call`, ok or not: {user_id, client ("session" until F2's OAuth
+# server introduces real per-token clients), tool, ok, ts, year_month,
+# latency_ms, dropped_keys (count of keys app/services/mcp_mask.py stripped
+# from that call's result, never the values)}. Indexed (user_id, year_month)
+# in app/main.py's _create_indexes, backing both the tier's monthly
+# `mcp_tool_calls_per_month` allowance check and GET /mcp/audit.
+mcp_calls_col           = db["mcp_calls"]
