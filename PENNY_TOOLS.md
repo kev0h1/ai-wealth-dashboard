@@ -73,8 +73,9 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 | `get_account_activity(account_id_or_name?, days?=30)` | server-side aggregation over the same 5-collection union `search_transactions` reads, home-currency filtered, spend-vs-movement split via `app.services.categories.is_non_spend` | money in/out (spend vs movement), net, top 5 transactions, current balance, per account or every account; a NAME matching more than one account returns `{ambiguous: true, matches: [...]}` (never guesses, audit fix 2026-08-27), an `id` from `get_accounts` always resolves precisely |
 | `get_mirror` | `app.services.behaviour.compute_portrait` (`GET /mirror`'s engine) plus `app.services.checkpoints.list_active` (`GET /checkpoints`'s engine); merges the user's persisted keep/change choice onto a fresh in-memory compute without writing back | traits (title, narrative, evidence, kind, choice), computed_at, window_days, active aims (category, aim_amount, spent_so_far, days_left, on_track) |
 | `calculate(expression)` | `app.services.safe_calc.evaluate`, owner-approved 2026-08-30 — generic arithmetic via Python `ast` parsing against a strict whitelist (numeric literals, `+ - * / // % **`, unary minus, parentheses, and calls to exactly `round`/`abs`/`min`/`max`/`series_sum(first, step, count)`/`days_between("YYYY-MM-DD","YYYY-MM-DD")`/`pct(x, p)`), never `eval`/`exec`. Names, attribute access, subscripts, strings outside `days_between`, comprehensions, lambdas and any other call are all rejected by construction. Bounds: expression ≤ 400 chars, ≤ 150 AST nodes, `**` exponent \|e\| ≤ 12, `series_sum` count ≤ 5000, \|result\| < 1e12, division by zero and every other rejection return a clean `{"ok": false, "error": "..."}` rather than raising. `series_sum` is the owner's own envelope case: a daily savings-challenge payment rising a fixed step each day, e.g. `series_sum(8.96, 0.04, 27)` for a first payment of £8.96 rising 4p a day for 27 days. `days_between` is inclusive of the first date, exclusive of the second. | `{ok, result, error}` plus the echoed `expression`, so a reply or a proposal's consequence line can show its working |
+| `preview_trend_intent(category, answer)` | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`'s own engine), added B17, 2026-09-08 (B12 stage 5) | for `answer='new_normal'`: `{title, lines}` pricing what filing the category's current overspend as the new normal actually changes (usual figure, payday move, horizon), requires the category to be currently notable (a tool error otherwise, same as the route); for `answer='one_off'`: a static note that nothing recalculates, no engine call, no notability required (one-off has nothing to preview, the real UI never shows a preview for that choice either) |
 
-All 19 of the above are read-only.
+All 20 of the above are read-only.
 
 ## Write tools (propose-only)
 
@@ -162,6 +163,93 @@ kind=... executed_at=... source=penny`) to `journalctl -u wealth-api`.
 | `propose_delete_account_rule(rule_ref)` | `app.routers.manual_accounts.delete_rule` | Medium — deletes a mirror rule and reverses its past postings |
 | `propose_disconnect_bank(connection_or_account_ref)` | `app.services.retention.disconnect_connection` (the same function `DELETE /connections/{id}` defers to) | High — removes every account and transaction a whole bank connection brought in, in one call; the biggest single blast radius of any propose tool in this table (every prior tool touches one record, this touches a connection's entire account/transaction history at once), irreversible from Penny (the user must reconnect the bank to get it back) |
 | `propose_sync_now()` | `app.routers.accounts.sync_all` | Low — a refresh, changes nothing about what's stored, only how current it is |
+| `propose_set_card_terms(card_ref, status?, apr_pct?, promos?, bt_offers?, min_payment_note?, product_key?, usage?)` | `app.routers.card_terms.save_card_terms` (read-modify-write, generalising `propose_set_card_apr`'s own doctrine to every field the router accepts — see "B17" below) | Medium — sets one credit card's status/APR/promos/BT offers/minimum-payment note/product key/usage, feeds the card plan, repayment projection and interest calculations |
+| `propose_record_trend_intent(category, answer)` | `app.routers.checkpoints.post_intent` (`app.services.checkpoints.record_intent`) | Low — files a category's current overspend as one-off or the user's new normal; `new_normal` changes the usual figure future spend checks compare against |
+| `propose_undo_trend_intent(category)` | `app.routers.spend_verdict.delete_intent_answer` (`app.services.checkpoints.delete_intent`) | Low — undoes a just-recorded trend answer for this period; idempotent, a no-op if nothing was recorded |
+| `propose_mark_insight_opened(insight_ref)` | `app.routers.savings_insights.mark_insight_opened` | Low — an engagement signal only, no figures change |
+| `propose_save_insight_context(insight_ref, answers)` | `app.routers.savings_insights.save_insight_context` | Medium — saves the user's answers to an insight's own context workflow and regenerates its advice |
+| `propose_dismiss_insight(insight_ref)` | `app.routers.savings_insights.dismiss_spotlight_insight` | Low — dismisses an insight from the Home spotlight for 30 days, still visible on the Insights list |
+| `propose_pin_insight(insight_ref, pinned)` | `app.routers.savings_insights.toggle_pin_insight` (a TOGGLE — the executor reads current state first and only calls it when state actually needs to change) | Low — pins/unpins an insight, changing its expiry and list position only |
+| `propose_label_merchant(merchant, label)` | `app.routers.savings_insights.label_bill` | Medium — labels a merchant as a bill type (or 'skip'), changes unknown-bill detection for it going forward |
+| `propose_remove_merchant_label(merchant_key)` | `app.routers.savings_insights.delete_bill_label` | Low — removes a merchant's label, it may resurface as an unknown bill again |
+
+**B17, 2026-09-08 (B12 stages 4-5).** Nine further propose tools plus one
+new read tool, shipped in one item, stages 4 and 5 of the same B12 plan
+B14-B16 built out. Stage 4: `propose_set_card_terms` generalises
+`propose_set_card_apr`'s own read-modify-write doctrine (see "Doctrine
+amendment #2" above) to EVERY field `app.routers.card_terms.save_card_terms`
+accepts, not just standard APR — status, promo rate windows, balance-
+transfer offers, the minimum-payment note, product key, and usage. Every
+validator (`CardPromo`/`BtOffer`/`_normalise_promos`/`_normalise_bt_offers`/
+`_clip_note`) is that router's own module-level function, imported and
+called directly rather than reimplemented, so the two can never drift. Only
+the fields the model actually supplies are stored in the proposal's
+`params` (never a full replace of the whole document), and the executor
+(`app.routers.can_i._execute_set_card_terms`) reads the freshest existing
+doc again AT EXECUTE TIME (never a stale propose-time snapshot) and merges
+before calling `save_card_terms`, which replaces the whole document on every
+call — exactly the same "carry every other field forward unchanged" shape
+the APR tool already established, generalised rather than duplicated.
+`status='skipped'` ("ask me later") is a genuinely different shape in
+`save_card_terms` itself (it wipes apr_pct/promos/min_payment_note/
+bt_offers and reads only its OWN copy of `usage` from the existing doc), so
+the propose-side refuses that status alongside any other field, and the
+executor replays it directly with no merge of its own — mirroring the
+router's real branch rather than inventing a second implementation of it. A
+single promo paired with `apr_pct` composes into one flowing summary
+sentence ("Set the Amex Gold card to 0% until 14 Mar 2027, then 24.9%.")
+rather than two disjoint clauses, for the common real case of a promo
+window that reverts to a standard rate. `lookup_card_terms`
+(`POST /card-terms/{account_id}/lookup`, the representative-rate prefill)
+was considered and deliberately NOT added as a read tool: it is not
+side-effect-free (a stale-cache miss triggers a real Tavily call AND writes
+the shared `card_product_rates_col` product cache), the same cost-control
+reasoning the owner already gave for retiring the old per-insight "research
+this now" pull (2026-09-01, see `_refresh_savings_insights_for_user`'s own
+doctrine comment below) — Penny being able to trigger it on any card
+mention could multiply Tavily calls the same way that retired endpoint
+would have.
+
+Stage 5: eight further tools. `propose_record_trend_intent`/
+`propose_undo_trend_intent` replay `app.routers.checkpoints.post_intent`/
+`app.routers.spend_verdict.delete_intent_answer` (`POST /trends/intent`/
+`DELETE /spend/intent/{category}`, the Spend page's one-off/new-normal
+prompt and its 5-second undo). The new read tool, `preview_trend_intent
+(category, answer)`, mirrors `POST /spend/intent-preview`
+(`app.services.spend_impact.compute_intent_preview`, `IntentConsentSheet`'s
+own pricing call) — that route only ever prices filing as the new normal
+(its title is always "File {category} as your new normal?"), so
+`answer='one_off'` short-circuits to a static note without touching the
+engine at all, rather than forcing a notability check the real UI never
+performs for that choice. The four insight actions
+(`propose_mark_insight_opened`/`propose_save_insight_context`/
+`propose_dismiss_insight`/`propose_pin_insight`) share one new resolver,
+`_resolve_insight_for_propose`: `insight_ref` resolves by `insight_id`
+first, then a case-insensitive match against the insight's own `title`,
+scoped to non-retired docs (`retired_at` unset) — the SAME universe
+`GET /savings-insights` itself lists. `propose_save_insight_context`
+validates `answers`' keys against that insight's OWN category's
+`CATEGORY_WORKFLOWS` field ids (imported from `savings_insights.py`, never
+reimplemented), rejecting an unknown field id rather than storing it.
+`propose_pin_insight` is the one tool in this stage whose real router
+function (`toggle_pin_insight`) is a TOGGLE, not a set — the executor reads
+current `pinned` state first and only calls the toggle when it actually
+needs to change, never reimplementing the write itself. `propose_label_
+merchant`/`propose_remove_merchant_label` replay `app.routers.
+savings_insights.label_bill`/`delete_bill_label`; a NEW resolver,
+`_resolve_merchant_key_for_propose`, matches `merchant` against the SAME two
+sources a real "unknown bill" prompt draws from — `GET /savings-insights/
+unknown-bills`'s own live candidates and the user's already-labelled
+merchants (`savings_labels_col`, so re-labelling an existing entry also
+resolves) — never a raw string the model invented, per this module's
+anti-injection doctrine, even though `label_bill` itself has no existence
+check on `merchant_key` at all. Two executors this stage
+(`_execute_save_insight_context`, `_execute_label_merchant`) call a router
+function that takes a `BackgroundTasks` the real ASGI cycle would normally
+run after the response — both instantiate one directly and `await bg()`
+immediately after dispatch, so the insight's advice genuinely regenerates,
+not just a silently-dropped queued task. Full inventory update in
+`docs/penny/action-inventory.md`.
 
 **B16, 2026-09-08 (B12 stage 3).** Eleven propose tools for accounts, the
 ledger, mirror rules, and connections: offline (manually-tracked) account

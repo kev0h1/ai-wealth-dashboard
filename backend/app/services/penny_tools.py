@@ -79,8 +79,8 @@ from app.db.collections import (
     connections_col, finexer_consents_col, manual_account_rules_col,
     manual_accounts_col, mono_transactions_col, mpesa_transactions_col,
     penny_proposals_col, preferences_col, savings_goals_col,
-    savings_insights_col, statement_transactions_col, transactions_col,
-    yapily_accounts_col, yapily_transactions_col,
+    savings_insights_col, savings_labels_col, statement_transactions_col,
+    transactions_col, yapily_accounts_col, yapily_transactions_col,
 )
 from app.routers.analytics import (
     PATTERNS_VERSION, _build_cashflow_response, _compute_cashflow_patterns,
@@ -594,6 +594,37 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "preview_trend_intent",
+            "description": (
+                "Preview what filing a category's current overspend as "
+                "one-off or as the user's new normal actually changes, the "
+                "same pricing IntentConsentSheet shows BEFORE the user "
+                "answers. For answer='new_normal' this returns real lines "
+                "(how the usual figure and the payday move/horizon shift) "
+                "and requires the category to be currently notable (over "
+                "usual right now, see get_spend_verdict's notables/"
+                "quiet_flags) — errors if it isn't. For answer='one_off' "
+                "it returns a short note that nothing is recalculated, no "
+                "notability required. Call this BEFORE "
+                "propose_record_trend_intent so you can tell the user what "
+                "they're agreeing to, never guess the consequence yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "A spend category, e.g. from get_spend_verdict's notables.",
+                    },
+                    "answer": {"type": "string", "enum": ["one_off", "new_normal"]},
+                },
+                "required": ["category", "answer"],
             },
         },
     },
@@ -1604,6 +1635,240 @@ PROPOSE_TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {},
+            },
+        },
+    },
+    # ── B17 (2026-09-08, B12 stages 4-5) — full card terms, trend intents,
+    # insight/merchant-label actions. See each executor's own doctrine
+    # comment in the "B17 executors" section below.
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_set_card_terms",
+            "description": (
+                "Propose changing one or more of a credit card's terms: "
+                "status (confirmed/skipped), standard APR, promo rate "
+                "windows, balance-transfer offers, the minimum-payment "
+                "note, the product key, and usage (clear_monthly/carry) — "
+                "the same fields CardTermsSheet's save covers. Read-"
+                "modify-write: only the fields you supply change, "
+                "everything else already recorded on the card is carried "
+                "forward untouched. At least one field besides card_ref "
+                "is required. For status='skipped' ('ask me later'), "
+                "supply only card_ref, status, and optionally "
+                "product_key, no other field. For a promo that reverts to "
+                "a standard rate afterwards (e.g. '0% until March, then "
+                "24.9%'), pass promos AND apr_pct together so the summary "
+                "reads as one timeline. Each promo needs kind (purchases/"
+                "balance_transfer/both), apr_pct (0-30), and until (an "
+                "ISO date, today or later); at most 4, passing promos "
+                "REPLACES the whole list (an empty array clears every "
+                "promo). Each balance-transfer offer may carry ends (ISO "
+                "date), fee_pct (0-15), and note; at most 6, passing "
+                "bt_offers REPLACES the whole list."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "card_ref": {"type": "string", "description": "A credit-card account id or name from get_accounts."},
+                    "status": {"type": "string", "enum": ["confirmed", "skipped"]},
+                    "apr_pct": {"type": "number", "description": "Standard APR, 0-100."},
+                    "promos": {
+                        "type": "array",
+                        "description": "Replaces the whole promo list. An empty array clears every promo.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string", "enum": ["purchases", "balance_transfer", "both"]},
+                                "apr_pct": {"type": "number", "description": "0-30."},
+                                "until": {"type": "string", "description": "ISO date (YYYY-MM-DD), today or later."},
+                            },
+                            "required": ["kind", "apr_pct", "until"],
+                        },
+                    },
+                    "bt_offers": {
+                        "type": "array",
+                        "description": "Replaces the whole balance-transfer offer list. An empty array clears every offer.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "ends": {"type": "string", "description": "Optional ISO date, today or later."},
+                                "fee_pct": {"type": "number", "description": "Optional, 0-15."},
+                                "note": {"type": "string", "description": "Optional, up to 120 characters."},
+                            },
+                        },
+                    },
+                    "min_payment_note": {"type": "string", "description": "Free text, up to 300 characters."},
+                    "product_key": {"type": "string", "description": "The identified product key, e.g. from a card-terms lookup."},
+                    "usage": {"type": "string", "enum": ["clear_monthly", "carry"]},
+                },
+                "required": ["card_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_record_trend_intent",
+            "description": (
+                "Propose recording whether a category's current overspend "
+                "is a one-off or the user's new normal, the same choice "
+                "IntentConsentSheet / the Spend page's own prompt offers. "
+                "Call preview_trend_intent first (especially for "
+                "answer='new_normal') so you can tell the user what it "
+                "changes before proposing it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string"},
+                    "answer": {"type": "string", "enum": ["one_off", "new_normal"]},
+                },
+                "required": ["category", "answer"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_undo_trend_intent",
+            "description": (
+                "Propose undoing a just-recorded one-off/new-normal answer "
+                "for a category this pay period, reverting to how the "
+                "trend showed before the answer, the 5-second undo toast's "
+                "real reversal. A no-op (still succeeds) if nothing was "
+                "recorded for this category this period."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"category": {"type": "string"}},
+                "required": ["category"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_mark_insight_opened",
+            "description": (
+                "Propose marking one savings insight as opened/looked-at "
+                "a low-stakes engagement signal, no figures change. "
+                "`insight_ref` may be an insight's id or its title (from "
+                "get_insights), an ambiguous title returns a list to "
+                "disambiguate from rather than guessing."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"insight_ref": {"type": "string", "description": "An insight id or title from get_insights."}},
+                "required": ["insight_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_save_insight_context",
+            "description": (
+                "Propose saving the user's answers to one insight's own "
+                "context workflow (e.g. a mortgage's rate/outstanding "
+                "balance/deal-end date), the same form InsightCard's "
+                "workflow drawer collects; saving triggers that insight's "
+                "advice to regenerate against the new details. "
+                "`insight_ref` may be an id or title from get_insights. "
+                "`answers` keys must match that insight's category's own "
+                "workflow field ids, call get_insights first to see the "
+                "category, and ask the user which fields apply rather "
+                "than guessing field ids."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "insight_ref": {"type": "string", "description": "An insight id or title from get_insights."},
+                    "answers": {
+                        "type": "object",
+                        "description": "Map of workflow field id to the user's answer, e.g. {'rate': '4.5', 'deal_end': 'March 2027'}.",
+                    },
+                },
+                "required": ["insight_ref", "answers"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_dismiss_insight",
+            "description": (
+                "Propose dismissing one insight from the Home spotlight "
+                "for 30 days (it stays visible on the Insights list). "
+                "`insight_ref` may be an id or title from get_insights, an "
+                "ambiguous title returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"insight_ref": {"type": "string", "description": "An insight id or title from get_insights."}},
+                "required": ["insight_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_pin_insight",
+            "description": (
+                "Propose pinning (or unpinning) an insight: pinned, it "
+                "stays at the top of the Insights list and stops its "
+                "30-day expiry; unpinned, it expires normally again. "
+                "`insight_ref` may be an id or title from get_insights, an "
+                "ambiguous title returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "insight_ref": {"type": "string", "description": "An insight id or title from get_insights."},
+                    "pinned": {"type": "boolean"},
+                },
+                "required": ["insight_ref", "pinned"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_label_merchant",
+            "description": (
+                "Propose labelling a merchant as a bill type (or 'skip' "
+                "to exclude it from bill detection entirely), the same "
+                "picker the unknown-bills prompt offers. `merchant` "
+                "matches against the user's own currently-unknown bills "
+                "or already-labelled merchants, an ambiguous or unknown "
+                "merchant returns a list to disambiguate from rather than "
+                "inventing a key."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "merchant": {"type": "string", "description": "A merchant name or key, e.g. from an unknown-bill mention."},
+                    "label": {"type": "string", "description": "A bill-type key (e.g. 'mobile', 'gym', 'council_tax') or 'skip'."},
+                },
+                "required": ["merchant", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_remove_merchant_label",
+            "description": (
+                "Propose removing a merchant's bill-type label, letting "
+                "it resurface as an unknown bill again. `merchant_key` "
+                "may be the exact key or a partial match against the "
+                "user's own labelled merchants, an ambiguous match "
+                "returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"merchant_key": {"type": "string"}},
+                "required": ["merchant_key"],
             },
         },
     },
@@ -3513,6 +3778,36 @@ async def _exec_calculate(uid: str, expression: str | None) -> dict:
         "result": outcome["result"],
         "error": outcome["error"],
     }
+
+
+# ── preview_trend_intent (B17, 2026-09-08, B12 stage 5) ───────────────────
+# A read, never a proposal — mirrors app.routers.spend_verdict's
+# POST /spend/intent-preview (IntentConsentSheet's own pricing call), which
+# only ever exists to preview filing a category as the user's NEW NORMAL
+# (its title is always "File {category} as your new normal?", see
+# app.services.spend_impact.compute_intent_preview). `answer='one_off'` has
+# nothing to preview — filing one-off recalculates nothing — so that branch
+# returns a static note without touching the engine at all, rather than
+# forcing a notability check the real UI never performs for that choice.
+async def _exec_preview_trend_intent(uid: str, category: str | None, answer: str | None) -> dict:
+    if answer not in ("one_off", "new_normal"):
+        return _tool_error("answer must be 'one_off' or 'new_normal'")
+    category = str(category or "").strip()
+    if not category:
+        return _tool_error("category is required")
+
+    if answer == "one_off":
+        return {
+            "title": f"Keep {category} as a one-off?",
+            "lines": [f"This doesn't change your usual figures for {category}, it's just a note that this period was unusual."],
+        }
+
+    from app.services.spend_impact import compute_intent_preview as _compute_intent_preview
+
+    try:
+        return await _compute_intent_preview(uid, category)
+    except ValueError as e:
+        return _tool_error(str(e))
 
 
 # ── Penny Agent Mode v1 — propose-only write tools ───────────────────────
@@ -5792,6 +6087,448 @@ async def _exec_propose_sync_now(uid: str) -> dict:
     return await _create_proposal(uid, "sync_now", {}, summary, consequence)
 
 
+# ── B17 (2026-09-08, B12 stages 4-5) — full card terms, trend intents,
+# insight/merchant-label actions ───────────────────────────────────────────
+# Stage 4: `propose_set_card_terms` generalises `propose_set_card_apr`'s own
+# read-modify-write doctrine (see that tool's own doctrine comment above) to
+# every field `app.routers.card_terms.save_card_terms` accepts — every
+# validator below is that router's OWN module-level validator
+# (`CardPromo`/`BtOffer`/`_normalise_promos`/`_normalise_bt_offers`/
+# `_clip_note`), imported and called directly rather than reimplemented, so
+# the two can never drift. `save_card_terms` REPLACES the whole terms
+# document on every save (by design — see that router's own docstring), so
+# — exactly like the APR tool — only the FIELDS THE MODEL ACTUALLY SUPPLIES
+# are stored in the proposal's `params`; the executor
+# (`app.routers.can_i._execute_set_card_terms`) reads the freshest existing
+# doc again at EXECUTE time and merges, never at propose time, so a doc that
+# changed between propose and execute is never clobbered by a stale merge.
+#
+# Stage 5: eight further tools for trend intents (checkpoints.py's
+# `POST /trends/intent` / spend_verdict.py's `DELETE /spend/intent/{category}`)
+# and the savings-insights engagement/context/dismiss/pin actions plus
+# unknown-bill merchant labelling (savings_insights.py). Every executor
+# below replays the SAME router function the app's own UI control calls,
+# never a second write path — see PENNY_TOOLS.md's B17 paragraph.
+def _fmt_iso_date(raw: str) -> str:
+    """'2027-03-14' -> '14 Mar 2027', for a human-readable promo/BT-offer
+    date in a proposal summary. Returns the raw string unchanged if it
+    isn't a valid ISO date (should never happen — callers only pass
+    already-normalised dates through `_normalise_promos`/
+    `_normalise_bt_offers`, which reject anything else first)."""
+    try:
+        return date.fromisoformat(str(raw)).strftime("%-d %b %Y")
+    except (TypeError, ValueError):
+        return str(raw)
+
+
+def _describe_card_terms_changes(changed: dict) -> str:
+    """Human words for a `propose_set_card_terms` change set, one sentence
+    fragment per changed field, joined with ', '. The promos+apr_pct
+    special case reads as one flowing timeline ('0% until 14 Mar 2027,
+    then 24.9%') rather than two disjoint clauses, for the common real
+    scenario of recording a promo window that reverts to a standard rate —
+    only fires when exactly one promo is being set alongside apr_pct, since
+    a multi-promo change has no single "then X%" moment to name."""
+    parts: list[str] = []
+    promos = changed.get("promos")
+    apr_pct = changed.get("apr_pct")
+    promo_consumed = False
+    if promos is not None and len(promos) == 1 and apr_pct is not None:
+        p = promos[0]
+        kind_label = {"balance_transfer": " on balance transfers", "both": ""}.get(p["kind"], "")
+        parts.append(f"{_fmt_pct(p['apr_pct'])}{kind_label} until {_fmt_iso_date(p['until'])}, then {_fmt_pct(apr_pct)}")
+        promo_consumed = True
+    else:
+        if apr_pct is not None:
+            parts.append(f"standard APR to {_fmt_pct(apr_pct)}")
+    if promos is not None and not promo_consumed:
+        if not promos:
+            parts.append("no active promo")
+        else:
+            bits = []
+            for p in promos:
+                kind_label = {"balance_transfer": " on balance transfers", "both": ""}.get(p["kind"], "")
+                bits.append(f"{_fmt_pct(p['apr_pct'])}{kind_label} until {_fmt_iso_date(p['until'])}")
+            parts.append("promos to " + "; ".join(bits))
+    if "bt_offers" in changed:
+        n = len(changed["bt_offers"])
+        parts.append(f"{n} balance-transfer offer{'s' if n != 1 else ''}" if n else "no balance-transfer offers")
+    if "min_payment_note" in changed:
+        note = changed["min_payment_note"]
+        parts.append(f"minimum-payment note to '{note}'" if note else "minimum-payment note cleared")
+    if "usage" in changed:
+        label = {"clear_monthly": "cleared in full each month", "carry": "carrying a balance"}[changed["usage"]]
+        parts.append(f"usage to {label}")
+    if "product_key" in changed:
+        parts.append(f"product to '{changed['product_key']}'")
+    if "status" in changed:
+        parts.append("marked as skipped ('ask later')" if changed["status"] == "skipped" else "marked as confirmed")
+    return ", ".join(parts) if parts else "no changes"
+
+
+async def _exec_propose_set_card_terms(
+    uid: str, card_ref=None, status=None, apr_pct=None, promos=None, bt_offers=None,
+    min_payment_note=None, product_key=None, usage=None,
+) -> dict:
+    if not card_ref or not str(card_ref).strip():
+        return _tool_error("card_ref required")
+    resolved = await _resolve_credit_card_for_propose(uid, str(card_ref))
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    account = resolved["account"]
+
+    supplied = {
+        "status": status, "apr_pct": apr_pct, "promos": promos, "bt_offers": bt_offers,
+        "min_payment_note": min_payment_note, "product_key": product_key, "usage": usage,
+    }
+    if all(v is None for v in supplied.values()):
+        return _tool_error(
+            "at least one of status, apr_pct, promos, bt_offers, min_payment_note, "
+            "product_key, usage is required"
+        )
+
+    if status is not None and status not in ("confirmed", "skipped"):
+        return _tool_error("status must be 'confirmed' or 'skipped'")
+    if status == "skipped" and any(
+        v is not None for v in (apr_pct, promos, bt_offers, min_payment_note, usage)
+    ):
+        return _tool_error(
+            "status='skipped' only accepts card_ref, status, and optionally product_key, "
+            "no other field"
+        )
+
+    from app.routers.card_terms import BtOffer as _RouteBtOffer
+    from app.routers.card_terms import CardPromo as _RouteCardPromo
+    from app.routers.card_terms import CardTermsBody as _RouteCardTermsBody
+    from app.routers.card_terms import _clip_note as _route_clip_note
+    from app.routers.card_terms import _normalise_bt_offers as _route_normalise_bt_offers
+    from app.routers.card_terms import _normalise_promos as _route_normalise_promos
+    from app.routers.card_terms import _serialize_terms as _card_serialize_terms
+
+    changed: dict = {}
+    if status is not None:
+        changed["status"] = status
+
+    if apr_pct is not None:
+        try:
+            apr_val = float(apr_pct)
+        except (TypeError, ValueError):
+            return _tool_error("apr_pct must be a number")
+        if not (0 <= apr_val <= 100):
+            return _tool_error("apr_pct must be between 0 and 100")
+        changed["apr_pct"] = round(apr_val, 2)
+
+    if promos is not None:
+        try:
+            promo_models = [_RouteCardPromo(**p) for p in promos]
+        except Exception as e:
+            return _tool_error(f"invalid promos: {e}")
+        try:
+            temp_body = _RouteCardTermsBody(status="confirmed", promos=promo_models)
+            changed["promos"] = _route_normalise_promos(temp_body)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+
+    if bt_offers is not None:
+        try:
+            bt_models = [_RouteBtOffer(**o) for o in bt_offers]
+        except Exception as e:
+            return _tool_error(f"invalid bt_offers: {e}")
+        try:
+            temp_body = _RouteCardTermsBody(status="confirmed", bt_offers=bt_models)
+            changed["bt_offers"] = _route_normalise_bt_offers(temp_body)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+
+    if min_payment_note is not None:
+        changed["min_payment_note"] = _route_clip_note(min_payment_note)
+
+    if usage is not None:
+        if usage not in ("clear_monthly", "carry"):
+            return _tool_error("usage must be 'clear_monthly' or 'carry'")
+        changed["usage"] = usage
+
+    if product_key is not None:
+        changed["product_key"] = str(product_key).strip() or None
+
+    try:
+        existing_doc = await card_terms_col.find_one({"_id": f"{uid}:{account.id}"})
+    except Exception:
+        logger.exception("penny_tools: propose_set_card_terms existing-terms lookup failed for %s", uid)
+        existing_doc = None
+    existing = _card_serialize_terms(existing_doc) or {}
+
+    description = _describe_card_terms_changes(changed)
+    summary = f"Set {account.name} ({account.provider}) to {description}."
+    consequence = "Feeds this card's repayment projection and what Cards shows for it."
+    if existing.get("apr_pct") is not None and "apr_pct" in changed and existing["apr_pct"] != changed["apr_pct"]:
+        consequence += f" Currently recorded APR: {_fmt_pct(existing['apr_pct'])}."
+
+    params = {"account_id": account.id, **changed}
+    return await _create_proposal(uid, "set_card_terms", params, summary, consequence)
+
+
+# ── B17 stage 5 — trend intents ────────────────────────────────────────────
+async def _exec_propose_record_trend_intent(uid: str, category=None, answer=None) -> dict:
+    # Mirrors app.services.checkpoints.record_intent's own validation.
+    if answer not in ("one_off", "new_normal"):
+        return _tool_error("answer must be 'one_off' or 'new_normal'")
+    category = str(category or "").strip()
+    if not category:
+        return _tool_error("category is required")
+
+    if answer == "new_normal":
+        summary = f"File {category} as your new normal from now on"
+        consequence = (
+            f"Your usual figure for {category} adjusts to include this, so future spend "
+            "checks stop flagging it as unusual."
+        )
+    else:
+        summary = f"Record {category} as a one-off overspend this period, not your new normal"
+        consequence = (
+            "Doesn't change your usual figures, just notes this period as an exception so "
+            "it isn't held against you later."
+        )
+    params = {"category": category, "answer": answer}
+    return await _create_proposal(uid, "record_trend_intent", params, summary, consequence)
+
+
+async def _exec_propose_undo_trend_intent(uid: str, category=None) -> dict:
+    category = str(category or "").strip()
+    if not category:
+        return _tool_error("category is required")
+    summary = f"Undo your recorded trend answer for {category} this period"
+    consequence = "Reverts to how the trend was showing before you answered, no other figures change."
+    params = {"category": category}
+    return await _create_proposal(uid, "undo_trend_intent", params, summary, consequence)
+
+
+# ── B17 stage 5 — insight resolver, shared by every insight propose tool
+# below. `insight_ref` resolves by `insight_id` (exact) first, then a
+# case-insensitive match against the insight's own `title`, scoped to
+# non-retired docs (`retired_at` unset) — the same universe GET
+# /savings-insights itself lists, so a title the user just read off that
+# screen always resolves. An ambiguous title (two insights sharing near-
+# identical wording) returns every candidate rather than guessing.
+async def _resolve_insight_for_propose(uid: str, insight_ref: str) -> dict:
+    if not insight_ref or not str(insight_ref).strip():
+        return {"error": "insight_ref is required"}
+    docs = await savings_insights_col.find({"user_id": uid, "retired_at": {"$exists": False}}).to_list(None)
+    if not docs:
+        return {"error": f"no insight matching '{insight_ref}'", "available": []}
+    target = next((d for d in docs if d.get("insight_id") == insight_ref), None)
+    if target is None:
+        matches = [d for d in docs if _name_matches(insight_ref, d.get("title") or "")]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [{"insight_id": d.get("insight_id"), "title": d.get("title")} for d in matches],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {
+            "error": f"no insight matching '{insight_ref}'",
+            "available": [d.get("title") for d in docs],
+        }
+    return {"insight": target}
+
+
+async def _exec_propose_mark_insight_opened(uid: str, insight_ref=None) -> dict:
+    if not insight_ref or not str(insight_ref).strip():
+        return _tool_error("insight_ref required")
+    resolved = await _resolve_insight_for_propose(uid, str(insight_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    insight = resolved["insight"]
+
+    summary = f"Mark the '{insight.get('title')}' insight as opened"
+    consequence = "Low-stakes: records that you looked at this, no figures change."
+    params = {"insight_id": insight.get("insight_id")}
+    return await _create_proposal(uid, "mark_insight_opened", params, summary, consequence)
+
+
+async def _exec_propose_save_insight_context(uid: str, insight_ref=None, answers=None) -> dict:
+    if not insight_ref or not str(insight_ref).strip():
+        return _tool_error("insight_ref required")
+    resolved = await _resolve_insight_for_propose(uid, str(insight_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    insight = resolved["insight"]
+
+    if not isinstance(answers, dict) or not answers:
+        return _tool_error("answers is required and must be a non-empty object of {field_id: value}")
+
+    from app.routers.savings_insights import CATEGORY_WORKFLOWS as _CATEGORY_WORKFLOWS
+
+    steps = (_CATEGORY_WORKFLOWS.get(insight.get("category")) or {}).get("steps") or []
+    valid_ids = {s["id"] for s in steps}
+    if not valid_ids:
+        return _tool_error(f"'{insight.get('category')}' has no context workflow to answer")
+    unknown = sorted(set(answers) - valid_ids)
+    if unknown:
+        return _tool_error(f"unknown field(s) {unknown} for this insight, expected one of {sorted(valid_ids)}")
+
+    clean_answers = {k: str(v).strip()[:200] for k, v in answers.items() if str(v or "").strip()}
+    if not clean_answers:
+        return _tool_error("answers must include at least one non-blank value")
+
+    labels = {s["id"]: s["label"] for s in steps}
+    bits = [f"{labels.get(k, k)}: {v}" for k, v in clean_answers.items()]
+    summary = f"Save these details on the '{insight.get('title')}' insight: " + "; ".join(bits)
+    consequence = "Regenerates this insight's advice using these details, may change its savings estimate."
+    params = {"insight_id": insight.get("insight_id"), "context": clean_answers}
+    return await _create_proposal(uid, "save_insight_context", params, summary, consequence)
+
+
+async def _exec_propose_dismiss_insight(uid: str, insight_ref=None) -> dict:
+    if not insight_ref or not str(insight_ref).strip():
+        return _tool_error("insight_ref required")
+    resolved = await _resolve_insight_for_propose(uid, str(insight_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    insight = resolved["insight"]
+
+    summary = f"Dismiss the '{insight.get('title')}' insight from your Home spotlight"
+    consequence = (
+        "Stops it showing on Home for 30 days, still visible on the Insights list; it can "
+        "return early if something material changes."
+    )
+    params = {"insight_id": insight.get("insight_id")}
+    return await _create_proposal(uid, "dismiss_insight", params, summary, consequence)
+
+
+async def _exec_propose_pin_insight(uid: str, insight_ref=None, pinned=None) -> dict:
+    if not isinstance(pinned, bool):
+        return _tool_error("pinned must be true or false")
+    if not insight_ref or not str(insight_ref).strip():
+        return _tool_error("insight_ref required")
+    resolved = await _resolve_insight_for_propose(uid, str(insight_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    insight = resolved["insight"]
+
+    verb = "Pin" if pinned else "Unpin"
+    already = bool(insight.get("pinned", False)) == pinned
+    summary = f"{verb} the '{insight.get('title')}' insight" + (" (already set this way)" if already else "")
+    consequence = (
+        "Pinning keeps it at the top of your Insights list and stops its 30-day expiry; "
+        "unpinning lets it expire normally again."
+    )
+    params = {"insight_id": insight.get("insight_id"), "pinned": pinned}
+    return await _create_proposal(uid, "pin_insight", params, summary, consequence)
+
+
+# ── B17 stage 5 — merchant labelling ───────────────────────────────────────
+# Resolves against the SAME two sources a real "unknown bill" prompt draws
+# from: `GET /savings-insights/unknown-bills`'s own live candidate list (a
+# merchant not yet labelled) and the user's already-labelled merchants
+# (`savings_labels_col`, so re-labelling an existing entry also resolves) —
+# never a raw string the model invented, per this module's own anti-
+# injection doctrine, even though `label_bill` itself has no existence check
+# on `merchant_key` at all.
+async def _resolve_merchant_key_for_propose(uid: str, merchant: str) -> dict:
+    merchant = str(merchant or "").strip()
+    if not merchant:
+        return {"error": "merchant is required"}
+
+    from app.routers.savings_insights import get_unknown_bills as _route_get_unknown_bills
+
+    unknown = (await _route_get_unknown_bills(user={"email": uid})).get("unknown_bills") or []
+    candidates: dict[str, str] = {b["merchant_key"]: b.get("display_name") or b["merchant_key"] for b in unknown}
+    existing_labels = await savings_labels_col.find({"user_id": uid}).to_list(None)
+    for lbl in existing_labels:
+        candidates.setdefault(lbl["merchant_key"], lbl["merchant_key"].title())
+
+    if merchant in candidates:
+        return {"merchant_key": merchant}
+    matches = [k for k, disp in candidates.items() if _name_matches(merchant, disp) or _name_matches(merchant, k)]
+    if len(matches) > 1:
+        return {"ambiguous": True, "matches": [{"merchant_key": k, "display_name": candidates[k]} for k in matches]}
+    if len(matches) == 1:
+        return {"merchant_key": matches[0]}
+    return {
+        "error": f"no unknown bill or labelled merchant matching '{merchant}'",
+        "available": sorted(candidates.values()),
+    }
+
+
+async def _exec_propose_label_merchant(uid: str, merchant=None, label=None) -> dict:
+    if not merchant or not str(merchant).strip():
+        return _tool_error("merchant required")
+    if not label or not str(label).strip():
+        return _tool_error("label required")
+    resolved = await _resolve_merchant_key_for_propose(uid, str(merchant).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    merchant_key = resolved["merchant_key"]
+
+    from app.routers.savings_insights import INSIGHT_CATEGORIES as _INSIGHT_CATEGORIES
+    from app.routers.savings_insights import LABEL_OPTIONS as _LABEL_OPTIONS
+
+    label = str(label).strip()
+    valid_cats = set(_INSIGHT_CATEGORIES.keys()) | set(_LABEL_OPTIONS.keys()) | {"skip"}
+    if label not in valid_cats:
+        return _tool_error(f"label must be one of {sorted(valid_cats)}")
+
+    label_display = "not a bill" if label == "skip" else _LABEL_OPTIONS.get(label, {}).get("label", label.replace("_", " ").title())
+    summary = f"Label '{merchant_key}' as {label_display}"
+    consequence = "Groups this merchant under that bill type going forward; 'skip' excludes it from bill detection entirely."
+    params = {"merchant_key": merchant_key, "category": label}
+    return await _create_proposal(uid, "label_merchant", params, summary, consequence)
+
+
+async def _resolve_existing_label_for_propose(uid: str, merchant_key_ref: str) -> dict:
+    merchant_key_ref = str(merchant_key_ref or "").strip()
+    if not merchant_key_ref:
+        return {"error": "merchant_key is required"}
+    docs = await savings_labels_col.find({"user_id": uid}).to_list(None)
+    if not docs:
+        return {"error": f"no label matching '{merchant_key_ref}'", "available": []}
+    target = next((d for d in docs if d["merchant_key"] == merchant_key_ref), None)
+    if target is None:
+        matches = [d for d in docs if _name_matches(merchant_key_ref, d["merchant_key"])]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [{"merchant_key": d["merchant_key"], "category": d["category"]} for d in matches],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {
+            "error": f"no label matching '{merchant_key_ref}'",
+            "available": [d["merchant_key"] for d in docs],
+        }
+    return {"label": target}
+
+
+async def _exec_propose_remove_merchant_label(uid: str, merchant_key=None) -> dict:
+    if not merchant_key or not str(merchant_key).strip():
+        return _tool_error("merchant_key required")
+    resolved = await _resolve_existing_label_for_propose(uid, str(merchant_key).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    label = resolved["label"]
+
+    summary = f"Remove the '{label['category'].replace('_', ' ')}' label from '{label['merchant_key']}'"
+    consequence = "This merchant becomes unlabelled again and may resurface as an unknown bill."
+    params = {"merchant_key": label["merchant_key"]}
+    return await _create_proposal(uid, "remove_merchant_label", params, summary, consequence)
+
+
 async def execute_tool(uid: str, name: str, args: dict) -> dict:
     """Dispatch one tool call to its executor. Never raises — every executor
     above already wraps its own engine call, and any error building the args
@@ -5843,6 +6580,8 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_get_fill_candidates(uid, args.get("account_id_or_name"))
         if name == "calculate":
             return await _exec_calculate(uid, args.get("expression"))
+        if name == "preview_trend_intent":
+            return await _exec_preview_trend_intent(uid, args.get("category"), args.get("answer"))
         if name == "propose_mirror_choice":
             return await _exec_propose_mirror_choice(uid, args.get("trait_id"), args.get("choice"))
         if name == "propose_dismiss_recurring":
@@ -5964,6 +6703,28 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_propose_disconnect_bank(uid, args.get("connection_or_account_ref"))
         if name == "propose_sync_now":
             return await _exec_propose_sync_now(uid)
+        if name == "propose_set_card_terms":
+            return await _exec_propose_set_card_terms(
+                uid, args.get("card_ref"), args.get("status"), args.get("apr_pct"),
+                args.get("promos"), args.get("bt_offers"), args.get("min_payment_note"),
+                args.get("product_key"), args.get("usage"),
+            )
+        if name == "propose_record_trend_intent":
+            return await _exec_propose_record_trend_intent(uid, args.get("category"), args.get("answer"))
+        if name == "propose_undo_trend_intent":
+            return await _exec_propose_undo_trend_intent(uid, args.get("category"))
+        if name == "propose_mark_insight_opened":
+            return await _exec_propose_mark_insight_opened(uid, args.get("insight_ref"))
+        if name == "propose_save_insight_context":
+            return await _exec_propose_save_insight_context(uid, args.get("insight_ref"), args.get("answers"))
+        if name == "propose_dismiss_insight":
+            return await _exec_propose_dismiss_insight(uid, args.get("insight_ref"))
+        if name == "propose_pin_insight":
+            return await _exec_propose_pin_insight(uid, args.get("insight_ref"), args.get("pinned"))
+        if name == "propose_label_merchant":
+            return await _exec_propose_label_merchant(uid, args.get("merchant"), args.get("label"))
+        if name == "propose_remove_merchant_label":
+            return await _exec_propose_remove_merchant_label(uid, args.get("merchant_key"))
         return _tool_error(f"unknown tool: {name}")
     except Exception as e:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
