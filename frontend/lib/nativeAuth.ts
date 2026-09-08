@@ -91,9 +91,14 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
   }
 }
 
-export async function nativeAppleLogin(): Promise<boolean> {
+// D5: distinguishes an allow-list refusal (backend 403 detail
+// {code: "INVITE_ONLY"}) from every other failure, same "ok" | <specific
+// reason> | "failed" shape as linkAppleIdentity below, so LoginScreen can
+// show the calm "Sorted is invite-only right now" screen instead of the
+// generic "Sign-in failed" alert.
+export async function nativeAppleLogin(): Promise<"ok" | "invite_only" | "failed"> {
   const authResult = await nativeAppleAuthorize();
-  if (!authResult) return false;
+  if (!authResult) return "failed";
   const { identityToken, fullName } = authResult;
 
   try {
@@ -103,18 +108,22 @@ export async function nativeAppleLogin(): Promise<boolean> {
       body: JSON.stringify({ identityToken, fullName }),
     });
     if (!res.ok) {
+      if (res.status === 403) {
+        const body = await res.json().catch(() => null);
+        if (body?.detail?.code === "INVITE_ONLY") return "invite_only";
+      }
       reportAppleSignInDiagnostic("appleSignInExchange", `status ${res.status}`);
-      return false;
+      return "failed";
     }
     const data = await res.json();
     if (data.ok && data.session_token) {
       setToken(data.session_token);
-      return true;
+      return "ok";
     }
-    return false;
+    return "failed";
   } catch (err) {
     reportAppleSignInDiagnostic("appleSignInExchange", err instanceof Error ? err.message : err);
-    return false;
+    return "failed";
   }
 }
 
@@ -142,11 +151,16 @@ export async function linkAppleIdentity(): Promise<"ok" | "conflict" | "cancelle
   }
 }
 
-export async function nativeGoogleLogin(): Promise<boolean> {
+// D5: same "ok" | "invite_only" | "failed" shape as nativeAppleLogin above
+// — the mobile browser flow's refusal reason travels back through
+// google_mobile_callback's finish("error:invite_only") (see
+// backend/app/routers/auth.py) and /auth/mobile/poll's {status: "error",
+// error: "invite_only"} body.
+export async function nativeGoogleLogin(): Promise<"ok" | "invite_only" | "failed"> {
   const state = "m" + Math.random().toString(36).slice(2) + "_" + Date.now();
   await Browser.open({ url: `${API_BASE}/auth/google/mobile?state=${encodeURIComponent(state)}` });
 
-  async function pollOnce(): Promise<"ok" | "err" | "pending"> {
+  async function pollOnce(): Promise<"ok" | "invite_only" | "err" | "pending"> {
     try {
       const res = await fetch(`${API_BASE}/auth/mobile/poll?state=${encodeURIComponent(state)}`);
       if (!res.ok) return "pending";
@@ -156,7 +170,7 @@ export async function nativeGoogleLogin(): Promise<boolean> {
         return "ok";
       }
       if (d.status === "error") {
-        return "err";
+        return d.error === "invite_only" ? "invite_only" : "err";
       }
     } catch {
       /* keep polling */
@@ -164,13 +178,13 @@ export async function nativeGoogleLogin(): Promise<boolean> {
     return "pending";
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<"ok" | "invite_only" | "failed">((resolve) => {
     let settled = false;
     const listenerHandles: Array<{ remove: () => void }> = [];
     let intervalId: ReturnType<typeof setInterval> | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-    async function finish(success: boolean) {
+    async function finish(result: "ok" | "invite_only" | "failed") {
       if (settled) return;
       settled = true;
       if (intervalId !== undefined) clearInterval(intervalId);
@@ -183,14 +197,15 @@ export async function nativeGoogleLogin(): Promise<boolean> {
         }
       }
       await Browser.close().catch(() => {});
-      resolve(success);
+      resolve(result);
     }
 
     async function triggerPoll() {
       if (settled) return;
       const result = await pollOnce();
-      if (result === "ok") await finish(true);
-      else if (result === "err") await finish(false);
+      if (result === "ok") await finish("ok");
+      else if (result === "invite_only") await finish("invite_only");
+      else if (result === "err") await finish("failed");
     }
 
     intervalId = setInterval(() => {
@@ -198,7 +213,7 @@ export async function nativeGoogleLogin(): Promise<boolean> {
     }, 2000);
 
     timeoutId = setTimeout(() => {
-      void finish(false);
+      void finish("failed");
     }, 5 * 60 * 1000);
 
     Promise.all([

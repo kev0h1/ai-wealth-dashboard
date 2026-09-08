@@ -18,9 +18,10 @@ generalises that idea into one resolver used by ALL four sign-in handlers
        first signed in (`linked_identities_col` doc `email:{gmail_key}`,
        Gmail dot-insensitive). If none exists yet, the candidate is simply
        the verified email itself, lowercased.
-    c. Allow list.  `resolve_allowed_email()` gets the final say on
+    c. Allow list.  `resolve_allowed_signup()` gets the final say on
        spelling: if the candidate (or a Gmail-key match of it) is on
-       ALLOWED_EMAILS, that spelling wins over anything the alias map
+       ALLOWED_EMAILS, or invited via the in-app allow list (D5, see
+       app.core.allowlist), that spelling wins over anything the alias map
        produced.
     d. Gate.  Proceed if the candidate is allow-listed OR OPEN_SIGNUP is on;
        otherwise refuse (masked warning, caller turns this into its usual
@@ -41,7 +42,8 @@ vouched for.
 import logging
 from datetime import datetime, timezone
 
-from app.core.config import _gmail_key, is_signup_open, mask_email, resolve_allowed_email
+from app.core.allowlist import resolve_allowed_signup
+from app.core.config import _gmail_key, is_signup_open, mask_email
 from app.db.collections import linked_identities_col
 
 # Apple call sites pass distinct provider labels ("apple-native"); the link
@@ -84,7 +86,7 @@ async def resolve_signin_email(
         alias = await linked_identities_col.find_one({"_id": f"email:{key}"})
         candidate = alias["user_id"] if alias else verified_email.lower()
 
-    allowed = resolve_allowed_email(candidate)
+    allowed = await resolve_allowed_signup(candidate)
     if allowed:
         candidate = allowed
 

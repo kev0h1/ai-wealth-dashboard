@@ -224,6 +224,21 @@ user_data_version_col   = db["user_data_version"]
 # and the /auth/identities endpoints.
 linked_identities_col   = db["linked_identities"]
 
+# D5: in-app sign-up allow list, the day-to-day layer on top of the
+# ALLOWED_EMAILS env var (app.core.config) — adding/removing an address no
+# longer needs a Railway env edit + redeploy, just the /ops/go-live page
+# (app/routers/admin_allowlist.py). ALLOWED_EMAILS stays the seed list and
+# is checked FIRST (app.core.allowlist.resolve_allowed_signup); this
+# collection is consulted only when the seed list doesn't already allow the
+# address. Doc shape: {key (Gmail dot-insensitive key, see
+# app.core.config._gmail_key — unique, the lookup key), email (as entered,
+# lower-cased), invited_by (inviter's email), created_at, status:
+# "invited" | "revoked", note (optional str)}. Revoking sets status
+# "revoked" rather than deleting the doc — no user data is ever deleted,
+# and a re-invite of a revoked address flips it back to "invited" instead
+# of creating a duplicate.
+allowed_signups_col    = db["allowed_signups"]
+
 # Cross-process response cache (see app/services/response_cache.py) — the
 # Mongo-backed half of the two-layer (in-process memory + Mongo) per-user
 # cache. `{user_id, name, version, day, payload, computed_at}`, unique on

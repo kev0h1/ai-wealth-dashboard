@@ -90,6 +90,13 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "invite-only",
+    name: "invite-only",
+    description:
+      "D5: the real components/LoginScreen.tsx rendered with error=\"invite_only\" — the calm 'Sorted is invite-only right now' screen a refused sign-in shows instead of a bare 403, reached from the web callback's ?error=invite_only redirect or a native sign-in's INVITE_ONLY result",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "spend-shape",
     name: "spend-shape",
     description:

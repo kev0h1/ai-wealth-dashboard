@@ -1423,6 +1423,23 @@ export type GoLiveResponse = {
   questions: GoLiveQuestion[];
 };
 export type GoLiveActionResponse = GoLiveResponse & { committed: boolean };
+
+// D5: in-app sign-up allow list — see backend/app/routers/admin_allowlist.py.
+// Every write (invite/revoke) returns the full refreshed GET payload, same
+// "re-render from truth" convention as the GoLive actions above.
+export type AllowlistEntry = {
+  email: string;
+  key: string;
+  invited_by: string | null;
+  created_at: string;
+  status: "invited" | "revoked";
+  note: string | null;
+};
+export type AllowlistResponse = {
+  invited: AllowlistEntry[];
+  /** ALLOWED_EMAILS env var — read-only reference, never editable here. */
+  env_seeded: string[];
+};
 export type GoLiveItemAction =
   | { action: "done"; commit?: string }
   | { action: "reopen" }
@@ -1493,6 +1510,15 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw await apiErrorFromResponse(res);
+  return res.json();
+}
+
+async function del<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(),
   });
   if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json();
@@ -3125,4 +3151,12 @@ export const api = {
     post<GoLiveActionResponse>(`/ops/go-live/items/${encodeURIComponent(itemId)}`, body),
   goLiveQuestionStatus: (q: string, status: GoLiveQuestion["status"]) =>
     post<GoLiveActionResponse>(`/ops/go-live/questions/${encodeURIComponent(q)}`, { status }),
+
+  // D5: in-app sign-up allow list, same owner-only surface as the GoLive
+  // board above — backend/app/routers/admin_allowlist.py.
+  listAllowlist: () => get<AllowlistResponse>("/admin/allowlist"),
+  addAllowlist: (email: string, note?: string) =>
+    post<AllowlistResponse>("/admin/allowlist", { email, note: note || undefined }),
+  revokeAllowlist: (key: string) =>
+    del<AllowlistResponse>(`/admin/allowlist/${encodeURIComponent(key)}`),
 };

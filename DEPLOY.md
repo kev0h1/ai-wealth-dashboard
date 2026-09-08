@@ -319,7 +319,7 @@ scripts/env_drift.py` to check the two against what Railway actually has.
 | `OPENROUTER_API_KEY` | from `backend/.env` | Penny + categorisation |
 | `TAVILY_API_KEY` | from `backend/.env` | savings insights |
 | `LOGODEV_TOKEN` | from `backend/.env` | merchant logos |
-| `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist |
+| `ALLOWED_EMAILS` | from `backend/.env` | comma-separated allowlist, the seed list; see "Sign-up mode" below for day-to-day invites |
 | `OPEN_SIGNUP` | unset (defaults false) | see "Sign-up mode" below |
 | `FUEL_FINDER_CLIENT_ID` / `_SECRET` | from `backend/.env` | fuel prices |
 | `MONO_*`, `YAPILY_*` | from `backend/.env` | only if using the Kenya region |
@@ -332,8 +332,9 @@ env vars take precedence and the files are excluded from the image.
 ### Sign-up mode
 
 `OPEN_SIGNUP` controls whether new accounts can be created at all. Default
-`false` (unset) keeps registration restricted to `ALLOWED_EMAILS`, unchanged
-behaviour, the safe default until public launch. Set `true` to let any
+`false` (unset) keeps registration restricted to `ALLOWED_EMAILS` plus the
+in-app allow list (see below), unchanged behaviour, the safe default until
+public launch. Set `true` to let any
 verified Google or Apple identity create an account. Either way, sign-in
 resolves through one identity path (`app/core/identity.py`): a verified
 email's first-seen spelling is remembered (Gmail dot-insensitive) so later
@@ -343,6 +344,14 @@ later explicit link (Settings → linked identities) can claim/re-point it.
 New accounts and auto-links created this way are recorded as alias/link
 documents in the `linked_identities` Mongo collection, same collection
 Phase 1's explicit Apple linking already used.
+
+Day-to-day invites (adding or removing a tester) don't need an
+`ALLOWED_EMAILS` edit and a redeploy: the `/ops/go-live` page's Allowlist
+section (bot-or-owner-only `GET`/`POST`/`DELETE /admin/allowlist`,
+`app/routers/admin_allowlist.py`) manages an `allowed_signups` Mongo
+collection that `app/core/allowlist.py` consults after `ALLOWED_EMAILS` on
+every sign-in, same Gmail dot-insensitive matching. `ALLOWED_EMAILS` itself
+is still only ever changed by editing the env var and redeploying.
 
 ## Frontend env vars (Vercel)
 

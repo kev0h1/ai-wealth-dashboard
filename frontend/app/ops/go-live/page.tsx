@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown } from "lucide-react";
-import { api, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
+import { api, type AllowlistResponse, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
 import { LegalTable, splitMarkdownIntoSegments } from "@/components/LegalDocument";
 import {
   DEFAULT_GO_LIVE_FILTERS,
@@ -45,6 +45,7 @@ import { HeaderHero } from "./HeaderHero";
 import { ListView } from "./ListView";
 import { BoardView } from "./BoardView";
 import { QuestionsSection } from "./QuestionsSection";
+import { AllowlistSection } from "./AllowlistSection";
 
 type SaveNote = { ok: boolean; text: string } | null;
 
@@ -65,6 +66,7 @@ export default function GoLivePage() {
   const [saveNotes, setSaveNotes] = useState<Record<string, SaveNote>>({});
   const [filters, setFilters] = useState<GoLiveFilters>(DEFAULT_GO_LIVE_FILTERS);
   const [ui, setUi] = useState<GoLiveUiState>(DEFAULT_GO_LIVE_UI);
+  const [allowlist, setAllowlist] = useState<AllowlistResponse | null>(null);
 
   // Filters and section-collapse state are read from localStorage once on
   // mount (after hydration, so server and first client render match) and
@@ -100,6 +102,25 @@ export default function GoLivePage() {
         else setError(true);
       } finally {
         if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Allowlist has its own gate (bot-or-owner, same pairing as GoLive's
+  // owner check) and its own failure mode — a hiccup here shouldn't block
+  // the rest of the page, so it's a separate best-effort fetch rather than
+  // Promise.all'd with getGoLive above.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.listAllowlist();
+        if (!cancelled) setAllowlist(res);
+      } catch {
+        /* AllowlistSection just doesn't render if this never resolves */
       }
     })();
     return () => {
@@ -344,6 +365,8 @@ export default function GoLivePage() {
             )}
           </section>
         )}
+
+        {allowlist && <AllowlistSection data={allowlist} onChange={setAllowlist} />}
 
         <footer className="border-t border-slate-200 pt-4 dark:border-white/10">
           <p className="text-xs text-slate-400 dark:text-slate-500">
