@@ -281,18 +281,48 @@ the env var below plus the DNS/reverse-proxy record.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `MCP_PUBLIC_URL` (backend `.env`, `app/core/config.py`) | `${API_PUBLIC_URL}/mcp` | the connector's full URL: `resource` in the RFC 9728 protected-resource metadata, and the origin the `WWW-Authenticate` discovery header on an unauthenticated `/mcp` 401 points at. `authorization_servers` (and every OAuth endpoint — authorize/token/register/revoke) stays on `API_PUBLIC_URL`; only `resource` moves. |
-| `NEXT_PUBLIC_MCP_URL` (frontend `.env.local`, `lib/featureFlags.ts`) | `https://api.wealth.auriqltd.co.uk/mcp` | copy only — the address Settings' "Connected assistants" empty state (`components/ConnectedAssistantsCard.tsx`) tells a user to point Claude/ChatGPT at. Must be kept in sync with the backend's `MCP_PUBLIC_URL` by hand; the frontend never calls `/mcp` itself. |
+| `MCP_PUBLIC_URL` (backend `.env`, `app/core/config.py`) | `${API_PUBLIC_URL}/mcp` | the connector's full URL: `resource` in the RFC 9728 protected-resource metadata. `authorization_servers` (and every OAuth endpoint, authorize/token/register/revoke) stays on `API_PUBLIC_URL`; only `resource` moves. |
+| `NEXT_PUBLIC_MCP_URL` (frontend `.env.local`, `lib/featureFlags.ts`) | `https://api.wealth.auriqltd.co.uk/mcp` | copy only, the address Settings' "Connected assistants" empty state (`components/ConnectedAssistantsCard.tsx`) tells a user to point Claude/ChatGPT at. Must be kept in sync with the backend's `MCP_PUBLIC_URL` by hand; the frontend never calls `/mcp` itself. |
 
 Until the dedicated hostname exists, set **UAT**'s `frontend/.env.local` to
 `NEXT_PUBLIC_MCP_URL=https://uat.wealth.auriqltd.co.uk/api/mcp` (UAT's
 nginx only exposes one public host, `uat.wealth.auriqltd.co.uk`, proxying
-`/api/` to the backend on `:8000` — there is no separate UAT API
+`/api/` to the backend on `:8000`, there is no separate UAT API
 subdomain), and leave the backend's `MCP_PUBLIC_URL` matching (same value,
 in `backend/.env`) so the metadata `resource` a connector discovers agrees
 with the URL the card tells the user to add. Leave both unset in
 production until A18 gives `api.wealth.auriqltd.co.uk` (or a dedicated
 `mcp.` host) a real DNS record.
+
+**WWW-Authenticate header (F11, 2026-09-08):** the `WWW-Authenticate`
+header an unauthenticated `/mcp` 401 carries (`app/core/auth.py`'s
+`MCP_WWW_AUTHENTICATE`, RFC 9728) is built from `API_PUBLIC_URL`, not
+`MCP_PUBLIC_URL`, and it preserves that value's path (for example
+`.../api/.well-known/oauth-protected-resource`, not just the bare origin).
+This is required precisely so discovery still works behind a reverse proxy
+that only exposes `/.well-known/*` under a path prefix like `/api` (nginx
+on UAT, Vercel's `/api` rewrite in production once A18 lands): a header
+built from the bare origin would 404 against such a proxy, since it never
+routes `/.well-known/*` at the site root.
+
+`API_PUBLIC_URL` and `MCP_PUBLIC_URL` are both required on UAT for this
+reason, see `docs/ops/ENV.md`.
+
+For full RFC 9728 compliance, an MCP client is technically entitled to try
+unauthenticated discovery at the resource's own root (`/.well-known/...`
+with no `/api` prefix at all), not just under `/api`. Claude's connector
+already works today hitting `/api/.well-known/...` directly, so this is
+optional spec-polish, not required for the fix in this section. If Kevin
+wants that root-level path to also resolve, the following nginx snippet
+(applied on the actual nginx host, outside this repo, not part of any
+deploy script here) proxies the root-level well-known paths through to the
+backend's existing `/api`-prefixed handlers:
+
+```
+location = /.well-known/oauth-authorization-server/api { proxy_pass http://127.0.0.1:8000/.well-known/oauth-authorization-server; }
+location = /.well-known/oauth-protected-resource/api/mcp { proxy_pass http://127.0.0.1:8000/.well-known/oauth-protected-resource; }
+location = /.well-known/oauth-protected-resource { proxy_pass http://127.0.0.1:8000/.well-known/oauth-protected-resource; }
+```
 
 ### MCP-only service mode
 

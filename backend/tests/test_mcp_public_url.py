@@ -19,7 +19,14 @@ is instead exercised by monkeypatching the already-imported names on the
 consuming modules (app.routers.oauth reads MCP_PUBLIC_URL/API_PUBLIC_URL at
 call time, so this works there); app.core.auth's WWW-Authenticate value is
 a module-level string fixed at import time, so its test instead asserts it
-was built from config.MCP_ORIGIN, not from a live override.
+was built from config.API_PUBLIC_URL, not from a live override.
+
+F11: MCP_WWW_AUTHENTICATE used to be built from MCP_ORIGIN (scheme+host
+only, path stripped), which 404s on UAT and prod because both sit behind a
+reverse proxy that only forwards paths under /api to this service, so the
+well-known document is only reachable under API_PUBLIC_URL's own path. It
+is now built from API_PUBLIC_URL (path-preserving). See
+test_www_authenticate_is_built_from_api_public_url_not_mcp_origin below.
 """
 import asyncio
 
@@ -53,11 +60,28 @@ def test_mcp_origin_defaults_to_the_same_origin_as_api_public_url():
     assert config.MCP_ORIGIN == config._origin_of(config.API_PUBLIC_URL)
 
 
-# ── wiring: auth.py's discovery header is built from MCP_ORIGIN ─────────
+# ── wiring: auth.py's discovery header is built from API_PUBLIC_URL ─────
 
-def test_www_authenticate_is_built_from_mcp_origin():
-    expected = f'Bearer resource_metadata="{config.MCP_ORIGIN}/.well-known/oauth-protected-resource"'
+def test_www_authenticate_is_built_from_api_public_url_not_mcp_origin():
+    expected = f'Bearer resource_metadata="{config.API_PUBLIC_URL}/.well-known/oauth-protected-resource"'
     assert auth_mod.MCP_WWW_AUTHENTICATE == expected
+
+
+def test_www_authenticate_is_path_aware_not_origin_only():
+    """F11 regression guard: the header must resolve under API_PUBLIC_URL's
+    own path (e.g. .../api/.well-known/...), not just its bare origin, so
+    it still resolves behind a reverse proxy that only forwards /api to
+    this service. MCP_WWW_AUTHENTICATE is fixed at import time from the
+    live env (see module docstring), so this asserts the structural
+    property directly rather than simulating a live override.
+    """
+    assert auth_mod.MCP_WWW_AUTHENTICATE.startswith(
+        f'Bearer resource_metadata="{config.API_PUBLIC_URL}/.well-known/'
+    )
+    if config.MCP_ORIGIN != config.API_PUBLIC_URL:
+        assert not auth_mod.MCP_WWW_AUTHENTICATE.startswith(
+            f'Bearer resource_metadata="{config.MCP_ORIGIN}/.well-known/'
+        )
 
 
 # ── wiring: oauth.py's protected-resource metadata reflects a dedicated host ──
