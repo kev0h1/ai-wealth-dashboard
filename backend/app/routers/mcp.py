@@ -44,6 +44,7 @@ from app.core.config import (
 )
 from app.core.ratelimit import check_keyed_limit
 from app.core.redis_client import get_redis, redis_ok
+from app.core.timeutil import as_utc
 from app.db.collections import mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
 from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
@@ -272,7 +273,7 @@ async def resolve_mcp_principal(request: Request) -> dict:
         now = datetime.now(timezone.utc)
         if (
             not doc or doc.get("kind") != "access" or doc.get("revoked_at")
-            or doc.get("expires_at") is None or doc["expires_at"] <= now
+            or as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now
         ):
             raise HTTPException(
                 401, "Invalid, revoked or expired access token",

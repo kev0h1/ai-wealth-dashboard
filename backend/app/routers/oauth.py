@@ -55,6 +55,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
+from app.core.timeutil import as_utc
 from app.db.collections import oauth_clients_col, oauth_codes_col, oauth_tokens_col
 from app.routers.mcp import V1_SCOPES
 
@@ -368,7 +369,7 @@ async def _handle_authorization_code_grant(form) -> JSONResponse:
         )
         return _oauth_error("invalid_grant", description="Code already used")
 
-    expires_at = doc.get("expires_at")
+    expires_at = as_utc(doc.get("expires_at"))
     if expires_at is None or expires_at <= now:
         return _oauth_error("invalid_grant", description="Code expired")
     if doc.get("client_id") != client_id:
@@ -404,7 +405,7 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     now = datetime.now(timezone.utc)
     if (
         not doc or doc.get("kind") != "refresh" or doc.get("revoked_at")
-        or doc.get("expires_at") is None or doc["expires_at"] <= now
+        or as_utc(doc.get("expires_at")) is None or as_utc(doc["expires_at"]) <= now
     ):
         return _oauth_error("invalid_grant")
     if doc.get("client_id") != client_id:
@@ -484,7 +485,7 @@ async def list_connections(user: dict = Depends(current_user)):
         last_used = doc.get("last_used_at")
         if last_used and (entry["last_used_at"] is None or last_used > entry["last_used_at"]):
             entry["last_used_at"] = last_used
-        if not doc.get("revoked_at") and doc.get("expires_at") and doc["expires_at"] > now:
+        if not doc.get("revoked_at") and doc.get("expires_at") and as_utc(doc["expires_at"]) > now:
             entry["active_tokens"] += 1
 
     connections = [
