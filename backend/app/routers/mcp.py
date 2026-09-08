@@ -26,18 +26,19 @@ re-deriving it, so that swap should not have to touch anything below
 `resolve_mcp_principal` itself. A v1 session-bearer principal is granted all
 three scopes and reports `client: "session"`.
 """
+import hashlib
 import json
 import logging
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-from app.core.auth import current_user
+from app.core.auth import MCP_WWW_AUTHENTICATE, current_user
 from app.core.ratelimit import check_rate_limit
 from app.core.subscription import get_subscription, _next_month_first_day
-from app.db.collections import mcp_calls_col
+from app.db.collections import mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
 from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
 
@@ -118,13 +119,47 @@ class McpError(Exception):
 
 
 async def resolve_mcp_principal(request: Request) -> dict:
-    """v1 principal resolution: the same bearer session every other route
-    validates via `current_user` (raises 401 on a missing/expired/invalid
-    token, handled by FastAPI before this router's body ever runs). Kept as
-    its own function, taking only `request`, so F2's OAuth access-token
-    principal (real per-token `client` name and a token-scoped subset of
-    scopes) can replace this body without any other function in this module
-    needing to change its own signature."""
+    """F2: a `sorted_at_...` bearer is an OAuth access token minted by
+    `app.routers.oauth`'s token endpoint — looked up by its SHA-256 hash
+    (tokens are never stored raw), checked for kind/revocation/expiry, and
+    resolved to the real per-token client and its token-scoped subset of
+    `V1_SCOPES`. Anything else falls back to the original v1 path: the same
+    session bearer every other route validates via `current_user`, granted
+    all three scopes and reporting `client: "session"` (the F3 stopgap for
+    a connector with no OAuth flow yet — DEPLOY.md's "MCP connector"
+    section covers that path). Both branches raise on failure exactly the
+    way `current_user` used to: as an `HTTPException` that FastAPI turns
+    into the response before this router's body runs further, so callers
+    of this function never need their own try/except around it.
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+
+    if token.startswith("sorted_at_"):
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        doc = await oauth_tokens_col.find_one({"_id": token_hash})
+        now = datetime.now(timezone.utc)
+        if (
+            not doc or doc.get("kind") != "access" or doc.get("revoked_at")
+            or doc.get("expires_at") is None or doc["expires_at"] <= now
+        ):
+            raise HTTPException(
+                401, "Invalid, revoked or expired access token",
+                headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
+            )
+        # Best-effort freshness stamp for the connections list's
+        # "last used" column — never allowed to fail the actual call.
+        try:
+            await oauth_tokens_col.update_one({"_id": token_hash}, {"$set": {"last_used_at": now}})
+        except Exception:
+            logger.exception("mcp: failed to stamp last_used_at for an OAuth access token")
+        return {
+            "uid": doc["uid"],
+            "client": doc.get("client_name") or doc["client_id"],
+            "scopes": set(doc.get("scopes") or []),
+            "client_id": doc["client_id"],
+        }
+
     user = await current_user(request)
     return {"uid": user.get("email"), "client": "session", "scopes": set(V1_SCOPES)}
 
@@ -186,6 +221,11 @@ async def _write_audit(principal: dict, tool: str, ok: bool, latency_ms: float, 
         await mcp_calls_col.insert_one({
             "user_id": principal.get("uid"),
             "client": principal.get("client", "session"),
+            # F2: the OAuth client_id behind `client`'s display name, None
+            # for the F3 session-bearer stopgap (there is no client to
+            # attribute). Lets a future audit view group calls by actual
+            # connector even if two connectors share a display name.
+            "client_id": principal.get("client_id"),
             "tool": tool,
             "ok": bool(ok),
             "ts": now,

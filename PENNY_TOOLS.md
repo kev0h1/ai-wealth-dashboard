@@ -539,13 +539,23 @@ first. v1 rules, all owner decisions from 2026-09-08:
   key name anywhere in the tree. Assistants get aggregates, verdicts and
   figures, same as this doc's "tools return facts a person would actually
   understand" doctrine, just for a different reader.
-- Scopes are `accounts:read`, `plans:read`, `insights:read`. A session
-  bearer token (the same one the app itself uses) is granted all three
-  until F2 (OAuth 2.1 authorisation server, not started) issues real
-  per-token scopes. `transactions:read` does not exist yet; v1 has nothing
-  for it to gate.
+- Scopes are `accounts:read`, `plans:read`, `insights:read`. `transactions:read`
+  does not exist yet; v1 has nothing for it to gate.
 - Included in Connect (2,000 calls/month) and Max (5,000/month); not
   included in Statements/Lite/Standard. Per-IP rate limit plus the tier's
   monthly allowance, both enforced in `app/routers/mcp.py`; every
   `tools/call` writes one audit doc (`mcp_calls_col`) the caller can read
   back via `GET /mcp/audit`.
+
+**Update, 2026-09-08 (F2):** the OAuth 2.1 authorisation server landed
+(`app/routers/oauth.py`), so `resolve_mcp_principal` now issues real
+per-token scopes instead of the F3 stopgap of granting a session bearer all
+three. Dynamic client registration (RFC 7591), PKCE (S256, mandatory —
+every connector is a public client, no secret is ever issued), a consent
+page at `/oauth/consent` that reuses Google/Apple sign-in, and revocable
+opaque access/refresh tokens (1h / 30d with rotation). A `sorted_at_...`
+bearer resolves to that token's own client and scopes; a plain session
+bearer still works exactly as it did under F3 (all three scopes,
+`client: "session"`), for anyone who hasn't gone through the OAuth flow
+yet. Nothing about the tool catalogue, `TOOL_SCOPES`, or the masking rules
+above changed.

@@ -244,3 +244,39 @@ llm_usage_col           = db["llm_usage"]
 # in app/main.py's _create_indexes, backing both the tier's monthly
 # `mcp_tool_calls_per_month` allowance check and GET /mcp/audit.
 mcp_calls_col           = db["mcp_calls"]
+
+# F2: OAuth 2.1 authorisation server (app/routers/oauth.py) for the /mcp
+# connector — dynamic client registration, PKCE authorization codes, and
+# opaque access/refresh tokens. See that module's own docstring for the
+# full grant flow.
+#
+# oauth_clients_col: one doc per dynamically-registered connector.
+# {_id: client_id, client_id, client_name, redirect_uris: [str, ...],
+# token_endpoint_auth_method: "none" (public client, no secret — PKCE is
+# the whole defence), grant_types, software_id (optional, RFC 7591),
+# created_at}.
+oauth_clients_col      = db["oauth_clients"]
+
+# oauth_codes_col: one doc per issued PKCE authorization code, keyed by the
+# SHA-256 hash of the (opaque, never-stored-raw) code — same doctrine as
+# session tokens never being stored raw. {_id: code_hash, client_id, uid,
+# redirect_uri, scopes: [str, ...], code_challenge (S256, base64url),
+# created_at, expires_at (5 min — TTL index in app/main.py), used_at
+# (None until redeemed; a second redemption attempt revokes every token
+# minted from this code, see oauth.py's reuse-detection)}.
+oauth_codes_col        = db["oauth_codes"]
+
+# oauth_tokens_col: one doc per issued access OR refresh token, keyed by
+# the SHA-256 hash of the opaque `sorted_at_`/`sorted_rt_`-prefixed token
+# string (never stored raw). {_id: token_hash, kind: "access"|"refresh",
+# client_id, client_name (denormalised at issuance so resolve_mcp_principal
+# never has to join oauth_clients_col on every /mcp call), uid, scopes:
+# [str, ...], created_at, expires_at (access 1h, refresh 30d — TTL index),
+# last_used_at, revoked_at, pair_id (shared by the access/refresh token
+# issued together in one grant — revoking either revokes both, "the
+# family"), origin_code_hash (the authorization code this token's lineage
+# started from, carried forward through refresh rotations, so a reused
+# code revokes every descendant token too), rotated_from (the refresh
+# token hash this one replaced, or None for a token minted straight from
+# the code exchange)}.
+oauth_tokens_col       = db["oauth_tokens"]

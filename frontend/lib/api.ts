@@ -54,6 +54,28 @@ export interface AccountCategorySummary {
   pct: number;
 }
 
+// F2: OAuth 2.1 authorisation server — the consent page (app/oauth/consent)
+// and F4's future "Connected assistants" settings surface both read these.
+export interface OAuthScopeDetail {
+  scope: string;
+  description: string;
+}
+
+export interface OAuthRequestDetails {
+  client_name: string;
+  redirect_host: string;
+  scopes: OAuthScopeDetail[];
+}
+
+export interface OAuthConnection {
+  client_id: string;
+  client_name: string;
+  scopes: string[];
+  created_at: string;
+  last_used_at: string | null;
+  active_tokens: number;
+}
+
 export type NotificationPrefs = {
   transactions: boolean;
   goal_milestones: boolean;
@@ -2002,6 +2024,18 @@ export const api = {
   valueDelivered: () => get<ValueDelivered>("/value-delivered"),
   getMirror: (refresh = false) =>
     get<MirrorPortrait>(`/mirror${refresh ? "?refresh=1" : ""}`),
+  // F2: OAuth 2.1 authorisation server. getOAuthRequest/decideOAuthRequest
+  // back the /oauth/consent page; listOAuthConnections/revokeOAuthConnection
+  // are for F4's not-yet-built "Connected assistants" settings surface.
+  getOAuthRequest: (reqId: string) => get<OAuthRequestDetails>(`/oauth/request/${encodeURIComponent(reqId)}`),
+  decideOAuthRequest: (reqId: string, approve: boolean) =>
+    post<{ redirect: string }>("/oauth/decision", { req_id: reqId, approve }),
+  listOAuthConnections: () => get<{ connections: OAuthConnection[] }>("/oauth/connections"),
+  revokeOAuthConnection: (clientId: string) =>
+    fetch(`${API_BASE}/oauth/connections/${encodeURIComponent(clientId)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => toJson<{ ok: boolean; revoked: number }>(r)),
   setMirrorChoice: (trait_id: string, choice: "keep" | "change") =>
     post<{ ok: boolean; trait_id: string; choice: string }>("/mirror/choice", { trait_id, choice }),
   transportSummary: () => get<TransportSummary>("/transport/summary"),

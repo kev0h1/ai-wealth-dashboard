@@ -22,6 +22,7 @@ from app.db.collections import (
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col,
     response_cache_col, mcp_calls_col,
+    oauth_codes_col, oauth_tokens_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -35,7 +36,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
-    penny_chip, ops, admin_usage, mcp as mcp_router,
+    penny_chip, ops, admin_usage, mcp as mcp_router, oauth as oauth_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -128,6 +129,7 @@ for router in [
     ops.router,
     admin_usage.router,
     mcp_router.router,
+    oauth_router.router,
 ]:
     app.include_router(router)
 
@@ -221,6 +223,18 @@ async def _create_indexes():
     # F3 /mcp connector audit log (app/routers/mcp.py), backs both
     # check_mcp_allowance's monthly count and GET /mcp/audit's per-user read.
     await mcp_calls_col.create_index([("user_id", 1), ("year_month", 1)])
+    # F2 OAuth 2.1 authorisation server (app/routers/oauth.py). Codes and
+    # tokens each TTL themselves out via their own `expires_at` (revocation
+    # is an application-level flag, not what reaps the doc — a revoked
+    # token still disappears naturally once it would have expired anyway).
+    await oauth_codes_col.create_index("expires_at", expireAfterSeconds=0)
+    await oauth_tokens_col.create_index("expires_at", expireAfterSeconds=0)
+    # GET /oauth/connections' per-user, per-client rollup.
+    await oauth_tokens_col.create_index([("uid", 1), ("client_id", 1)])
+    # Revocation cascades ("the family") and the code-reuse cascade walk
+    # these two.
+    await oauth_tokens_col.create_index("pair_id")
+    await oauth_tokens_col.create_index("origin_code_hash")
 
 
 async def _acquire_migration_lock() -> bool:
