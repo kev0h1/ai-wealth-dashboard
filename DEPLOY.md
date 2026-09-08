@@ -294,6 +294,55 @@ with the URL the card tells the user to add. Leave both unset in
 production until A18 gives `api.wealth.auriqltd.co.uk` (or a dedicated
 `mcp.` host) a real DNS record.
 
+### MCP-only service mode
+
+F10 (2026-09-08): the same backend image (`backend/Dockerfile`, unchanged)
+can run as a second service that mounts ONLY the connector (`app/routers/
+mcp.py` and `app/routers/oauth.py`, which between them also cover the
+`/.well-known/oauth-*` discovery paths) plus `/health` — none of the app API
+(`/accounts`, `/profile`, `/can-i`, everything else `app/main.py`'s
+`_routers()` normally builds). This exists so a second Railway service on a
+dedicated `mcp` hostname can isolate assistant traffic (Claude/ChatGPT
+connector calls) from the main app API once the first Connect customer or
+any meaningful load arrives, without a second image, a second codebase, or
+a second deploy pipeline — it's the same container, one env var different.
+**Not deployed anywhere yet** as of this writing; this section documents
+how the second service would be configured when it is.
+
+Set `MCP_ONLY=true` (`app/core/config.py`'s `_parse_flag`, same truthy set
+as `MCP_CONNECTOR_ENABLED`: `1`/`true`/`on`, case-insensitive) on that
+service only, never on the main `ai-wealth-dashboard` or `worker` services.
+`MCP_ONLY=true` implies the connector itself must be on: if
+`MCP_CONNECTOR_ENABLED` isn't also explicitly truthy there, `config.py`
+logs a startup warning and treats it as enabled anyway (a connector-only
+service with the connector disabled would boot with almost no routes at
+all, so this fails soft, not fast — see `app/core/config.py`'s comment by
+`MCP_ONLY`). In practice set both on the new service:
+
+| Var | Second (`mcp`) service | Main `ai-wealth-dashboard` / `worker` services |
+|-----|--------------------------|--------------------------------------------------|
+| `MCP_ONLY` | `true` | unset (or `false`) |
+| `MCP_CONNECTOR_ENABLED` | `true` | per the "MCP connector flag" table above (unset in production until launch) |
+| `MCP_PUBLIC_URL` | the service's own public URL, e.g. `https://mcp.wealth.auriqltd.co.uk/mcp` (F8, see "MCP connector URL" above; needs its own DNS record, same open item as `API_PUBLIC_URL`/A18) | unchanged |
+| `MONGO_URI`, `REDIS_URL` | same values as the main services — one Mongo, one Redis, shared | unchanged |
+| every other backend var (`APP_URL`, `TOKEN_KEY`, `GOOGLE_CLIENT_ID`/`_SECRET`, etc.) | same values as the main services, the connector's OAuth flow and session/bearer auth need them too | unchanged |
+
+What an `MCP_ONLY` instance skips at startup: the one-time migrations and
+cache seeds in `app/main.py`'s `_migrate` handler (user_id backfill,
+category-kind migration, subscription seeding, stale-connection/Yapily
+cleanup, cashflow cache warm-up, penny top-up pack migration) — the main
+app service already runs these on every boot against the same shared
+Mongo, so an MCP-only instance skipping them is not a missed migration.
+Index creation (`_create_indexes`) still runs unconditionally: it's
+idempotent, cheap, and the connector reads the same collections the
+indexes cover. `GET /health` on an `MCP_ONLY` instance reports
+`{"status": "ok", "mode": "mcp-only"}` (no `truelayer_configured` /
+`finexer_configured` fields, since those only mean something for the app
+API) — useful for telling the two services apart from a health check alone.
+See `backend/tests/test_mcp_only_mode.py` for the route-table, `/health`,
+and startup-skip assertions, extending `tests/test_mcp_connector_flag.py`'s
+A17 coverage.
+
 ---
 
 ## Backend env vars (Railway: web AND worker)

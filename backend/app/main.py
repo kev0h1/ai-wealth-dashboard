@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
-from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, MCP_ORIGIN, TRUELAYER_CLIENT_ID
+from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN, TRUELAYER_CLIENT_ID
 from app.core.auth import auth_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -93,7 +93,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
     return routers
 
 
-def build_app(mcp_connector_enabled: bool) -> FastAPI:
+def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
     """Construct a fresh FastAPI app with the full middleware/router stack,
     parameterized by the MCP connector flag (A17). The module-level `app`
     below is the one production instance, built from
@@ -109,7 +109,25 @@ def build_app(mcp_connector_enabled: bool) -> FastAPI:
     `app.core.auth.MCP_CONNECTOR_ENABLED`, since `auth_middleware` itself is
     one shared function object that reads that flag at call time, not
     something this factory can parameterize per app instance.
+
+    `mcp_only` (F10) builds a connector-only instance: only the oauth and
+    mcp routers are mounted (plus `/health`, always added below regardless
+    of mode), for a second Railway service on a dedicated `mcp` hostname
+    that shares Mongo/Redis with the main app service but never serves the
+    app API itself. See DEPLOY.md's "MCP-only service mode". A connector
+    with no connector would be pointless, so `mcp_only=True` with
+    `mcp_connector_enabled=False` is coerced to enabled here too (the
+    module-level instantiation below already gets a pre-coerced value from
+    `app.core.config.MCP_CONNECTOR_ENABLED`, see that module's own comment;
+    this local coercion is only for callers, like tests, that build an app
+    directly with a mismatched pair of flags).
     """
+    if mcp_only and not mcp_connector_enabled:
+        logging.getLogger("app.startup").warning(
+            "build_app(mcp_only=True) called with mcp_connector_enabled=False; "
+            "mcp_only implies the connector, treating it as enabled for this instance."
+        )
+        mcp_connector_enabled = True
     # Public API introspection (Swagger UI, ReDoc, raw OpenAPI schema) is off
     # by default in every deployed environment (UAT and prod), since it
     # leaks route/schema details to unauthenticated callers. Set
@@ -171,11 +189,20 @@ def build_app(mcp_connector_enabled: bool) -> FastAPI:
             )
         return response
 
-    for router in _routers(mcp_connector_enabled):
+    # mcp_only mounts ONLY the connector (mcp + oauth routers, which between
+    # them also cover the /.well-known/oauth-* discovery paths, see
+    # app/routers/oauth.py); the rest of `_routers()` (accounts, profile,
+    # can-i, every other app-facing route) never gets built into this
+    # instance at all, matching A17's "entirely absent, not merely
+    # unauthenticated" doctrine one level further.
+    routers = [mcp_router.router, oauth_router.router] if mcp_only else _routers(mcp_connector_enabled)
+    for router in routers:
         built.include_router(router)
 
     @built.get("/health")
     async def health():
+        if mcp_only:
+            return {"status": "ok", "mode": "mcp-only"}
         from app.core.config import FINEXER_API_KEY
         return {
             "status": "ok",
@@ -186,7 +213,7 @@ def build_app(mcp_connector_enabled: bool) -> FastAPI:
     return built
 
 
-app = build_app(MCP_CONNECTOR_ENABLED)
+app = build_app(MCP_CONNECTOR_ENABLED, mcp_only=MCP_ONLY)
 
 
 @app.on_event("startup")
@@ -309,6 +336,18 @@ async def _acquire_migration_lock() -> bool:
 
 @app.on_event("startup")
 async def _migrate():
+    # F10: an MCP-only instance serves only the connector, never the app
+    # routes these one-time migrations/backfills and cache seeds exist for
+    # (user_id backfill, category-kind migration, subscription seeding,
+    # stale-connection/Yapily cleanup, cashflow cache warm-up, penny top-up
+    # pack migration). The main app service still runs this on every boot
+    # and covers the shared Mongo, so skipping it here is safe, not a
+    # missed migration — see app.main's module docstring / DEPLOY.md's
+    # "MCP-only service mode". Index creation (`_create_indexes` above)
+    # still runs unconditionally: it's idempotent and cheap, and the
+    # connector reads the same collections.
+    if MCP_ONLY:
+        return
     if not await _acquire_migration_lock():
         return
     email = "kevin.maingi12@gmail.com"
