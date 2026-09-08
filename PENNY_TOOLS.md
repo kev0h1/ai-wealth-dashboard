@@ -151,6 +151,68 @@ kind=... executed_at=... source=penny`) to `journalctl -u wealth-api`.
 | `propose_set_debt_tracking_start(date)` | `app.routers.preferences.update_preferences` (`debt_tracking_start`) | Low — feeds the reference point debt movement is measured from on Cards and Planning |
 | `propose_set_cover_plan_exclusions(account_refs)` | `app.routers.preferences.update_preferences` (`cover_plan_excluded_accounts`) | Medium — changes which of the user's own accounts count towards covering a bill shortfall |
 | `propose_set_hide_balances(hidden)` | `app.routers.preferences.update_preferences` (`hide_net_worth`) | Low — display only, never touches a calculation |
+| `propose_create_offline_account(name, account_type, balance)` | `app.routers.manual_accounts.create_manual_account` | Low — adds a new hand-tracked account, reversible by deleting it |
+| `propose_update_offline_account(account_ref, name?, account_type?, balance?)` | `app.routers.manual_accounts.update_manual_account` | Medium — changes a hand-tracked account's own record (name/type/balance) |
+| `propose_delete_offline_account(account_ref)` | `app.routers.manual_accounts.delete_manual_account` | Medium — deletes an offline account, its whole ledger, and any mirror rule targeting it; irreversible from Penny |
+| `propose_add_ledger_entry(account_ref, amount, description, date, direction)` | `app.routers.manual_accounts.add_manual_transaction` | Low — one hand-entered transaction on an offline account, easy to delete again |
+| `propose_update_ledger_entry(account_ref, entry_ref, amount?, description?, date?, direction?)` | `app.routers.manual_accounts.update_manual_transaction` | Medium — changes one hand-entered entry and the account balance it feeds |
+| `propose_delete_ledger_entry(account_ref, entry_ref)` | `app.routers.manual_accounts.delete_manual_transaction` | Medium — deletes one hand-entered entry, reverses its balance effect |
+| `propose_create_account_rule(name, target_account_ref, match_type, match_value, sign, match_field?, source_account_ref?, backfill)` | `app.routers.manual_accounts.create_rule` | Medium — starts auto-posting matching transactions onto an offline account |
+| `propose_update_account_rule(rule_ref, name?, match_type?, match_value?, sign?, match_field?, source_account_ref?, active?, backfill?)` | `app.routers.manual_accounts.update_rule` | Medium — changes a mirror rule's match condition, scope, or active state |
+| `propose_delete_account_rule(rule_ref)` | `app.routers.manual_accounts.delete_rule` | Medium — deletes a mirror rule and reverses its past postings |
+| `propose_disconnect_bank(connection_or_account_ref)` | `app.services.retention.disconnect_connection` (the same function `DELETE /connections/{id}` defers to) | High — removes every account and transaction a whole bank connection brought in, in one call; the biggest single blast radius of any propose tool in this table (every prior tool touches one record, this touches a connection's entire account/transaction history at once), irreversible from Penny (the user must reconnect the bank to get it back) |
+| `propose_sync_now()` | `app.routers.accounts.sync_all` | Low — a refresh, changes nothing about what's stored, only how current it is |
+
+**B16, 2026-09-08 (B12 stage 3).** Eleven propose tools for accounts, the
+ledger, mirror rules, and connections: offline (manually-tracked) account
+create/update/delete, ledger-entry add/update/delete on an offline account,
+transaction-mirror rule create/update/delete, disconnecting a whole bank
+connection (TrueLayer or Finexer), and syncing all connected accounts now.
+Every validator mirrors `app.routers.manual_accounts`' own inline checks
+line-for-line (that router, like `planned.py`/`checkpoints.py` before it,
+has no extracted `_validate_*` functions to import — see each
+`_exec_propose_*` builder's own "Mirrors ..." comment in
+`app.services.penny_tools` for which router lines it mirrors).
+`_resolve_offline_account_for_propose` is a NEW resolver, deliberately not
+a reuse of `_resolve_account_for_propose` (that one's `get_accounts` list
+mixes in connected accounts too — the wrong universe for a tool whose
+target must always be an offline one, exactly as `manual_accounts.py`'s
+own endpoints enforce). `_resolve_source_account_for_propose` is the
+mirror-image resolver for a rule's optional source scope, filtered to
+connected accounts only, then handed to `app.routers.manual_accounts.
+_resolve_source_scope` itself for the canonical stored-id form and 404
+behaviour, reused rather than reimplemented.
+`_resolve_ledger_entry_for_propose` resolves a hand-added entry by id or by
+description-plus-date (an ISO date embedded in the caller's own reference
+text narrows an otherwise-ambiguous shared description), reading through
+`app.routers.manual_accounts.list_manual_transactions` so a rule-posted
+"mirror" entry (its `id` prefixed `mirror:`) is structurally excluded, the
+same protection that router's own PATCH/DELETE endpoints already have (no
+endpoint accepts a `mirror:` id).
+`_resolve_bank_connection_for_propose` deliberately does NOT reuse
+`_resolve_account_for_propose` either: that resolver's account list mixes
+in Yapily accounts whose own `connection_id` field is actually a Yapily
+*consent* id, not a `connections_col`/`finexer_consents_col` row id —
+resolving a bank name through it could silently produce a connection id
+`disconnect_connection` can never find. The new resolver instead matches a
+connection id directly against `connections_col`/`finexer_consents_col`,
+or a bank name against `accounts_col`'s own `provider` field grouped by
+`connection_id`, and never touches Yapily at all.
+`propose_delete_offline_account` and `propose_disconnect_bank` are the
+first two propose tools to carry a new `destructive: true` flag on their
+stored and returned proposal (every other kind, past and present, defaults
+to `false`) — `_create_proposal` (`app.services.penny_tools`) gained a
+`destructive: bool = False` keyword for this. No frontend styling hook
+consumes it yet: `PennyConversation.tsx`'s proposal card was checked
+(2026-09-08) and has no `destructive`-keyed rendering today, so this is
+carried on the data only, ready for a future visual treatment without a
+second migration of every past proposal shape. Full inventory update in
+`docs/penny/action-inventory.md`, including a correction to this item's own
+predicted tool count: the propose-tool catalog grows by eleven here, not
+nine — the "35 tools" figure in this item's own brief undercounted against
+its own fully-specified build list of eleven tools; the catalog is 26 + 11
+= 37 after this stage, and every count in `docs/penny/action-inventory.md`
+below is reconciled against the real 37, not the brief's arithmetic.
 
 **B15, 2026-09-08 (B12 stage 2).** Eight propose tools for the preferences
 that change money maths: pay period, income, pension, Child Benefit, debt

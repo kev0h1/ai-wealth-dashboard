@@ -34,7 +34,7 @@ Doctrine that constrains the gap list (see PENNY_TOOLS.md and BEHAVIOURS.md): Pe
 | `get_fill_candidates(account_id_or_name?)` | read | `GET /allocations/fill-candidates` |
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 
-### Propose/write tools, 26, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L611-891)
+### Propose/write tools, 37, in `PROPOSE_TOOL_SCHEMAS` (`penny_tools.py` L612-1611)
 
 B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
 the original eight, for the covered creates only (planned, allocation,
@@ -43,6 +43,16 @@ commitment, checkpoint delete, recurring skip/edit/clear-override). B15
 that, for the money-maths preferences (pay period, income, pension, Child
 Benefit, debt target/tracking-start, cover-plan exclusions, hide balances)
 — see section 2's per-row status changes and section 3's revised counts.
+B16 (2026-09-08, B12 stage 3 shipped) added the eleven tools below that,
+for offline accounts, ledger entries, mirror rules, disconnecting a bank
+connection, and syncing now — see section 2's per-row status changes and
+section 3's revised counts. Correction to this doc's own prior estimate:
+an earlier draft of this item predicted "9 new tools, 35 total"; the
+fully-specified build actually shipped eleven tools (both
+`propose_update_offline_account`/`propose_delete_offline_account` and
+their ledger-entry and mirror-rule twins were always in scope, the "9"
+figure simply undercounted them), so the catalog is 26 + 11 = 37, and
+every count below is reconciled against that real total.
 
 | Tool | Kind | Backend action it maps to |
 |---|---|---|
@@ -72,10 +82,21 @@ Benefit, debt target/tracking-start, cover-plan exclusions, hide balances)
 | `propose_set_debt_tracking_start(date)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {debt_tracking_start}`) |
 | `propose_set_cover_plan_exclusions(account_refs)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {cover_plan_excluded_accounts}`, whole-list replace, empty list clears) |
 | `propose_set_hide_balances(hidden)` | propose (B15) | `app.routers.preferences.update_preferences` (`PATCH /preferences {hide_net_worth}`) |
+| `propose_create_offline_account(name, account_type, balance)` | propose (B16) | `app.routers.manual_accounts.create_manual_account` (`POST /manual-accounts`) |
+| `propose_update_offline_account(account_ref, name?, account_type?, balance?)` | propose (B16) | `app.routers.manual_accounts.update_manual_account` (`PATCH /manual-accounts/{id}`) |
+| `propose_delete_offline_account(account_ref)` | propose (B16) | `app.routers.manual_accounts.delete_manual_account` (`DELETE /manual-accounts/{id}`; cascades ledger entries + mirror rules) |
+| `propose_add_ledger_entry(account_ref, amount, description, date, direction)` | propose (B16) | `app.routers.manual_accounts.add_manual_transaction` (`POST /manual-accounts/{id}/transactions`) |
+| `propose_update_ledger_entry(account_ref, entry_ref, amount?, description?, date?, direction?)` | propose (B16) | `app.routers.manual_accounts.update_manual_transaction` (`PATCH /manual-accounts/{id}/transactions/{txId}`; real entries only, never a `mirror:` id) |
+| `propose_delete_ledger_entry(account_ref, entry_ref)` | propose (B16) | `app.routers.manual_accounts.delete_manual_transaction` (`DELETE /manual-accounts/{id}/transactions/{txId}`; real entries only) |
+| `propose_create_account_rule(name, target_account_ref, match_type, match_value, sign, match_field?, source_account_ref?, backfill)` | propose (B16) | `app.routers.manual_accounts.create_rule` (`POST /manual-account-rules`) |
+| `propose_update_account_rule(rule_ref, name?, match_type?, match_value?, sign?, match_field?, source_account_ref?, active?, backfill?)` | propose (B16) | `app.routers.manual_accounts.update_rule` (`PATCH /manual-account-rules/{id}`) |
+| `propose_delete_account_rule(rule_ref)` | propose (B16) | `app.routers.manual_accounts.delete_rule` (`DELETE /manual-account-rules/{id}`) |
+| `propose_disconnect_bank(connection_or_account_ref)` | propose (B16) | `app.services.retention.disconnect_connection` (the function `DELETE /connections/{id}` itself defers to; no api.ts method calls that route directly today, see section 6) |
+| `propose_sync_now()` | propose (B16) | `app.routers.accounts.sync_all` (`POST /accounts/sync`) |
 
 ### Agent-mode consent gate
 
-`PROPOSE_TOOL_SCHEMAS` are always offered to the model regardless of consent (`penny_agent.py` L413, rationale at L386-397: gating the schemas made the consent moment itself unreachable). The only real gate is at dispatch time: `penny_agent.py` L531-536 checks `name in PROPOSE_TOOL_NAMES and not consented` against a live `preferences_col` read of `penny_agent_consent` (L400-404, never cached) and returns `{"consent_required": True}` without calling `execute_tool`. Even with a proposal, Penny never executes it: `_create_proposal` (`penny_tools.py` L2818) writes a 15-minute-TTL row in `penny_proposals_col`, and `POST /penny/proposals/{id}/execute` (`can_i.py` L846), never reachable by the LLM, replays the stored params through the same router function the app's own confirm sheet calls, re-checking consent at execute time so a revocation (`DELETE /penny/agent-consent`, `can_i.py` L825) kills an unactioned proposal with a 403.
+`PROPOSE_TOOL_SCHEMAS` are always offered to the model regardless of consent (`penny_agent.py` L413, rationale at L386-397: gating the schemas made the consent moment itself unreachable). The only real gate is at dispatch time: `penny_agent.py` L531-536 checks `name in PROPOSE_TOOL_NAMES and not consented` against a live `preferences_col` read of `penny_agent_consent` (L400-404, never cached) and returns `{"consent_required": True}` without calling `execute_tool`. Even with a proposal, Penny never executes it: `_create_proposal` (`penny_tools.py` L3537, shifted from L2818 by B16's additions) writes a 15-minute-TTL row in `penny_proposals_col`, and `POST /penny/proposals/{id}/execute` (`can_i.py` L1057, shifted from L846 by B16's new executors), never reachable by the LLM, replays the stored params through the same router function the app's own confirm sheet calls, re-checking consent at execute time so a revocation (`DELETE /penny/agent-consent`, `can_i.py` L1027, shifted from L825) kills an unactioned proposal with a 403.
 
 ## 2. Cross-reference table
 
@@ -83,20 +104,21 @@ Benefit, debt target/tracking-start, cover-plan exclusions, hide balances)
 
 | UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
 |---|---|---|---|---|
-| Sync all connected accounts | `app/components/HomePage.tsx:457` | `POST /accounts/sync` (`syncAll`) | none | gap |
+| Sync all connected accounts | `app/components/HomePage.tsx:457` | `POST /accounts/sync` (`syncAll`) | `propose_sync_now` (B16) | covered |
 | Pull older transaction history | `app/settings/SettingsPage.tsx:545` | `POST /accounts/sync-history` (`syncHistory`) | none | gap |
 | Disconnect / delete a bank account | `app/components/AccountsPage.tsx:920` | `DELETE /accounts/{id}` (`deleteAccount`) | none | gap |
+| **Disconnect a whole bank connection** *(new row, B16)* | no UI surface found (see section 6) | `DELETE /connections/{id}` (`delete_connection`; no api.ts method exists for this route today) | `propose_disconnect_bank` (B16) | covered, not counted in section 3's UI-write totals (no api.ts caller exists) |
 | Complete a Mono (Kenya) connection | `components/MonoConnect.tsx:60` | `POST /auth/mono/exchange` (`monoExchange`) | none | gap |
 | Pin / unpin an account on Home | `app/components/AccountsPage.tsx:758` | `PATCH /preferences {home_pinned_accounts}` (`updatePreferences`) | `get_accounts` exposes `pinned` | partial |
-| Create an offline (manual) account | `app/components/AccountsPage.tsx:962` | `POST /manual-accounts` (`createManualAccount`) | none | gap |
-| Edit an offline account (name/balance/type) | `app/components/AccountsPage.tsx:959` | `PATCH /manual-accounts/{id}` (`updateManualAccount`) | `get_accounts` / `get_account_activity` read only | partial |
-| Delete an offline account | `app/components/AccountsPage.tsx:978, 2058` | `DELETE /manual-accounts/{id}` (`deleteManualAccount`) | `get_accounts` read only | partial |
-| Add an offline-ledger entry | `app/components/AccountsPage.tsx:1039` | `POST /manual-accounts/{id}/transactions` (`addManualTransaction`) | none | gap |
-| Edit an offline-ledger entry | `app/components/AccountsPage.tsx:1037` | `PATCH /manual-accounts/{id}/transactions/{txId}` (`updateManualTransaction`) | `search_transactions` reads it | partial |
-| Delete an offline-ledger entry | `app/components/AccountsPage.tsx:1056` | `DELETE /manual-accounts/{id}/transactions/{txId}` (`deleteManualTransaction`) | `search_transactions` reads it | partial |
-| Create a transaction-mirror rule | `app/components/AccountsPage.tsx:1112` | `POST /manual-account-rules` (`createManualAccountRule`) | none | gap |
-| Edit / pause a mirror rule | `app/components/AccountsPage.tsx:1106, 1135` | `PATCH /manual-account-rules/{id}` (`updateManualAccountRule`) | none | gap |
-| Delete a mirror rule | `app/components/AccountsPage.tsx:1148` | `DELETE /manual-account-rules/{id}` (`deleteManualAccountRule`) | none | gap |
+| Create an offline (manual) account | `app/components/AccountsPage.tsx:962` | `POST /manual-accounts` (`createManualAccount`) | `propose_create_offline_account` (B16) | covered |
+| Edit an offline account (name/balance/type) | `app/components/AccountsPage.tsx:959` | `PATCH /manual-accounts/{id}` (`updateManualAccount`) | `propose_update_offline_account` (B16) | covered |
+| Delete an offline account | `app/components/AccountsPage.tsx:978, 2058` | `DELETE /manual-accounts/{id}` (`deleteManualAccount`) | `propose_delete_offline_account` (B16) | covered |
+| Add an offline-ledger entry | `app/components/AccountsPage.tsx:1039` | `POST /manual-accounts/{id}/transactions` (`addManualTransaction`) | `propose_add_ledger_entry` (B16) | covered |
+| Edit an offline-ledger entry | `app/components/AccountsPage.tsx:1037` | `PATCH /manual-accounts/{id}/transactions/{txId}` (`updateManualTransaction`) | `propose_update_ledger_entry` (B16; real entries only, never a `mirror:`-prefixed one) | covered |
+| Delete an offline-ledger entry | `app/components/AccountsPage.tsx:1056` | `DELETE /manual-accounts/{id}/transactions/{txId}` (`deleteManualTransaction`) | `propose_delete_ledger_entry` (B16; real entries only) | covered |
+| Create a transaction-mirror rule | `app/components/AccountsPage.tsx:1112` | `POST /manual-account-rules` (`createManualAccountRule`) | `propose_create_account_rule` (B16) | covered |
+| Edit / pause a mirror rule | `app/components/AccountsPage.tsx:1106, 1135` | `PATCH /manual-account-rules/{id}` (`updateManualAccountRule`) | `propose_update_account_rule` (B16) | covered |
+| Delete a mirror rule | `app/components/AccountsPage.tsx:1148` | `DELETE /manual-account-rules/{id}` (`deleteManualAccountRule`) | `propose_delete_account_rule` (B16) | covered |
 | Refresh investment prices | `app/components/AccountsPage.tsx:1187` | `POST /investment/accounts/{id}/refresh` (`refreshInvestmentPrices`) | none | gap |
 | Delete an investment account | `app/components/AccountsPage.tsx:1205` | `DELETE /investment/accounts/{id}` (`deleteInvestmentAccount`) | none | gap |
 
@@ -239,19 +261,40 @@ config, debt target months, debt tracking start, cover-plan exclusions) and
 Benefit — all three were already readable via `get_tax_position`, now also
 writable).
 
+Revised again 2026-09-08 (B16, B12 stage 3 shipped): eleven accounts/
+ledger/rules/connections propose tools moved 6 rows from gap to covered
+(sync all accounts, create an offline account, add an offline-ledger
+entry, create/edit-pause/delete a mirror rule) and 4 rows from partial to
+covered (edit an offline account, delete an offline account, edit an
+offline-ledger entry, delete an offline-ledger entry — all four were
+already partial, readable via `get_accounts`/`get_account_activity`/
+`search_transactions`, now also writable). `propose_disconnect_bank` adds
+one further covered capability with no existing UI-action row to flip (no
+api.ts method calls `DELETE /connections/{id}` today, see the new row
+above and section 6), so it is listed as covered in the cross-reference
+table but deliberately excluded from the Total UI write actions count
+below, consistent with how this doc already excludes `DELETE
+/penny/agent-consent` for the identical reason. The Accounts and
+connections gap group of 11 (section 4) therefore drops by exactly the 6
+gap rows above, not by all 11 (the item's own brief, cross-checked here,
+undercounted this): sync history, delete a single bank account (a
+narrower, per-account capability `propose_disconnect_bank` deliberately
+does not replicate), Mono exchange, refresh investment prices, and delete
+an investment account were never in this stage's scope and remain gaps.
+
 | | Count |
 |---|---|
 | Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 93 |
-| Covered | 22 |
-| Partial | 21 |
-| Gap | 49 |
+| Covered | 32 |
+| Partial | 17 |
+| Gap | 43 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
-The 22 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`.
+The 32 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`, `syncAll`, `createManualAccount`, `updateManualAccount`, `deleteManualAccount`, `addManualTransaction`, `updateManualTransaction`, `deleteManualTransaction`, `createManualAccountRule`, `updateManualAccountRule`, `deleteManualAccountRule`. (`propose_disconnect_bank` is a further covered capability on top of these 32 — see the paragraph above for why it isn't counted here.)
 
-## 4. Gaps grouped (49)
+## 4. Gaps grouped (43)
 
-Accounts and connections (11): sync accounts, sync history, delete bank account, Mono exchange, create offline account, add offline-ledger entry, create mirror rule, edit/pause mirror rule, delete mirror rule, refresh investment prices, delete investment account.
+Accounts and connections (5): sync history, delete a single bank account, Mono exchange, refresh investment prices, delete investment account.
 
 Transactions and categories (7): undo a rule, resolve a movement, add custom category, delete custom category, dismiss miscategorised series, confirm transfer pair, dismiss transfer pair (the last three deliberate).
 
@@ -281,6 +324,7 @@ Unwired write methods exported from api.ts with no caller in frontend/ (dead or 
 
 - `DELETE /penny/agent-consent` exists on the backend (`can_i.py:825`) but there is no api.ts method for it; `app/settings/SettingsPage.tsx:735-764` renders consent state read-only and its own comment says there is no revoke. Consent is one-way in the UI today.
 - `updateProfile`, `updateCommitment`, `updatePlanned` and `deleteUserAccount` bypass `toJson`/`apiErrorFromResponse` and throw generic errors, unlike every other write in the file.
+- `DELETE /connections/{id}` (`delete_connection`, `accounts.py`) exists on the backend and is what `propose_disconnect_bank` (B16) replays, but there is no api.ts method for it (checked: no `/connections` write or read caller of any kind in `lib/api.ts`, `GET /connections` itself has no frontend caller either) and no UI surface calls it today. The Accounts page's own disconnect action, `deleteAccount`, calls the narrower per-account `DELETE /accounts/{id}` instead, which can incidentally tear down a whole TrueLayer connection only when it was the account's last one — a side effect, not the same deliberate whole-connection action. Penny's own propose/confirm path is, today, the only way to explicitly disconnect a whole bank connection in one step; this is honestly reported as a covered row in section 2 rather than overclaiming a UI caller that doesn't exist.
 
 ## 7. Deliberately UI-only (proposed exclusions, for Kevin to confirm)
 

@@ -76,10 +76,11 @@ from fastapi import HTTPException
 
 from app.db.collections import (
     accounts_col, behaviour_portrait_col, card_terms_col, cashflow_cache_col,
-    mono_transactions_col, mpesa_transactions_col, penny_proposals_col,
-    preferences_col, savings_goals_col, savings_insights_col,
-    statement_transactions_col, transactions_col, yapily_accounts_col,
-    yapily_transactions_col,
+    connections_col, finexer_consents_col, manual_account_rules_col,
+    manual_accounts_col, mono_transactions_col, mpesa_transactions_col,
+    penny_proposals_col, preferences_col, savings_goals_col,
+    savings_insights_col, statement_transactions_col, transactions_col,
+    yapily_accounts_col, yapily_transactions_col,
 )
 from app.routers.analytics import (
     PATTERNS_VERSION, _build_cashflow_response, _compute_cashflow_patterns,
@@ -1329,6 +1330,280 @@ PROPOSE_TOOL_SCHEMAS = [
                     "hidden": {"type": "boolean", "description": "True to hide balances, false to show them."},
                 },
                 "required": ["hidden"],
+            },
+        },
+    },
+    # ── B16 (B12 stage 3) — accounts, ledger, mirror rules, connections ──
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_create_offline_account",
+            "description": (
+                "Propose adding a new offline (manually-tracked) account, "
+                "the same as the Accounts page's 'Add offline account' "
+                "form. Use for a cash pot, a bank the app can't connect "
+                "to, or anything the user wants to track by hand."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "A name for the account, up to 60 characters."},
+                    "account_type": {
+                        "type": "string",
+                        "enum": ["savings", "current", "credit_card"],
+                    },
+                    "balance": {"type": "number", "description": "The starting balance, must not be negative. Defaults to 0 if not given."},
+                },
+                "required": ["name", "account_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_update_offline_account",
+            "description": (
+                "Propose changing an offline account's name, type, or "
+                "balance. `account_ref` may be the account's id (from "
+                "get_accounts) or its name, an unknown or ambiguous name "
+                "returns a list to disambiguate from. At least one of "
+                "name/account_type/balance must be given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_ref": {"type": "string", "description": "The offline account's id or name."},
+                    "name": {"type": "string", "description": "A new name, up to 60 characters."},
+                    "account_type": {
+                        "type": "string",
+                        "enum": ["savings", "current", "credit_card"],
+                    },
+                    "balance": {"type": "number", "description": "A new balance, must not be negative."},
+                },
+                "required": ["account_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_offline_account",
+            "description": (
+                "Propose deleting an offline account entirely, along with "
+                "every ledger entry recorded on it and any mirror rule "
+                "that targets it. `account_ref` may be the account's id "
+                "or its name, an unknown or ambiguous name returns a list "
+                "to disambiguate from rather than guessing. This is "
+                "destructive and cannot be undone."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_ref": {"type": "string", "description": "The offline account's id or name."},
+                },
+                "required": ["account_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_add_ledger_entry",
+            "description": (
+                "Propose adding a hand-entered transaction to an offline "
+                "account's ledger, the same as the Accounts page's own "
+                "'Add entry' form. `account_ref` may be the account's id "
+                "or its name."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_ref": {"type": "string", "description": "The offline account's id or name."},
+                    "amount": {"type": "number", "description": "A positive amount in GBP."},
+                    "description": {"type": "string", "description": "What the entry is for, up to 120 characters."},
+                    "date": {"type": "string", "description": "An ISO date/datetime, optional, defaults to now."},
+                    "direction": {
+                        "type": "string",
+                        "enum": ["credit", "debit"],
+                        "description": "'credit' if money came in, 'debit' if money went out.",
+                    },
+                },
+                "required": ["account_ref", "amount", "description", "direction"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_update_ledger_entry",
+            "description": (
+                "Propose changing a hand-entered ledger entry's amount, "
+                "description, date, or direction. `account_ref` resolves "
+                "the offline account, `entry_ref` resolves the entry "
+                "within it by id or by its description and date — a "
+                "rule-posted (mirror) entry can never be edited this way, "
+                "only entries the user (or Penny) added by hand. At "
+                "least one field to change must be given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_ref": {"type": "string", "description": "The offline account's id or name."},
+                    "entry_ref": {"type": "string", "description": "The ledger entry's id, or its description (matched together with its date)."},
+                    "amount": {"type": "number", "description": "A new positive amount in GBP."},
+                    "description": {"type": "string", "description": "A new description, up to 120 characters."},
+                    "date": {"type": "string", "description": "A new ISO date/datetime."},
+                    "direction": {"type": "string", "enum": ["credit", "debit"]},
+                },
+                "required": ["account_ref", "entry_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_ledger_entry",
+            "description": (
+                "Propose deleting one hand-entered ledger entry from an "
+                "offline account. `account_ref`/`entry_ref` resolve the "
+                "same way as propose_update_ledger_entry — a rule-posted "
+                "(mirror) entry can never be deleted this way."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_ref": {"type": "string", "description": "The offline account's id or name."},
+                    "entry_ref": {"type": "string", "description": "The ledger entry's id, or its description (matched together with its date)."},
+                },
+                "required": ["account_ref", "entry_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_create_account_rule",
+            "description": (
+                "Propose creating a transaction-mirror rule: whenever a "
+                "matching transaction happens on a real (connected) "
+                "account, it's posted onto an offline account too, "
+                "keeping a hand-tracked pot in sync automatically. The "
+                "rule's target must be an offline account. "
+                "`source_account_ref` optionally scopes matching to one "
+                "connected account only (any account if left out)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "A name for the rule, up to 60 characters."},
+                    "target_account_ref": {"type": "string", "description": "The offline account id or name this rule posts onto."},
+                    "match_type": {
+                        "type": "string",
+                        "enum": ["description_contains", "description_equals", "category"],
+                    },
+                    "match_value": {"type": "string", "description": "The text or category to match, up to 120 characters."},
+                    "sign": {
+                        "type": "string",
+                        "enum": ["same", "opposite"],
+                        "description": "'same' mirrors the amount as-is, 'opposite' flips its sign.",
+                    },
+                    "match_field": {
+                        "type": "string",
+                        "enum": ["description", "merchant"],
+                        "description": "Only used when match_type is 'description_equals'.",
+                    },
+                    "source_account_ref": {"type": "string", "description": "A connected account id or name to scope matching to, optional."},
+                    "backfill": {
+                        "type": "boolean",
+                        "description": "True to also copy past matching transactions, false to only apply from today onwards.",
+                    },
+                },
+                "required": ["name", "target_account_ref", "match_type", "match_value", "sign"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_update_account_rule",
+            "description": (
+                "Propose changing a mirror rule's name, match condition, "
+                "sign, source account scope, active state, or backfill "
+                "choice. `rule_ref` may be the rule's id or its name. At "
+                "least one field to change must be given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rule_ref": {"type": "string", "description": "The rule's id or name."},
+                    "name": {"type": "string", "description": "A new name, up to 60 characters."},
+                    "match_type": {
+                        "type": "string",
+                        "enum": ["description_contains", "description_equals", "category"],
+                    },
+                    "match_value": {"type": "string", "description": "A new match text or category, up to 120 characters."},
+                    "sign": {"type": "string", "enum": ["same", "opposite"]},
+                    "match_field": {"type": "string", "enum": ["description", "merchant"]},
+                    "source_account_ref": {"type": "string", "description": "A connected account id or name to scope matching to, or empty to allow any account."},
+                    "active": {"type": "boolean", "description": "False pauses the rule, true resumes it."},
+                    "backfill": {"type": "boolean", "description": "True to reopen its full history, false to pin it to now."},
+                },
+                "required": ["rule_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_account_rule",
+            "description": (
+                "Propose deleting a mirror rule. Its past postings onto "
+                "the target offline account are reversed. `rule_ref` may "
+                "be the rule's id or its name."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "rule_ref": {"type": "string", "description": "The rule's id or name."},
+                },
+                "required": ["rule_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_disconnect_bank",
+            "description": (
+                "Propose disconnecting a whole bank connection (TrueLayer "
+                "or Finexer), removing every account and transaction it "
+                "brought in. `connection_or_account_ref` may be a "
+                "connection id or the bank's display name (e.g. "
+                "'Monzo'). This is destructive, irreversible from Penny, "
+                "and only ever proposed when the user has clearly asked "
+                "to disconnect or remove a specific bank."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "connection_or_account_ref": {"type": "string", "description": "A connection id, or the bank's display name."},
+                },
+                "required": ["connection_or_account_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_sync_now",
+            "description": (
+                "Propose refreshing every connected bank account now, "
+                "pulling the latest transactions and balances. No "
+                "parameters."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
             },
         },
     },
@@ -3259,12 +3534,24 @@ async def _exec_calculate(uid: str, expression: str | None) -> dict:
 _PROPOSAL_TTL_MINUTES = 15
 
 
-async def _create_proposal(uid: str, kind: str, params: dict, summary: str, consequence: str) -> dict:
+async def _create_proposal(
+    uid: str, kind: str, params: dict, summary: str, consequence: str, *, destructive: bool = False,
+) -> dict:
     """The ONE place a proposal doc is built. Never mutates real user data —
     inserts a row into penny_proposals_col only. `_id` is a uuid4 string
     (not an ObjectId) so the id is directly usable in a URL path with no
     encoding step. See app.routers.can_i's POST /penny/proposals/{id}/execute
-    for the only code path that ever turns this into a real write."""
+    for the only code path that ever turns this into a real write.
+
+    `destructive` (B16, 2026-09-08): flags a proposal whose action removes
+    data irreversibly from Penny's own reach (deleting an offline account,
+    disconnecting a bank connection) rather than merely changing a figure.
+    Defaults False for every existing kind; only
+    `_exec_propose_delete_offline_account` and `_exec_propose_disconnect_bank`
+    pass True. No frontend styling hook consumes this yet (checked,
+    2026-09-08 — PennyConversation.tsx's proposal card has none), it's
+    carried on the stored doc and returned dict so one can be added without
+    a second migration of every past proposal shape."""
     now = datetime.now()
     doc = {
         "_id": str(uuid.uuid4()),
@@ -3273,6 +3560,7 @@ async def _create_proposal(uid: str, kind: str, params: dict, summary: str, cons
         "params": params,
         "summary": summary,
         "consequence": consequence,
+        "destructive": destructive,
         "created_at": now,
         "expires_at": now + timedelta(minutes=_PROPOSAL_TTL_MINUTES),
         "executed_at": None,
@@ -3287,6 +3575,7 @@ async def _create_proposal(uid: str, kind: str, params: dict, summary: str, cons
         "summary": summary,
         "consequence": consequence,
         "params": params,
+        "destructive": destructive,
     }
 
 
@@ -4818,6 +5107,691 @@ async def _exec_propose_set_hide_balances(uid: str, hidden=None) -> dict:
     return await _create_proposal(uid, "set_hide_balances", params, summary, consequence)
 
 
+# ── B16 (B12 stage 3) resolvers — offline accounts, ledger entries, mirror
+# rules, bank connections ─────────────────────────────────────────────────
+# Same doctrine as every resolver above: id short-circuits, otherwise
+# case-insensitive (then word-level) name match against the user's OWN
+# records, ambiguous returns candidates rather than guessing.
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _entry_date_str(e: dict) -> str:
+    d = e.get("date")
+    if isinstance(d, (datetime, date)):
+        return d.strftime("%Y-%m-%d")
+    return str(d or "")[:10]
+
+
+def _entry_ref_matches(entry_ref: str, description: str) -> bool:
+    """`_name_matches` is directional (needle's words must ALL be present in
+    the candidate name) — fine when `entry_ref` is a short reference to a
+    longer description ('Tesco' matching 'Tesco Express London Bridge'), but
+    an `entry_ref` that embeds a date too ('the Tesco payment on
+    2026-08-01', see `_resolve_ledger_entry_for_propose`'s own docstring)
+    is LONGER than a short description like 'Tesco' and would never match
+    in that direction alone (the extra words 'the'/'payment'/'on'/the date
+    aren't in the description). Trying both directions — does entry_ref
+    match description, OR does description match entry_ref — covers both
+    shapes without weakening either: a short entry_ref still only matches a
+    description it's genuinely a fragment of, and a longer entry_ref that
+    happens to CONTAIN the description text also matches."""
+    return _name_matches(entry_ref, description) or _name_matches(description, entry_ref)
+
+
+async def _resolve_offline_account_for_propose(uid: str, account_ref: str) -> dict:
+    """Resolves one offline (manual) account for every B16 propose tool
+    that creates/edits/deletes an offline account, its ledger, or a mirror
+    rule targeting it — scoped ONLY to manual_accounts_col, deliberately
+    NOT `_resolve_account_for_propose` above (that resolver's own
+    get_accounts list mixes in connected accounts too, the wrong universe
+    for a tool where the target must always be an offline one, exactly
+    like manual_accounts.py's own router endpoints)."""
+    if not account_ref or not str(account_ref).strip():
+        return {"error": "account_ref is required"}
+    docs = await manual_accounts_col.find({"user_id": uid}).to_list(None)
+    if not docs:
+        return {"error": f"no offline account matching '{account_ref}'", "available": []}
+    target = next((a for a in docs if a["_id"] == account_ref), None)
+    if target is None:
+        matches = [a for a in docs if _name_matches(account_ref, a.get("name") or "")]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [
+                    {
+                        "id": a["_id"], "name": a.get("name"),
+                        "account_type": a.get("account_type"), "balance": _money(a.get("balance", 0)),
+                    }
+                    for a in matches
+                ],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no offline account matching '{account_ref}'", "available": [a.get("name") for a in docs]}
+    return {"account": target}
+
+
+async def _resolve_ledger_entry_for_propose(uid: str, account_id: str, entry_ref: str) -> dict:
+    """Resolves one hand-added ledger entry within one offline account, for
+    propose_update_ledger_entry/propose_delete_ledger_entry. Reads through
+    app.routers.manual_accounts.list_manual_transactions (the SAME data the
+    Accounts page's ledger view shows, imported inside this function per
+    this module's own IMPORT RULE). Rule-posted "mirror" entries (id
+    prefixed "mirror:", see that router's own docstring) are excluded
+    outright — no router endpoint accepts a mirror: id, so one can never be
+    a valid target here.
+
+    `entry_ref` is matched exact-id-then-fuzzy, same as every resolver in
+    this module: an id short-circuits; otherwise a case-insensitive
+    substring match against `description` (`_name_matches`) collects
+    candidates, and if more than one entry shares that description, an ISO
+    date (YYYY-MM-DD) literally present in `entry_ref` (e.g. the user said
+    "the Tesco payment on 2026-08-01") narrows the set to the entry whose
+    own date matches it exactly — two entries with an identical description
+    on different dates are only ambiguous until the caller names the date.
+    Still more than one candidate after that -> ambiguous; none -> not
+    found."""
+    from app.routers.manual_accounts import list_manual_transactions as _route_list_manual_txns
+
+    all_entries = await _route_list_manual_txns(account_id, user={"email": uid})
+    entries = [e for e in all_entries if not str(e.get("id", "")).startswith("mirror:")]
+    if not entries:
+        return {"error": f"no ledger entry matching '{entry_ref}'", "available": []}
+    target = next((e for e in entries if e["id"] == entry_ref), None)
+    if target is None:
+        candidates = [e for e in entries if _entry_ref_matches(entry_ref, e.get("description") or "")]
+        if len(candidates) > 1:
+            date_match = _ISO_DATE_RE.search(str(entry_ref or ""))
+            if date_match:
+                narrowed = [e for e in candidates if _entry_date_str(e) == date_match.group(0)]
+                if narrowed:
+                    candidates = narrowed
+        if len(candidates) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [
+                    {
+                        "id": e["id"], "description": e.get("description"),
+                        "amount": _money(e.get("amount"), 2), "date": _entry_date_str(e),
+                    }
+                    for e in candidates
+                ],
+            }
+        target = candidates[0] if candidates else None
+    if target is None:
+        return {
+            "error": f"no ledger entry matching '{entry_ref}'",
+            "available": [f"{e.get('description')} ({_entry_date_str(e)})" for e in entries],
+        }
+    return {"entry": target}
+
+
+async def _resolve_account_rule_for_propose(uid: str, rule_ref: str) -> dict:
+    """Resolves one transaction-mirror rule for propose_update_account_rule/
+    propose_delete_account_rule, reading manual_account_rules_col directly
+    (list_rules in app.routers.manual_accounts joins in display names this
+    resolver has no need for). Same id-then-name, ambiguous-returns-matches
+    pattern as every other resolver in this module."""
+    docs = await manual_account_rules_col.find({"user_id": uid}).to_list(None)
+    if not docs:
+        return {"error": f"no rule matching '{rule_ref}'", "available": []}
+    target = next((r for r in docs if r["_id"] == rule_ref), None)
+    if target is None:
+        matches = [r for r in docs if _name_matches(rule_ref, r.get("name") or "")]
+        if len(matches) > 1:
+            return {"ambiguous": True, "matches": [{"id": r["_id"], "name": r.get("name")} for r in matches]}
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no rule matching '{rule_ref}'", "available": [r.get("name") for r in docs]}
+    return {"rule": target}
+
+
+async def _resolve_source_account_for_propose(uid: str, ref: str) -> dict:
+    """Resolves a CONNECTED account (never an offline one — a mirror rule's
+    own source scope only makes sense against a real, syncing account) for
+    propose_create_account_rule/propose_update_account_rule's
+    `source_account_ref`. Same id-or-name resolution as
+    `_resolve_account_for_propose` uses, but against `get_accounts`' list
+    filtered to `not a.manual` first, so an offline account can never be
+    picked as a rule's own source. The resolved account's id is then passed
+    through app.routers.manual_accounts._resolve_source_scope (imported
+    inside this function, this module's own IMPORT RULE) so the SAME
+    canonical stored-id normalisation and 404 behaviour the router itself
+    uses is reused verbatim, never reimplemented — that function's own
+    docstring explains why the stored form matters (it must compare cleanly
+    against a transaction's own account_id regardless of str/ObjectId)."""
+    if not ref or not str(ref).strip():
+        return {"account_id": None, "account_name": None}
+    from app.routers.accounts import get_accounts as _route_get_accounts
+
+    all_accs = await _route_get_accounts(user={"email": uid})
+    accs = [a for a in all_accs if not a.manual]
+    target = next((a for a in accs if a.id == ref), None)
+    if target is None:
+        matches = [a for a in accs if _name_matches(ref, a.name)]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [{"id": a.id, "name": a.name, "provider": a.provider} for a in matches],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no connected account matching '{ref}'", "available": [a.name for a in accs]}
+
+    from app.routers.manual_accounts import _resolve_source_scope as _route_resolve_source_scope
+
+    try:
+        resolved_id = await _route_resolve_source_scope(uid, target.id)
+    except HTTPException as e:
+        return {"error": str(e.detail)}
+    return {"account_id": resolved_id, "account_name": target.name}
+
+
+async def _resolve_bank_connection_for_propose(uid: str, ref: str) -> dict:
+    """Resolves a whole bank CONNECTION (a connections_col row for
+    TrueLayer, or a finexer_consents_col row for Finexer) for
+    propose_disconnect_bank, never a single account. Deliberately does NOT
+    reuse `_resolve_account_for_propose` — that resolver's get_accounts
+    list mixes in Yapily accounts whose `connection_id` field is actually a
+    Yapily *consent* id (see accounts.py's own get_accounts), not a
+    connections_col/finexer_consents_col row id; resolving a bank name
+    through it could silently produce a connection id disconnect_connection
+    can never find, a wrong-but-plausible match. Yapily is never touched by
+    this tool at all.
+
+    `ref` is tried two ways: an exact `_id` match against connections_col or
+    finexer_consents_col for this uid is always unambiguous (ids are
+    unique) and short-circuits. Otherwise `ref` is treated as a bank
+    display name and matched against accounts_col's own `provider` field —
+    both TrueLayer and Finexer-synced accounts live there (accounts.py's
+    own sync_all writes Finexer accounts into the same collection) — grouped
+    by `connection_id` so two connections to the same bank surface as an
+    explicit ambiguous choice rather than silently merging their accounts."""
+    ref = str(ref or "").strip()
+    if not ref:
+        return {"error": "connection_or_account_ref is required"}
+
+    conn = await connections_col.find_one({"_id": ref, "user_id": uid})
+    consent = None if conn else await finexer_consents_col.find_one({"_id": ref, "user_id": uid})
+    if conn or consent:
+        count = await accounts_col.count_documents({"connection_id": ref, "user_id": uid})
+        sample = await accounts_col.find_one({"connection_id": ref, "user_id": uid}, {"provider": 1})
+        return {
+            "connection_id": ref,
+            "bank_name": (sample or {}).get("provider") or "your bank",
+            "accounts_count": count,
+        }
+
+    accs = await accounts_col.find({"user_id": uid}).to_list(None)
+    groups: dict[str, list[dict]] = {}
+    for a in accs:
+        cid = a.get("connection_id")
+        if not cid:
+            continue
+        groups.setdefault(cid, []).append(a)
+
+    matching_group_ids = [
+        cid for cid, group in groups.items()
+        if any(_name_matches(ref, g.get("provider") or "") for g in group)
+    ]
+    if not matching_group_ids:
+        available = sorted({a.get("provider") for a in accs if a.get("provider")})
+        return {"error": f"no bank connection matching '{ref}'", "available": available}
+    if len(matching_group_ids) > 1:
+        return {
+            "ambiguous": True,
+            "matches": [
+                {
+                    "connection_id": cid,
+                    "bank_name": groups[cid][0].get("provider") or "your bank",
+                    "accounts": len(groups[cid]),
+                }
+                for cid in matching_group_ids
+            ],
+        }
+    cid = matching_group_ids[0]
+    return {
+        "connection_id": cid,
+        "bank_name": groups[cid][0].get("provider") or "your bank",
+        "accounts_count": len(groups[cid]),
+    }
+
+
+# ── B16 (B12 stage 3) executors — accounts, ledger, mirror rules,
+# connections ─────────────────────────────────────────────────────────────
+# Owner spec, 2026-09-08 (B12 stage 3): the offline-accounts side of
+# Penny's propose-only surface — everything manual_accounts.py's own
+# router validates, mirrored line-for-line here (that router has no
+# extracted `_validate_*` functions to import, so every check below notes
+# which router lines it mirrors), plus a bank-connection disconnect and a
+# sync-now with no fields to validate at all. `destructive=True` is passed
+# ONLY by delete_offline_account and disconnect_bank (see `_create_proposal`
+# above) — deleting one ledger entry or pausing a rule is comparatively
+# minor and stays at the default.
+async def _exec_propose_create_offline_account(uid: str, name=None, account_type=None, balance=None) -> dict:
+    from app.routers.manual_accounts import ACCOUNT_TYPES as _MANUAL_ACCOUNT_TYPES
+
+    # Mirrors app.routers.manual_accounts.create_manual_account's own
+    # validation exactly.
+    clean_name = str(name or "").strip()[:60]
+    if not clean_name:
+        return _tool_error("name is required")
+    if account_type not in _MANUAL_ACCOUNT_TYPES:
+        return _tool_error(f"account_type must be one of {sorted(_MANUAL_ACCOUNT_TYPES)}")
+    try:
+        bal = round(float(balance if balance is not None else 0), 2)
+    except (TypeError, ValueError):
+        return _tool_error("balance must be a number")
+    if bal < 0:
+        return _tool_error("balance must be 0 or more")
+
+    type_label = {"savings": "savings", "current": "current", "credit_card": "credit card"}[account_type]
+    summary = f"Add an offline {type_label} account called '{clean_name}' with a balance of {_money(bal)['formatted']}"
+    consequence = (
+        "Shows up on Accounts alongside your connected accounts and can be used for tracking or as "
+        "a mirror rule's target. Low risk, you can delete it again later."
+    )
+    params = {"name": clean_name, "account_type": account_type, "balance": bal}
+    return await _create_proposal(uid, "create_offline_account", params, summary, consequence)
+
+
+async def _exec_propose_update_offline_account(
+    uid: str, account_ref=None, name=None, account_type=None, balance=None,
+) -> dict:
+    from app.routers.manual_accounts import ACCOUNT_TYPES as _MANUAL_ACCOUNT_TYPES
+
+    if not account_ref or not str(account_ref).strip():
+        return _tool_error("account_ref required")
+    resolved = await _resolve_offline_account_for_propose(uid, str(account_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["account"]
+
+    # Mirrors app.routers.manual_accounts.update_manual_account's own
+    # per-field validation exactly.
+    updates: dict = {}
+    if name is not None:
+        new_name = str(name).strip()[:60]
+        if not new_name:
+            return _tool_error("name must not be blank")
+        updates["name"] = new_name
+    if account_type is not None:
+        if account_type not in _MANUAL_ACCOUNT_TYPES:
+            return _tool_error(f"account_type must be one of {sorted(_MANUAL_ACCOUNT_TYPES)}")
+        updates["account_type"] = account_type
+    if balance is not None:
+        try:
+            bal = round(float(balance), 2)
+        except (TypeError, ValueError):
+            return _tool_error("balance must be a number")
+        if bal < 0:
+            return _tool_error("balance must be 0 or more")
+        updates["balance"] = bal
+
+    if not updates:
+        return _tool_error("at least one of name, account_type, or balance is required")
+
+    label = doc.get("name")
+    bits = []
+    if "name" in updates and updates["name"] != label:
+        bits.append(f"name to '{updates['name']}'")
+    if "account_type" in updates:
+        bits.append(f"type to {updates['account_type'].replace('_', ' ')}")
+    if "balance" in updates:
+        bits.append(f"balance to {_money(updates['balance'])['formatted']}")
+    summary = f"Update '{label}', " + ", ".join(bits) if bits else f"Update '{label}'"
+    consequence = "Only changes this offline account's own record on Accounts."
+    params = {"account_id": doc["_id"], **updates}
+    return await _create_proposal(uid, "update_offline_account", params, summary, consequence)
+
+
+async def _exec_propose_delete_offline_account(uid: str, account_ref=None) -> dict:
+    if not account_ref or not str(account_ref).strip():
+        return _tool_error("account_ref required")
+    resolved = await _resolve_offline_account_for_propose(uid, str(account_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["account"]
+
+    summary = f"Delete the offline account '{doc.get('name')}'"
+    consequence = (
+        "Removes this account and every ledger entry recorded on it. Any rule that fed this "
+        "account will also be removed."
+    )
+    params = {"account_id": doc["_id"]}
+    return await _create_proposal(uid, "delete_offline_account", params, summary, consequence, destructive=True)
+
+
+async def _exec_propose_add_ledger_entry(
+    uid: str, account_ref=None, amount=None, description=None, date_str=None, direction=None,
+) -> dict:
+    if not account_ref or not str(account_ref).strip():
+        return _tool_error("account_ref required")
+    resolved = await _resolve_offline_account_for_propose(uid, str(account_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    acc = resolved["account"]
+
+    # Mirrors app.routers.manual_accounts._validate_entry_body exactly.
+    clean_desc = str(description or "").strip()[:120]
+    if not clean_desc:
+        return _tool_error("description is required")
+    try:
+        amt = round(abs(float(amount)), 2)
+    except (TypeError, ValueError):
+        return _tool_error("amount must be a number")
+    if amt <= 0:
+        return _tool_error("amount must be greater than 0")
+    if direction not in ("credit", "debit"):
+        return _tool_error("direction must be 'credit' or 'debit'")
+    if date_str:
+        try:
+            datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+        except ValueError:
+            return _tool_error("date must be a valid ISO date/datetime")
+
+    verb = "deposit" if direction == "credit" else "payment out"
+    summary = f"Add a {_money(amt, 2)['formatted']} {verb} to '{acc.get('name')}': {clean_desc}"
+    consequence = f"Adjusts {acc.get('name')}'s balance and adds this entry to its ledger."
+    params = {
+        "account_id": acc["_id"], "amount": amt, "description": clean_desc, "transaction_type": direction,
+    }
+    if date_str:
+        params["date"] = str(date_str)
+    return await _create_proposal(uid, "add_ledger_entry", params, summary, consequence)
+
+
+async def _exec_propose_update_ledger_entry(
+    uid: str, account_ref=None, entry_ref=None, amount=None, description=None, date_str=None, direction=None,
+) -> dict:
+    if not account_ref or not str(account_ref).strip():
+        return _tool_error("account_ref required")
+    if not entry_ref or not str(entry_ref).strip():
+        return _tool_error("entry_ref required")
+    resolved_acc = await _resolve_offline_account_for_propose(uid, str(account_ref).strip())
+    if resolved_acc.get("ambiguous"):
+        return resolved_acc
+    if resolved_acc.get("error"):
+        return _tool_error(resolved_acc["error"])
+    acc = resolved_acc["account"]
+
+    resolved_entry = await _resolve_ledger_entry_for_propose(uid, acc["_id"], str(entry_ref).strip())
+    if resolved_entry.get("ambiguous"):
+        return resolved_entry
+    if resolved_entry.get("error"):
+        return _tool_error(resolved_entry["error"])
+    entry = resolved_entry["entry"]
+
+    # Mirrors app.routers.manual_accounts._validate_entry_body exactly.
+    updates: dict = {}
+    if description is not None:
+        clean_desc = str(description).strip()[:120]
+        if not clean_desc:
+            return _tool_error("description must not be blank")
+        updates["description"] = clean_desc
+    if amount is not None:
+        try:
+            amt = round(abs(float(amount)), 2)
+        except (TypeError, ValueError):
+            return _tool_error("amount must be a number")
+        if amt <= 0:
+            return _tool_error("amount must be greater than 0")
+        updates["amount"] = amt
+    if direction is not None:
+        if direction not in ("credit", "debit"):
+            return _tool_error("direction must be 'credit' or 'debit'")
+        updates["transaction_type"] = direction
+    if date_str is not None:
+        try:
+            datetime.fromisoformat(str(date_str).replace("Z", "+00:00"))
+        except ValueError:
+            return _tool_error("date must be a valid ISO date/datetime")
+        updates["date"] = str(date_str)
+
+    if not updates:
+        return _tool_error("at least one of amount, description, date, or direction is required")
+
+    label = entry.get("description")
+    bits = []
+    if "amount" in updates:
+        bits.append(f"amount to {_money(updates['amount'], 2)['formatted']}")
+    if "description" in updates and updates["description"] != label:
+        bits.append(f"description to '{updates['description']}'")
+    if "transaction_type" in updates:
+        bits.append("to a deposit" if updates["transaction_type"] == "credit" else "to a payment out")
+    if "date" in updates:
+        bits.append("date")
+    summary = f"Update the '{label}' ledger entry, " + ", ".join(bits) if bits else f"Update the '{label}' ledger entry"
+    consequence = f"Adjusts {acc.get('name')}'s balance to match the change."
+    params = {"account_id": acc["_id"], "entry_id": entry["id"], **updates}
+    return await _create_proposal(uid, "update_ledger_entry", params, summary, consequence)
+
+
+async def _exec_propose_delete_ledger_entry(uid: str, account_ref=None, entry_ref=None) -> dict:
+    if not account_ref or not str(account_ref).strip():
+        return _tool_error("account_ref required")
+    if not entry_ref or not str(entry_ref).strip():
+        return _tool_error("entry_ref required")
+    resolved_acc = await _resolve_offline_account_for_propose(uid, str(account_ref).strip())
+    if resolved_acc.get("ambiguous"):
+        return resolved_acc
+    if resolved_acc.get("error"):
+        return _tool_error(resolved_acc["error"])
+    acc = resolved_acc["account"]
+
+    resolved_entry = await _resolve_ledger_entry_for_propose(uid, acc["_id"], str(entry_ref).strip())
+    if resolved_entry.get("ambiguous"):
+        return resolved_entry
+    if resolved_entry.get("error"):
+        return _tool_error(resolved_entry["error"])
+    entry = resolved_entry["entry"]
+
+    amount_fmt = _money(entry.get("amount"), 2)["formatted"]
+    summary = f"Delete the ledger entry '{entry.get('description')}' ({amount_fmt}) from '{acc.get('name')}'"
+    consequence = f"Reverses its effect on {acc.get('name')}'s balance."
+    params = {"account_id": acc["_id"], "entry_id": entry["id"]}
+    return await _create_proposal(uid, "delete_ledger_entry", params, summary, consequence)
+
+
+async def _exec_propose_create_account_rule(
+    uid: str, name=None, target_account_ref=None, match_type=None, match_value=None, sign=None,
+    match_field=None, source_account_ref=None, backfill=None,
+) -> dict:
+    from app.routers.manual_accounts import MATCH_FIELDS as _MATCH_FIELDS
+    from app.routers.manual_accounts import MATCH_TYPES as _MATCH_TYPES
+    from app.routers.manual_accounts import SIGNS as _SIGNS
+
+    clean_name = str(name or "").strip()[:60]
+    if not clean_name:
+        return _tool_error("name is required")
+    if not target_account_ref or not str(target_account_ref).strip():
+        return _tool_error("target_account_ref required")
+    resolved_target = await _resolve_offline_account_for_propose(uid, str(target_account_ref).strip())
+    if resolved_target.get("ambiguous"):
+        return resolved_target
+    if resolved_target.get("error"):
+        return _tool_error(resolved_target["error"])
+    target = resolved_target["account"]
+
+    # Mirrors app.routers.manual_accounts._validate_rule_body exactly.
+    if match_type not in _MATCH_TYPES:
+        return _tool_error(f"match_type must be one of {sorted(_MATCH_TYPES)}")
+    clean_value = str(match_value or "").strip()[:120]
+    if not clean_value:
+        return _tool_error("match_value is required")
+    if sign not in _SIGNS:
+        return _tool_error(f"sign must be one of {sorted(_SIGNS)}")
+    clean_field = None
+    if match_type == "description_equals":
+        clean_field = match_field or "description"
+        if clean_field not in _MATCH_FIELDS:
+            return _tool_error(f"match_field must be one of {sorted(_MATCH_FIELDS)}")
+
+    source_id = None
+    source_name = None
+    if source_account_ref and str(source_account_ref).strip():
+        resolved_source = await _resolve_source_account_for_propose(uid, str(source_account_ref).strip())
+        if resolved_source.get("ambiguous"):
+            return resolved_source
+        if resolved_source.get("error"):
+            return _tool_error(resolved_source["error"])
+        source_id = resolved_source.get("account_id")
+        source_name = resolved_source.get("account_name")
+
+    backfill_flag = bool(backfill)
+    match_label = {
+        "description_contains": f"description contains '{clean_value}'",
+        "description_equals": f"{clean_field} is exactly '{clean_value}'",
+        "category": f"category is '{clean_value}'",
+    }[match_type]
+    scope_label = f" from {source_name}" if source_name else ""
+    backfill_label = "copying past matching transactions too" if backfill_flag else "starting from today"
+    summary = (
+        f"Create a rule that posts matching transactions{scope_label} to '{target.get('name')}' "
+        f"when {match_label}, {backfill_label}"
+    )
+    consequence = "Every future matching transaction is mirrored onto this offline account automatically."
+    params = {
+        "name": clean_name, "target_account_id": target["_id"], "match_type": match_type,
+        "match_value": clean_value, "sign": sign, "match_field": clean_field,
+        "source_account_id": source_id, "backfill": backfill_flag,
+    }
+    return await _create_proposal(uid, "create_account_rule", params, summary, consequence)
+
+
+async def _exec_propose_update_account_rule(
+    uid: str, rule_ref=None, name=None, match_type=None, match_value=None, sign=None,
+    match_field=None, source_account_ref=None, active=None, backfill=None,
+) -> dict:
+    from app.routers.manual_accounts import MATCH_FIELDS as _MATCH_FIELDS
+    from app.routers.manual_accounts import MATCH_TYPES as _MATCH_TYPES
+    from app.routers.manual_accounts import SIGNS as _SIGNS
+
+    if not rule_ref or not str(rule_ref).strip():
+        return _tool_error("rule_ref required")
+    resolved = await _resolve_account_rule_for_propose(uid, str(rule_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    rule = resolved["rule"]
+
+    # Mirrors app.routers.manual_accounts.update_rule's own merge-then-
+    # validate shape, field by field.
+    updates: dict = {}
+    if name is not None:
+        clean_name = str(name).strip()[:60]
+        if not clean_name:
+            return _tool_error("name must not be blank")
+        updates["name"] = clean_name
+    if match_type is not None:
+        if match_type not in _MATCH_TYPES:
+            return _tool_error(f"match_type must be one of {sorted(_MATCH_TYPES)}")
+        updates["match_type"] = match_type
+    if match_value is not None:
+        clean_value = str(match_value).strip()[:120]
+        if not clean_value:
+            return _tool_error("match_value must not be blank")
+        updates["match_value"] = clean_value
+    if sign is not None:
+        if sign not in _SIGNS:
+            return _tool_error(f"sign must be one of {sorted(_SIGNS)}")
+        updates["sign"] = sign
+    if match_field is not None:
+        if match_field not in _MATCH_FIELDS:
+            return _tool_error(f"match_field must be one of {sorted(_MATCH_FIELDS)}")
+        updates["match_field"] = match_field
+    if source_account_ref is not None:
+        if str(source_account_ref).strip():
+            resolved_source = await _resolve_source_account_for_propose(uid, str(source_account_ref).strip())
+            if resolved_source.get("ambiguous"):
+                return resolved_source
+            if resolved_source.get("error"):
+                return _tool_error(resolved_source["error"])
+            updates["source_account_id"] = resolved_source.get("account_id")
+        else:
+            updates["source_account_id"] = None
+    if active is not None:
+        updates["active"] = bool(active)
+    if backfill is not None:
+        updates["backfill"] = bool(backfill)
+
+    if not updates:
+        return _tool_error("at least one field to update is required")
+
+    label = rule.get("name")
+    bits = []
+    if "name" in updates and updates["name"] != label:
+        bits.append(f"name to '{updates['name']}'")
+    if "match_value" in updates:
+        bits.append(f"match value to '{updates['match_value']}'")
+    if "match_type" in updates:
+        bits.append(f"match type to {updates['match_type']}")
+    if "sign" in updates:
+        bits.append(f"sign to {updates['sign']}")
+    if "source_account_id" in updates:
+        bits.append("source account scope")
+    if "backfill" in updates:
+        bits.append("copying past matching transactions too" if updates["backfill"] else "pinning to today onwards")
+    if "active" in updates:
+        bits.append("pausing it" if not updates["active"] else "resuming it")
+    summary = f"Update the '{label}' rule, " + ", ".join(bits) if bits else f"Update the '{label}' rule"
+    consequence = "Changes take effect on this account's future postings; a paused rule stops mirroring new transactions."
+    params = {"rule_id": rule["_id"], **updates}
+    return await _create_proposal(uid, "update_account_rule", params, summary, consequence)
+
+
+async def _exec_propose_delete_account_rule(uid: str, rule_ref=None) -> dict:
+    if not rule_ref or not str(rule_ref).strip():
+        return _tool_error("rule_ref required")
+    resolved = await _resolve_account_rule_for_propose(uid, str(rule_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    rule = resolved["rule"]
+
+    summary = f"Delete the rule '{rule.get('name')}'"
+    consequence = "Any postings it made onto its target account are reversed."
+    params = {"rule_id": rule["_id"]}
+    return await _create_proposal(uid, "delete_account_rule", params, summary, consequence)
+
+
+async def _exec_propose_disconnect_bank(uid: str, connection_or_account_ref=None) -> dict:
+    if not connection_or_account_ref or not str(connection_or_account_ref).strip():
+        return _tool_error("connection_or_account_ref required")
+    resolved = await _resolve_bank_connection_for_propose(uid, str(connection_or_account_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+
+    bank_name = resolved["bank_name"]
+    count = resolved["accounts_count"]
+    plural = "account" if count == 1 else "accounts"
+    summary = f"Disconnect {bank_name} ({count} {plural})"
+    consequence = (
+        "Removes every account and transaction from this connection. Your Safe-to-Spend and "
+        "spending history may change once they're gone, and any bill or income prediction built "
+        "from this bank stops working. This cannot be undone from Penny, you would need to "
+        "reconnect the bank."
+    )
+    params = {"connection_id": resolved["connection_id"]}
+    return await _create_proposal(uid, "disconnect_bank", params, summary, consequence, destructive=True)
+
+
+async def _exec_propose_sync_now(uid: str) -> dict:
+    summary = "Refresh your bank connections now"
+    consequence = "Pulls the latest transactions and balances, may take a minute"
+    return await _create_proposal(uid, "sync_now", {}, summary, consequence)
+
+
 async def execute_tool(uid: str, name: str, args: dict) -> dict:
     """Dispatch one tool call to its executor. Never raises — every executor
     above already wraps its own engine call, and any error building the args
@@ -4950,6 +5924,46 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_propose_set_cover_plan_exclusions(uid, args.get("account_refs"))
         if name == "propose_set_hide_balances":
             return await _exec_propose_set_hide_balances(uid, args.get("hidden"))
+        if name == "propose_create_offline_account":
+            return await _exec_propose_create_offline_account(
+                uid, args.get("name"), args.get("account_type"), args.get("balance"),
+            )
+        if name == "propose_update_offline_account":
+            return await _exec_propose_update_offline_account(
+                uid, args.get("account_ref"), args.get("name"), args.get("account_type"), args.get("balance"),
+            )
+        if name == "propose_delete_offline_account":
+            return await _exec_propose_delete_offline_account(uid, args.get("account_ref"))
+        if name == "propose_add_ledger_entry":
+            return await _exec_propose_add_ledger_entry(
+                uid, args.get("account_ref"), args.get("amount"), args.get("description"),
+                args.get("date"), args.get("direction"),
+            )
+        if name == "propose_update_ledger_entry":
+            return await _exec_propose_update_ledger_entry(
+                uid, args.get("account_ref"), args.get("entry_ref"), args.get("amount"),
+                args.get("description"), args.get("date"), args.get("direction"),
+            )
+        if name == "propose_delete_ledger_entry":
+            return await _exec_propose_delete_ledger_entry(uid, args.get("account_ref"), args.get("entry_ref"))
+        if name == "propose_create_account_rule":
+            return await _exec_propose_create_account_rule(
+                uid, args.get("name"), args.get("target_account_ref"), args.get("match_type"),
+                args.get("match_value"), args.get("sign"), args.get("match_field"),
+                args.get("source_account_ref"), args.get("backfill"),
+            )
+        if name == "propose_update_account_rule":
+            return await _exec_propose_update_account_rule(
+                uid, args.get("rule_ref"), args.get("name"), args.get("match_type"),
+                args.get("match_value"), args.get("sign"), args.get("match_field"),
+                args.get("source_account_ref"), args.get("active"), args.get("backfill"),
+            )
+        if name == "propose_delete_account_rule":
+            return await _exec_propose_delete_account_rule(uid, args.get("rule_ref"))
+        if name == "propose_disconnect_bank":
+            return await _exec_propose_disconnect_bank(uid, args.get("connection_or_account_ref"))
+        if name == "propose_sync_now":
+            return await _exec_propose_sync_now(uid)
         return _tool_error(f"unknown tool: {name}")
     except Exception as e:
         logger.exception("penny_tools: execute_tool(%s) crashed for %s", name, uid)
