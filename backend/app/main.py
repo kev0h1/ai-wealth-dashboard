@@ -43,61 +43,8 @@ if _dsn := os.getenv("SENTRY_DSN"):
     import sentry_sdk
     sentry_sdk.init(dsn=_dsn, traces_sample_rate=0.1, environment=os.getenv("SENTRY_ENV", "vps"))
 
-# Public API introspection (Swagger UI, ReDoc, raw OpenAPI schema) is off by
-# default in every deployed environment (UAT and prod) — it leaks route/schema
-# details to unauthenticated callers. Set ENABLE_API_DOCS=1 locally to browse
-# them during development; never set it on the VPS or Railway.
-if os.getenv("ENABLE_API_DOCS"):
-    app = FastAPI(title="Wealth Dashboard API")
-else:
-    app = FastAPI(title="Wealth Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
-
-_cors_origins = [APP_URL, API_PUBLIC_URL]
-# Capacitor mobile WebView origins (Android WebView with androidScheme "https"
-# reports Origin: https://localhost; some WebViews use the capacitor: scheme).
-_cors_origins.append("https://localhost")
-_cors_origins.append("capacitor://localhost")
-if os.getenv("DEV_MODE"):
-    _cors_origins.append("http://localhost:3000")
-# Dedupe while preserving order (APP_URL/API_PUBLIC_URL could collide with
-# an explicit env override, or in a future config where they match).
-_cors_origins = list(dict.fromkeys(_cors_origins))
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    max_age=86400,
-)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
-app.middleware("http")(auth_middleware)
-
 _slow_request_logger = logging.getLogger("app.perf")
 _SLOW_REQUEST_MS = 400
-
-
-@app.middleware("http")
-async def _log_slow_requests(request, call_next):
-    """Lightweight request timing: logs at WARNING only when a request takes
-    longer than 400 ms — silent otherwise, so it stays a no-op signal source
-    rather than request-volume noise. Uses the stdlib logging module (no
-    extra handler configured), so it's visible under uvicorn's own
-    `--log-level warning` (the systemd unit's flag): WARNING is emitted via
-    Python's logging "lastResort" handler to stderr regardless of uvicorn's
-    own logger configuration, which systemd captures via the journal.
-    Registered after auth_middleware so elapsed time reflects route/
-    dependency execution, not the cheap token-decode auth check.
-    """
-    start = time.perf_counter()
-    response = await call_next(request)
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    if elapsed_ms > _SLOW_REQUEST_MS:
-        _slow_request_logger.warning(
-            "%s %s %s %.0fms",
-            request.method, request.url.path, response.status_code, elapsed_ms,
-        )
-    return response
 
 
 def _routers(mcp_connector_enabled: bool) -> list:
@@ -144,18 +91,95 @@ def _routers(mcp_connector_enabled: bool) -> list:
     return routers
 
 
-for router in _routers(MCP_CONNECTOR_ENABLED):
-    app.include_router(router)
+def build_app(mcp_connector_enabled: bool) -> FastAPI:
+    """Construct a fresh FastAPI app with the full middleware/router stack,
+    parameterized by the MCP connector flag (A17). The module-level `app`
+    below is the one production instance, built from
+    `app.core.config.MCP_CONNECTOR_ENABLED`; tests
+    (tests/test_mcp_connector_flag.py) call this directly with an explicit
+    True or False so route-table and middleware assertions never depend on
+    whatever happens to be in the process environment when pytest runs
+    (`MCP_CONNECTOR_ENABLED` is read from `backend/.env` on UAT, which the
+    shared tree loads and a worktree does not, so a test that read the
+    module-level constant instead would pass or fail depending on which
+    tree it ran in). Callers that also need the middleware's
+    `/mcp`-specific branches to match must additionally monkeypatch
+    `app.core.auth.MCP_CONNECTOR_ENABLED`, since `auth_middleware` itself is
+    one shared function object that reads that flag at call time, not
+    something this factory can parameterize per app instance.
+    """
+    # Public API introspection (Swagger UI, ReDoc, raw OpenAPI schema) is off
+    # by default in every deployed environment (UAT and prod), since it
+    # leaks route/schema details to unauthenticated callers. Set
+    # ENABLE_API_DOCS=1 locally to browse them during development; never set
+    # it on the VPS or Railway.
+    if os.getenv("ENABLE_API_DOCS"):
+        built = FastAPI(title="Wealth Dashboard API")
+    else:
+        built = FastAPI(title="Wealth Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
+
+    cors_origins = [APP_URL, API_PUBLIC_URL]
+    # Capacitor mobile WebView origins (Android WebView with androidScheme
+    # "https" reports Origin: https://localhost; some WebViews use the
+    # capacitor: scheme).
+    cors_origins.append("https://localhost")
+    cors_origins.append("capacitor://localhost")
+    if os.getenv("DEV_MODE"):
+        cors_origins.append("http://localhost:3000")
+    # Dedupe while preserving order (APP_URL/API_PUBLIC_URL could collide
+    # with an explicit env override, or in a future config where they
+    # match).
+    cors_origins = list(dict.fromkeys(cors_origins))
+    built.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        max_age=86400,
+    )
+    built.add_middleware(GZipMiddleware, minimum_size=1024)
+    built.middleware("http")(auth_middleware)
+
+    @built.middleware("http")
+    async def _log_slow_requests(request, call_next):
+        """Lightweight request timing: logs at WARNING only when a request
+        takes longer than 400 ms, staying silent otherwise so it remains a
+        no-op signal source rather than request-volume noise. Uses the
+        stdlib logging module (no extra handler configured), so it's
+        visible under uvicorn's own `--log-level warning` (the systemd
+        unit's flag): WARNING is emitted via Python's logging "lastResort"
+        handler to stderr regardless of uvicorn's own logger configuration,
+        which systemd captures via the journal. Registered after
+        auth_middleware so elapsed time reflects route/dependency
+        execution, not the cheap token-decode auth check.
+        """
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        if elapsed_ms > _SLOW_REQUEST_MS:
+            _slow_request_logger.warning(
+                "%s %s %s %.0fms",
+                request.method, request.url.path, response.status_code, elapsed_ms,
+            )
+        return response
+
+    for router in _routers(mcp_connector_enabled):
+        built.include_router(router)
+
+    @built.get("/health")
+    async def health():
+        from app.core.config import FINEXER_API_KEY
+        return {
+            "status": "ok",
+            "truelayer_configured": bool(TRUELAYER_CLIENT_ID),
+            "finexer_configured": bool(FINEXER_API_KEY),
+        }
+
+    return built
 
 
-@app.get("/health")
-async def health():
-    from app.core.config import FINEXER_API_KEY
-    return {
-        "status": "ok",
-        "truelayer_configured": bool(TRUELAYER_CLIENT_ID),
-        "finexer_configured": bool(FINEXER_API_KEY),
-    }
+app = build_app(MCP_CONNECTOR_ENABLED)
 
 
 @app.on_event("startup")

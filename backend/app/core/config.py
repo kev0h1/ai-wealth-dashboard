@@ -113,9 +113,20 @@ def is_signup_open() -> bool:
 # Default false; UAT turns it on via backend/.env. Truthy strings: "1",
 # "true", "on" (case-insensitive), deliberately narrower than OPEN_SIGNUP's
 # set above, per the A17 backlog spec.
-MCP_CONNECTOR_ENABLED = os.getenv("MCP_CONNECTOR_ENABLED", "false").strip().lower() in (
-    "1", "true", "on",
-)
+#
+# `_parse_flag` is factored out (rather than inlined below, the way
+# OPEN_SIGNUP is) so tests can exercise the parsing rule on its own with an
+# explicit input, instead of asserting on `MCP_CONNECTOR_ENABLED` itself,
+# which is fixed at import time from whatever the process environment held
+# then. That module-level constant genuinely does depend on the process
+# environment (`backend/.env` on UAT, which a worktree's own pytest run
+# never loads), so a test that reads it directly would pass or fail
+# depending on which tree it ran in and what UAT happens to have set today.
+def _parse_flag(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "on")
+
+
+MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
