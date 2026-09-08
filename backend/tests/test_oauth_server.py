@@ -29,6 +29,17 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _mcp_connector_enabled(monkeypatch):
+    """A17: MCP_CONNECTOR_ENABLED defaults to false (production ships the
+    connector absent), so app.core.auth's /mcp-specific branches
+    (WWW-Authenticate header, sorted_at_ pass-through) are no-ops unless the
+    flag is on. This whole file exercises the F2 authorisation server and
+    its auth_middleware integration points assuming the connector IS turned
+    on. See tests/test_mcp_connector_flag.py for the flag-off behaviour."""
+    monkeypatch.setattr(auth_mod, "MCP_CONNECTOR_ENABLED", True)
+
+
 # ── shared fakes ─────────────────────────────────────────────────────────
 
 class _FakeResult:

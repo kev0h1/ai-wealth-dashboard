@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
-from app.core.config import APP_URL, API_PUBLIC_URL, TRUELAYER_CLIENT_ID
+from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, TRUELAYER_CLIENT_ID
 from app.core.auth import auth_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -99,38 +99,52 @@ async def _log_slow_requests(request, call_next):
         )
     return response
 
-for router in [
-    auth.router, truelayer.router, yapily.router, mono.router,
-    accounts_router.router, transactions_router.router, preferences.router,
-    push.router, categories.router, analytics.router,
-    chat.router, statements.router, investments.router,
-    challenges.router, savings_insights.router, savings.router, admin.router,
-    manual_accounts.router, profile.router, money_basics.router,
-    fuel.router, baskets.router, subscription_router.router, transport.router,
-    webhooks.router, goals.router, logos.router, finexer.router,
-    income.router,
-    behaviour.router,
-    companion.router,
-    cards.router,
-    cycle.router,
-    planned.router,
-    checkpoints.router,
-    card_terms.router,
-    debt_plan_router.router,
-    grow.router,
-    can_i.router,
-    commitments.router,
-    spend_verdict.router,
-    tax.router,
-    scenario.router,
-    allocations.router,
-    money_shape.router,
-    penny_chip.router,
-    ops.router,
-    admin_usage.router,
-    mcp_router.router,
-    oauth_router.router,
-]:
+
+def _routers(mcp_connector_enabled: bool) -> list:
+    """The app's full router table. A17: `mcp_router` (F3, the /mcp
+    Streamable HTTP connector) and `oauth_router` (F2, its OAuth 2.1
+    authorisation server) are only included when the connector is turned on,
+    so production ships with them entirely absent (no routes, no OpenAPI
+    entries, not merely unauthenticated) per the Finexer compliance answers
+    ("planned", not live). A small factory rather than an inline literal so
+    tests (tests/test_mcp_connector_flag.py) can build a throwaway app with
+    either value of the flag without reloading this module."""
+    routers = [
+        auth.router, truelayer.router, yapily.router, mono.router,
+        accounts_router.router, transactions_router.router, preferences.router,
+        push.router, categories.router, analytics.router,
+        chat.router, statements.router, investments.router,
+        challenges.router, savings_insights.router, savings.router, admin.router,
+        manual_accounts.router, profile.router, money_basics.router,
+        fuel.router, baskets.router, subscription_router.router, transport.router,
+        webhooks.router, goals.router, logos.router, finexer.router,
+        income.router,
+        behaviour.router,
+        companion.router,
+        cards.router,
+        cycle.router,
+        planned.router,
+        checkpoints.router,
+        card_terms.router,
+        debt_plan_router.router,
+        grow.router,
+        can_i.router,
+        commitments.router,
+        spend_verdict.router,
+        tax.router,
+        scenario.router,
+        allocations.router,
+        money_shape.router,
+        penny_chip.router,
+        ops.router,
+        admin_usage.router,
+    ]
+    if mcp_connector_enabled:
+        routers += [mcp_router.router, oauth_router.router]
+    return routers
+
+
+for router in _routers(MCP_CONNECTOR_ENABLED):
     app.include_router(router)
 
 

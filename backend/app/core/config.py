@@ -106,6 +106,18 @@ def is_signup_open() -> bool:
     return OPEN_SIGNUP
 
 
+# MCP connector kill switch (A17). The /mcp Streamable HTTP connector (F3)
+# and its OAuth 2.1 authorisation server (F2) are built but not yet part of
+# the Finexer compliance answers ("planned", not live), so production must
+# ship with them entirely absent, not merely unauthenticated, until sign-off.
+# Default false; UAT turns it on via backend/.env. Truthy strings: "1",
+# "true", "on" (case-insensitive), deliberately narrower than OPEN_SIGNUP's
+# set above, per the A17 backlog spec.
+MCP_CONNECTOR_ENABLED = os.getenv("MCP_CONNECTOR_ENABLED", "false").strip().lower() in (
+    "1", "true", "on",
+)
+
+
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):
     SESSION_SECRET = s

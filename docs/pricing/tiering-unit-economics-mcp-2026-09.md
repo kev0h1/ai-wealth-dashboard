@@ -135,6 +135,8 @@ F3 status (2026-09-08): the read-only `/mcp` endpoint itself shipped to UAT. Too
 
 F2 status (2026-09-08): the OAuth 2.1 authorisation server above shipped — dynamic client registration, PKCE (S256, mandatory), the consent page reusing Google/Apple sign-in, and revocable opaque access/refresh tokens with rotation. `/mcp` now advertises itself via RFC 9728 (`/.well-known/oauth-protected-resource`) so Claude/ChatGPT discover and connect without a hand-pasted session bearer. See DEPLOY.md's "MCP connector" section for the connector-facing flow and `app/routers/oauth.py` for the implementation. Not yet built: F4's "Connected assistants" Settings UI (the backend list/revoke endpoints exist, `GET /oauth/connections` / `DELETE /oauth/connections/{client_id}`) and the Privacy Policy / Finexer questionnaire updates described below.
 
+A17 status (2026-09-08): everything above is gated behind `MCP_CONNECTOR_ENABLED` / `NEXT_PUBLIC_MCP_CONNECTOR` (both default off), so production ships with the connector, its routes, and the Privacy/Terms sections describing it entirely absent until the Finexer questionnaire updates two paragraphs above are actually filed and answered. See DEPLOY.md's "MCP connector flag" subsection.
+
 ## 8. Retention jobs still missing
 
 Both PRIVACY.md section 8 and SECURITY.md section 6 promise two automated sweeps that do not exist in code:

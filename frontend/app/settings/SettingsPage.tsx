@@ -29,6 +29,7 @@ import ConnectedAssistantsCard, { ConnectionsState, ActivityState } from "@/comp
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import { getAccountsCached } from "@/lib/accountsCache";
+import { MCP_CONNECTOR } from "@/lib/featureFlags";
 import { isNativePlatform, isIOSNative, linkAppleIdentity } from "@/lib/nativeAuth";
 import { initCapacitorPush, getCapacitorPushPermission, onPushReceivedOnce } from "@/lib/capacitorPush";
 import {
@@ -218,7 +219,10 @@ export default function SettingsPage() {
       .then((r) => setConnectionsState({ status: "ready", connections: r.connections }))
       .catch(() => setConnectionsState({ status: "error" }));
   }
-  useEffect(() => { fetchConnections(); }, []);
+  // A17: the connector is off by default in production, so neither the
+  // card nor its data-fetch should run at all, not even a background
+  // request that's simply never rendered.
+  useEffect(() => { if (MCP_CONNECTOR) fetchConnections(); }, []);
 
   async function handleDisconnectAssistant(clientId: string): Promise<boolean> {
     try {
@@ -865,14 +869,17 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* ── Connected assistants (F4) ── */}
-        <ConnectedAssistantsCard
-          state={connectionsState}
-          onDisconnect={handleDisconnectAssistant}
-          activity={activityState}
-          activityOpen={activityOpen}
-          onToggleActivity={handleToggleActivity}
-        />
+        {/* ── Connected assistants (F4) ── A17: hidden entirely (no render,
+            no fetch) unless the MCP connector is turned on. */}
+        {MCP_CONNECTOR && (
+          <ConnectedAssistantsCard
+            state={connectionsState}
+            onDisconnect={handleDisconnectAssistant}
+            activity={activityState}
+            activityOpen={activityOpen}
+            onToggleActivity={handleToggleActivity}
+          />
+        )}
 
         {/* ── Notifications ── */}
         <div className="glass-card rounded-2xl overflow-hidden">

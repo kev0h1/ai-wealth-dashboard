@@ -1,3 +1,4 @@
+<!-- The sections marked mcp-connector:start/end below are shown in the app only when the MCP connector flag (MCP_CONNECTOR_ENABLED / NEXT_PUBLIC_MCP_CONNECTOR) is on; this file keeps the full text regardless, as the canonical published copy. -->
 # Privacy Policy
 
 **Last updated:** 2026-09-08
@@ -62,6 +63,7 @@ We use AI to categorise your transactions and generate insights (for example, sp
 - **No training on your data.** Our AI requests are routed through an AI gateway (OpenRouter) to underlying model providers (which may include Amazon Bedrock, Google, Anthropic or Microsoft Azure). Requests are sent with a data-collection "deny" preference, and neither our gateway nor the underlying providers train their models on your inputs or outputs.
 - **Chat.** If you use the in-app AI assistant, the content of your conversation is processed to generate a response, and is retained only for a short period (see Section 9).
 
+<!-- mcp-connector:start -->
 ## 6. AI assistants you connect
 
 You can also connect your own AI assistant, for example Claude or ChatGPT, to read your Sorted data through a connector. This is separate from the in-app Penny assistant described in Section 5, and only happens on your instruction.
@@ -74,6 +76,7 @@ You can also connect your own AI assistant, for example Claude or ChatGPT, to re
 - **How to stop.** You can disconnect the assistant from its own settings or, once available, from Settings within Sorted. Connection tokens can also be revoked by us if we believe one is being misused.
 
 Our lawful basis for this processing is your explicit instruction, in the same way as the explicit consent basis described in Section 3: you choose to connect an assistant and which scopes it may read, and you can withdraw that at any time by disconnecting it.
+<!-- mcp-connector:end -->
 
 ## 7. Who we share data with
 
@@ -96,7 +99,9 @@ We share data with the following sub-processors, who process it on our behalf un
 | Expo | Push notification delivery relay |
 | Sentry | Error monitoring (only if enabled) |
 
+<!-- mcp-connector:start -->
 If you connect an AI assistant (see Section 6), your chosen assistant provider becomes a recipient of the data you allow it to read, at your own instruction and under your own agreement with them. This is different from the sub-processors listed above: it is not something we control, and that provider is not our sub-processor.
+<!-- mcp-connector:end -->
 
 We do not sell your data to anyone, and we do not share your data for advertising or marketing purposes. We do not use advertising or tracking SDKs in our apps.
 
