@@ -30,13 +30,20 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from app.core.auth import MCP_WWW_AUTHENTICATE, current_user
-from app.core.ratelimit import check_rate_limit
+from app.core.config import (
+    MCP_BURST_PER_MINUTE,
+    MCP_CHEAP_METHOD_PER_MINUTE,
+    MCP_DAILY_SOFT_CAP,
+)
+from app.core.ratelimit import check_keyed_limit
+from app.core.redis_client import get_redis, redis_ok
 from app.core.subscription import get_subscription, _next_month_first_day
 from app.db.collections import mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
@@ -104,6 +111,130 @@ _unscoped = {
 }
 if _unscoped:
     raise RuntimeError(f"mcp.py: TOOL_SCHEMAS tool(s) missing a TOOL_SCOPES entry: {sorted(_unscoped)}")
+
+
+# F7: per-principal rate limits, replacing the old per-IP "/mcp" rule in
+# app.core.ratelimit (Claude's and ChatGPT's connectors call from shared
+# egress ranges, so an IP-keyed bucket would be shared by every user of the
+# same assistant). Keyed by OAuth client_id when the principal came through
+# F2's OAuth flow, else uid, so two OAuth clients behind one IP, or one
+# user's two connectors, never share a bucket, and never collide with a
+# different user's uid either.
+_METERED_METHODS_CHEAP = frozenset({"initialize", "ping", "tools/list"})
+
+# Local fallback for the daily-cap counter when Redis is unreachable, same
+# doctrine as app.core.ratelimit's own `_hits`: per-process only, but keeps
+# the endpoint working rather than failing open or falling over. Keyed by
+# the full `mcp:day:<key>:<YYYY-MM-DD>` string, so it naturally starts a
+# fresh counter each day without any explicit reset logic.
+_daily_local_hits: dict[str, int] = defaultdict(int)
+
+
+def _mcp_principal_key(principal: dict) -> str:
+    """Rate-limit bucket key for a principal: the OAuth client_id when
+    present, else the session/OAuth uid."""
+    return principal.get("client_id") or principal.get("uid") or "unknown"
+
+
+async def _check_mcp_daily_cap(key: str, limit: int) -> int | None:
+    """Discrete calendar-day counter, not a sliding window: it resets at
+    midnight UTC regardless of when the first call of the day landed, which
+    is what makes "Retry-After: seconds to midnight UTC" a meaningful answer.
+    Redis-backed INCR with a 48h TTL (so a brief Redis restart around
+    midnight doesn't lose the day's count); falls back to an in-process
+    counter, same as the rest of this module's rate limiting.
+
+    Returns None if `key` is still under `limit` today (and increments the
+    counter), else the number of seconds until midnight UTC.
+    """
+    now = datetime.now(timezone.utc)
+    day_key = f"mcp:day:{key}:{now.strftime('%Y-%m-%d')}"
+    count: int | None = None
+    if await redis_ok():
+        client = get_redis()
+        if client is not None:
+            try:
+                pipe = client.pipeline()
+                pipe.incr(day_key)
+                pipe.expire(day_key, 48 * 3600)
+                results = await pipe.execute()
+                count = results[0]
+            except Exception:
+                count = None
+    if count is None:
+        _daily_local_hits[day_key] += 1
+        count = _daily_local_hits[day_key]
+    if count <= limit:
+        return None
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(1, int((tomorrow - now).total_seconds()))
+
+
+async def _mcp_daily_used(key: str) -> int:
+    """Best-effort peek at today's daily-cap counter for GET /mcp/audit's
+    `limits` block (F9). Never raises and never increments: a Redis hiccup
+    here should just show 0, not break the audit page or double-count a
+    call that hasn't happened."""
+    day_key = f"mcp:day:{key}:{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    if await redis_ok():
+        client = get_redis()
+        if client is not None:
+            try:
+                val = await client.get(day_key)
+                return int(val) if val is not None else 0
+            except Exception:
+                pass
+    return _daily_local_hits.get(day_key, 0)
+
+
+def _mcp_rate_limited_response(msg_id, kind: str, retry_after: int, limit: int) -> JSONResponse:
+    """HTTP 429 with Retry-After, body a JSON-RPC error object (code -32003)
+    per the F7 brief, a real HTTP-level rejection rather than a 200 wrapping
+    a JSON-RPC error the way the monthly-allowance check below works, since
+    this is transport-level throttling rather than a business-rule result."""
+    body = {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": _error_obj(-32003, "Rate limited", {"kind": kind, "retry_after": retry_after, "limit": limit}),
+    }
+    return JSONResponse(status_code=429, content=body, headers={"Retry-After": str(retry_after)})
+
+
+async def check_mcp_principal_limit(principal: dict, msg: dict) -> JSONResponse | None:
+    """Per-principal burst and daily-cap gate for one JSON-RPC message,
+    called from `mcp_post` before `handle_jsonrpc_request` so a limited call
+    never reaches tool dispatch, never writes an audit doc, and never counts
+    against the monthly allowance.
+
+    `initialize`/`ping`/`tools/list` are cheap and unmetered (no allowance,
+    no daily cap) but still get a generous per-principal ceiling
+    (`MCP_CHEAP_METHOD_PER_MINUTE`) so a broken client's reconnect loop can't
+    hammer them unbounded. Only `tools/call` is checked against the burst
+    and daily-cap limits; every other method (including unknown ones, left
+    for `handle_jsonrpc_request` to reject) passes through here untouched.
+    """
+    method = msg.get("method")
+    msg_id = msg.get("id")
+    key = _mcp_principal_key(principal)
+
+    if method in _METERED_METHODS_CHEAP:
+        retry_after = await check_keyed_limit(f"mcp:cheap:{key}", MCP_CHEAP_METHOD_PER_MINUTE, 60)
+        if retry_after is not None:
+            return _mcp_rate_limited_response(msg_id, "burst", retry_after, MCP_CHEAP_METHOD_PER_MINUTE)
+        return None
+
+    if method != "tools/call":
+        return None
+
+    retry_after = await check_keyed_limit(f"mcp:burst:{key}", MCP_BURST_PER_MINUTE, 60)
+    if retry_after is not None:
+        return _mcp_rate_limited_response(msg_id, "burst", retry_after, MCP_BURST_PER_MINUTE)
+
+    daily_retry_after = await _check_mcp_daily_cap(key, MCP_DAILY_SOFT_CAP)
+    if daily_retry_after is not None:
+        return _mcp_rate_limited_response(msg_id, "daily", daily_retry_after, MCP_DAILY_SOFT_CAP)
+
+    return None
 
 
 class McpError(Exception):
@@ -210,6 +341,21 @@ async def check_mcp_allowance(uid: str) -> dict:
             "Monthly connector allowance reached",
             {"used": used, "limit": limit, "resets_on": resets_on},
         )
+    return {"used": used, "limit": limit, "resets_on": resets_on, "tier": sub.tier_name}
+
+
+async def _mcp_allowance_status(uid: str) -> dict:
+    """Same `{used, limit, resets_on, tier}` shape as a successful
+    `check_mcp_allowance` return, but never raises, for GET /mcp/audit's
+    `limits` block (F9), which wants the numbers whether or not the
+    allowance has been reached, not just the happy path."""
+    sub = await get_subscription(uid)
+    limit = sub.limit("mcp_tool_calls_per_month")
+    now = datetime.now(timezone.utc)
+    resets_on = _next_month_first_day(now).isoformat()
+    if limit is None:
+        return {"used": 0, "limit": None, "resets_on": resets_on, "tier": sub.tier_name}
+    used = await mcp_calls_col.count_documents({"user_id": uid, "year_month": now.strftime("%Y-%m")})
     return {"used": used, "limit": limit, "resets_on": resets_on, "tier": sub.tier_name}
 
 
@@ -330,9 +476,10 @@ async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
 
 @router.post("/mcp")
 async def mcp_post(request: Request):
-    if limited := await check_rate_limit(request):
-        return limited
-
+    # F7: no per-IP check here any more (see app.core.ratelimit's RULES
+    # comment): every /mcp call is authenticated, so rate limiting happens
+    # per-principal below, after resolve_mcp_principal, keyed by OAuth
+    # client_id/uid rather than IP.
     principal = await resolve_mcp_principal(request)
 
     body = await request.body()
@@ -351,6 +498,14 @@ async def mcp_post(request: Request):
         if not isinstance(msg, dict):
             responses.append({"jsonrpc": "2.0", "id": None, "error": _error_obj(-32600, "Invalid Request")})
             continue
+        # A limited message short-circuits the whole HTTP response as a 429
+        # (not just this one message's slot in the batch): batches are rare
+        # for this connector in practice (Claude/ChatGPT call one message at
+        # a time), and a transport-level rejection is simpler to reason
+        # about than partial-batch success mixed with a 429.
+        limited = await check_mcp_principal_limit(principal, msg)
+        if limited is not None:
+            return limited
         resp = await handle_jsonrpc_request(principal, msg)
         if resp is not None:
             responses.append(resp)
@@ -396,10 +551,15 @@ async def get_mcp_audit(month: str | None = Query(None), user: dict = Depends(cu
     the current month), masked down to tool/client/ts/ok, for F4 (not yet
     built) to render on a "Connected assistants" settings surface. Every
     other audit field (latency_ms, dropped_keys) stays server-side. Not
-    rate-limited in v1 (check_rate_limit is only ever inert unless a
-    handler calls it itself, per app.core.ratelimit's own doctrine
-    comment): it is a cheap read of the caller's own already-written
-    rows, not a tool-call surface."""
+    rate-limited itself: it is a cheap read of the caller's own already-
+    written rows, not a tool-call surface.
+
+    F7: also returns a `limits` block (burst/minute, daily soft cap, and the
+    monthly allowance with used counts) so F9 can surface the caps
+    themselves, not just the call log. This is always the session-bearer's
+    own view (`current_user`), so the daily-cap peek is keyed by uid, same
+    as `check_mcp_principal_limit` would key it for a session-bearer
+    principal (no client_id to prefer)."""
     uid = user.get("email")
     ym = month or datetime.now(timezone.utc).strftime("%Y-%m")
     cursor = mcp_calls_col.find(
@@ -407,4 +567,17 @@ async def get_mcp_audit(month: str | None = Query(None), user: dict = Depends(cu
         {"_id": 0, "tool": 1, "client": 1, "ts": 1, "ok": 1},
     ).sort("ts", -1)
     rows = [_serialize_audit_row(d) async for d in cursor]
-    return {"year_month": ym, "calls": rows}
+    allowance = await _mcp_allowance_status(uid)
+    daily_used = await _mcp_daily_used(uid)
+    return {
+        "year_month": ym,
+        "calls": rows,
+        "limits": {
+            "burst_per_minute": MCP_BURST_PER_MINUTE,
+            "daily_soft_cap": MCP_DAILY_SOFT_CAP,
+            "daily_used_today": daily_used,
+            "monthly_allowance": allowance["limit"],
+            "monthly_used": allowance["used"],
+            "monthly_resets_on": allowance["resets_on"],
+        },
+    }

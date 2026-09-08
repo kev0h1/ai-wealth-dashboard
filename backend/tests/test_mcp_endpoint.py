@@ -300,10 +300,10 @@ class _FakeRequest:
 
 
 def test_malformed_json_returns_parse_error(monkeypatch):
-    async def no_rate_limit(request):
-        return None
-    monkeypatch.setattr(mcp, "check_rate_limit", no_rate_limit)
-
+    # F7: mcp_post no longer calls check_rate_limit itself (the old per-IP
+    # "/mcp" rule was replaced by per-principal limits applied per message,
+    # after JSON parsing succeeds), so there is nothing to stub out here any
+    # more before resolve_mcp_principal.
     async def fake_principal(request):
         return _principal()
     monkeypatch.setattr(mcp, "resolve_mcp_principal", fake_principal)

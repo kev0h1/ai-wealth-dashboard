@@ -128,6 +128,20 @@ def _parse_flag(value: str | None) -> bool:
 
 MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 
+# F7: per-principal MCP rate limits, keyed by OAuth client_id or uid in
+# app/routers/mcp.py (not IP, since Claude's and ChatGPT's connectors call from
+# shared egress ranges, so an IP-keyed bucket would be shared by every user
+# of the same assistant). MCP_BURST_PER_MINUTE guards tools/call specifically
+# against a runaway agent loop; MCP_DAILY_SOFT_CAP is a coarser per-calendar-
+# day backstop so that loop can't burn a whole month's allowance in an hour.
+# MCP_CHEAP_METHOD_PER_MINUTE covers initialize/ping/tools/list, which are
+# not billed against the monthly allowance or the daily cap at all, but still
+# need a ceiling so a broken client's reconnect loop can't hammer them
+# unbounded.
+MCP_BURST_PER_MINUTE = int(os.getenv("MCP_BURST_PER_MINUTE", "60"))
+MCP_DAILY_SOFT_CAP = int(os.getenv("MCP_DAILY_SOFT_CAP", "500"))
+MCP_CHEAP_METHOD_PER_MINUTE = int(os.getenv("MCP_CHEAP_METHOD_PER_MINUTE", "240"))
+
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):
