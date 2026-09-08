@@ -494,6 +494,61 @@ after a copy of the script run from `/tmp` on 2026-09-08 `cd`'d to `/` and
 started mirroring the root filesystem into `/.mobile-build` before being
 killed (`npm run check:build-mobile-guard` tests the guard in isolation).
 
+## Android release signing
+
+C2 (2026-09-09): `capacitor-spike/android/app/build.gradle` reads a release
+`signingConfig` from `capacitor-spike/android/keystore.properties`, a file
+generated per-machine and never committed. The whole `capacitor-spike/android/`
+tree is gitignored (line 65 of the root `.gitignore`), so this covers the
+keystore and properties file automatically, no extra `.gitignore` entry was
+needed.
+
+- **Keystore path:** `capacitor-spike/android/keys/upload-keystore.jks`
+  (PKCS12, alias `upload`, 2048-bit RSA, 10,000-day validity,
+  `CN=AURIQ LTD, O=AURIQ LTD, L=London, C=GB`).
+- **Properties file:** `capacitor-spike/android/keystore.properties`
+  (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`). PKCS12 keystores
+  require the store and key password to match, both are set to the same
+  randomly generated value (`openssl rand -base64 24`).
+- Both files are `chmod 600` and gitignored. The durable copy lives on this
+  VPS at `/root/ai-wealth-dashboard/capacitor-spike/android/keys/` and
+  `/root/ai-wealth-dashboard/capacitor-spike/android/keystore.properties`
+  (worktrees under `/root/worktrees/` are deleted after each item merges, so
+  the keystore must live in the shared tree to survive, not in a worktree).
+  Kevin should also keep his own offline copy (password manager or an
+  encrypted archive), since a lost upload key means falling back to Play's
+  key-reset process via Play App Signing support.
+- **Play App Signing:** this is the **upload key**, not the app signing key.
+  Google holds the app signing key once Play App Signing is enabled on the
+  listing (tracked as compliance item A9); every AAB uploaded to Play must be
+  signed with this upload key, Google then re-signs it with the app signing
+  key before distributing to devices.
+- `build.gradle` fails soft when `keystore.properties` is absent: it logs
+  `logger.warn(...)` and builds an unsigned release artifact instead of
+  breaking the build (`bundleRelease`/`assembleRelease` for anyone without
+  the keystore locally). Debug builds are unaffected either way.
+- C11 (open): Kevin adds this keystore to Codemagic as a code-signing asset
+  once an Android Codemagic workflow exists (there is currently no Android
+  CI, see `capacitor-spike/ANDROID_PUSH.md`).
+
+Build the signed AAB (from `capacitor-spike/android`, keystore.properties
+must be present):
+
+```bash
+cd capacitor-spike/android
+./gradlew bundleRelease
+# output: app/build/outputs/bundle/release/app-release.aab
+```
+
+Rebuild the debug APK and publish it to the UAT download link (unsigned
+debug build, separate from the Play upload key above):
+
+```bash
+cd capacitor-spike/android
+./gradlew assembleDebug
+cp app/build/outputs/apk/debug/app-debug.apk /var/www/wealth-downloads/wealth.apk
+```
+
 ## Mobile: Codemagic TestFlight builds
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a
