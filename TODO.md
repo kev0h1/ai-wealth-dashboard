@@ -28,6 +28,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-06, claude): Opened from A2's audit (2026-09-06). Counts and fix versions are in SECURITY.md section 2, Dependency audit log.
 - [x] **A16. Accounts Add menu: rename 'Finexer (beta)' to 'Add Bank' (it takes over tutorial-add-bank), rename the TrueLayer entry to 'Add Bank via TrueLayer' and show it only on UAT via a build-time flag (e.g. NEXT_PUBLIC_TRUELAYER_PICKER=on set on the VPS frontend and the ios-capacitor UAT workflow, unset on Vercel prod and ios-capacitor-prod); frontend/app/components/AccountsPage.tsx ~line 2505** [owner: claude] [priority: p1] (done 2026-09-08, 7080602e296825230270d3e4bab4b25b5702589d)
 - [ ] **A17. Gate the MCP connector behind MCP_CONNECTOR_ENABLED (default false): do not register the oauth and mcp routers in backend/app/main.py unless the flag is true, hide the Settings Connected assistants section and the privacy and terms AI assistants you connect sections unless the flag is true, so production ships with the connector absent as the Finexer answers state (planned, not live). Must land before A1.** [owner: claude] [priority: p1] [unblocks: Q2, Q9]
+  - note (2026-09-08, claude): Added by the coordinator on 2026-09-08 after F2, F3 and F5 merged unconditionally; A1 must not deploy until this is done.
 
 ## B. Penny cost, tiers and billing
 
