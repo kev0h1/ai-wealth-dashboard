@@ -30,6 +30,11 @@
 //              mock. It also opens automatically whenever `state=cap`,
 //              since that link only exists in the UI once the tier is
 //              actually capped.
+//   ?packs=2   (B11) previews the sheet's "Move to Max leads" reorder —
+//              mirrors usage.penny_packs_bought_this_month reaching 2,
+//              section 9's cannibalisation guard for the large pack.
+//              Applies to both the section D standalone sheet and the A2
+//              overlay.
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -114,6 +119,7 @@ function Inner() {
   const mode: Mode = params.get("mode") === "dark" ? "dark" : "light";
   const tapped = params.get("tapped") === "1";
   const sheetFlag = params.get("sheet") === "1";
+  const packsBoughtThisMonth = params.get("packs") === "2" ? 2 : 0;
   const data = USAGE_FIXTURES[state];
 
   useEffect(() => {
@@ -153,7 +159,14 @@ function Inner() {
               caption="A ring drawn concentric with the Penny avatar, fixed geometry and square caps per Kevin's 2026-09-06 phone review. Tap the avatar to crossfade the header title itself to the usage line for ~2.5s; no extra row. At Cap, the composer disables and offers a 'Get more messages' link on the disclaimer's own row."
               recommended
             />
-            <MockSheetFrame variant="avatarRing" state={state} data={data} tapped={tapped} initialSheetOpen={sheetFlag || state === "cap"} />
+            <MockSheetFrame
+              variant="avatarRing"
+              state={state}
+              data={data}
+              tapped={tapped}
+              initialSheetOpen={sheetFlag || state === "cap"}
+              packsBoughtThisMonth={packsBoughtThisMonth}
+            />
           </section>
 
           <section className="space-y-3">
@@ -182,10 +195,10 @@ function Inner() {
             <SectionHeading
               letter="D"
               title="More messages sheet"
-              caption={`Reached from A2's 'Get more messages' link once the Standard tier is capped. Two options, priced in mono; quick-chip questions stay free; resets on ${USAGE_RESET_DATE}. Buttons are inert here.`}
+              caption={`Reached from A2's 'Get more messages' link once the Standard tier is capped. Three top-up packs (B11: 20 for £0.99, 100 for £2.99 'Most popular', 200 for £4.99 'Best value'), priced in mono, then Move to Max; quick-chip questions stay free; resets on ${USAGE_RESET_DATE}. ?packs=2 previews Move to Max leading instead. Buttons are inert here.`}
             />
             <div className="mx-auto w-full max-w-[420px]">
-              <MoreMessagesSheet />
+              <MoreMessagesSheet packsBoughtThisMonth={packsBoughtThisMonth} />
             </div>
           </section>
         </div>

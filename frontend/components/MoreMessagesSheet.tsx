@@ -22,11 +22,50 @@
 // reads as broken. Replace with real onClick handlers once a purchase flow
 // exists.
 //
+// B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9):
+// replaced the single £2.99/100-message row with three packs, good/better/
+// best, read from `info.topups` (falls back to the legacy single-pack
+// `info.topup` if an older backend hasn't deployed `topups` yet). Packs
+// last 90 days and draw down after the monthly allowance — the footnote
+// below says so. After a user's SECOND pack purchase in one calendar month
+// (`usage.penny_packs_bought_this_month`), the Move to Max row leads and
+// the packs render below it instead of above.
+//
 // Copy rules: no em dashes, British English, "Move to Max" not "upgrade"
 // (Kevin's framing, see the design preview's own header comment for why).
 
 import { X } from "lucide-react";
 import { usePennyUsage, formatPennyResetDate } from "@/components/PennySheetProvider";
+import type { SubscriptionTopupPack } from "@wealth/shared";
+
+const LEGACY_FALLBACK_PACKS: SubscriptionTopupPack[] = [
+  { id: "small", messages: 20, price_gbp: 0.99, badge: null },
+  { id: "medium", messages: 100, price_gbp: 2.99, badge: "Most popular" },
+  { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
+];
+
+function PackRow({ pack }: { pack: SubscriptionTopupPack }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+      <span className="flex items-center gap-2 min-w-0 pr-2">
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100">
+          {pack.messages} messages
+        </span>
+        {pack.badge && (
+          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/15 rounded-full px-2 py-0.5">
+            {pack.badge}
+          </span>
+        )}
+      </span>
+      <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
+        <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
+        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Available soon
+        </span>
+      </span>
+    </div>
+  );
+}
 
 export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) {
   const usage = usePennyUsage();
@@ -34,8 +73,7 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   const used = info?.usage.penny_messages ?? 0;
   const limit = info?.usage.penny_limit ?? 0;
   const resetLabel = formatPennyResetDate(usage.resetsOn);
-  const topupMessages = info?.topup?.messages ?? 100;
-  const topupPrice = info?.topup?.price_gbp;
+  const packs = info?.topups?.length ? info.topups : LEGACY_FALLBACK_PACKS;
   // ASSUMPTION (contract doesn't name this key explicitly — flagged in this
   // feature's own report): `prices_gbp` is keyed by SubscriptionTier value,
   // same as every other tier reference in this codebase (SubscriptionTier
@@ -45,6 +83,27 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
   // Hide the Max row entirely once the user is already on it — there is
   // nothing to move to.
   const onMax = info?.tier === "max";
+  // Leads with Move to Max once a second pack has been bought this month
+  // (section 9's cannibalisation guard for the large pack).
+  const maxLeads = (info?.usage.penny_packs_bought_this_month ?? 0) >= 2 && !onMax;
+
+  const maxRow = !onMax && (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+      <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
+        Move to Max, 400 a month
+      </span>
+      <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
+        {typeof maxPrice === "number" && (
+          <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{maxPrice.toFixed(2)}</span>
+        )}
+        <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Available soon
+        </span>
+      </span>
+    </div>
+  );
+
+  const packRows = packs.map((pack) => <PackRow key={pack.id} pack={pack} />);
 
   return (
     // Backdrop — tapping outside the card closes it, same convention as
@@ -79,38 +138,21 @@ export default function MoreMessagesSheet({ onClose }: { onClose: () => void }) 
         </p>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
-            <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-              {topupMessages} more messages, this month only
-            </span>
-            <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
-              {typeof topupPrice === "number" && (
-                <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{topupPrice.toFixed(2)}</span>
-              )}
-              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                Available soon
-              </span>
-            </span>
-          </div>
-          {!onMax && (
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
-              <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-                Move to Max, 400 a month
-              </span>
-              <span className="flex-shrink-0 flex flex-col items-end gap-0.5">
-                {typeof maxPrice === "number" && (
-                  <span className="font-mono text-[13px] text-slate-900 dark:text-slate-100">£{maxPrice.toFixed(2)}</span>
-                )}
-                <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  Available soon
-                </span>
-              </span>
-            </div>
+          {maxLeads ? (
+            <>
+              {maxRow}
+              {packRows}
+            </>
+          ) : (
+            <>
+              {packRows}
+              {maxRow}
+            </>
           )}
         </div>
 
         <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-          Quick questions from the chips are always free.
+          Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free.
         </p>
       </div>
     </div>

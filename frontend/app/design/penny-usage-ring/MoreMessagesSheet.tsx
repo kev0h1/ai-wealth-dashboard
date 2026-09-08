@@ -15,22 +15,65 @@
 // there is no real purchase flow to wire up here, only the shape of the
 // choice a user would be offered.
 //
+// B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9):
+// mocks the three packs, good/better/best, that replaced the single
+// £2.99/100-message row on the real sheet. `packsBoughtThisMonth` mirrors
+// GET /subscription's `usage.penny_packs_bought_this_month` — pass 2+ (see
+// this route's own `?packs=2` flag) to preview the Move to Max row leading
+// instead of trailing.
+//
 // Copy rules: no em dashes (feedback_no_em_dashes), British English, and
 // "Move to Max" rather than "upgrade" (Kevin's framing — the alternative
 // isn't positioned as fixing a shortfall, it's a bigger tier).
 
 import { X } from "lucide-react";
 
+const PACKS = [
+  { id: "small", messages: 20, price_gbp: 0.99, badge: null as string | null },
+  { id: "medium", messages: 100, price_gbp: 2.99, badge: "Most popular" },
+  { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
+];
+
+function PackRow({ pack }: { pack: (typeof PACKS)[number] }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+      <span className="flex items-center gap-2 min-w-0 pr-2">
+        <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100">{pack.messages} messages</span>
+        {pack.badge && (
+          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/15 rounded-full px-2 py-0.5">
+            {pack.badge}
+          </span>
+        )}
+      </span>
+      <span className="flex-shrink-0 font-mono text-[13px] text-slate-900 dark:text-slate-100">£{pack.price_gbp.toFixed(2)}</span>
+    </div>
+  );
+}
+
+const MAX_ROW = (
+  <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
+    <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
+      Move to Max, 400 a month
+    </span>
+    <span className="flex-shrink-0 font-mono text-[13px] text-slate-900 dark:text-slate-100">£16.99</span>
+  </div>
+);
+
 export default function MoreMessagesSheet({
   onClose,
   resetDate = "1 Oct",
+  packsBoughtThisMonth = 0,
 }: {
   /** Omitted for the standalone section D mock, where there is nothing to
    * dismiss back to — provided only when this is rendered as an overlay
    * inside the A2 mock (MockSheetFrame.tsx). */
   onClose?: () => void;
   resetDate?: string;
+  /** Mirrors usage.penny_packs_bought_this_month — 2+ makes Move to Max
+   * lead, packs trail below it. */
+  packsBoughtThisMonth?: number;
 }) {
+  const maxLeads = packsBoughtThisMonth >= 2;
   return (
     <div className="w-full glass-sheet rounded-3xl shadow-xl ring-1 ring-black/[0.06] dark:ring-white/[0.12] px-5 pt-4 pb-5 space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -65,22 +108,21 @@ export default function MoreMessagesSheet({
       </p>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
-          <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-            100 more messages, this month only
-          </span>
-          <span className="flex-shrink-0 font-mono text-[13px] text-slate-900 dark:text-slate-100">£2.99</span>
-        </div>
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-700 px-4 py-3 min-h-[44px]">
-          <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100 pr-2">
-            Move to Max, 400 a month
-          </span>
-          <span className="flex-shrink-0 font-mono text-[13px] text-slate-900 dark:text-slate-100">£16.99</span>
-        </div>
+        {maxLeads ? (
+          <>
+            {MAX_ROW}
+            {PACKS.map((pack) => <PackRow key={pack.id} pack={pack} />)}
+          </>
+        ) : (
+          <>
+            {PACKS.map((pack) => <PackRow key={pack.id} pack={pack} />)}
+            {MAX_ROW}
+          </>
+        )}
       </div>
 
       <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-        Quick questions from the chips are always free.
+        Packs last 90 days and are used after your monthly allowance. Quick questions from the chips are always free.
       </p>
     </div>
   );

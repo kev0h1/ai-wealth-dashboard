@@ -390,6 +390,7 @@ export default function MockSheetFrame({
   headerOnly = false,
   tapped = false,
   initialSheetOpen = false,
+  packsBoughtThisMonth = 0,
 }: {
   variant: "avatarRing" | "composerMeter" | "plain";
   state: UsageState;
@@ -404,6 +405,9 @@ export default function MockSheetFrame({
    * the composer's link / the sheet's own close control. No-op outside
    * `variant="avatarRing"`. */
   initialSheetOpen?: boolean;
+  /** `?packs=2` (B11) — forwarded to the overlay's MoreMessagesSheet so the
+   * "Move to Max leads" reorder previews inside this mock too. */
+  packsBoughtThisMonth?: number;
 }) {
   const [sheetOpen, setSheetOpen] = useState(initialSheetOpen);
   // Follows a `state`/query change to a fresh initial value (e.g. flipping
@@ -425,7 +429,7 @@ export default function MockSheetFrame({
       )}
       {variant === "avatarRing" && sheetOpen && (
         <div className="absolute inset-0 z-10 flex flex-col justify-end bg-slate-900/40 p-3">
-          <MoreMessagesSheet onClose={() => setSheetOpen(false)} />
+          <MoreMessagesSheet onClose={() => setSheetOpen(false)} packsBoughtThisMonth={packsBoughtThisMonth} />
         </div>
       )}
     </div>

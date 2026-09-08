@@ -21,6 +21,16 @@
 // (SubscriptionUsage, shared/src/types.ts) — this way the row still shows
 // a used count even against a payload missing that field.
 //
+// `penny_limit` already has any active top-up pack balance folded in
+// (app.core.subscription.penny_allowance's own contract), so this row
+// reads it straight rather than adding `penny_topup_messages` a second
+// time on top — an earlier version of this file double-counted the packs
+// here, found and fixed alongside B11 (top-up packs).
+//
+// B11 also adds an "packs expire {date}" hint, shown only when the
+// soonest-expiring active pack (`penny_topup_expires_soonest`) is within
+// 14 days — far enough out isn't worth a line in a compact settings row.
+//
 // Copy: no em dashes (repo-wide rule). Colour: the trailing pill turns
 // amber only once used reaches 80% of the (topped-up) limit, never red —
 // DESIGN.md's Red Is Risk rule reserves red for genuine financial risk,
@@ -31,6 +41,11 @@ import { formatPennyResetDate } from "@/components/PennySheetProvider";
 
 function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function formatExpiryDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 export default function PennyUsageRow({
@@ -55,17 +70,26 @@ export default function PennyUsageRow({
   } else {
     const u = info.usage;
     const used = u.penny_messages;
-    const limitBase = u.penny_limit ?? null;
-    if (limitBase == null) {
+    // `penny_limit` already has any active top-up pack's remaining balance
+    // folded in (app.core.subscription.penny_allowance) — read it as-is,
+    // don't add `penny_topup_messages` again on top of it.
+    const limit = u.penny_limit ?? null;
+    if (limit == null) {
       subline = `Unlimited on the ${capitalize(info.tier)} plan`;
     } else {
       const topups = u.penny_topup_messages ?? 0;
-      const limit = limitBase + topups;
       const remaining = u.penny_remaining ?? Math.max(0, limit - used);
       const resetLabel = formatPennyResetDate(u.penny_resets_on ?? null);
       subline = topups > 0
         ? `${used} of ${limit} used this month, including ${topups} extra, resets ${resetLabel}`
         : `${used} of ${limit} used this month, resets ${resetLabel}`;
+      const expiresSoonest = u.penny_topup_expires_soonest;
+      if (expiresSoonest) {
+        const days = (new Date(`${expiresSoonest}T00:00:00Z`).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+        if (days >= 0 && days <= 14) {
+          subline += `, packs expire ${formatExpiryDate(expiresSoonest)}`;
+        }
+      }
       pill = { text: `${remaining} left`, amber: limit > 0 && used / limit >= 0.8 };
     }
   }
