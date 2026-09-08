@@ -93,6 +93,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-09-09, claude): Code half shipped 2026-09-09 (spread + 429 handling + /admin/sync-stats). Remaining for Kevin: Railway Pro, replicas on the web service only (worker stays single until leader election), confirm shared REDIS_URL and MONGO_URI. Finexer's real rate limit is undocumented; RECONCILE_MAX_PER_MINUTE=40 comes from the item's arithmetic and the new 429 counters will surface the true ceiling.
 - [x] **E3. Vercel Pro** [owner: kevin] already in place (verified 2026-09-06), nothing to do. (done 2026-09-06)
 - [ ] **E4. Backup restore test** [owner: kevin] [priority: p2] documented with a date (Q13).
+- [ ] **E5. Railway Pro upgrade and replicas on the web service only (worker stays single until leader election); confirm REDIS_URL and MONGO_URI are shared after the upgrade; the code half (reconcile spread, Finexer 429 handling, /admin/sync-stats) shipped as E2 on 2026-09-09** [owner: kevin]
 
 ## F. MCP connector (start after Finexer production approval)
 
