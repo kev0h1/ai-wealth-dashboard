@@ -3,18 +3,22 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from itsdangerous import SignatureExpired, BadSignature
 from app.core.config import (
-    API_PUBLIC_URL, BOT_SECRET, MCP_CONNECTOR_ENABLED, SESSION_MAX_AGE, serializer,
+    BOT_SECRET, MCP_CONNECTOR_ENABLED, MCP_ORIGIN, SESSION_MAX_AGE, serializer,
 )
 from app.core.ratelimit import check_rate_limit
 
-# F2: the value an unauthenticated (or expired-token) request to /mcp gets
-# back in its 401's WWW-Authenticate header, per RFC 9728 — this is how an
-# MCP client (Claude, ChatGPT, ...) discovers that this resource has an
+# F2/F8: the value an unauthenticated (or expired-token) request to /mcp
+# gets back in its 401's WWW-Authenticate header, per RFC 9728 — this is how
+# an MCP client (Claude, ChatGPT, ...) discovers that this resource has an
 # OAuth authorisation server at all, without a human having to paste a URL
 # into it first. Shared with app.routers.mcp.resolve_mcp_principal, which
 # raises the SAME header on a present-but-invalid/revoked/expired
 # `sorted_at_...` access token (a different failure path, same signal).
-MCP_WWW_AUTHENTICATE = f'Bearer resource_metadata="{API_PUBLIC_URL}/.well-known/oauth-protected-resource"'
+# Points at MCP_ORIGIN (derived from MCP_PUBLIC_URL), not the API's own
+# origin — the well-known document must live at the connector's own host,
+# which differs from the API host once MCP_PUBLIC_URL is a dedicated
+# hostname.
+MCP_WWW_AUTHENTICATE = f'Bearer resource_metadata="{MCP_ORIGIN}/.well-known/oauth-protected-resource"'
 
 # Paths open to anyone, no bearer token required at all (distinct from the
 # /auth/, /webhooks/, /logo/ prefixes above, which are open but still

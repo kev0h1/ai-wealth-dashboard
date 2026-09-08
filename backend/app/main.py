@@ -8,7 +8,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
-from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, TRUELAYER_CLIENT_ID
+from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, MCP_ORIGIN, TRUELAYER_CLIENT_ID
 from app.core.auth import auth_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -118,7 +118,12 @@ def build_app(mcp_connector_enabled: bool) -> FastAPI:
     else:
         built = FastAPI(title="Wealth Dashboard API", docs_url=None, redoc_url=None, openapi_url=None)
 
-    cors_origins = [APP_URL, API_PUBLIC_URL]
+    # F8: MCP_ORIGIN is added alongside API_PUBLIC_URL so the connector's
+    # dedicated hostname is covered too. Browsers never call /mcp directly
+    # (MCP clients aren't the browser's fetch stack), so this is belt and
+    # braces rather than load-bearing, but it keeps CORS consistent with
+    # every other public origin this backend answers on.
+    cors_origins = [APP_URL, API_PUBLIC_URL, MCP_ORIGIN]
     # Capacitor mobile WebView origins (Android WebView with androidScheme
     # "https" reports Origin: https://localhost; some WebViews use the
     # capacitor: scheme).
@@ -126,9 +131,9 @@ def build_app(mcp_connector_enabled: bool) -> FastAPI:
     cors_origins.append("capacitor://localhost")
     if os.getenv("DEV_MODE"):
         cors_origins.append("http://localhost:3000")
-    # Dedupe while preserving order (APP_URL/API_PUBLIC_URL could collide
-    # with an explicit env override, or in a future config where they
-    # match).
+    # Dedupe while preserving order (APP_URL/API_PUBLIC_URL/MCP_ORIGIN could
+    # collide with an explicit env override, or in a future config where
+    # they match).
     cors_origins = list(dict.fromkeys(cors_origins))
     built.add_middleware(
         CORSMiddleware,

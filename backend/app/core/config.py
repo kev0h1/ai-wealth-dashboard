@@ -2,6 +2,7 @@
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from itsdangerous import URLSafeTimedSerializer
 from py_vapid import Vapid
@@ -27,6 +28,32 @@ APP_URL             = os.getenv("APP_URL", "https://wealth.auriqltd.co.uk")
 # CORS below alongside APP_URL; the web app keeps using APP_URL's /api
 # rewrite and never talks to this origin directly.
 API_PUBLIC_URL      = os.getenv("API_PUBLIC_URL", "https://api.wealth.auriqltd.co.uk")
+# F8: the connector's own public URL. Defaults to API_PUBLIC_URL's /mcp path
+# (today's behaviour, unchanged) but is meant to be pointed at a dedicated
+# hostname (e.g. https://mcp.wealth.auriqltd.co.uk/mcp) once that host is
+# DNS-provisioned (see A18 for API_PUBLIC_URL's own equivalent), so edge
+# rules and a later service split can target /mcp traffic without touching
+# the main API host. This backend answers both hosts identically — routing
+# is by path, not Host header — so pointing this at a new hostname needs no
+# other code change, only the env var and the DNS/reverse-proxy record.
+MCP_PUBLIC_URL       = os.getenv("MCP_PUBLIC_URL", f"{API_PUBLIC_URL}/mcp")
+
+
+def _origin_of(url: str) -> str:
+    """scheme://host[:port] of `url`, dropping any path — factored out
+    (rather than inlined the way most derived constants here are) so tests
+    can exercise the parsing rule on its own, the same convention
+    `_parse_flag` below uses for MCP_CONNECTOR_ENABLED."""
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+# Origin (scheme + host[:port]) MCP_PUBLIC_URL resolves to — the well-known
+# discovery document (RFC 9728) must live at THIS origin's /.well-known/
+# path, which differs from API_PUBLIC_URL's origin once MCP_PUBLIC_URL
+# points at a dedicated host. Derived once here so app.core.auth and
+# app.main don't each re-parse MCP_PUBLIC_URL themselves.
+MCP_ORIGIN           = _origin_of(MCP_PUBLIC_URL)
 _raw_allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "kevin.maingi12@gmail.com").split(",") if e.strip()]
 ALLOWED_EMAILS      = set(_raw_allowed_emails)
 PRIMARY_EMAIL       = _raw_allowed_emails[0] if _raw_allowed_emails else "local"

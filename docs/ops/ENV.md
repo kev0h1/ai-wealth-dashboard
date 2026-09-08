@@ -41,6 +41,7 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `LOGODEV_TOKEN` | `core/config.py` | present | present | optional; merchant logos degrade to initials without it. |
 | `APP_URL` | `core/config.py` | present | present | required; CORS origin + OAuth/webhook base. |
 | `API_PUBLIC_URL` | `core/config.py` | absent (default `https://api.wealth.auriqltd.co.uk` is correct) | absent (same default) | optional; only needs overriding if the API's own domain changes. |
+| `MCP_PUBLIC_URL` | `core/config.py` | absent today (default `${API_PUBLIC_URL}/mcp`); UAT should set `https://uat.wealth.auriqltd.co.uk/api/mcp` once the connector needs its own address | absent (same default) | optional (F8); the connector's own public URL, meant for a dedicated hostname (e.g. `https://mcp.wealth.auriqltd.co.uk/mcp`) once DNS exists — see A18, which covers `API_PUBLIC_URL`'s own missing DNS record first. |
 | `ALLOWED_EMAILS` | `core/config.py` | present | present | required; comma-separated sign-in allow-list. |
 | `DEFAULT_TIER` | `core/config.py` | absent (default `max`) | absent (default `max`) | optional; deliberately top-tier pre-launch. |
 | `REDIS_URL` | `core/config.py` | present | present | required; queue + cache. |
@@ -108,6 +109,7 @@ forever.
 | `NEXT_PUBLIC_BUILD_TAG` | `lib/buildTag.ts`, `next.config.ts` | absent (computed automatically from git SHA) | absent (computed from `VERCEL_GIT_COMMIT_SHA`) | optional; only set to override the computed build tag. |
 | `NEXT_PUBLIC_TRUELAYER_PICKER` | `lib/featureFlags.ts` | present (`on`) | absent | flag; UAT keeps the legacy TrueLayer picker reachable for testing, production hides it (Finexer-only). |
 | `NEXT_PUBLIC_MCP_CONNECTOR` | `lib/featureFlags.ts` | present (`on`) | **absent, must stay absent** | flag; A17 doctrine: the MCP connector UI must stay off in production until sign-off. UAT having it on is expected and fine. |
+| `NEXT_PUBLIC_MCP_URL` | `lib/featureFlags.ts` | absent today (default `https://api.wealth.auriqltd.co.uk/mcp`); should be set to `https://uat.wealth.auriqltd.co.uk/api/mcp` alongside `NEXT_PUBLIC_MCP_CONNECTOR=on` | absent (same default) | optional (F8); the connect-instructions URL shown in Settings' "Connected assistants" empty state, mirrors the backend's `MCP_PUBLIC_URL`. |
 | `NEXT_PUBLIC_WEB_PRODUCT` | `lib/webProduct.ts` | absent | absent today; DEPLOY.md says set `off` on Vercel production once the app-download gate is wanted | optional; not currently set anywhere. |
 | `NEXT_PUBLIC_APP_STORE_URL` | `lib/webProduct.ts` | absent | absent | optional; unset until the App Store listing exists. |
 | `NEXT_PUBLIC_PLAY_STORE_URL` | `lib/webProduct.ts` | absent | absent | optional; unset until the Play Store listing exists. |

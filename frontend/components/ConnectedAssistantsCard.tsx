@@ -32,9 +32,9 @@ import { Plug, Check, ChevronDown } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import type { OAuthConnection, McpAuditCall } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
+import { MCP_URL } from "@/lib/featureFlags";
 
 const INDIGO = "#4f46e5";
-const CONNECT_URL = "https://api.wealth.auriqltd.co.uk/mcp";
 
 export type ConnectionsState =
   | { status: "loading" }
@@ -73,12 +73,22 @@ export default function ConnectedAssistantsCard({
   activity,
   activityOpen,
   onToggleActivity,
+  tierAllowance,
 }: {
   state: ConnectionsState;
   onDisconnect: (clientId: string) => Promise<boolean>;
   activity: ActivityState;
   activityOpen: boolean;
   onToggleActivity: () => void;
+  /** F8: the signed-in user's `mcp_tool_calls_per_month` limit (GET
+   * /subscription's SubscriptionLimits), or null before that fetch has
+   * resolved. Statements/Lite/Standard carry 0 here; Connect/Max carry a
+   * number or null (unlimited). At 0 the connector card shows a plan
+   * upsell instead of connect instructions or the activity footer, since a
+   * zero-allowance tier can never make a call either way. Null (not yet
+   * known) falls through to the ordinary state machine below, the same as
+   * any other tier that does allow the connector. */
+  tierAllowance: number | null;
 }) {
   const [confirmClient, setConfirmClient] = useState<OAuthConnection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -104,6 +114,10 @@ export default function ConnectedAssistantsCard({
   }
 
   const connected = state.status === "ready" ? state.connections.filter((c) => c.active_tokens > 0) : [];
+  // F8: a zero-allowance tier (Statements, Lite, Standard) can never make
+  // an MCP call, so the whole connect flow is replaced with a plan upsell
+  // rather than instructions that would just fail.
+  const isTierGated = tierAllowance === 0;
 
   return (
     <div className="glass-card rounded-2xl overflow-hidden">
@@ -139,11 +153,18 @@ export default function ConnectedAssistantsCard({
             <p className="px-4 pt-3 text-xs text-emerald-600 dark:text-emerald-400">{disconnectedName} disconnected</p>
           )}
 
-          {connected.length === 0 ? (
+          {isTierGated ? (
+            <div className="px-4 py-3.5">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Available on Connect and Max</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Connecting an AI assistant to your Sorted data is included in the Connect and Max plans.
+              </p>
+            </div>
+          ) : connected.length === 0 ? (
             <div className="px-4 py-3.5">
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">No assistants connected</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Connect Claude or another assistant to Sorted at {CONNECT_URL} and it will appear here.
+                Connect Claude or another assistant to Sorted at {MCP_URL} and it will appear here.
               </p>
             </div>
           ) : (
@@ -171,7 +192,7 @@ export default function ConnectedAssistantsCard({
         </>
       )}
 
-      {state.status !== "loading" && (
+      {state.status !== "loading" && !isTierGated && (
         <>
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700">
             <p className="text-xs text-slate-400 dark:text-slate-500">Every request is logged</p>

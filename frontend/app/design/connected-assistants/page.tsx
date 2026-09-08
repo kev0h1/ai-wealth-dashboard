@@ -1,11 +1,12 @@
 "use client";
 
 // TEMPORARY PREVIEW — delete with the other /design/* routes.
-// F4: "Connected assistants" Settings card, real
+// F4/F8: "Connected assistants" Settings card, real
 // components/ConnectedAssistantsCard.tsx (the same component
 // app/settings/SettingsPage.tsx renders after the Penny card) against
 // static fixtures — empty, populated (two clients, one of which has
-// never been used), and with the activity expander open — each in a
+// never been used), with the activity expander open, and (F8) a
+// zero-allowance tier that can't use the connector at all — each in a
 // light and a dark block. No data fetching, no session; Disconnect and
 // "View activity" are both interactive against the fixture data (real
 // component state), they just don't hit the network.
@@ -44,11 +45,13 @@ function FixtureCard({
   connections,
   activityCalls,
   initialOpen,
+  tierAllowance = null,
 }: {
   label: string;
   connections: OAuthConnection[];
   activityCalls: McpAuditCall[];
   initialOpen: boolean;
+  tierAllowance?: number | null;
 }) {
   const [open, setOpen] = useState(initialOpen);
   const state: ConnectionsState = { status: "ready", connections };
@@ -62,6 +65,7 @@ function FixtureCard({
         activity={activity}
         activityOpen={open}
         onToggleActivity={() => setOpen((o) => !o)}
+        tierAllowance={tierAllowance}
       />
     </div>
   );
@@ -84,6 +88,13 @@ function ThemeBlock({ dark }: { dark: boolean }) {
           activityCalls={ACTIVITY_CALLS}
           initialOpen={true}
         />
+        <FixtureCard
+          label="Statements / Lite / Standard tier, no connector allowance"
+          connections={[]}
+          activityCalls={[]}
+          initialOpen={false}
+          tierAllowance={0}
+        />
       </div>
     </div>
   );
@@ -95,7 +106,7 @@ export default function Page() {
       <div className="mx-auto max-w-[430px] px-4 py-8">
         <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Connected assistants</h1>
         <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          F4, real ConnectedAssistantsCard.tsx against fixtures
+          F4/F8, real ConnectedAssistantsCard.tsx against fixtures
         </p>
 
         <div className="mt-6 flex flex-col gap-10">
@@ -107,7 +118,10 @@ export default function Page() {
           Scope labels come from lib/oauthScopes.ts, kept word for word in sync with the backend's own
           SCOPE_DESCRIPTIONS (backend/app/routers/oauth.py) so the wording never drifts from the /oauth/consent
           screen. A connection only counts as connected while it has at least one live token, a fully disconnected
-          client drops out of this list once the parent&apos;s next fetch settles.
+          client drops out of this list once the parent&apos;s next fetch settles. The connect URL comes from
+          NEXT_PUBLIC_MCP_URL (lib/featureFlags.ts); the zero-allowance fixture above shows
+          SettingsPage.tsx passing tierAllowance={"{"}0{"}"} (GET /subscription&apos;s
+          limits.mcp_tool_calls_per_month) instead of connect instructions.
         </p>
       </div>
     </div>

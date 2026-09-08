@@ -8,7 +8,7 @@ requests, so this stays a pure unit test of main.py's `_cors_origins` list.
 """
 from starlette.middleware.cors import CORSMiddleware
 
-from app.core.config import APP_URL, API_PUBLIC_URL
+from app.core.config import APP_URL, API_PUBLIC_URL, MCP_ORIGIN
 from app.main import app
 
 
@@ -25,6 +25,14 @@ def test_cors_allows_app_and_api_domains():
     assert API_PUBLIC_URL in origins
     assert "https://localhost" in origins
     assert "capacitor://localhost" in origins
+
+
+def test_cors_allows_mcp_origin():
+    """F8: MCP_ORIGIN (derived from MCP_PUBLIC_URL) is covered too, so a
+    dedicated connector hostname stays consistent with every other public
+    origin this backend answers on."""
+    origins = _cors_kwargs()["allow_origins"]
+    assert MCP_ORIGIN in origins
 
 
 def test_cors_origins_have_no_duplicates():

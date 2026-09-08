@@ -878,6 +878,7 @@ export default function SettingsPage() {
             activity={activityState}
             activityOpen={activityOpen}
             onToggleActivity={handleToggleActivity}
+            tierAllowance={pennyUsage.info?.limits?.mcp_tool_calls_per_month ?? null}
           />
         )}
 
