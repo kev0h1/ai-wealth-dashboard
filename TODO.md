@@ -92,6 +92,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **F5. Policy updates:** [owner: claude] Privacy Policy section "AI assistants you connect", Terms clause, Finexer Q2 and Q9 disclosure. (done 2026-09-08, 3bb398dc72216cbe39095c3dbb6489dc7eb18391)
   - note (2026-09-08, claude): 2026-09-08: Privacy section 6 and the Terms clause shipped (PDFs regenerated). The Finexer Q2/Q9 disclosure half moved to the new Kevin-owned item above.
 - [ ] **F6. Finexer questionnaire Q2 and Q9: disclose the AI-assistant connector (read-only, aggregates only, banking identifiers masked, per-user audit log, revocation path, no payment or write capability); wording in the pricing doc section 7 and Privacy section 6** [owner: kevin]
+- [ ] **F7. MCP per-user rate limit: core/ratelimit.py keys the /mcp rule (60/min) by IP, but Claude and ChatGPT call from shared egress ranges so users of the same assistant would share one bucket; key the limit by OAuth token or user id after auth in routers/mcp.py, add a per-minute burst limit plus a soft daily cap (e.g. 500 tool calls/day) so a runaway agent loop cannot burn the monthly allowance in an hour, return 429 with Retry-After, keep the IP rule only for unauthenticated OAuth paths** [owner: claude]
 
 ## G. Design and copy follow-ups
 
