@@ -78,6 +78,9 @@ names, `railway variables --service ai-wealth-dashboard|worker --kv`,
 | `FINEXER_RETURN_URL` | `core/config.py` | present | absent (default matches production URL) | optional; UAT pins it explicitly. |
 | `FINEXER_WEBHOOK_SECRET` | `core/config.py` | absent (falls back to `backend/.finexer_webhook_secret`) | absent | optional; falls back to a generated per-environment file if unset. Railway has no persistent filesystem, so a fresh secret is generated on every deploy unless set explicitly, worth pinning as an env var to keep the webhook URL stable. |
 | `FINEXER_WEBHOOK_SIGNING_SECRET` | `core/config.py` | absent | absent | optional until Finexer's dashboard issues one; empty means "not registered yet", the receiver skips signature verification and logs a warning. |
+| `RECONCILE_SPREAD_MINUTES` | `core/config.py` | absent (default `210`) | absent (default `210`) | optional; E2 — how many minutes of `task_reconcile_truelayer`'s 4-hourly run the spread is allowed to use. See DEPLOY.md's "Railway Pro and replicas (E2)" section. |
+| `RECONCILE_MAX_PER_MINUTE` | `core/config.py` | absent (default `40`) | absent (default `40`) | optional; E2 — the Finexer-safe sync-job ceiling per minute. Raise only once Finexer confirms a higher real rate limit. |
+| `RECONCILE_MIN_GAP_SECONDS` | `core/config.py` | absent (default `2`) | absent (default `2`) | optional; E2 — floor on the gap between any two spread-out reconcile jobs. |
 | `SENTRY_DSN` | `main.py` | absent | absent | optional; error monitoring not yet wired up in either environment. |
 | `SENTRY_ENV` | `main.py` | absent (default `vps`) | absent | optional; only read when `SENTRY_DSN` is set. |
 | `ENABLE_API_DOCS` | `main.py`, `routers/truelayer.py` | absent | absent, must stay absent | flag; exposes `/docs`. Keep unset in production. |
