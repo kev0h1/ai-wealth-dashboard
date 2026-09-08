@@ -118,6 +118,65 @@ def test_verdict_railway_branch_unknown_is_amber():
     assert item.verdict == "amber"
 
 
+def test_verdict_railway_branch_main_confirmed_is_amber_with_operator_note():
+    item = release.verdict_railway_branch("ai-wealth-dashboard", "main", confirmed=True)
+    assert item.verdict == "amber"
+    assert "operator confirmed" in item.message
+    assert "release (dashboard)" in item.message
+
+
+def test_verdict_railway_branch_unknown_confirmed_is_amber():
+    item = release.verdict_railway_branch("worker", None, confirmed=True)
+    assert item.verdict == "amber"
+
+
+def test_verdict_railway_branch_already_release_confirmed_is_still_green():
+    item = release.verdict_railway_branch("worker", "release", confirmed=True)
+    assert item.verdict == "green"
+
+
+def test_verdict_railway_branch_main_unconfirmed_still_red():
+    item = release.verdict_railway_branch("worker", "main", confirmed=False)
+    assert item.verdict == "red"
+
+
+# ── railway_deployment_matches ────────────────────────────────────────────
+
+
+def test_railway_deployment_matches_main_branch_only_without_require():
+    dep = {"status": "SUCCESS", "meta": {"commitHash": "abc123def", "branch": "main"}}
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=False) is True
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=True) is False
+
+
+def test_railway_deployment_matches_release_branch():
+    dep = {"status": "SUCCESS", "meta": {"commitHash": "abc123def", "branch": "release"}}
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=False) is True
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=True) is True
+
+
+def test_railway_deployment_matches_none_dep():
+    assert release.railway_deployment_matches(None, "abc123", require_release_branch=False) is False
+    assert release.railway_deployment_matches(None, "abc123", require_release_branch=True) is False
+
+
+def test_railway_deployment_matches_not_success():
+    dep = {"status": "BUILDING", "meta": {"commitHash": "abc123def", "branch": "release"}}
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=False) is False
+    assert release.railway_deployment_matches(dep, "abc123", require_release_branch=True) is False
+
+
+# ── railway_branch_mismatch_message ───────────────────────────────────────
+
+
+def test_railway_branch_mismatch_message_contents():
+    msg = release.railway_branch_mismatch_message("worker", "main", "abc123")
+    assert "worker" in msg
+    assert "main" in msg
+    assert "abc123" in msg
+    assert "rollback abc123" in msg
+
+
 # ── Vercel `ls --prod` parsing ────────────────────────────────────────────
 
 

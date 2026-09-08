@@ -240,13 +240,20 @@ def latest_deployment(deployments: list[dict]) -> Optional[dict]:
     return deployments[0] if deployments else None
 
 
-def verdict_railway_branch(service: str, branch: Optional[str]) -> CheckItem:
+def verdict_railway_branch(service: str, branch: Optional[str], confirmed: bool = False) -> CheckItem:
     key = f"railway_branch_{service}"
     label = f"Railway {service} deploy branch"
-    if branch is None:
-        return CheckItem(key, label, "amber", "could not determine latest deployment's branch")
     if branch == "release":
         return CheckItem(key, label, "green", "deploys from release")
+    if confirmed:
+        branch_desc = branch if branch is not None else "an unknown branch"
+        return CheckItem(
+            key, label, "amber",
+            f"latest deployment came from {branch_desc}; operator confirmed the service now deploys from "
+            "release (dashboard), will be verified after the push",
+        )
+    if branch is None:
+        return CheckItem(key, label, "amber", "could not determine latest deployment's branch")
     if branch == "main":
         return CheckItem(
             key, label, "red",
@@ -254,6 +261,38 @@ def verdict_railway_branch(service: str, branch: Optional[str]) -> CheckItem:
             "Settings, Source, set Branch to release, then rerun check",
         )
     return CheckItem(key, label, "amber", f"deploys from unexpected branch {branch!r}")
+
+
+def railway_deployment_matches(dep: Optional[dict], sha: Optional[str], require_release_branch: bool) -> bool:
+    """True if `dep` (a Railway deployment dict, or None) counts as the
+    release having landed on that service: SUCCESS, commitHash starting
+    with `sha`, and, only when `require_release_branch` is set,
+    meta.branch == "release". Without that requirement, a deployment at
+    the right sha counts even if the service still nominally builds from
+    `main` (the pre-branch-switch tolerance)."""
+    if not dep:
+        return False
+    if dep.get("status") != "SUCCESS":
+        return False
+    meta = dep.get("meta") or {}
+    commit = meta.get("commitHash", "")
+    if not commit.startswith(sha or "\0"):
+        return False
+    if require_release_branch and meta.get("branch") != "release":
+        return False
+    return True
+
+
+def railway_branch_mismatch_message(service: str, branch: Optional[str], pre_release_sha: Optional[str]) -> str:
+    """The RED message printed when --railway-branch-confirmed was given but,
+    after the push, a service's newest matching-sha deployment still isn't on
+    release. Directs the operator straight at the rollback command."""
+    branch_desc = branch or "main"
+    return (
+        f"Railway {service} did not deploy from release; it still builds from {branch_desc}. "
+        f"Production backend is unchanged at {pre_release_sha}. Vercel HAS deployed the new frontend. "
+        f"Roll back with: backend/.venv/bin/python scripts/release.py rollback {pre_release_sha}"
+    )
 
 
 def fetch_railway_latest_deployment(service: str, timeout: int) -> Optional[dict]:
@@ -390,7 +429,12 @@ def verdict_mcp_flag(railway_present: dict, vercel_present: Optional[bool]) -> C
 # ── check orchestration ──────────────────────────────────────────────────
 
 
-def run_check(repo_root: Path = REPO_ROOT, allow_worktree: bool = False, timeout: int = REMOTE_TIMEOUT) -> list[CheckItem]:
+def run_check(
+    repo_root: Path = REPO_ROOT,
+    allow_worktree: bool = False,
+    timeout: int = REMOTE_TIMEOUT,
+    railway_branch_confirmed: bool = False,
+) -> list[CheckItem]:
     items: list[CheckItem] = []
 
     cwd_ok = allow_worktree or (Path.cwd() == repo_root)
@@ -410,9 +454,16 @@ def run_check(repo_root: Path = REPO_ROOT, allow_worktree: bool = False, timeout
             dep = fetch_railway_latest_deployment(service, timeout)
             branch_name = (dep or {}).get("meta", {}).get("branch")
         except RemoteError as exc:
-            items.append(CheckItem(f"railway_branch_{service}", f"Railway {service} deploy branch", "amber", str(exc)))
+            if railway_branch_confirmed:
+                items.append(CheckItem(
+                    f"railway_branch_{service}", f"Railway {service} deploy branch", "amber",
+                    f"latest deployment came from an unknown branch (Railway CLI error: {exc}); operator "
+                    "confirmed the service now deploys from release (dashboard), will be verified after the push",
+                ))
+            else:
+                items.append(CheckItem(f"railway_branch_{service}", f"Railway {service} deploy branch", "amber", str(exc)))
             continue
-        items.append(verdict_railway_branch(service, branch_name))
+        items.append(verdict_railway_branch(service, branch_name, confirmed=railway_branch_confirmed))
 
     try:
         workdir = link_vercel(timeout)
@@ -643,7 +694,10 @@ def utc_release_tag(now: Optional[datetime] = None) -> str:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    items = run_check(REPO_ROOT, allow_worktree=args.allow_worktree, timeout=args.timeout)
+    items = run_check(
+        REPO_ROOT, allow_worktree=args.allow_worktree, timeout=args.timeout,
+        railway_branch_confirmed=args.railway_branch_confirmed,
+    )
     print_check_table(items)
     return 1 if has_red(items) else 0
 
@@ -678,7 +732,10 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         return 1
 
     print("Running preconditions (scripts/release.py check)...")
-    items = run_check(REPO_ROOT, allow_worktree=args.allow_worktree, timeout=args.timeout)
+    items = run_check(
+        REPO_ROOT, allow_worktree=args.allow_worktree, timeout=args.timeout,
+        railway_branch_confirmed=args.railway_branch_confirmed,
+    )
     print_check_table(items)
     if has_red(items):
         print("\nA check item is red, aborting.", file=sys.stderr)
@@ -707,9 +764,14 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("\n[dry-run] would run: git push origin main:release")
         print("[dry-run] would poll Vercel (up to 15 minutes) for a Ready production deployment newer than the push")
-        print("[dry-run] would poll Railway (both services) until latest deployment is SUCCESS at "
-              f"{main_sha[:8] if main_sha else '?'} (or, if still deploying from main, treat the current "
-              "SUCCESS deployment at that sha as done)")
+        if args.railway_branch_confirmed:
+            print("[dry-run] would poll Railway (both services) until latest deployment is SUCCESS at "
+                  f"{main_sha[:8] if main_sha else '?'} AND meta.branch == release (operator-confirmed dashboard "
+                  "switch); would verify Railway deployments carry branch=release")
+        else:
+            print("[dry-run] would poll Railway (both services) until latest deployment is SUCCESS at "
+                  f"{main_sha[:8] if main_sha else '?'} (or, if still deploying from main, treat the current "
+                  "SUCCESS deployment at that sha as done)")
         print("[dry-run] would run smoke checks: /api/health (200), /api/subscription (401), /api/mcp "
               "(404 or report code), /api/accounts (401), homepage (200 + <title>), /terms (200), /privacy (200)")
         print(f"[dry-run] would tag {utc_release_tag()} on {main_sha}, push it, and print the summary")
@@ -737,6 +799,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         return 1
 
     railway_done = {s: False for s in RAILWAY_SERVICES}
+    railway_last_branch: dict[str, Optional[str]] = {s: None for s in RAILWAY_SERVICES}
     while time.time() < deadline and not all(railway_done.values()):
         for service in RAILWAY_SERVICES:
             if railway_done[service]:
@@ -745,16 +808,23 @@ def cmd_deploy(args: argparse.Namespace) -> int:
                 dep = fetch_railway_latest_deployment(service, args.timeout)
             except RemoteError:
                 continue
-            if not dep:
-                continue
-            commit = (dep.get("meta") or {}).get("commitHash", "")
-            if dep.get("status") == "SUCCESS" and commit.startswith(main_sha or "\0"):
+            if dep:
+                railway_last_branch[service] = (dep.get("meta") or {}).get("branch")
+            if railway_deployment_matches(dep, main_sha, require_release_branch=args.railway_branch_confirmed):
                 railway_done[service] = True
         if not all(railway_done.values()):
             time.sleep(DEPLOY_POLL_INTERVAL_S)
     if not all(railway_done.values()):
         pending = [s for s, ok in railway_done.items() if not ok]
-        print(f"Railway service(s) not at the released sha within 15 minutes: {', '.join(pending)}", file=sys.stderr)
+        if args.railway_branch_confirmed:
+            for service in pending:
+                print(railway_branch_mismatch_message(service, railway_last_branch.get(service), pre_release_sha), file=sys.stderr)
+        else:
+            # Without confirmation we cannot tell a same-sha `main` deployment
+            # (branch switch not done, or still propagating) from a genuine
+            # `release` deploy, so we keep the pre-existing commit-only
+            # tolerance and this generic message as the default behaviour.
+            print(f"Railway service(s) not at the released sha within 15 minutes: {', '.join(pending)}", file=sys.stderr)
         return 1
 
     smoke = run_smoke_checks()
@@ -859,6 +929,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_check = sub.add_parser("check", help="Run every precondition, print a red/amber/green table.")
     p_check.add_argument("--allow-worktree", action="store_true", help="Allow running from a worktree, not just the shared tree.")
+    p_check.add_argument(
+        "--railway-branch-confirmed", action="store_true",
+        help="Downgrade the two Railway deploy-branch check items to AMBER; the operator is asserting both "
+        "services were switched to release in the Railway dashboard. deploy then verifies it for real after "
+        "the push.",
+    )
     p_check.set_defaults(func=cmd_check)
 
     p_sync = sub.add_parser("sync-vars", help="Set one or more variables on both Railway services.")
@@ -871,11 +947,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_deploy = sub.add_parser("deploy", help="Check, then fast-forward release, poll, smoke-check, tag.")
     p_deploy.add_argument("--dry-run", action="store_true")
     p_deploy.add_argument("--allow-worktree", action="store_true", help="Allow check-only parts to run from a worktree (dry-run only; a real deploy always refuses outside the shared tree).")
+    p_deploy.add_argument(
+        "--railway-branch-confirmed", action="store_true",
+        help="Downgrade the two Railway deploy-branch check items to AMBER; the operator is asserting both "
+        "services were switched to release in the Railway dashboard. deploy then verifies it for real after "
+        "the push.",
+    )
     p_deploy.set_defaults(func=cmd_deploy)
 
     p_rollback = sub.add_parser("rollback", help="Force-with-lease release back to a known-good tag or sha.")
     p_rollback.add_argument("target", help="A release-YYYYMMDD-HHMM tag, or a sha that is an ancestor of main.")
     p_rollback.add_argument("--allow-worktree", action="store_true")
+    # Accepted here for CLI symmetry with check/deploy, but currently has no
+    # effect: cmd_rollback never calls run_check, so there is no precondition
+    # table for it to downgrade.
+    p_rollback.add_argument(
+        "--railway-branch-confirmed", action="store_true",
+        help="Downgrade the two Railway deploy-branch check items to AMBER; the operator is asserting both "
+        "services were switched to release in the Railway dashboard. deploy then verifies it for real after "
+        "the push.",
+    )
     p_rollback.set_defaults(func=cmd_rollback)
 
     return parser

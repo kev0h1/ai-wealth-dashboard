@@ -70,6 +70,12 @@ refused, if it has diverged, this tool never force-pushes); and the MCP
 connector flag being absent from both Railway and Vercel production
 (RED if either has it set, per A17/F7). Exit code 1 if anything is red.
 
+If the only red items are the two Railway branch checks and the branch
+has been switched in the Railway dashboard already, rerun with
+`--railway-branch-confirmed`: that downgrades both to AMBER instead of
+blocking, and `deploy` then proves the switch for real after the push
+rather than trusting the operator's word forever.
+
 ```bash
 backend/.venv/bin/python scripts/release.py sync-vars NAME[,NAME...] [--from backend/.env]
 ```
@@ -134,7 +140,7 @@ production release:
 ```
 Deploy Sorted to production. Follow docs/ops/RELEASE.md exactly and use only scripts/release.py for every production action.
 
-1. From /root/ai-wealth-dashboard on main, run `backend/.venv/bin/python scripts/release.py check`. If anything is red, stop and report it; do not try to work around a red item.
+1. From /root/ai-wealth-dashboard on main, run `backend/.venv/bin/python scripts/release.py check`. If anything is red, stop and report it; do not try to work around a red item. If the only red items are the two Railway branch checks, and the operator has confirmed in the message that both services were switched to release in the Railway dashboard, rerun check and then deploy with `--railway-branch-confirmed`; any other red stops the release.
 2. If the check lists production variables as missing, set them with `backend/.venv/bin/python scripts/release.py sync-vars <names>` from backend/.env (use `--generate BOT_SECRET` for the bot secret so production gets its own). Never print a value.
 3. Run `backend/.venv/bin/python scripts/release.py deploy`. Wait for it to finish; it pushes release, waits for Vercel and Railway, runs the smoke checks and tags the release.
 4. If deploy fails after the push, run `backend/.venv/bin/python scripts/release.py rollback <previous release sha printed by deploy>` and report.
