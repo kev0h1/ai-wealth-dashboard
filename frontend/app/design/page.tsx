@@ -69,6 +69,16 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "cards-outlook",
+    name: "cards-outlook",
+    description:
+      "G10 proposal: per-card outlook section for Cards, below THE TRAJECTORY (Kevin decision 2026-09-09, two coded variants before any CardsPage build) · A ledger rows: one row per carried card, rate pill (0% until date, muted, or APR, amber only when paying interest), +£/mo pace and clear month, cleared-monthly cards fold into one quiet line / B timeline: same lead line, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible two-column list below · fixtures derived from debt_plan.py's compute_debt_plan shape (services/debt_narration.get_debt_plan_view is uncalled by the live UI), no fetching · ?variant=a|b&state=carried|clear&mode=light|dark",
+    states: [
+      { label: "Carried", value: "carried" },
+      { label: "Clear", value: "clear" },
+    ],
+  },
+  {
     slug: "planning-plans",
     name: "planning-plans",
     description:
