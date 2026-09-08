@@ -133,6 +133,38 @@ kind=... executed_at=... source=penny`) to `journalctl -u wealth-api`.
 | `propose_create_commitment(name, amount, target_date, funding_pots?)` | `app.routers.commitments.create_commitment` | Medium — reserves a recurring per-period slice from safe-to-spend until the target date |
 | `propose_recategorise_transaction(transaction_ref, new_category, scope)` | `app.routers.transactions.update_transaction` (`scope="just_once"`), or that same function followed by `app.routers.categories.add_rule` (`scope="always"` — PATCH-then-rule, the same two-step order `TeachingSheet.tsx`'s own `commitSpend`-then-`handleAlways` already follows) | Medium — refiles one transaction, or one transaction plus every matching past one under a new rule; never touches the miscategorised-guardrail queue |
 | `propose_set_card_apr(card_ref, apr_pct)` | `app.routers.card_terms.save_card_terms` (read-modify-write: the existing terms doc is read first via that router's own `_serialize_terms`, every field but `apr_pct` carried forward unchanged) | Medium — sets one credit card's standard APR, feeds the card plan and interest projections; VERBATIM-PROVENANCE gated, see "Doctrine amendment #2" below |
+| `propose_update_planned(planned_ref, name?, amount?, date?)` | `app.routers.planned.update_planned_expense` | Medium — changes a one-off's name/amount/date, not `account_id` (stays UI-only this stage) |
+| `propose_delete_planned(planned_ref)` | `app.routers.planned.delete_planned_expense` | Medium — removes a one-off from the projection entirely |
+| `propose_update_allocation(allocation_ref, name?, amount_per_period?, recurrence?, paused?)` | `app.routers.allocations.update_allocation` | Medium — changes an envelope's label/amount/recurrence or pauses/resumes it, not the fill account or match rule (stays UI-only this stage) |
+| `propose_delete_allocation(allocation_ref)` | `app.routers.allocations.delete_allocation` | Medium — deletes an envelope, its unfilled remainder stops being reserved |
+| `propose_update_commitment(commitment_ref, name?, amount?, target_date?)` | `app.routers.commitments.update_commitment` | Medium — changes a goal's name/amount/target date, not `funding_pots`/`contribute_delta`/`status` (stay UI-only this stage) |
+| `propose_delete_commitment(commitment_ref)` | `app.routers.commitments.delete_commitment` | Medium — cancels a goal (soft cancel, `status: "cancelled"`, never erased) |
+| `propose_delete_checkpoint(checkpoint_ref)` | `app.routers.checkpoints.delete_checkpoint` | Low — cancels an active spend aim; no PATCH exists on this object, so there is no edit twin |
+| `propose_skip_occurrence(key_or_name, date)` | `app.routers.analytics.skip_occurrence` | Medium — skips one occurrence of a recurring bill/income, reversible via `propose_clear_override` |
+| `propose_edit_occurrence(key_or_name, date, new_date?, new_amount?, scope)` | `app.routers.analytics.edit_upcoming` | Medium — overrides one occurrence's date/amount (`scope` "one" or "future"), reversible via `propose_clear_override` |
+| `propose_clear_override(key_or_name, date)` | `app.routers.analytics.clear_override` | Low — reverts a prior skip/edit override on one occurrence |
+
+**B14, 2026-09-08 (B12 stage 1).** Ten edit/delete twins for the covered
+creates above, still entirely propose-only through the same
+`_create_proposal`/`penny_proposals_col` machinery and the same consent
+gate — nothing about the CORE PRINCIPLE or the gate changed, these are
+just more `kind`s in the same proposal-row shape. Every resolver (
+`_resolve_planned_for_propose`/`_resolve_allocation_for_propose`/
+`_resolve_commitment_for_propose`/`_resolve_checkpoint_for_propose`)
+follows the SAME id-then-name, ambiguous-returns-matches pattern as every
+resolver before it, reading the user's own list (GET /planned,
+GET /allocations, GET /commitments, `checkpoints.list_active`)
+rather than trusting a raw id the model supplies. `propose_skip_occurrence`
+/`propose_edit_occurrence`/`propose_clear_override` reuse
+`_resolve_recurring_key` (the same resolver `propose_dismiss_recurring`
+already uses) for `key_or_name`, since a recurring-occurrence key and a
+recurring-series key are the same value in this engine. Where a router
+extracts its own `_validate_*` functions (allocations.py, commitments.py)
+those are imported directly; where it validates inline (planned.py,
+checkpoints.py, the cashflow-override endpoints in analytics.py) the
+propose-side mirrors the same checks line-for-line, each call site noting
+which router lines it mirrors. Full inventory update in
+`docs/penny/action-inventory.md`.
 
 **Doctrine amendment, 2026-08-30 (same day as the v1 launch above).** The
 owner watched Penny answer "Can I change this category" with manual

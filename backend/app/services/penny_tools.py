@@ -773,6 +773,242 @@ PROPOSE_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "propose_update_planned",
+            "description": (
+                "Propose changing a planned one-off's name, amount, and/or "
+                "date, the same thing PlannedEditSheet's save does. "
+                "`planned_ref` may be an id or a name from get_upcoming_bills "
+                "(its `planned`/`planned_id` fields), an ambiguous name "
+                "returns a list to disambiguate from. At least one of name, "
+                "amount, date must be given. A new date must be today or "
+                "later, unless it equals the item's current date."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "planned_ref": {"type": "string", "description": "A planned expense's id or name."},
+                    "name": {"type": "string", "description": "Optional: a new short label."},
+                    "amount": {"type": "number", "description": "Optional: a new £ amount, must be positive."},
+                    "date": {"type": "string", "description": "Optional: a new ISO date (YYYY-MM-DD), today or later."},
+                },
+                "required": ["planned_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_planned",
+            "description": (
+                "Propose removing a planned one-off from the projection "
+                "entirely, the same thing the delete control on Planning "
+                "does. `planned_ref` may be an id or a name from "
+                "get_upcoming_bills, an ambiguous name returns a list to "
+                "disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "planned_ref": {"type": "string", "description": "A planned expense's id or name."},
+                },
+                "required": ["planned_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_update_allocation",
+            "description": (
+                "Propose changing an allocation's (envelope's) name, "
+                "amount per period, recurrence, or pausing/resuming it, "
+                "the same fields AllocationSheet's pause/resume and its "
+                "own save cover, EXCEPT which account or payment fills it "
+                "(that still needs the app's own sheet). `allocation_ref` "
+                "may be an id or a name from get_fill_candidates or a "
+                "prior get_accounts/allocations mention, an ambiguous name "
+                "returns a list to disambiguate from. At least one of "
+                "name, amount_per_period, recurrence, paused must be given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "allocation_ref": {"type": "string", "description": "An allocation's id or name."},
+                    "name": {"type": "string", "description": "Optional: a new short label."},
+                    "amount_per_period": {"type": "number", "description": "Optional: a new £ amount reserved each period, must be positive."},
+                    "recurrence": {"type": "string", "enum": ["every_period", "once"], "description": "Optional: a new recurrence."},
+                    "paused": {"type": "boolean", "description": "Optional: true to pause it, false to resume it."},
+                },
+                "required": ["allocation_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_allocation",
+            "description": (
+                "Propose deleting an allocation (envelope) entirely, the "
+                "same thing AllocationSheet's delete control does. "
+                "`allocation_ref` may be an id or a name, an ambiguous "
+                "name returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "allocation_ref": {"type": "string", "description": "An allocation's id or name."},
+                },
+                "required": ["allocation_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_update_commitment",
+            "description": (
+                "Propose changing a commitment/goal's name, total amount, "
+                "and/or target date, the same fields CommitmentSheet's "
+                "edit covers EXCEPT its funding pots (that still needs the "
+                "app's own sheet). `commitment_ref` may be an id or a name "
+                "from get_goals, an ambiguous name returns a list to "
+                "disambiguate from. At least one of name, amount, "
+                "target_date must be given."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "commitment_ref": {"type": "string", "description": "A commitment's id or name."},
+                    "name": {"type": "string", "description": "Optional: a new short label."},
+                    "amount": {"type": "number", "description": "Optional: a new total £ amount needed, must be positive."},
+                    "target_date": {"type": "string", "description": "Optional: a new ISO date (YYYY-MM-DD), today or later."},
+                },
+                "required": ["commitment_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_commitment",
+            "description": (
+                "Propose cancelling a commitment/goal, the same thing "
+                "CommitmentSheet's cancel control does (the record is kept "
+                "as cancelled, not erased, so history stays honest). "
+                "`commitment_ref` may be an id or a name from get_goals, "
+                "an ambiguous name returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "commitment_ref": {"type": "string", "description": "A commitment's id or name."},
+                },
+                "required": ["commitment_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_delete_checkpoint",
+            "description": (
+                "Propose cancelling an active aim/checkpoint on a spend "
+                "category, the same thing cancelling an aim on Spend or "
+                "Mirror does. There is no separate edit tool for this, "
+                "cancel and (if wanted) set a new one via `get_mirror`'s "
+                "own aim-setting surface in the app. `checkpoint_ref` may "
+                "be an id or the category name it's set on (from "
+                "get_mirror's active aims), an ambiguous name returns a "
+                "list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "checkpoint_ref": {"type": "string", "description": "An aim's id or the category name it's set on."},
+                },
+                "required": ["checkpoint_ref"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_skip_occurrence",
+            "description": (
+                "Propose skipping ONE upcoming occurrence of a recurring "
+                "bill or income (it stops appearing in that one date's "
+                "projection only, the series itself keeps recurring "
+                "afterwards), the same thing UpcomingEditSheet's skip "
+                "control does. Reversible via propose_clear_override with "
+                "the same key_or_name and date. `key_or_name` may be the "
+                "exact series key/name (from get_recurring_payments or "
+                "get_upcoming_bills) or a partial name, an ambiguous name "
+                "returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key_or_name": {"type": "string", "description": "A recurring series key or name."},
+                    "date": {"type": "string", "description": "ISO date (YYYY-MM-DD) of the specific occurrence to skip."},
+                },
+                "required": ["key_or_name", "date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_edit_occurrence",
+            "description": (
+                "Propose overriding ONE upcoming occurrence's date and/or "
+                "amount, the same thing UpcomingEditSheet's edit control "
+                "does. `scope` 'one' changes only the occurrence on `date`; "
+                "'future' also changes every later occurrence of this same "
+                "series. Reversible via propose_clear_override with the "
+                "same key_or_name and date. At least one of new_date, "
+                "new_amount must be given. `key_or_name` may be the exact "
+                "series key/name (from get_recurring_payments or "
+                "get_upcoming_bills) or a partial name, an ambiguous name "
+                "returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key_or_name": {"type": "string", "description": "A recurring series key or name."},
+                    "date": {"type": "string", "description": "ISO date (YYYY-MM-DD) of the specific occurrence to change."},
+                    "new_date": {"type": "string", "description": "Optional: a new ISO date (YYYY-MM-DD) for this occurrence."},
+                    "new_amount": {"type": "number", "description": "Optional: a new £ amount for this occurrence, must be positive."},
+                    "scope": {"type": "string", "enum": ["one", "future"], "description": "'one' changes just this occurrence, 'future' also changes every later one in the series."},
+                },
+                "required": ["key_or_name", "date", "scope"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_clear_override",
+            "description": (
+                "Propose clearing a previous skip or edit on ONE upcoming "
+                "occurrence, reverting it to the engine's own predicted "
+                "date and amount, the same thing UpcomingEditSheet's "
+                "'Clear override' control does. `key_or_name` may be the "
+                "exact series key/name or a partial name, an ambiguous "
+                "name returns a list to disambiguate from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key_or_name": {"type": "string", "description": "A recurring series key or name."},
+                    "date": {"type": "string", "description": "ISO date (YYYY-MM-DD) of the specific occurrence to revert."},
+                },
+                "required": ["key_or_name", "date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "propose_recategorise_transaction",
             "description": (
                 "Propose refiling ONE transaction under a different "
@@ -2976,6 +3212,135 @@ async def _resolve_recurring_key(uid: str, key_or_name: str, *, dismissed: bool)
     }
 
 
+# ── B14 (B12 stage 1) resolvers — edit/delete twins for the covered
+# creates ────────────────────────────────────────────────────────────────
+# Same doctrine as every resolver above: id short-circuits, otherwise
+# case-insensitive (then word-level) name match against the SAME list the
+# app's own screen reads, ambiguous returns candidates rather than
+# guessing. Each of these lists the user's OWN records only (the router
+# list functions are already user-scoped by `user_id`), so this is also
+# the ownership check.
+async def _resolve_planned_for_propose(uid: str, planned_ref: str) -> dict:
+    """Resolves against GET /planned's own list (active planned one-offs
+    only, matching what PlannedEditSheet and the Planning page itself show
+    — a `status != "planned"` row, e.g. already matched to a transaction,
+    is not a candidate here)."""
+    from app.routers.planned import list_planned_expenses as _route_list_planned
+
+    items = await _route_list_planned(user={"email": uid})
+    if not items:
+        return {"error": f"no planned expense matching '{planned_ref}'", "available": []}
+    target = next((p for p in items if p["id"] == planned_ref), None)
+    if target is None:
+        matches = [p for p in items if _name_matches(planned_ref, p["name"])]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [
+                    {"id": p["id"], "name": p["name"], "amount": _money(p["amount"]), "date": p["date"]}
+                    for p in matches
+                ],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no planned expense matching '{planned_ref}'", "available": [p["name"] for p in items]}
+    return {"planned": target}
+
+
+async def _resolve_allocation_for_propose(uid: str, allocation_ref: str) -> dict:
+    """Resolves against GET /allocations' own list, active AND paused (a
+    paused allocation is still a legitimate target to rename, resume, or
+    delete)."""
+    from app.routers.allocations import list_allocations as _route_list_allocations
+
+    resp = await _route_list_allocations(user={"email": uid})
+    items = resp.get("items") or []
+    if not items:
+        return {"error": f"no allocation matching '{allocation_ref}'", "available": []}
+    target = next((a for a in items if a["id"] == allocation_ref), None)
+    if target is None:
+        matches = [a for a in items if _name_matches(allocation_ref, a.get("name") or "")]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [
+                    {"id": a["id"], "name": a["name"], "amount_per_period": _money(a["amount_per_period"])}
+                    for a in matches
+                ],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no allocation matching '{allocation_ref}'", "available": [a["name"] for a in items]}
+    return {"allocation": target}
+
+
+async def _resolve_commitment_for_propose(uid: str, commitment_ref: str) -> dict:
+    """Resolves against GET /commitments' own list (non-cancelled plans —
+    the same set list_commitments itself returns; an already-cancelled
+    commitment is not a candidate to edit or cancel again)."""
+    from app.routers.commitments import list_commitments as _route_list_commitments
+
+    resp = await _route_list_commitments(user={"email": uid})
+    items = resp.get("items") or []
+    if not items:
+        return {"error": f"no commitment matching '{commitment_ref}'", "available": []}
+    target = next((c for c in items if c["id"] == commitment_ref), None)
+    if target is None:
+        matches = [c for c in items if _name_matches(commitment_ref, c.get("name") or "")]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [{"id": c["id"], "name": c["name"], "amount": _money(c.get("amount"))} for c in matches],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no commitment matching '{commitment_ref}'", "available": [c["name"] for c in items]}
+    return {"commitment": target}
+
+
+async def _resolve_checkpoint_for_propose(uid: str, checkpoint_ref: str) -> dict:
+    """Resolves against the user's own active aims (`list_active`, the
+    same data GET /checkpoints and get_mirror both read) by id or by `ref`
+    (the category name the aim is set on, e.g. 'Groceries')."""
+    items = await _list_active_checkpoints(uid)
+    if not items:
+        return {"error": f"no active aim matching '{checkpoint_ref}'", "available": []}
+    target = next((c for c in items if c["id"] == checkpoint_ref), None)
+    if target is None:
+        matches = [c for c in items if _name_matches(checkpoint_ref, c.get("ref") or "")]
+        if len(matches) > 1:
+            return {
+                "ambiguous": True,
+                "matches": [{"id": c["id"], "ref": c["ref"], "aim_amount": _money(c.get("aim_amount"))} for c in matches],
+            }
+        target = matches[0] if matches else None
+    if target is None:
+        return {"error": f"no active aim matching '{checkpoint_ref}'", "available": [c["ref"] for c in items]}
+    return {"checkpoint": target}
+
+
+async def _find_occurrence_detail(uid: str, key: str, date_str: str) -> dict | None:
+    """Best-effort lookup of ONE upcoming-bill occurrence's current
+    display fields (name/amount) for a nicer proposal summary. Never
+    required for a skip/edit/clear-override proposal to be valid — the
+    routers themselves perform no existence check either (they upsert an
+    override doc for key+date unconditionally) — so a miss here (a
+    further-future occurrence outside the projection window, or one
+    already past) just falls back to a plainer summary, never blocks the
+    proposal."""
+    try:
+        cached = await _load_cashflow_cache(uid)
+        if cached is None:
+            return None
+        resp = await _build_cashflow_response(cached, uid=uid)
+    except Exception:
+        return None
+    for b in resp.get("upcoming_bills") or []:
+        if b.get("name") == key and (b.get("expected_date") == date_str or b.get("original_date") == date_str):
+            return b
+    return None
+
+
 def _last4(account_number: str | None) -> str | None:
     """Only ever the trailing 4 characters of the stored account_number
     field, never the full value — this module's other resolvers never
@@ -3249,6 +3614,412 @@ async def _exec_propose_create_commitment(uid: str, name, amount, target_date, f
     summary = f"Plan '{name}' for {amount_fmt} by {target_date}"
     params = {"name": name, "amount": amount, "target_date": target_date, "funding_pots": resolved_pots}
     return await _create_proposal(uid, "create_commitment", params, summary, consequence)
+
+
+# ── B14 (B12 stage 1) — edit/delete twins for the covered creates ────────
+# Owner spec, 2026-09-08: every one of the six write-capable objects Penny
+# can already CREATE (planned one-offs, allocations, commitments) or ACT ON
+# (checkpoints, recurring occurrences) gets a matching update/delete
+# propose tool, still entirely propose-only through `_create_proposal` —
+# the consent gate above is untouched, these are just more `kind`s in the
+# same `penny_proposals_col` row shape. Every validator below is IMPORTED
+# from the router it mirrors wherever one exists as a module-level function
+# (allocations.py's and commitments.py's `_validate_*`); planned.py,
+# checkpoints.py and analytics.py's cashflow-override endpoints validate
+# inline with no extracted function to import, so those are mirrored
+# line-for-line instead, each call site noting which router lines it
+# mirrors so the two can never quietly drift apart.
+async def _exec_propose_update_planned(uid: str, planned_ref, name=None, amount=None, date_str=None) -> dict:
+    if not planned_ref or not str(planned_ref).strip():
+        return _tool_error("planned_ref required")
+    resolved = await _resolve_planned_for_propose(uid, str(planned_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["planned"]
+
+    # Mirrors app.routers.planned.update_planned_expense's own per-field
+    # validation exactly (that router has no extracted `_validate_*`
+    # functions to import).
+    updates: dict = {}
+    if name is not None:
+        new_name = str(name).strip()
+        if not new_name:
+            return _tool_error("name is required and must not be blank")
+        updates["name"] = new_name
+    if amount is not None:
+        try:
+            amt = float(amount)
+            if amt <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return _tool_error("amount must be a positive number")
+        updates["amount"] = round(amt, 2)
+    if date_str is not None:
+        try:
+            new_date = date.fromisoformat(str(date_str))
+        except (TypeError, ValueError):
+            return _tool_error("date must be an ISO date string (YYYY-MM-DD)")
+        stored_date = date.fromisoformat(doc["date"])
+        # Grandfathering: an unchanged date is always accepted even if it
+        # has since rolled into the past, exactly like the router.
+        if new_date != stored_date and new_date < date.today():
+            return _tool_error("date must be today or in the future")
+        updates["date"] = new_date.isoformat()
+
+    # A propose tool with nothing to change is a wasted round-trip — the
+    # router itself tolerates an empty body (returns the item unchanged),
+    # but a proposal claiming to change nothing would be a confusing card
+    # to confirm, so this refuses it before it ever becomes one.
+    if not updates:
+        return _tool_error("at least one of name, amount, or date is required")
+
+    before_amount_fmt = _money(doc["amount"])["formatted"]
+    before_date = doc["date"]
+    label = doc["name"]
+    bits = []
+    if "amount" in updates:
+        bits.append(f"from {before_amount_fmt} to {_money(updates['amount'])['formatted']}")
+    if "date" in updates and updates["date"] != before_date:
+        new_date_label = date.fromisoformat(updates["date"]).strftime("%-d %b")
+        bits.append(f"on {new_date_label}" if "amount" in updates else f"date to {new_date_label}")
+    if "name" in updates and updates["name"] != label:
+        bits.append(f"name to '{updates['name']}'")
+    summary = f"Change the {label} one-off " + " ".join(bits) if bits else f"Update the {label} one-off"
+    consequence = "Adjusts what's shown as spendable around that date, nothing else changes."
+    params = {"planned_id": doc["id"], **updates}
+    return await _create_proposal(uid, "update_planned", params, summary, consequence)
+
+
+async def _exec_propose_delete_planned(uid: str, planned_ref) -> dict:
+    if not planned_ref or not str(planned_ref).strip():
+        return _tool_error("planned_ref required")
+    resolved = await _resolve_planned_for_propose(uid, str(planned_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["planned"]
+
+    amount_fmt = _money(doc["amount"])["formatted"]
+    date_label = date.fromisoformat(doc["date"]).strftime("%-d %b")
+    summary = f"Delete the {doc['name']} one-off ({amount_fmt} on {date_label})"
+    consequence = "This stops reducing what's shown as spendable around that date."
+    params = {"planned_id": doc["id"]}
+    return await _create_proposal(uid, "delete_planned", params, summary, consequence)
+
+
+async def _exec_propose_update_allocation(
+    uid: str, allocation_ref, name=None, amount_per_period=None, recurrence=None, paused=None,
+) -> dict:
+    # Owner scope, 2026-09-08: only name/amount_per_period/recurrence/paused
+    # are exposed here — fill_account_id/match_type/match_value/
+    # effective_from stay UI-only for this stage (re-pointing WHAT fills an
+    # envelope is a bigger trust step than renaming or resizing one).
+    from app.routers.allocations import (
+        _conflicts as _alloc_conflicts,
+        _validate_amount as _alloc_validate_amount,
+        _validate_name as _alloc_validate_name,
+        _validate_recurrence as _alloc_validate_recurrence,
+    )
+
+    if not allocation_ref or not str(allocation_ref).strip():
+        return _tool_error("allocation_ref required")
+    resolved = await _resolve_allocation_for_propose(uid, str(allocation_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["allocation"]
+
+    updates: dict = {}
+    if name is not None:
+        try:
+            updates["name"] = _alloc_validate_name(name)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+    if amount_per_period is not None:
+        try:
+            updates["amount_per_period"] = _alloc_validate_amount(amount_per_period)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+    if recurrence is not None:
+        try:
+            updates["recurrence"] = _alloc_validate_recurrence(recurrence)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+    if paused is not None:
+        updates["active"] = not bool(paused)
+
+    if not updates:
+        return _tool_error("at least one of name, amount_per_period, recurrence, or paused is required")
+
+    # Same re-check the router itself runs whenever the effective
+    # (fill_account_id, match_type, match_value, active, recurrence) tuple
+    # changes: toggling paused->active, or switching recurrence, can revive
+    # a rule another allocation has since claimed. fill_account_id/
+    # match_type/match_value are never touched by this tool, so only
+    # "active"/"recurrence" can trigger it here.
+    eff_active = updates.get("active", doc["active"])
+    if eff_active and ("active" in updates or "recurrence" in updates):
+        from bson import ObjectId as _ObjectId
+        from bson.errors import InvalidId as _InvalidId
+
+        try:
+            exclude_id = _ObjectId(doc["id"])
+        except (_InvalidId, TypeError):
+            exclude_id = doc["id"]
+        if await _alloc_conflicts(
+            uid, doc["fill_account_id"], doc["match_type"], doc["match_value"], exclude_id=exclude_id,
+        ):
+            return _tool_error("an active allocation already fills from this payment")
+
+    label = doc["name"]
+    amount_fmt = _money(doc["amount_per_period"])["formatted"]
+    if paused is True:
+        summary = f"Pause the {label} allocation ({amount_fmt} per period)"
+        consequence = "Frees up its unfilled remainder in safe to spend until you resume it."
+    elif paused is False:
+        summary = f"Resume the {label} allocation ({amount_fmt} per period)"
+        consequence = "Reserves its unfilled remainder from safe to spend again."
+    else:
+        bits = []
+        if "amount_per_period" in updates:
+            bits.append(f"to {_money(updates['amount_per_period'])['formatted']} per period")
+        if "name" in updates:
+            bits.append(f"name to '{updates['name']}'")
+        if "recurrence" in updates:
+            bits.append("to a one-off this period" if updates["recurrence"] == "once" else "to repeat every period")
+        summary = f"Change the {label} allocation " + ", ".join(bits) if bits else f"Update the {label} allocation"
+        consequence = "Changes how much this allocation reserves from safe to spend."
+    params = {"allocation_id": doc["id"], **updates}
+    return await _create_proposal(uid, "update_allocation", params, summary, consequence)
+
+
+async def _exec_propose_delete_allocation(uid: str, allocation_ref) -> dict:
+    if not allocation_ref or not str(allocation_ref).strip():
+        return _tool_error("allocation_ref required")
+    resolved = await _resolve_allocation_for_propose(uid, str(allocation_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["allocation"]
+
+    amount_fmt = _money(doc["amount_per_period"])["formatted"]
+    summary = f"Delete the {doc['name']} envelope ({amount_fmt} per pay period)"
+    consequence = "Its unfilled remainder stops being reserved from safe to spend."
+    params = {"allocation_id": doc["id"]}
+    return await _create_proposal(uid, "delete_allocation", params, summary, consequence)
+
+
+async def _exec_propose_update_commitment(uid: str, commitment_ref, name=None, amount=None, target_date=None) -> dict:
+    from app.routers.commitments import (
+        _validate_amount as _cm_validate_amount,
+        _validate_name as _cm_validate_name,
+        _validate_target_date as _cm_validate_target_date,
+    )
+
+    if not commitment_ref or not str(commitment_ref).strip():
+        return _tool_error("commitment_ref required")
+    resolved = await _resolve_commitment_for_propose(uid, str(commitment_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["commitment"]
+
+    updates: dict = {}
+    if name is not None:
+        try:
+            updates["name"] = _cm_validate_name(name)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+    if amount is not None:
+        try:
+            updates["amount"] = _cm_validate_amount(amount)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+    if target_date is not None:
+        try:
+            updates["target_date"] = _cm_validate_target_date(target_date)
+        except HTTPException as e:
+            return _tool_error(str(e.detail))
+
+    if not updates:
+        return _tool_error("at least one of name, amount, or target_date is required")
+
+    label = doc["name"]
+    bits = []
+    if "amount" in updates:
+        bits.append(f"from {_money(doc.get('amount'))['formatted']} to {_money(updates['amount'])['formatted']}")
+    if "target_date" in updates and updates["target_date"] != doc.get("target_date"):
+        bits.append(f"target date to {updates['target_date']}")
+    if "name" in updates and updates["name"] != label:
+        bits.append(f"name to '{updates['name']}'")
+    summary = f"Change the {label} plan " + ", ".join(bits) if bits else f"Update the {label} plan"
+    consequence = "This changes how much it needs each pay period, re-worked from the new figures."
+    params = {"commitment_id": doc["id"], **updates}
+    return await _create_proposal(uid, "update_commitment", params, summary, consequence)
+
+
+async def _exec_propose_delete_commitment(uid: str, commitment_ref) -> dict:
+    if not commitment_ref or not str(commitment_ref).strip():
+        return _tool_error("commitment_ref required")
+    resolved = await _resolve_commitment_for_propose(uid, str(commitment_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["commitment"]
+
+    amount_fmt = _money(doc.get("amount"))["formatted"]
+    target = doc.get("target_date")
+    label = doc["name"]
+    summary = f"Cancel the {label} plan ({amount_fmt} by {target})" if target else f"Cancel the {label} plan ({amount_fmt})"
+    consequence = "Its per-period slice stops being reserved from safe to spend."
+    params = {"commitment_id": doc["id"]}
+    return await _create_proposal(uid, "delete_commitment", params, summary, consequence)
+
+
+async def _exec_propose_delete_checkpoint(uid: str, checkpoint_ref) -> dict:
+    if not checkpoint_ref or not str(checkpoint_ref).strip():
+        return _tool_error("checkpoint_ref required")
+    resolved = await _resolve_checkpoint_for_propose(uid, str(checkpoint_ref).strip())
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    doc = resolved["checkpoint"]
+
+    amount_fmt = _money(doc.get("aim_amount"))["formatted"]
+    summary = f"Cancel your {doc['ref']} aim ({amount_fmt} this period)"
+    consequence = "Stops tracking progress against this aim for the rest of the period."
+    params = {"checkpoint_id": doc["id"]}
+    return await _create_proposal(uid, "delete_checkpoint", params, summary, consequence)
+
+
+async def _exec_propose_skip_occurrence(uid: str, key_or_name, date_str) -> dict:
+    # Mirrors app.routers.analytics.skip_occurrence's own validation
+    # (key/date required, date must be ISO) exactly.
+    if not key_or_name or not str(key_or_name).strip():
+        return _tool_error("key_or_name required")
+    date_str = str(date_str or "").strip()
+    if not date_str:
+        return _tool_error("date required")
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        return _tool_error("invalid date format, use ISO 8601 (YYYY-MM-DD)")
+
+    resolved = await _resolve_recurring_key(uid, str(key_or_name).strip(), dismissed=False)
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    key = resolved["key"]
+
+    occ = await _find_occurrence_detail(uid, key, date_str)
+    date_label = date.fromisoformat(date_str).strftime("%-d %b")
+    if occ and occ.get("amount") is not None:
+        amount_fmt = _money(occ["amount"])["formatted"]
+        summary = f"Skip the {key} payment of {amount_fmt} on {date_label}"
+    else:
+        summary = f"Skip the {key} payment on {date_label}"
+    consequence = "This occurrence stops counting in your upcoming bills and predictions. You can undo it from Upcoming."
+    params = {"key": key, "date": date_str}
+    return await _create_proposal(uid, "skip_occurrence", params, summary, consequence)
+
+
+async def _exec_propose_edit_occurrence(
+    uid: str, key_or_name, date_str, new_date=None, new_amount=None, scope=None,
+) -> dict:
+    # Mirrors app.routers.analytics.edit_upcoming's own validation exactly,
+    # including its scope enum ("one" | "future" — never "all").
+    if not key_or_name or not str(key_or_name).strip():
+        return _tool_error("key_or_name required")
+    date_str = str(date_str or "").strip()
+    if not date_str:
+        return _tool_error("date required")
+    scope = str(scope or "").strip()
+    if scope not in ("one", "future"):
+        return _tool_error("scope must be 'one' or 'future'")
+    try:
+        date.fromisoformat(date_str)
+        if new_date:
+            date.fromisoformat(str(new_date))
+    except (TypeError, ValueError):
+        return _tool_error("invalid date format, use ISO 8601 (YYYY-MM-DD)")
+    if new_amount is not None:
+        try:
+            new_amount = float(new_amount)
+            if new_amount <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return _tool_error("new_amount must be a positive number")
+    if new_date is None and new_amount is None:
+        return _tool_error("at least one of new_date or new_amount must be provided")
+
+    resolved = await _resolve_recurring_key(uid, str(key_or_name).strip(), dismissed=False)
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    key = resolved["key"]
+
+    occ = await _find_occurrence_detail(uid, key, date_str)
+    date_label = date.fromisoformat(date_str).strftime("%-d %b")
+    bits = []
+    if new_amount is not None:
+        if occ and occ.get("amount") is not None:
+            bits.append(
+                f"from {_money(occ['amount'])['formatted']} to {_money(new_amount)['formatted']}"
+            )
+        else:
+            bits.append(f"to {_money(new_amount)['formatted']}")
+    if new_date is not None:
+        new_date_label = date.fromisoformat(str(new_date)).strftime("%-d %b")
+        bits.append(f"date to {new_date_label}")
+    scope_note = "" if scope == "one" else " and every future occurrence"
+    summary = f"Change the {key} payment on {date_label} " + ", ".join(bits) + scope_note
+    consequence = (
+        "This changes what's expected in your upcoming bills and predictions, "
+        "it doesn't move any money itself."
+    )
+    params = {
+        "key": key, "date": date_str, "scope": scope,
+        "new_date": str(new_date) if new_date is not None else None,
+        "new_amount": round(new_amount, 2) if new_amount is not None else None,
+    }
+    return await _create_proposal(uid, "edit_occurrence", params, summary, consequence)
+
+
+async def _exec_propose_clear_override(uid: str, key_or_name, date_str) -> dict:
+    # Mirrors app.routers.analytics.clear_override's own validation exactly
+    # — that endpoint only requires key/date to be non-blank, it never
+    # checks the date is a valid ISO date, so this doesn't either.
+    if not key_or_name or not str(key_or_name).strip():
+        return _tool_error("key_or_name required")
+    date_str = str(date_str or "").strip()
+    if not date_str:
+        return _tool_error("date required")
+
+    resolved = await _resolve_recurring_key(uid, str(key_or_name).strip(), dismissed=False)
+    if resolved.get("ambiguous"):
+        return resolved
+    if resolved.get("error"):
+        return _tool_error(resolved["error"])
+    key = resolved["key"]
+
+    try:
+        date_label = date.fromisoformat(date_str).strftime("%-d %b")
+    except ValueError:
+        date_label = date_str
+    summary = f"Clear the change on the {key} payment's {date_label} occurrence"
+    consequence = "Reverts to the predicted date and amount for that occurrence."
+    params = {"key": key, "date": date_str}
+    return await _create_proposal(uid, "clear_override", params, summary, consequence)
 
 
 # ── propose_recategorise_transaction ─────────────────────────────────────
@@ -3614,6 +4385,36 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
             return await _exec_propose_create_commitment(
                 uid, args.get("name"), args.get("amount"), args.get("target_date"), args.get("funding_pots"),
             )
+        if name == "propose_update_planned":
+            return await _exec_propose_update_planned(
+                uid, args.get("planned_ref"), args.get("name"), args.get("amount"), args.get("date"),
+            )
+        if name == "propose_delete_planned":
+            return await _exec_propose_delete_planned(uid, args.get("planned_ref"))
+        if name == "propose_update_allocation":
+            return await _exec_propose_update_allocation(
+                uid, args.get("allocation_ref"), args.get("name"), args.get("amount_per_period"),
+                args.get("recurrence"), args.get("paused"),
+            )
+        if name == "propose_delete_allocation":
+            return await _exec_propose_delete_allocation(uid, args.get("allocation_ref"))
+        if name == "propose_update_commitment":
+            return await _exec_propose_update_commitment(
+                uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
+            )
+        if name == "propose_delete_commitment":
+            return await _exec_propose_delete_commitment(uid, args.get("commitment_ref"))
+        if name == "propose_delete_checkpoint":
+            return await _exec_propose_delete_checkpoint(uid, args.get("checkpoint_ref"))
+        if name == "propose_skip_occurrence":
+            return await _exec_propose_skip_occurrence(uid, args.get("key_or_name"), args.get("date"))
+        if name == "propose_edit_occurrence":
+            return await _exec_propose_edit_occurrence(
+                uid, args.get("key_or_name"), args.get("date"), args.get("new_date"),
+                args.get("new_amount"), args.get("scope"),
+            )
+        if name == "propose_clear_override":
+            return await _exec_propose_clear_override(uid, args.get("key_or_name"), args.get("date"))
         if name == "propose_recategorise_transaction":
             return await _exec_propose_recategorise_transaction(
                 uid, args.get("transaction_id"), args.get("merchant"), args.get("date"), args.get("amount"),
