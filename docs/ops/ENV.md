@@ -120,6 +120,20 @@ preview`, project `kev0h1s-projects/ai-wealth-dashboard`), every
 `NEXT_PUBLIC_*` flag above is unset there, which is the intended state for
 all of them right now.
 
+## Release tooling (`scripts/release.py` only, not tracked by `env_drift.py`)
+
+These two names live only in the shell environment of whatever runs
+`scripts/release.py deploy` from the shared tree (this VPS, operator shell);
+they are not part of `backend/.env`, `frontend/.env.local`, a Railway
+service, or the Vercel project, so `env_drift.py` (which only diffs those
+four places) does not know about them and never will. Listed here anyway so
+the manifest has a complete picture of everything `deploy` reads.
+
+| Variable | Read in | Present today | Notes |
+|---|---|---|---|
+| `CODEMAGIC_API_TOKEN` | `scripts/release.py` (`_codemagic_trigger_prod_build` / equivalent helper) | absent | optional; a Codemagic personal API token. When set together with `CODEMAGIC_APP_ID`, `deploy` POSTs to `https://api.codemagic.io/builds` after tagging a successful release to start the `ios-capacitor-prod` workflow on `release` (see DEPLOY.md's "Release trigger"). Missing it just means `deploy` warns and skips the trigger, it never fails the deploy. Never printed or logged by `release.py`. |
+| `CODEMAGIC_APP_ID` | `scripts/release.py` | absent | optional; the Codemagic application id for this repo (Codemagic UI: App settings -> General -> App ID), paired with `CODEMAGIC_API_TOKEN` above. |
+
 ## Known drift (2026-09-08)
 
 - **`FCM_PROJECT_ID`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_AUTH_KEY`**:

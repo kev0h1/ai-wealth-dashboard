@@ -2,23 +2,44 @@
 # The app bundles the Next.js static export (frontend/) inside a native WebView shell (capacitor-spike/).
 # Capacitor 8 iOS uses Swift Package Manager (no CocoaPods / Podfile).
 #
-# TWO WORKFLOWS, same build pipeline, different backend:
+# TWO WORKFLOWS, same build pipeline, different backend, different branch,
+# different TestFlight audience:
 #   - ios-capacitor:      bakes the UAT API (https://uat.wealth.auriqltd.co.uk/api).
-#                         Use this for day-to-day TestFlight builds while testing.
-#   - ios-capacitor-prod: bakes the production API directly
-#                         (https://api.wealth.auriqltd.co.uk, via `npm run
-#                         build:mobile:prod`). Trigger THIS workflow (Codemagic
-#                         UI: Start new build -> pick workflow, or the API/CLI
-#                         `--workflow ios-capacitor-prod`) to produce the
+#                         Triggers automatically on every push to `main` (what
+#                         UAT and the shared tree run). Publishes to the
+#                         "UAT testers" TestFlight beta group. Use this for
+#                         day-to-day TestFlight builds while testing.
+#   - ios-capacitor-prod: bakes the production API — still the Vercel-proxied
+#                         https://wealth.auriqltd.co.uk/api as of A18 (DNS for
+#                         api.wealth.auriqltd.co.uk doesn't exist yet), via
+#                         `npm run build:mobile:prod`. Triggers automatically
+#                         on every push to `release` (what `scripts/release.py
+#                         deploy` fast-forwards to). Publishes to the
+#                         "Production" TestFlight beta group. This is the
 #                         production TestFlight build used as Q5 compliance
 #                         evidence and for the real App Store release.
+# Both workflows also stay manually startable from the Codemagic UI (Start
+# new build -> pick workflow) or the API/CLI (`--workflow
+# ios-capacitor-prod`), same as before — the `triggering:` blocks below only
+# add an automatic push trigger, they never remove the manual path. Before
+# this the two workflows were told apart only by build number, and either
+# could be started from any branch; `triggering:` plus per-workflow
+# `branch_patterns` above closes that gap for the automatic case, and the two
+# separate beta groups mean a UAT build can no longer reach production
+# testers (or vice versa) even if someone manually starts the "wrong"
+# workflow from the "wrong" branch. Both beta groups ("UAT testers" and
+# "Production") must exist in App Store Connect (Kevin) before either
+# workflow's publish step runs; see the `publishing:` comment below for what
+# happens if a group is missing.
 # Every other step (Capacitor sync, device family, entitlements, signing,
 # IPA, publish) is identical between the two — they share one script list, one ios_signing
-# block, and one publishing/artifacts config via YAML anchors (`&name` /
-# `*name` / `<<:`); only the `MOBILE_TARGET` env var and the workflow `name`
-# differ. The shared "Build web" step itself reads MOBILE_TARGET at runtime
-# ("prod" -> build:mobile:prod, anything else -> build:mobile), so its
-# script text is identical too — it is aliased, not copy-pasted.
+# block, and (for `app_store_connect.auth`/`submit_to_testflight`) one
+# publishing base config via YAML anchors (`&name` / `*name` / `<<:`); only
+# `MOBILE_TARGET`, `BUILD_TAG_ENV`, `triggering`, `beta_groups`, and the
+# workflow `name` differ. The shared "Build web" step itself reads
+# MOBILE_TARGET at runtime ("prod" -> build:mobile:prod, anything else ->
+# build:mobile), so its script text is identical too — it is aliased, not
+# copy-pasted.
 #
 # Setup in the Codemagic UI:
 #   1. App Store Connect API key integration named "AURIQ LTD" (done).
@@ -71,6 +92,18 @@ workflows:
     name: iOS Capacitor (TestFlight)
     instance_type: mac_mini_m2
     max_build_duration: 60
+    # UAT workflow: fires automatically on every push to main (the branch
+    # UAT and the shared tree run), and stays manually startable from the
+    # Codemagic UI/API/CLI regardless (triggering only adds an automatic
+    # trigger, it never removes the manual "Start new build" path).
+    triggering: &uat_triggering
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
     integrations: &shared_integrations
       app_store_connect: "AURIQ LTD"
     environment:
@@ -85,6 +118,11 @@ workflows:
         # baking https://uat.wealth.auriqltd.co.uk/api. The ios-capacitor-prod
         # workflow below sets this to "prod" instead.
         MOBILE_TARGET: "uat"
+        # Prefix for the login/biometric-lock build-tag whisper (see
+        # frontend/scripts/build-mobile.sh's compute_build_tag and DEPLOY.md's
+        # "Build tag" section) so the environment is visible at a glance on
+        # device: "uat build 2026-09-08 abc1234 #42".
+        BUILD_TAG_ENV: "uat"
         # This enables the aps-environment entitlement and the remote-notification
         # background mode in the build steps below (see "Register wealthdash URL
         # scheme + Face ID + push background mode" and "Add Push Notifications
@@ -111,10 +149,11 @@ workflows:
           npm ci
           # MOBILE_TARGET (set in this workflow's environment.vars block
           # above) selects the API base baked into the static export: "prod"
-          # bakes https://api.wealth.auriqltd.co.uk (npm run
-          # build:mobile:prod), anything else (including unset) bakes UAT
-          # (npm run build:mobile) — same fallback as local Android APK
-          # builds, see frontend/scripts/build-mobile.sh.
+          # bakes build:mobile:prod's base (as of A18, the Vercel-proxied
+          # https://wealth.auriqltd.co.uk/api — see frontend/package.json),
+          # anything else (including unset) bakes UAT (npm run build:mobile)
+          # — same fallback as local Android APK builds, see
+          # frontend/scripts/build-mobile.sh.
           if [ "${MOBILE_TARGET:-uat}" = "prod" ]; then
             npm run build:mobile:prod
           else
@@ -360,15 +399,41 @@ workflows:
     artifacts: &shared_artifacts
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-    publishing: &shared_publishing
+    # Publishing is NOT fully shared between the two workflows: both submit
+    # to TestFlight via the same App Store Connect integration, but each
+    # publishes to its own beta group so UAT and prod builds land in front
+    # of the right testers. The common bit (auth + submit_to_testflight) is
+    # anchored via &shared_app_store_connect and merged with `<<:`; only
+    # `beta_groups` differs per workflow. Both "UAT testers" and
+    # "Production" beta groups must already exist in App Store Connect
+    # (TestFlight tab -> group name -> +) — Kevin, not automatable from
+    # here. If a named group does not exist, Codemagic's publish step fails
+    # the build with a "beta group not found" error rather than silently
+    # falling back to internal testing, so a missing group is loud, not a
+    # silent misroute.
+    publishing:
       app_store_connect:
-        auth: integration
-        submit_to_testflight: true
+        <<: &shared_app_store_connect
+          auth: integration
+          submit_to_testflight: true
+        beta_groups:
+          - "UAT testers"
 
   ios-capacitor-prod:
     name: iOS Capacitor (TestFlight, production API)
     instance_type: mac_mini_m2
     max_build_duration: 60
+    # Prod workflow: fires automatically on every push to release (what
+    # scripts/release.py deploy fast-forwards to). Also stays manually
+    # startable, same as ios-capacitor above.
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: release
+          include: true
+          source: true
+      cancel_previous_builds: true
     integrations: *shared_integrations
     environment:
       xcode: latest
@@ -378,10 +443,14 @@ workflows:
         # Selects which API base the shared "Build web" step bakes in — see
         # that step's comment (defined once, above, in ios-capacitor's
         # scripts list, and reused here via anchor). "prod" -> build:mobile:prod,
-        # baking https://api.wealth.auriqltd.co.uk directly (no /api suffix —
-        # the mobile static export talks to the backend's own root, unlike
-        # the web app which goes through Vercel's /api rewrite).
+        # which as of A18 still bakes the Vercel-proxied
+        # https://wealth.auriqltd.co.uk/api (see frontend/package.json and
+        # DEPLOY.md's "Mobile: Codemagic TestFlight builds" section) until
+        # A18 gives api.wealth.auriqltd.co.uk its own DNS record.
         MOBILE_TARGET: "prod"
+        # Same build-tag prefix mechanism as ios-capacitor above, "prod"
+        # here so the whisper reads "prod build 2026-09-08 abc1234 #7".
+        BUILD_TAG_ENV: "prod"
         # This enables the aps-environment entitlement and the remote-notification
         # background mode in the build steps below (see "Register wealthdash URL
         # scheme + Face ID + push background mode" and "Add Push Notifications
@@ -412,4 +481,8 @@ workflows:
       - *step_provisioning
       - *step_build_ipa
     artifacts: *shared_artifacts
-    publishing: *shared_publishing
+    publishing:
+      app_store_connect:
+        <<: *shared_app_store_connect
+        beta_groups:
+          - "Production"

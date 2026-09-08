@@ -419,35 +419,72 @@ killed (`npm run check:build-mobile-guard` tests the guard in isolation).
 
 `codemagic.yaml` (repo root) defines two iOS workflows, both producing a
 Capacitor TestFlight build from the same pipeline (Capacitor sync,
-entitlements, signing, IPA, App Store Connect publish); they differ only in
-which backend the static export bakes in:
+entitlements, signing, IPA, App Store Connect publish); they differ in which
+backend the static export bakes in, which branch triggers them, and which
+TestFlight beta group they publish to:
 
-| Workflow | API baked in | When to use |
-|----------|--------------|-------------|
-| `ios-capacitor` | `https://uat.wealth.auriqltd.co.uk/api` (`npm run build:mobile`) | day-to-day TestFlight builds while testing |
-| `ios-capacitor-prod` | `https://api.wealth.auriqltd.co.uk` (`npm run build:mobile:prod`) | the production TestFlight build used as Q5 compliance evidence, and for the real App Store release |
+| Workflow | API baked in | Triggers on push to | TestFlight beta group | When to use |
+|----------|--------------|----------------------|------------------------|-------------|
+| `ios-capacitor` | `https://uat.wealth.auriqltd.co.uk/api` (`npm run build:mobile`) | `main` | "UAT testers" | day-to-day TestFlight builds while testing |
+| `ios-capacitor-prod` | `https://wealth.auriqltd.co.uk/api` (`npm run build:mobile:prod`; the Vercel-proxied base, until A18 gives `api.wealth.auriqltd.co.uk` its own DNS record) | `release` | "Production" | the production TestFlight build used as Q5 compliance evidence, and for the real App Store release |
 
-To run the production variant, start a Codemagic build and pick
-`ios-capacitor-prod` as the workflow (Codemagic UI's "Start new build"
-workflow dropdown, or `--workflow ios-capacitor-prod` via the Codemagic
-API/CLI) instead of the default `ios-capacitor`.
+Both workflows fire automatically on a push to their branch (`triggering:` in
+`codemagic.yaml`, with `cancel_previous_builds: true`), and also stay
+manually startable: start a Codemagic build and pick the workflow (Codemagic
+UI's "Start new build" workflow dropdown, or `--workflow ios-capacitor-prod`
+via the Codemagic API/CLI) to run either one on demand regardless of which
+branch triggered the last automatic build. Both TestFlight beta groups ("UAT
+testers" and "Production") must already exist in App Store Connect (TestFlight
+tab -> group name -> +) before the corresponding workflow's publish step
+runs; if a group doesn't exist, Codemagic fails that build step with a "beta
+group not found" error rather than silently publishing to internal testing or
+the other group.
+
+`scripts/release.py deploy` triggers `ios-capacitor-prod` via the Codemagic
+API after tagging a successful release (see "Release trigger" below); it does
+not push directly to `release` itself for mobile purposes, that's a side
+effect of the fast-forward `main` -> `release` push the deploy already does,
+which is what the workflow's `triggering:` block reacts to.
 
 Both workflows build the app iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), because Capacitor's iOS template targets iPhone and iPad by default and that would require iPad screenshots at App Store review for an app that is not adapted for iPad.
 
 ### Build tag
 
 The small whisper on the login and biometric-lock screens (for example
-`build 2026-09-07 9763f81`, or `build 2026-09-07 9763f81 #42` on a Codemagic
-build) is derived automatically at build time, not hand-edited. It is the
-UTC build date plus the git short SHA, with the CI build number appended
-when one exists. On Vercel and UAT, `frontend/next.config.ts` computes it
-from `VERCEL_GIT_COMMIT_SHA` or a local `git rev-parse --short HEAD`. On
-Codemagic and local Android APK builds, `frontend/scripts/build-mobile.sh`
-computes it before its rsync step (the mobile build runs from a scratch copy
-with no `.git`), preferring `git rev-parse` when available and falling back
-to Codemagic's `CM_COMMIT`, with `BUILD_NUMBER` appended when set. Any
-environment can override the whole thing by setting `NEXT_PUBLIC_BUILD_TAG`
-explicitly before the build runs.
+`build 2026-09-07 9763f81`, or `uat build 2026-09-07 9763f81 #42` /
+`prod build 2026-09-07 9763f81 #7` on a Codemagic build) is derived
+automatically at build time, not hand-edited. It is the UTC build date plus
+the git short SHA, with the CI build number appended when one exists, and an
+environment prefix (`uat ` / `prod `) prepended when `BUILD_TAG_ENV` is set.
+On Vercel and UAT, `frontend/next.config.ts` computes it from
+`VERCEL_GIT_COMMIT_SHA` or a local `git rev-parse --short HEAD` (no
+`BUILD_TAG_ENV`, so no prefix). On Codemagic and local Android APK builds,
+`frontend/scripts/build-mobile.sh`'s `compute_build_tag` function computes it
+before its rsync step (the mobile build runs from a scratch copy with no
+`.git`), preferring `git rev-parse` when available and falling back to
+Codemagic's `CM_COMMIT`; `codemagic.yaml` sets `BUILD_TAG_ENV: "uat"` on
+`ios-capacitor` and `BUILD_TAG_ENV: "prod"` on `ios-capacitor-prod`, so the
+two TestFlight builds are visibly told apart on device (this was previously
+the only way to tell a UAT TestFlight build from a production one, since both
+published to the same beta group; see the table above for how that's now
+also separated by group and branch). Any environment can override the whole
+thing by setting `NEXT_PUBLIC_BUILD_TAG` explicitly before the build runs.
+
+### Release trigger
+
+`scripts/release.py deploy` (see `docs/ops/RELEASE.md`) fast-forwards
+`main` -> `release` as its one deliberate production act. After tagging a
+successful deploy, if both `CODEMAGIC_API_TOKEN` and `CODEMAGIC_APP_ID` are
+set in the shared tree's environment, it also POSTs to the Codemagic API
+(`https://api.codemagic.io/builds`) to start an `ios-capacitor-prod` build on
+`release`, so a production release also produces a fresh production
+TestFlight build without a manual step. This is best-effort: if the token or
+app id isn't set, or the API call fails, `deploy` logs a warning and still
+exits 0 for that part (the trigger failing never fails the deploy itself,
+which has already fully landed by that point) — start `ios-capacitor-prod`
+by hand from the Codemagic UI in that case. `--dry-run` prints the request it
+would make instead of sending it. Neither `CODEMAGIC_API_TOKEN` nor
+`CODEMAGIC_APP_ID` is committed anywhere; see `docs/ops/ENV.md`.
 
 ## GitHub Actions secrets (backups)
 

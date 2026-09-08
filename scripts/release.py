@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import secrets
 import socket
@@ -61,6 +62,14 @@ DEPLOY_POLL_INTERVAL_S = 15
 # The two names that must never be set in production until F7/A17 land.
 MCP_RAILWAY_VAR = "MCP_CONNECTOR_ENABLED"
 MCP_VERCEL_VAR = "NEXT_PUBLIC_MCP_CONNECTOR"
+
+# C10: after a successful deploy, best-effort trigger the production
+# TestFlight build via the Codemagic API. See docs/ops/ENV.md's "Release
+# tooling" section for CODEMAGIC_API_TOKEN / CODEMAGIC_APP_ID and
+# DEPLOY.md's "Release trigger" for the full behaviour.
+CODEMAGIC_API_URL = "https://api.codemagic.io/builds"
+CODEMAGIC_PROD_WORKFLOW = "ios-capacitor-prod"
+CODEMAGIC_PROD_BRANCH = "release"
 
 # Special-cased sync-vars sources: config.py falls back to these gitignored
 # files on UAT rather than an env var (see backend/app/core/config.py's
@@ -690,6 +699,71 @@ def utc_release_tag(now: Optional[datetime] = None) -> str:
     return now.strftime("release-%Y%m%d-%H%M")
 
 
+# ── Codemagic release trigger ─────────────────────────────────────────────
+
+# (app_id, api_token, payload) -> (http_status, response_body). Injectable so
+# tests never make a real HTTP call.
+CodemagicPoster = Callable[[str, str, dict], tuple[int, str]]
+
+
+def _codemagic_post(url: str, api_token: str, payload: dict, timeout: int) -> tuple[int, str]:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-auth-token": api_token},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.status, resp.read().decode("utf-8", errors="ignore")
+
+
+def trigger_codemagic_prod_build(
+    app_id: Optional[str],
+    api_token: Optional[str],
+    branch: str = CODEMAGIC_PROD_BRANCH,
+    workflow_id: str = CODEMAGIC_PROD_WORKFLOW,
+    dry_run: bool = False,
+    timeout: int = HTTP_TIMEOUT,
+    poster: Optional[Callable[[str, dict], tuple[int, str]]] = None,
+) -> tuple[bool, str]:
+    """Best-effort trigger of the production TestFlight workflow after a
+    successful release. Never raises: `ok=False` means "warn, don't fail the
+    deploy" to the caller, it never means the deploy itself failed. `poster`
+    (if given) is called as `poster(url, payload) -> (status, body)`, so
+    tests never need a real api_token or network access; the default POSTs
+    to the real Codemagic API with `api_token`.
+    """
+    if not app_id or not api_token:
+        return False, (
+            "CODEMAGIC_API_TOKEN and/or CODEMAGIC_APP_ID not set, skipping the "
+            f"Codemagic {workflow_id} trigger (start it by hand from the Codemagic UI)"
+        )
+
+    payload = {"appId": app_id, "workflowId": workflow_id, "branch": branch}
+
+    if dry_run:
+        return True, f"[dry-run] would POST {CODEMAGIC_API_URL} {json.dumps(payload)}"
+
+    try:
+        if poster is not None:
+            status, body = poster(CODEMAGIC_API_URL, payload)
+        else:
+            status, body = _codemagic_post(CODEMAGIC_API_URL, api_token, payload, timeout)
+    except Exception as exc:  # noqa: BLE001 - a trigger failure must never fail the deploy
+        return False, f"Codemagic {workflow_id} trigger failed: {exc}"
+
+    if status not in (200, 201):
+        return False, f"Codemagic {workflow_id} trigger returned HTTP {status}: {body[:200]}"
+
+    build_id = "?"
+    try:
+        data = json.loads(body)
+        build_id = data.get("buildId") or data.get("_id") or "?"
+    except Exception:  # noqa: BLE001 - a malformed response body still isn't a deploy failure
+        pass
+    return True, f"Codemagic {workflow_id} build triggered on {branch}: build id {build_id}"
+
+
 # ── deploy ───────────────────────────────────────────────────────────────
 
 
@@ -775,6 +849,11 @@ def cmd_deploy(args: argparse.Namespace) -> int:
         print("[dry-run] would run smoke checks: /api/health (200), /api/subscription (401), /api/mcp "
               "(404 or report code), /api/accounts (401), homepage (200 + <title>), /terms (200), /privacy (200)")
         print(f"[dry-run] would tag {utc_release_tag()} on {main_sha}, push it, and print the summary")
+        _, codemagic_msg = trigger_codemagic_prod_build(
+            os.environ.get("CODEMAGIC_APP_ID"), os.environ.get("CODEMAGIC_API_TOKEN"),
+            dry_run=True, timeout=args.timeout,
+        )
+        print(f"[dry-run] {codemagic_msg}")
         return 0
 
     push_time = time.time()
@@ -838,6 +917,17 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     _run(["git", "tag", tag, main_sha], timeout=args.timeout, cwd=REPO_ROOT)
     _run(["git", "push", "origin", tag], timeout=args.timeout, cwd=REPO_ROOT)
 
+    # Best-effort: never fail the deploy if this doesn't work, the release
+    # has already fully landed by this point. See docs/ops/ENV.md's
+    # "Release tooling" section and DEPLOY.md's "Release trigger".
+    codemagic_ok, codemagic_msg = trigger_codemagic_prod_build(
+        os.environ.get("CODEMAGIC_APP_ID"), os.environ.get("CODEMAGIC_API_TOKEN"), timeout=args.timeout,
+    )
+    if codemagic_ok:
+        print(f"\n{codemagic_msg}")
+    else:
+        print(f"\n[warn] {codemagic_msg}", file=sys.stderr)
+
     print("\nDeploy summary:")
     print(f"  tag: {tag}")
     print(f"  sha: {main_sha}")
@@ -847,6 +937,7 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     for service in RAILWAY_SERVICES:
         print(f"  Railway {service}: deployed at {main_sha[:8] if main_sha else '?'}")
     print(f"  push time: {datetime.fromtimestamp(push_time, tz=timezone.utc).isoformat()}")
+    print(f"  Codemagic {CODEMAGIC_PROD_WORKFLOW} trigger: {codemagic_msg}")
     return 0
 
 
