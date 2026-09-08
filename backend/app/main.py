@@ -23,6 +23,7 @@ from app.db.collections import (
     teaching_events_col, allocations_col, penny_proposals_col,
     response_cache_col, mcp_calls_col,
     oauth_codes_col, oauth_tokens_col,
+    allowed_signups_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -36,7 +37,7 @@ from app.routers import (
     goals, logos, finexer, income, behaviour, companion, cards, cycle, planned,
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
-    penny_chip, ops, admin_usage, mcp as mcp_router, oauth as oauth_router,
+    penny_chip, ops, admin_usage, admin_allowlist, mcp as mcp_router, oauth as oauth_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -85,6 +86,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
         penny_chip.router,
         ops.router,
         admin_usage.router,
+        admin_allowlist.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
@@ -278,6 +280,10 @@ async def _create_indexes():
     # these two.
     await oauth_tokens_col.create_index("pair_id")
     await oauth_tokens_col.create_index("origin_code_hash")
+    # D5 in-app sign-up allow list (app/core/allowlist.py) — `key` is the
+    # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
+    # re-invite is always an update, never a duplicate doc.
+    await allowed_signups_col.create_index("key", unique=True)
 
 
 async def _acquire_migration_lock() -> bool:

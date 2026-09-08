@@ -102,7 +102,11 @@ async def google_native(body: dict):
         raise HTTPException(401, "Auth failed")
     email = await resolve_signin_email("google-native", email)
     if email is None:
-        raise HTTPException(403, "Access denied")
+        # D5: the only reason resolve_signin_email() ever returns None is
+        # the allow-list refusal (see its own docstring) — this structured
+        # code lets the app show "Sorted is invite-only right now" instead
+        # of a bare 403, rather than a generic failure message.
+        raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
     session_token = serializer.dumps({"email": email, "name": info.get("name", "")})
     return {"session_token": session_token, "ok": True}
@@ -198,7 +202,8 @@ async def apple_native(body: dict):
     relay = str(claims.get("is_private_email")).lower() == "true"
     email = await resolve_signin_email("apple-native", email_claim, subject=sub, relay=relay)
     if email is None:
-        raise HTTPException(403, "Access denied")
+        # D5: see google_native()'s equivalent comment above.
+        raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
     name = body.get("fullName") or email.split("@")[0]
     session_token = serializer.dumps({"email": email, "name": name})
@@ -432,7 +437,10 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
         return await finish("error:auth_failed")
     email = await resolve_signin_email("google-mobile", email)
     if email is None:
-        return await finish("error:access_denied")
+        # D5: distinct from the other finish("error:...") calls above so
+        # the native app can show the invite-only screen instead of a
+        # generic "sign-in failed" alert (see lib/nativeAuth.ts).
+        return await finish("error:invite_only")
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return await finish(f"token:{session_token}")
@@ -473,7 +481,10 @@ async def google_callback(code: str = None, error: str = None):
         return RedirectResponse(f"{APP_URL}/?error=auth_failed")
     email = await resolve_signin_email("google-web", email)
     if email is None:
-        return RedirectResponse(f"{APP_URL}/?error=access_denied")
+        # D5: distinct from the other ?error=... redirects above so
+        # LoginScreen can show "Sorted is invite-only right now" instead of
+        # a generic failure message (see components/LoginScreen.tsx).
+        return RedirectResponse(f"{APP_URL}/?error=invite_only")
 
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return RedirectResponse(f"{APP_URL}/?token={urllib.parse.quote(session_token, safe='')}")

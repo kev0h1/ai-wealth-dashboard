@@ -19,24 +19,69 @@ export default function LoginScreen({ error }: LoginScreenProps) {
     setShowApple(isIOSNative());
   }, []);
 
+  // D5: the native sign-in flows resolve their own "invite_only" outcome
+  // (see lib/nativeAuth.ts) independently of the `error` query-param prop
+  // (which only the web OAuth redirect sets), so this is tracked locally
+  // and OR'd with the prop below.
+  const [nativeInviteOnly, setNativeInviteOnly] = useState(false);
+  // "Try another account" doesn't navigate anywhere — it just returns to
+  // the normal sign-in buttons so a different account can be tried,
+  // clearing whichever of the two sources (prop or local) set it.
+  const [inviteOnlyDismissed, setInviteOnlyDismissed] = useState(false);
+
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!isNativePlatform()) return; // web: let the href redirect happen as before
     e.preventDefault();
-    const ok = await nativeGoogleLogin();
-    if (ok) {
+    const result = await nativeGoogleLogin();
+    if (result === "ok") {
       window.location.reload();
+    } else if (result === "invite_only") {
+      setNativeInviteOnly(true);
     } else {
       alert("Sign-in failed. Please try again.");
     }
   }
 
   async function handleAppleClick() {
-    const ok = await nativeAppleLogin();
-    if (ok) {
+    const result = await nativeAppleLogin();
+    if (result === "ok") {
       window.location.reload();
+    } else if (result === "invite_only") {
+      setNativeInviteOnly(true);
     } else {
       alert("Sign-in failed. Please try again.");
     }
+  }
+
+  const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
+
+  if (isInviteOnly) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-6">
+        <div className="w-full max-w-sm text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-3">
+            Sorted is invite-only right now
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-8">
+            We are letting people in gradually. If you were expecting access, check the address you signed in with or ask the person who invited you.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setInviteOnlyDismissed(true);
+              setNativeInviteOnly(false);
+            }}
+            className="w-full py-3.5 px-4 rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 active:scale-95 transition font-medium text-slate-700 dark:text-slate-100 text-sm shadow-sm"
+          >
+            Try another account
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -66,7 +111,7 @@ export default function LoginScreen({ error }: LoginScreenProps) {
             Sign in with your Google account to access your dashboard.
           </p>
 
-          {error && (
+          {error && error !== "invite_only" && (
             <div className="mb-5 px-4 py-3 rounded-xl bg-red-50 border border-red-100">
               <p className="text-sm text-red-600 text-center">{error}</p>
             </div>

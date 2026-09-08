@@ -50,7 +50,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         params.delete("token");
       }
       if (errParam) {
-        setAuthError(errParam === "unauthorized" ? "Access denied, this account is not authorised." : "Sign-in failed. Please try again.");
+        // D5: "invite_only" is passed through as-is (not turned into a
+        // human message here) — LoginScreen recognises that exact string
+        // and renders its own dedicated "Sorted is invite-only right now"
+        // screen instead of the generic red banner below.
+        if (errParam === "invite_only") {
+          setAuthError("invite_only");
+        } else {
+          setAuthError(errParam === "unauthorized" ? "Access denied, this account is not authorised." : "Sign-in failed. Please try again.");
+        }
         params.delete("error");
       }
       if (urlToken || errParam) {
