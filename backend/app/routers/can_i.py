@@ -882,6 +882,90 @@ async def _execute_update_preferences(uid: str, params: dict) -> dict:
     return await _route_update_preferences(dict(params), user={"email": uid})
 
 
+# ── B16 (B12 stage 3) — offline accounts, ledger, mirror rules,
+# connections ─────────────────────────────────────────────────────────────
+# Same replay-the-router-function shape as every executor above: each
+# proposal's stored `params` is already exactly the body (or positional
+# id(s) plus body) the corresponding app.routers.manual_accounts /
+# app.routers.accounts / app.services.retention function expects — see
+# each `_exec_propose_*` builder in penny_tools.py for how `params` is
+# shaped, and PENNY_TOOLS.md's "B16" paragraph for the doctrine.
+async def _execute_create_offline_account(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import create_manual_account as _route_create_manual_account
+
+    body = {k: v for k, v in params.items()}
+    return await _route_create_manual_account(body, user={"email": uid})
+
+
+async def _execute_update_offline_account(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import update_manual_account as _route_update_manual_account
+
+    body = {k: v for k, v in params.items() if k != "account_id"}
+    return await _route_update_manual_account(params["account_id"], body, user={"email": uid})
+
+
+async def _execute_delete_offline_account(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import delete_manual_account as _route_delete_manual_account
+
+    return await _route_delete_manual_account(params["account_id"], user={"email": uid})
+
+
+async def _execute_add_ledger_entry(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import add_manual_transaction as _route_add_manual_transaction
+
+    body = {k: v for k, v in params.items() if k != "account_id"}
+    return await _route_add_manual_transaction(params["account_id"], body, user={"email": uid})
+
+
+async def _execute_update_ledger_entry(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import update_manual_transaction as _route_update_manual_transaction
+
+    body = {k: v for k, v in params.items() if k not in ("account_id", "entry_id")}
+    return await _route_update_manual_transaction(
+        params["account_id"], params["entry_id"], body, user={"email": uid},
+    )
+
+
+async def _execute_delete_ledger_entry(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import delete_manual_transaction as _route_delete_manual_transaction
+
+    return await _route_delete_manual_transaction(params["account_id"], params["entry_id"], user={"email": uid})
+
+
+async def _execute_create_account_rule(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import create_rule as _route_create_rule
+
+    return await _route_create_rule(dict(params), user={"email": uid})
+
+
+async def _execute_update_account_rule(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import update_rule as _route_update_rule
+
+    body = {k: v for k, v in params.items() if k != "rule_id"}
+    return await _route_update_rule(params["rule_id"], body, user={"email": uid})
+
+
+async def _execute_delete_account_rule(uid: str, params: dict) -> dict:
+    from app.routers.manual_accounts import delete_rule as _route_delete_rule
+
+    return await _route_delete_rule(params["rule_id"], user={"email": uid})
+
+
+async def _execute_disconnect_bank(uid: str, params: dict) -> dict:
+    from app.services.retention import disconnect_connection as _svc_disconnect_connection
+
+    result = await _svc_disconnect_connection(uid, params["connection_id"])
+    if result is None:
+        raise HTTPException(404, "Connection not found")
+    return result
+
+
+async def _execute_sync_now(uid: str, params: dict) -> dict:
+    from app.routers.accounts import sync_all as _route_sync_all
+
+    return await _route_sync_all(user={"email": uid})
+
+
 _PROPOSAL_EXECUTORS = {
     "mirror_choice":              _execute_mirror_choice,
     "dismiss_recurring":          _execute_dismiss_recurring,
@@ -909,6 +993,17 @@ _PROPOSAL_EXECUTORS = {
     "set_debt_tracking_start":    _execute_update_preferences,
     "set_cover_plan_exclusions":  _execute_update_preferences,
     "set_hide_balances":          _execute_update_preferences,
+    "create_offline_account":     _execute_create_offline_account,
+    "update_offline_account":     _execute_update_offline_account,
+    "delete_offline_account":     _execute_delete_offline_account,
+    "add_ledger_entry":           _execute_add_ledger_entry,
+    "update_ledger_entry":        _execute_update_ledger_entry,
+    "delete_ledger_entry":        _execute_delete_ledger_entry,
+    "create_account_rule":        _execute_create_account_rule,
+    "update_account_rule":        _execute_update_account_rule,
+    "delete_account_rule":        _execute_delete_account_rule,
+    "disconnect_bank":            _execute_disconnect_bank,
+    "sync_now":                   _execute_sync_now,
 }
 
 
