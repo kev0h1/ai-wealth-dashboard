@@ -53,6 +53,29 @@ else
   echo "PASS: require_project_dir / exits 2"
 fi
 
+# ── compute_build_tag (C10: BUILD_TAG_ENV prefix for the login/lock-screen
+# whisper, set by codemagic.yaml so a UAT and a prod TestFlight build are
+# visibly told apart on device) ────────────────────────────────────────────
+
+check_tag() {
+  local desc="$1" expected="$2"; shift 2
+  local actual
+  actual="$(compute_build_tag "$@")"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: compute_build_tag $desc -> '$actual', expected '$expected'"
+    fail=1
+  else
+    echo "PASS: compute_build_tag $desc -> '$actual'"
+  fi
+}
+
+check_tag "date+sha only" "build 2026-09-08 abc1234" "2026-09-08" "abc1234"
+check_tag "date+sha+number" "build 2026-09-08 abc1234 #42" "2026-09-08" "abc1234" "42"
+check_tag "date+sha+env prefix" "uat build 2026-09-08 abc1234" "2026-09-08" "abc1234" "" "uat"
+check_tag "date+sha+number+env prefix (uat)" "uat build 2026-09-08 abc1234 #42" "2026-09-08" "abc1234" "42" "uat"
+check_tag "date+sha+number+env prefix (prod)" "prod build 2026-09-08 abc1234 #7" "2026-09-08" "abc1234" "7" "prod"
+check_tag "empty number is same as unset" "build 2026-09-08 abc1234" "2026-09-08" "abc1234" ""
+
 if [ "$fail" -ne 0 ]; then
   echo "build-mobile-guard.test.sh: FAILED"
   exit 1

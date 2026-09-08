@@ -541,3 +541,101 @@ def test_utc_release_tag_format():
 
     tag = release.utc_release_tag(datetime(2026, 9, 8, 14, 5, tzinfo=timezone.utc))
     assert tag == "release-20260908-1405"
+
+
+# ── trigger_codemagic_prod_build (C10) ────────────────────────────────────
+
+
+def test_trigger_codemagic_missing_credentials_skips_without_failing():
+    ok, msg = release.trigger_codemagic_prod_build(None, None)
+    assert ok is False
+    assert "not set" in msg
+    assert "skipping" in msg
+
+
+def test_trigger_codemagic_missing_app_id_only_skips():
+    ok, msg = release.trigger_codemagic_prod_build(None, "tok123")
+    assert ok is False
+    assert "skipping" in msg
+
+
+def test_trigger_codemagic_missing_token_only_skips():
+    ok, msg = release.trigger_codemagic_prod_build("app123", None)
+    assert ok is False
+    assert "skipping" in msg
+
+
+def test_trigger_codemagic_dry_run_prints_request_without_calling_poster():
+    calls = []
+
+    def poster(url, payload):
+        calls.append((url, payload))
+        return 200, '{"_id": "should-not-be-called"}'
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", dry_run=True, poster=poster)
+    assert ok is True
+    assert "[dry-run]" in msg
+    assert release.CODEMAGIC_API_URL in msg
+    assert "ios-capacitor-prod" in msg
+    assert "release" in msg
+    assert calls == []  # dry-run never actually posts
+
+
+def test_trigger_codemagic_success_reports_build_id():
+    def poster(url, payload):
+        assert url == release.CODEMAGIC_API_URL
+        assert payload == {"appId": "app123", "workflowId": "ios-capacitor-prod", "branch": "release"}
+        return 200, '{"_id": "build-abc123"}'
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", poster=poster)
+    assert ok is True
+    assert "build-abc123" in msg
+
+
+def test_trigger_codemagic_accepts_buildId_key_too():
+    def poster(url, payload):
+        return 201, '{"buildId": "build-xyz"}'
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", poster=poster)
+    assert ok is True
+    assert "build-xyz" in msg
+
+
+def test_trigger_codemagic_non_2xx_is_a_warning_not_an_exception():
+    def poster(url, payload):
+        return 401, "unauthorized"
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", poster=poster)
+    assert ok is False
+    assert "401" in msg
+
+
+def test_trigger_codemagic_malformed_json_response_still_reports_ok():
+    def poster(url, payload):
+        return 200, "not json"
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", poster=poster)
+    assert ok is True
+    assert "build id ?" in msg
+
+
+def test_trigger_codemagic_poster_exception_is_failure_tolerant():
+    def poster(url, payload):
+        raise RuntimeError("network unreachable")
+
+    ok, msg = release.trigger_codemagic_prod_build("app123", "tok123", poster=poster)
+    assert ok is False
+    assert "network unreachable" in msg
+
+
+def test_trigger_codemagic_custom_workflow_and_branch():
+    def poster(url, payload):
+        assert payload["workflowId"] == "ios-capacitor"
+        assert payload["branch"] == "main"
+        return 200, "{}"
+
+    ok, msg = release.trigger_codemagic_prod_build(
+        "app123", "tok123", branch="main", workflow_id="ios-capacitor", poster=poster
+    )
+    assert ok is True
+    assert "ios-capacitor" in msg

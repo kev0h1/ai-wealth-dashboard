@@ -50,9 +50,30 @@ require_project_dir() {
   return 0
 }
 
+# Builds the login/biometric-lock build-tag whisper string (see
+# frontend/lib/buildTag.ts and DEPLOY.md's "Build tag" section):
+# "build <date> <sha>", with "#<number>" appended when a CI build number is
+# known, and "<env> " prepended when BUILD_TAG_ENV is set (the Codemagic
+# workflows set it to "uat" or "prod" — see codemagic.yaml — so the two
+# TestFlight builds are visibly told apart on device, e.g. "uat build
+# 2026-09-08 abc1234 #42" vs "prod build 2026-09-08 abc1234 #7"). Its own
+# function (rather than inline) so build-mobile-guard.test.sh can source
+# this file with BUILD_MOBILE_GUARD_ONLY=1 and exercise it directly.
+compute_build_tag() {
+  local date="$1" sha="$2" number="${3:-}" env_prefix="${4:-}"
+  local tag="build ${date} ${sha}"
+  if [ -n "$number" ]; then
+    tag="${tag} #${number}"
+  fi
+  if [ -n "$env_prefix" ]; then
+    tag="${env_prefix} ${tag}"
+  fi
+  printf '%s' "$tag"
+}
+
 if [ "${BUILD_MOBILE_GUARD_ONLY:-}" = "1" ]; then
   # Test-only escape hatch: stop right after defining the guard function
-  # above, before touching the filesystem at all.
+  # and compute_build_tag above, before touching the filesystem at all.
   return 0 2>/dev/null || exit 0
 fi
 
@@ -86,11 +107,7 @@ if [ -z "${NEXT_PUBLIC_BUILD_TAG:-}" ]; then
   CM_COMMIT="${CM_COMMIT:-}"
   BUILD_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo "${CM_COMMIT:0:7}")"
   BUILD_SHA="${BUILD_SHA:-nogit}"
-  if [ -n "${BUILD_NUMBER:-}" ]; then
-    export NEXT_PUBLIC_BUILD_TAG="build ${BUILD_DATE} ${BUILD_SHA} #${BUILD_NUMBER}"
-  else
-    export NEXT_PUBLIC_BUILD_TAG="build ${BUILD_DATE} ${BUILD_SHA}"
-  fi
+  export NEXT_PUBLIC_BUILD_TAG="$(compute_build_tag "$BUILD_DATE" "$BUILD_SHA" "${BUILD_NUMBER:-}" "${BUILD_TAG_ENV:-}")"
 fi
 
 rm -rf "$SCRATCH"
@@ -146,18 +163,22 @@ done
 # wins; otherwise this defaults "on" unless MOBILE_TARGET=prod (set by the
 # ios-capacitor-prod Codemagic workflow, inherited here since it's exported
 # at the workflow's environment.vars level) or MOBILE_API_BASE already points
-# at the production API domain (set by `npm run build:mobile:prod`, see
-# package.json). The prod branch below sets the flag explicitly to "off"
-# rather than leaving it unset: UAT's web build depends on a gitignored
-# frontend/.env.local carrying NEXT_PUBLIC_TRUELAYER_PICKER=on (also A16),
-# and although the rsync above now excludes .env.local from the scratch copy,
-# an explicit "off" is a second guard so a prod build can never inherit that
-# value however it arrives.
+# at a production API base (set by `npm run build:mobile:prod`, see
+# package.json — as of A18 that's the Vercel-proxied
+# https://wealth.auriqltd.co.uk/api, but https://api.* is matched too so this
+# keeps working once A18 lands and the prod base moves back to
+# api.wealth.auriqltd.co.uk). The prod branch below sets the flag explicitly
+# to "off" rather than leaving it unset: UAT's web build depends on a
+# gitignored frontend/.env.local carrying NEXT_PUBLIC_TRUELAYER_PICKER=on
+# (also A16), and although the rsync above now excludes .env.local from the
+# scratch copy, an explicit "off" is a second guard so a prod build can never
+# inherit that value however it arrives.
 if [ -z "${NEXT_PUBLIC_TRUELAYER_PICKER:-}" ]; then
   IS_PROD_BUILD=0
   [ "${MOBILE_TARGET:-}" = "prod" ] && IS_PROD_BUILD=1
   case "${MOBILE_API_BASE:-}" in
     https://api.*) IS_PROD_BUILD=1 ;;
+    https://wealth.auriqltd.co.uk/api) IS_PROD_BUILD=1 ;;
   esac
   if [ "$IS_PROD_BUILD" = "1" ]; then
     export NEXT_PUBLIC_TRUELAYER_PICKER=off
@@ -170,13 +191,17 @@ fi
 # different backend. Falls back to UAT when unset — Kevin's standing rule is
 # that Android APK builds always bake the UAT API base by default; only an
 # explicit MOBILE_API_BASE override (see package.json's build:mobile:prod,
-# used by the Codemagic/TestFlight iOS pipeline) bakes prod, at the API
-# domain https://api.wealth.auriqltd.co.uk (no /api suffix — unlike the web
-# build, which reaches the backend through Vercel's /api rewrite, the mobile
-# static export talks to the backend directly, so NEXT_PUBLIC_API_URL is the
-# backend's own root). The web-facing domain (wealth.auriqltd.co.uk) is
-# unaffected by this and keeps hosting the Finexer OAuth return URL — that
-# redirect always goes back to a real browser context, never the app.
+# used by the Codemagic/TestFlight iOS pipeline) bakes prod. As of A18
+# (api.wealth.auriqltd.co.uk has no DNS record yet, prod is reachable only
+# through the Vercel /api rewrite), that base is the Vercel-proxied
+# https://wealth.auriqltd.co.uk/api, unlike the eventual/intended
+# https://api.wealth.auriqltd.co.uk root — once A18 gives the API its own
+# DNS record, package.json's build:mobile:prod should move back to that bare
+# domain (no /api suffix: the mobile static export would then talk to the
+# backend directly rather than through Vercel's rewrite). The web-facing
+# domain (wealth.auriqltd.co.uk) is unaffected by this and keeps hosting the
+# Finexer OAuth return URL — that redirect always goes back to a real
+# browser context, never the app.
 # NEXT_PUBLIC_WEB_PRODUCT is forced "on" here (backlog A10's web-only-shell
 # flag) so a mobile export can never be built locked, regardless of what's
 # set in the calling environment.
