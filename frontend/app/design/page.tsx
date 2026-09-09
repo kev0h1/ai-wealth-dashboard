@@ -114,6 +114,18 @@ const ROUTES: PreviewRoute[] = [
     states: [{ label: "Everything", value: "everything" }],
   },
   {
+    slug: "safe-to-spend-hero",
+    name: "safe-to-spend-hero",
+    description:
+      "G14 proposal: cash-led Safe-to-Spend hero, reversing G6's cards-short NET figure from the other side (Kevin's own screen: a £42 cash gap plus £761 unpaid card growth today renders as £803 red) · replica of the real components/SafeToSpendCard.tsx (not imported, so the live card stays untouched), Today and Proposed stacked for comparison · Today: bills-short shows the £803 net figure red plus the two-figure \"What makes up the safety gap\" bar, cards-short clamps to £0 amber plus the older one-line fallback sentence · Proposed: bills-short shows only the £42 cash gap red (\"£42 short\"), cards-short still clamps to £0 amber, both drop the bar/sentence for one new secondary line (\"£761 went on cards unpaid this period\") shown only when there is card growth to report · comfortable and tight states included unchanged, to confirm nothing else moves · collapsible \"Full calculation\" ledger unaffected in both treatments · backend's net safe_to_spend deliberately unchanged, still what Penny and Can I...? reason over · ?treatment=today|proposed|both&state=bills-short|cards-short|comfortable|tight&mode=light|dark",
+    states: [
+      { label: "Bills short", value: "bills-short" },
+      { label: "Cards short", value: "cards-short" },
+      { label: "Comfortable", value: "comfortable" },
+      { label: "Tight", value: "tight" },
+    ],
+  },
+  {
     slug: "invite-only",
     name: "invite-only",
     description:
