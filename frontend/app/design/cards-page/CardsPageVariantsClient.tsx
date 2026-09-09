@@ -13,7 +13,7 @@
 // three variants of the new content, and a names=raw|clean toggle that
 // makes the duplicate-name ambiguity visible in every variant by default.
 //
-//   /design/cards-page?variant=a|b|c&names=raw|clean&mode=light|dark
+//   /design/cards-page?variant=a|b|c|c2&names=raw|clean&mode=light|dark
 //
 // Variant summary:
 //   A — new section, ledger rows: ordinary account-row grammar (badge,
@@ -27,6 +27,21 @@
 //       each month"), and the lead line sits on its own below THE
 //       TRAJECTORY with no panel around it. This is the option that makes
 //       the page shorter, not longer.
+//   C2 — refinement of C, chosen by Kevin 2026-09-09 after C's rows read
+//       as having too much unused space: the right column in C carries
+//       three lines (delta, "£X owed", outlook subline) against the left
+//       column's one (the card name), so the row grows to fit the right
+//       column and the name floats in the leftover gap. C2 moves the
+//       outlook fact to the LEFT column, under the card name, so both
+//       columns carry two lines and the row shrinks back down — this is
+//       also the more correct place for it semantically, since the clear
+//       date describes the card itself while the right column describes
+//       this cycle's money movement. The right column reverts to exactly
+//       what the live page has today (delta figure over "£X owed"); the
+//       card genuinely paying interest keeps its amber treatment, now on
+//       the left-hand outlook line rather than a right-hand figure, so
+//       amber never lands on a money figure. The lead line under THE
+//       TRAJECTORY is unchanged from C.
 //
 // Review notes (independent pass against DESIGN.md's named rules and the
 // Web Interface Guidelines, before this went to Kevin):
@@ -117,11 +132,11 @@ import VariantB from "./VariantB";
 import { EXTRA_PER_MONTH, DEBT_FREE_MONTH } from "./fixtures";
 import { leadLine } from "./shared";
 
-type Variant = "a" | "b" | "c";
+type Variant = "a" | "b" | "c" | "c2";
 type NamesMode = "raw" | "clean";
 type Mode = "light" | "dark";
 
-const VARIANTS: Variant[] = ["a", "b", "c"];
+const VARIANTS: Variant[] = ["a", "b", "c", "c2"];
 const NAMES: NamesMode[] = ["raw", "clean"];
 
 function Switcher({ variant, names, mode }: { variant: Variant; names: NamesMode; mode: Mode }) {
@@ -205,12 +220,12 @@ function Inner() {
             namesMode={names}
             colours={colours}
             categoryColour={getCategoryColour}
-            showSublines={variant === "c"}
+            outlookPlacement={variant === "c" ? "right" : variant === "c2" ? "left" : "none"}
           />
 
           {variant === "a" && <VariantA namesMode={names} />}
           {variant === "b" && <VariantB namesMode={names} />}
-          {variant === "c" && lead && (
+          {(variant === "c" || variant === "c2") && lead && (
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug -mt-4">
               <MoneyText text={lead} />
             </p>

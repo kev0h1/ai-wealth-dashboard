@@ -10,9 +10,13 @@
 // is a live-data preference, out of scope for a fixture preview).
 //
 // Variant C's only change to the live page is additive: each WHERE IT
-// MOVED row gains one subline under "£X owed" (showSublines=true, wired
-// from CardsPageVariantsClient's variant===c branch). Variants A and B
-// leave this replica untouched and append their own section afterward.
+// MOVED row gains one subline under "£X owed" (outlookPlacement="right",
+// wired from CardsPageVariantsClient's variant===c branch). Variant C2
+// moves that same fact to the LEFT column, under the card name instead
+// (outlookPlacement="left", variant===c2) — both columns then carry two
+// lines instead of the right column carrying three, which is what makes
+// C2's rows shorter than C's. Variants A and B leave this replica
+// untouched and append their own section afterward (outlookPlacement="none").
 
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
@@ -37,14 +41,18 @@ export default function ReplicaSections({
   namesMode,
   colours,
   categoryColour,
-  showSublines,
+  outlookPlacement,
 }: {
   namesMode: NamesMode;
   colours: Record<string, string>;
   categoryColour: (category: string, colours: Record<string, string>) => string;
-  /** Variant C only: append the outlook subline under each carried card's
-   *  "£X owed" caption in WHERE IT MOVED. */
-  showSublines: boolean;
+  /** "right" (variant C): append the outlook fact under each carried
+   *  card's "£X owed" caption, in the existing right-hand column.
+   *  "left" (variant C2): put the same fact under the card name instead,
+   *  in the left-hand column, leaving the right column exactly as the
+   *  live page has it (delta figure over "£X owed").
+   *  "none" (A/B): neither, the sixth section carries the outlook. */
+  outlookPlacement: "none" | "right" | "left";
 }) {
   const { delta, new_spend, payments } = MOVEMENT;
   const { days_elapsed } = PERIOD;
@@ -110,7 +118,7 @@ export default function ReplicaSections({
             const balanceCaption = c.balance < 0 ? "owed" : c.balance > 0 ? "in credit" : null;
 
             let subline: { text: string; amber: boolean } | null = null;
-            if (showSublines) {
+            if (outlookPlacement !== "none") {
               if (clearedMonthlyIds.has(c.account_id)) {
                 subline = { text: "clears in full each month", amber: false };
               } else {
@@ -118,6 +126,9 @@ export default function ReplicaSections({
                 if (outlook) subline = cRowSubline(outlook);
               }
             }
+            const outlookClass = subline?.amber
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-slate-400 dark:text-slate-500";
 
             return (
               <div key={c.account_id} className="px-4 py-3 flex items-center gap-3">
@@ -131,6 +142,9 @@ export default function ReplicaSections({
                     <span className="inline-block mt-0.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
                       {c.apr}% APR
                     </span>
+                  )}
+                  {outlookPlacement === "left" && subline && (
+                    <p className={`text-[11px] ${outlookClass}`}>{subline.text}</p>
                   )}
                 </div>
 
@@ -150,16 +164,8 @@ export default function ReplicaSections({
                       {balanceCaption}
                     </p>
                   )}
-                  {subline && (
-                    <p
-                      className={`text-[11px] mt-0.5 ${
-                        subline.amber
-                          ? "text-amber-600 dark:text-amber-400"
-                          : "text-slate-400 dark:text-slate-500"
-                      }`}
-                    >
-                      {subline.text}
-                    </p>
+                  {outlookPlacement === "right" && subline && (
+                    <p className={`text-[11px] mt-0.5 ${outlookClass}`}>{subline.text}</p>
                   )}
                 </div>
               </div>
