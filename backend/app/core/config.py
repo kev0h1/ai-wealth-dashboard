@@ -306,6 +306,12 @@ FINEXER_API_KEY    = os.getenv("FINEXER_API_KEY", "")
 FINEXER_API_URL    = "https://api.finexer.com"
 FINEXER_RETURN_URL = os.getenv("FINEXER_RETURN_URL", "https://wealth.auriqltd.co.uk/auth/finexer/callback")
 
+# H19: how long the cached /providers walk (finexer_providers_col, see
+# app/db/collections.py) is trusted before app.services.finexer_sync.
+# list_providers() re-walks the API. The provider list barely ever
+# changes, so this is deliberately long.
+FINEXER_PROVIDERS_TTL_HOURS = int(os.getenv("FINEXER_PROVIDERS_TTL_HOURS", "24"))
+
 # URL secret embedded in the webhook path (same scheme as TRUELAYER_WEBHOOK_SECRET
 # above: env wins, else a persisted file, else generate one on first boot).
 _finexer_webhook_secret_file = _BACKEND_DIR / ".finexer_webhook_secret"
