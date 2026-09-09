@@ -8,9 +8,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-from app.core.config import FINEXER_API_KEY, FINEXER_API_URL, FINEXER_RETURN_URL
+from app.core.config import (
+    FINEXER_API_KEY, FINEXER_API_URL, FINEXER_RETURN_URL, FINEXER_PROVIDERS_TTL_HOURS,
+)
 from app.db.collections import (
-    finexer_consents_col, finexer_customers_col,
+    finexer_consents_col, finexer_customers_col, finexer_providers_col,
     accounts_col, transactions_col,
 )
 from app.services.categorisation import rule_categorise, user_identity, is_own_transfer, canonical_merchant_key
@@ -91,21 +93,87 @@ async def _get(
         await asyncio.sleep(sleep_s)
 
 
-async def list_providers(counter: Optional[dict] = None) -> list[dict]:
-    """Return all AIS-capable providers from GET /providers (paginated).
+# H19: the provider list is effectively static reference data (the banks
+# Finexer supports), so re-walking every /providers page on every consent
+# sync is pure waste against the same per-minute request budget E2's
+# RECONCILE_MAX_PER_MINUTE is sized against. Two layers on top of the live
+# walk, both optional (a cache problem must never break a sync — same
+# doctrine as app.services.response_cache / app.core.allowlist):
+#   - Mongo (`finexer_providers_col`), one doc, shared by every process
+#     (API + worker) and surviving restarts.
+#   - An in-process memo on top, so a worker process syncing many consents
+#     back to back doesn't even re-read Mongo for each one.
+_PROVIDERS_MAX_TIME_MS = 3000
+_providers_memo: Optional[dict] = None  # {"providers": [...], "fetched_at": datetime}
+
+
+def _providers_fresh(fetched_at, ttl_hours: float) -> bool:
+    if not isinstance(fetched_at, datetime):
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - fetched_at < timedelta(hours=ttl_hours)
+
+
+async def list_providers(counter: Optional[dict] = None, *, force: bool = False) -> list[dict]:
+    """Return all AIS-capable providers from GET /providers (paginated),
+    cached for FINEXER_PROVIDERS_TTL_HOURS (default 24h) so a normal call
+    costs nothing beyond a memo/Mongo lookup — see the cache-layer comment
+    above.
 
     `counter`: optional request/429 tally shared with the calling sync (see
     `_get`'s docstring) — passed through by sync_finexer_consent since this
     opens its own client but still counts against the same sync's Finexer
     request budget. None for standalone callers (e.g. the providers route).
+    A cache hit (memo or Mongo) makes zero Finexer requests, so `counter` is
+    left untouched; only a real walk increments it, exactly as before.
+
+    `force`: skip both cache layers and walk the API regardless of freshness
+    (used by the admin refresh endpoint only — see
+    app/routers/admin_usage.py's POST /admin/finexer/providers/refresh).
+    Even when forced, a STALE cached doc is still read up front so a failed
+    forced walk still has something to fall back to.
+
+    Correctness rules: a walk that hit a non-200 partway through is NEVER
+    written to the cache (a partial list would poison it for the full TTL
+    on a Finexer outage). If the walk fails (or comes back empty) and a
+    stale cached doc exists, that stale list is returned and logged at
+    WARNING rather than an empty result — slightly old reference data beats
+    losing the sync's account/provider names entirely.
     """
+    global _providers_memo
+
+    if not force and _providers_memo is not None and _providers_fresh(
+        _providers_memo["fetched_at"], FINEXER_PROVIDERS_TTL_HOURS
+    ):
+        return list(_providers_memo["providers"])
+
+    cached_doc = None
+    try:
+        cached_doc = await finexer_providers_col.find_one(
+            {"_id": "providers"}, max_time_ms=_PROVIDERS_MAX_TIME_MS,
+        )
+    except Exception:
+        logger.exception("list_providers: Mongo read failed, falling through to a live walk")
+        cached_doc = None
+
+    if not force and cached_doc is not None and _providers_fresh(
+        cached_doc.get("fetched_at"), FINEXER_PROVIDERS_TTL_HOURS
+    ):
+        providers = list(cached_doc.get("providers") or [])
+        _providers_memo = {"providers": providers, "fetched_at": cached_doc.get("fetched_at")}
+        return providers
+
+    # Cache miss (or forced refresh): walk the API for real.
     providers = []
     offset = 0
+    walk_ok = True
     async with _client() as client:
         while True:
             r = await _get(client, "/providers", params={"offset": offset}, counter=counter)
             if r.status_code != 200:
                 logger.warning("Finexer /providers failed: HTTP %s %s", r.status_code, r.text[:200])
+                walk_ok = False
                 break
             data = r.json()
             items = data.get("data") or []
@@ -123,6 +191,30 @@ async def list_providers(counter: Optional[dict] = None) -> list[dict]:
             offset += len(items)
             if not items:
                 break
+
+    if walk_ok and providers:
+        now = datetime.now(timezone.utc)
+        try:
+            await finexer_providers_col.replace_one(
+                {"_id": "providers"},
+                {"_id": "providers", "providers": providers, "fetched_at": now, "count": len(providers)},
+                upsert=True,
+            )
+        except Exception:
+            logger.exception("list_providers: Mongo write failed, continuing with the fresh in-memory list")
+        _providers_memo = {"providers": providers, "fetched_at": now}
+        return providers
+
+    # Walk failed (or came back empty) — serve stale cached data rather than
+    # an empty list, if we have any.
+    stale_providers = list((cached_doc or {}).get("providers") or [])
+    if stale_providers:
+        logger.warning(
+            "list_providers: live walk %s, serving %d stale cached providers instead",
+            "failed" if not walk_ok else "returned no ais providers", len(stale_providers),
+        )
+        return stale_providers
+
     return providers
 
 

@@ -154,6 +154,14 @@ worker_runs_col         = db["worker_runs"]
 finexer_consents_col   = db["finexer_consents"]
 finexer_customers_col  = db["finexer_customers"]
 
+# H19: cached result of GET /providers (the full paginated AIS-provider
+# list Finexer supports) — one doc, `_id: "providers"`, holding
+# `{providers: [...], fetched_at, count}`. This is effectively static
+# reference data, so app.services.finexer_sync.list_providers() re-walks
+# every page only when this doc is missing or older than
+# FINEXER_PROVIDERS_TTL_HOURS, instead of on every consent sync.
+finexer_providers_col  = db["finexer_providers"]
+
 # Bank-side PENDING transactions (provisional, not yet settled) — a SIBLING
 # collection to `transactions_col`, deliberately never merged into it, so
 # every existing consumer of `transactions_col` (recurring detection,

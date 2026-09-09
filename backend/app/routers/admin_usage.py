@@ -30,6 +30,7 @@ from app.core.auth import current_user
 from app.core.config import PRIMARY_EMAIL, mask_email
 from app.core.subscription import get_subscription
 from app.db.collections import llm_usage_col, worker_runs_col, finexer_consents_col
+from app.services.finexer_sync import list_providers
 
 router = APIRouter(tags=["admin"])
 
@@ -251,3 +252,16 @@ async def admin_sync_stats(user: dict = Depends(current_user)):
         "last_reconcile": last_reconcile,
         "finexer_requests": finexer_requests,
     }
+
+
+@router.post("/admin/finexer/providers/refresh")
+async def admin_finexer_providers_refresh(user: dict = Depends(current_user)):
+    """H19: force a fresh walk of Finexer's /providers list, bypassing the
+    cache app.services.finexer_sync.list_providers() otherwise serves for
+    FINEXER_PROVIDERS_TTL_HOURS. Not needed for correctness (a stale entry
+    just means slightly out-of-date bank names/logos for up to the TTL) —
+    this exists so an admin can pick up a newly onboarded provider without
+    waiting out the TTL."""
+    _require_admin(user)
+    providers = await list_providers(force=True)
+    return {"count": len(providers)}

@@ -21,10 +21,18 @@ from app.services.finexer_sync import (
 router = APIRouter(tags=["finexer"])
 
 # In-process cache for the provider list — it barely ever changes and the
-# picker can open several times per session, so we don't want to re-page
-# Finexer's /providers endpoint (64 items across several calls) on every
-# open. TTL only, no invalidation hook; an empty fetch (Finexer down) is
-# never cached so the next open retries instead of sticking on empty.
+# picker can open several times per session, so we don't want to even hit
+# `list_providers()`'s own (Mongo-backed, H19) cache on every open. TTL
+# only, no invalidation hook; an empty fetch (Finexer down) is never cached
+# so the next open retries instead of sticking on empty.
+#
+# H19: this route deliberately does NOT expose a `force` refresh — Finexer's
+# provider list is reference data that changes rarely, and this route is
+# reachable by any signed-in user, so a force-refresh flag here would be an
+# easy way to hammer the underlying API. The one place that needs a forced
+# refresh is an admin picking up a newly onboarded provider ahead of the
+# TTL, which POST /admin/finexer/providers/refresh (app/routers/
+# admin_usage.py) covers instead.
 _PROVIDERS_CACHE_TTL = 3600  # seconds
 _providers_cache: list[dict] = []
 _providers_cache_at: float = 0.0
@@ -33,7 +41,8 @@ _providers_cache_at: float = 0.0
 @router.get("/auth/finexer/providers")
 async def finexer_providers(user: dict = Depends(current_user)):
     """Return all AIS-capable Finexer providers for the bank picker, sorted
-    by name and cached in-process for an hour."""
+    by name and cached in-process for an hour (on top of list_providers()'s
+    own shared 24h cache, see app/services/finexer_sync.py)."""
     global _providers_cache, _providers_cache_at
     now = time.monotonic()
     if _providers_cache and (now - _providers_cache_at) < _PROVIDERS_CACHE_TTL:
