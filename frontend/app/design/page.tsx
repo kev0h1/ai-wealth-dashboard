@@ -126,6 +126,17 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g16-safe-to-spend",
+    name: "g16-safe-to-spend",
+    description:
+      "G16 revised Safe to Spend proposal: the hero explicitly says what is available in cash, net card-balance growth sits in a separate fact strip rather than the arithmetic, and the dynamic 'How we got £X' disclosure reconciles the cash figure. The unconfirmed-bill state keeps the £0 floor but also exposes the underlying negative safety position · static fixtures only, no production data or calculation changes · ?case=carried|cleared|unconfirmed&mode=light|dark&open=1",
+    states: [
+      { label: "Carried balance", value: "carried" },
+      { label: "Cleared monthly", value: "cleared" },
+      { label: "Unconfirmed bill", value: "unconfirmed" },
+    ],
+  },
+  {
     slug: "invite-only",
     name: "invite-only",
     description:
