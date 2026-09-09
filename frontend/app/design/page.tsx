@@ -126,17 +126,6 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
-    slug: "cash-led-engine",
-    name: "cash-led-engine",
-    description:
-      "G16 proposal (2026-09-09, supersedes the 2026-08-25 net-position rule Kevin also revised as G14 that same day): safe_to_spend stops being net of ALL unpaid card growth in the engine, not just the Home hero — card growth becomes a fact reported alongside the cash figure, reserved only as a fallback when a card's growth has no learned repayment series at all · Today (live behaviour) vs Proposed hero side by side, both card-terms wordings (carried: '£761 added to your cards this period' / cleared monthly: '£761 on cards, due around 14 Oct'), and a Penny affordability mock (today's flat refusal vs '£38 free until payday, and £761 has gone on cards this period') · fixtures only, not Kevin's real balances, no backend/frontend production files touched — see docs/design/g16-cash-led-engine.md for the full impact analysis · ?case=carried|cleared|fallback&mode=light|dark",
-    states: [
-      { label: "Carried", value: "carried" },
-      { label: "Cleared monthly", value: "cleared" },
-      { label: "Fallback", value: "fallback" },
-    ],
-  },
-  {
     slug: "invite-only",
     name: "invite-only",
     description:
