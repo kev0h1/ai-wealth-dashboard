@@ -79,11 +79,18 @@ const ROUTES: PreviewRoute[] = [
     slug: "cards-outlook",
     name: "cards-outlook",
     description:
-      "G10 proposal: per-card outlook section for Cards, below THE TRAJECTORY (Kevin decision 2026-09-09, two coded variants before any CardsPage build) · A ledger rows: one row per carried card, rate pill (0% until date, muted, or APR, amber only when paying interest), +£/mo pace and clear month, cleared-monthly cards fold into one quiet line / B timeline: same lead line, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible two-column list below · fixtures derived from debt_plan.py's compute_debt_plan shape (services/debt_narration.get_debt_plan_view is uncalled by the live UI), no fetching · ?variant=a|b&state=carried|clear&mode=light|dark",
+      "G10 proposal: per-card outlook section for Cards, below THE TRAJECTORY (Kevin decision 2026-09-09, two coded variants before any CardsPage build) · A ledger rows: one row per carried card, rate pill (0% until date, muted, or APR, amber only when paying interest), +£/mo pace and clear month, cleared-monthly cards fold into one quiet line / B timeline: same lead line, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible two-column list below · fixtures derived from debt_plan.py's compute_debt_plan shape (services/debt_narration.get_debt_plan_view is uncalled by the live UI), no fetching · superseded for the page-level view by cards-page below, which shows the same idea against the full seven-card Cards page instead of a 3-card fixture · ?variant=a|b&state=carried|clear&mode=light|dark",
     states: [
       { label: "Carried", value: "carried" },
       { label: "Clear", value: "clear" },
     ],
+  },
+  {
+    slug: "cards-page",
+    name: "cards-page",
+    description:
+      "G10 round 2: the whole /cards page (faithful replica of all five existing sections, CardsPage.tsx not touched) with three treatments of \"where each card is headed\" in place, against a seven-card fixture matching the real page's shape, including a duplicate-named pair (\"NatWest Mastercard\" twice) · A ledger rows: sixth section below THE TRAJECTORY, one row per carried card in WHERE IT MOVED's own grammar, cleared-monthly cards fold into one quiet line / B timeline: same sixth section, a 24-month rail with one dot per carried card at its clear month and hollow promo-end ticks, plus an accessible list / C no new section: each WHERE IT MOVED row gains one subline (promo end, clear month, or \"clears in full each month\") and the lead line sits alone under THE TRAJECTORY with no panel, making the page shorter rather than longer · names=raw|clean toggles a display-only name-cleaning proposal (title-cased shouty descriptors, last-4-digit suffixes to disambiguate the duplicate Mastercards), raw is the default and matches the live page exactly · ?variant=a|b|c&names=raw|clean&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
   },
   {
     slug: "planning-plans",
