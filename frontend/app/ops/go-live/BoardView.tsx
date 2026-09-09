@@ -55,6 +55,7 @@ import {
 import type { api } from "@/lib/api";
 import {
   BOARD_COLUMNS,
+  OWNER_LABEL,
   groupItemsByOwner,
   groupItemsBySection,
   type GoLiveItem,
@@ -73,8 +74,8 @@ type LaneGroup = { key: string; label: string; items: GoLiveItem[] };
 // Column-cell ids: dnd-kit droppable ids are strings, so a cell (one
 // lane's one column) is encoded as `${laneKey}::${column}`. Lane keys are
 // section letters ("A".."H") in section mode, or "kevin" | "claude" |
-// "unassigned" in owner mode — none of those contain "::", so a plain
-// split is safe.
+// "codex" | "unassigned" in owner mode — none of those contain "::", so a
+// plain split is safe.
 // ---------------------------------------------------------------------
 
 function cellId(laneKey: string, column: GoLiveItemState): string {
@@ -102,9 +103,9 @@ function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
  *  when nothing is being dragged, whether it could ever be one — used to
  *  decide the droppable's `disabled` flag). Review is never a target.
  *  Section lanes are fixed by id (no cross-lane drops). Owner lanes allow
- *  kevin<->claude either way but never *into* "unassigned" — there's no
- *  action that un-assigns an owner — while staying within an already
- *  unassigned item's own lane is fine. */
+ *  moving freely between any of kevin/claude/codex but never *into*
+ *  "unassigned" — there's no action that un-assigns an owner — while
+ *  staying within an already unassigned item's own lane is fine. */
 function isValidDropTarget(activeItem: GoLiveItem | undefined, lanes: GoLiveLaneMode, laneKey: string, column: GoLiveItemState): boolean {
   if (column === "review") return false;
   if (!activeItem) return true;
@@ -480,7 +481,7 @@ function columnLabel(column: GoLiveItemState): string {
 }
 
 function ownerLabel(owner: GoLiveOwner): string {
-  return owner === "kevin" ? "Kevin" : "Claude";
+  return OWNER_LABEL[owner];
 }
 
 /** The reverse of a single forward action, for the undo toast. This is a

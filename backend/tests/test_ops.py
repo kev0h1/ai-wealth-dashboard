@@ -245,6 +245,10 @@ def test_item_action_note_and_owner(tmp_path, monkeypatch, mock_git):
         item = next(i for i in result["items"] if i["id"] == "H3")
         assert item["owner"] == "kevin"
 
+        result = await ops.go_live_item_action("H3", ItemActionRequest(action="owner", owner="codex"), user=user)
+        item = next(i for i in result["items"] if i["id"] == "H3")
+        assert item["owner"] == "codex"
+
     asyncio.run(_run())
 
 

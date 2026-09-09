@@ -11,7 +11,7 @@ Run with `backend/.venv/bin/python scripts/backlog.py <command> ...`.
 
 Commands:
     list                                Print every item and question.
-    add <section> "<title>" [--owner kevin|claude]
+    add <section> "<title>" [--owner kevin|claude|codex]
                                         Add a new item under section heading
                                         "## <section>. ..." (e.g. A, H) with
                                         the next free id in that section.
@@ -31,7 +31,7 @@ Commands:
                                         main (scripts/integrate.py uses it).
     reopen <id>                         Untick a done item.
     note <id> "<text>"                  Add a dated note under an item.
-    owner <id> kevin|claude             Change who owns an item.
+    owner <id> kevin|claude|codex       Change who owns an item.
     priority <id> p1|p2|p3             Set an item's priority (defaults to
                                         p3 when the tag is absent).
     unblocks <id> Q5,Q6                 Set the questions an item unblocks
@@ -40,7 +40,7 @@ Commands:
     status Q7 ready|needs-kevin|blocked-deploy|submitted
                                         Set a questionnaire question's status.
 
-Every command takes an optional `--actor kevin|claude` (defaults to
+Every command takes an optional `--actor kevin|claude|codex` (defaults to
 `claude`) that is recorded in the note/commit and attributed as the git
 commit's actor label.
 
@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_actor(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--actor", choices=["kevin", "claude"], default="claude")
+        p.add_argument("--actor", choices=["kevin", "claude", "codex"], default="claude")
 
     p_list = sub.add_parser("list", help="Print every item and question.")
     p_list.set_defaults(func=cmd_list)
@@ -170,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_add = sub.add_parser("add", help="Add a new item under a section heading; prints the new id.")
     p_add.add_argument("section", help="Section letter, e.g. A or H (must already have a '## <section>.' heading).")
     p_add.add_argument("title", help="Item title text.")
-    p_add.add_argument("--owner", choices=["kevin", "claude"], default=None)
+    p_add.add_argument("--owner", choices=["kevin", "claude", "codex"], default=None)
     add_actor(p_add)
     p_add.set_defaults(func=cmd_add)
 
@@ -216,7 +216,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_owner = sub.add_parser("owner", help="Change who owns an item.")
     p_owner.add_argument("item_id")
-    p_owner.add_argument("owner", choices=["kevin", "claude"])
+    p_owner.add_argument("owner", choices=["kevin", "claude", "codex"])
     add_actor(p_owner)
     p_owner.set_defaults(func=cmd_owner)
 

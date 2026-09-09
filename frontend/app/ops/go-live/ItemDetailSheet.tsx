@@ -9,7 +9,14 @@
 import { useEffect, useState } from "react";
 import { Square, SquareCheck, X } from "lucide-react";
 import type { api } from "@/lib/api";
-import { PRIORITY_LABEL, PRIORITY_ORDER, type GoLiveItem, type GoLiveOwner, type GoLivePriority } from "@/lib/goLive";
+import {
+  OWNER_LABEL,
+  OWNER_ORDER,
+  PRIORITY_LABEL,
+  PRIORITY_ORDER,
+  type GoLiveItem,
+  type GoLivePriority,
+} from "@/lib/goLive";
 import { PriorityPill, StatePill } from "./Badges";
 
 type ActionBody = Parameters<typeof api.goLiveItemAction>[1];
@@ -98,7 +105,7 @@ export function ItemDetailSheet({
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Owner</span>
             <div className="flex gap-1.5">
-              {(["kevin", "claude"] as GoLiveOwner[]).map((owner) => (
+              {OWNER_ORDER.map((owner) => (
                 <button
                   key={owner}
                   type="button"
@@ -110,7 +117,7 @@ export function ItemDetailSheet({
                       : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
                   }`}
                 >
-                  {owner === "kevin" ? "Kevin" : "Claude"}
+                  {OWNER_LABEL[owner]}
                 </button>
               ))}
             </div>
