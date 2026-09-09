@@ -79,8 +79,13 @@ from app.db.collections import (
 )
 from app.routers.savings import _cashflow, _current_savings
 from app.services import response_cache
-from app.services.debt_narration import _month_label_to_human
-from app.services.debt_plan import DAYS_PER_MONTH, MATERIAL_BALANCE, _amortise, get_debt_plan_cached
+from app.services.debt_plan import (
+    DAYS_PER_MONTH,
+    MATERIAL_BALANCE,
+    _amortise,
+    get_debt_plan_cached,
+    month_label_to_human,
+)
 from app.services.pay_period import get_pay_period_for_date, period_rhythm_label
 from app.services.region import get_user_region
 
@@ -1166,7 +1171,7 @@ async def preview_commitment(body: dict, user: dict = Depends(current_user)):
             if clear_to and clear_to != dctx["clear_by"]:
                 lines.append(
                     "Funding this first likely moves your card clear-by from "
-                    f"{_month_label_to_human(dctx['clear_by'])} toward {_month_label_to_human(clear_to)}."
+                    f"{month_label_to_human(dctx['clear_by'])} toward {month_label_to_human(clear_to)}."
                 )
         consent = {
             "required": True,

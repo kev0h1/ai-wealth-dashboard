@@ -109,6 +109,21 @@ def _month_label(d: date) -> str:
     return d.strftime("%Y-%m")
 
 
+def month_label_to_human(label: str) -> str:
+    """Convert 'YYYY-MM' to 'Mon YYYY', e.g. '2031-08' → 'Aug 2031'.
+
+    Public (no leading underscore): shared with other modules that surface
+    a first_interest_month / clear_by-style label to the user, e.g.
+    commitments.py. Moved here from the retired debt_narration.py, which
+    was this engine's only narration consumer before the standalone
+    debt-plan page was deleted.
+    """
+    try:
+        return datetime.strptime(label, "%Y-%m").strftime("%b %Y")
+    except Exception:
+        return label
+
+
 def _add_months(d: date, n: int) -> date:
     """Return the 1st of the month that is n calendar months after d's month."""
     total_months = d.year * 12 + (d.month - 1) + n
