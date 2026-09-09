@@ -253,6 +253,14 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     # period" against the positive gap amount — the card itself relabels
     # this figure "Final safety position", never "Safe to spend", for the
     # same reason.
+    #
+    # Since G14 (2026-09-09) the card's hero is cash-led: in the bills-short
+    # branch below it renders `safe_to_spend_cash`, not the net
+    # `safe_to_spend` (which also has unpaid card growth subtracted out).
+    # This chip must quote the same figure the hero shows or Penny would
+    # contradict what Kevin is looking at, so the bills-short gap below is
+    # taken from `safe_to_spend_cash` too, falling back to the net figure
+    # only if the cash figure is unexpectedly absent from the cached result.
     if state == "comfortable":
         sentence1 = f"You're on track: about {_fmt_gbp(free_amount)} safe to spend{when}."
     elif state == "tight":
@@ -265,7 +273,8 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
         # reserved for a genuine bills shortfall, below).
         sentence1 = f"Bills are covered, but cards have used up what's spare{when}."
     else:
-        gap = abs(free_amount)
+        cash = sts.get("safe_to_spend_cash")
+        gap = abs(free_amount if cash is None else float(cash))
         sentence1 = f"You're about {_fmt_gbp(gap)} short of covering this pay period{when}."
 
     lowest = sts.get("lowest_projected_balance")

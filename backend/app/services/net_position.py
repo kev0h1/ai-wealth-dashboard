@@ -177,6 +177,16 @@ def short_reason_for(state: str, safe_to_spend_cash: float) -> str | None:
     (cash-only) figure was already non-positive — a genuine risk of not
     covering bills, the only case that earns red in the UI. "cards"
     otherwise — bills ARE covered, the shortfall is card-funded spending.
+
+    Since G14 (2026-09-09), this same split is what the Safe-to-Spend hero
+    (components/SafeToSpendCard.tsx) uses to decide what to render: "bills"
+    is exactly the case where the hero shows the cash gap in red ("£42
+    short"), and "cards" is exactly the case where the hero clamps to £0
+    amber. The hero's figure is always `safe_to_spend_cash` itself (floored
+    at £0), never the net `safe_to_spend` this function also takes card
+    growth into account for — card growth is reported on its own secondary
+    line instead of being folded into the hero number. No change to this
+    function's rule was needed for that redesign, it already matches.
     """
     if state != "short":
         return None
