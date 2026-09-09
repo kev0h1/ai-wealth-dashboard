@@ -5,7 +5,17 @@ cycle: movement totals, per-card breakdown, spending drivers, a behavioural
 pattern line from the portrait, and a trajectory of recent periods.
 
 Descriptive only, no advice, no judgement, no LLM calls (BEHAVIOURS.md).
+
+Per-card "outlook" fields (payoff_month, promo_end, apr_pct,
+paying_interest, monthly_interest_now, cleared_monthly) and the top-level
+extra_to_clear are sourced from app.services.debt_plan.get_debt_plan_cached
+(G10, 2026-09-09): a cached read, not a new heavy compute. The debt engine
+is a separate, more failure-prone surface (it reads confirmed card_terms
+and does amortisation); if it errors or has nothing for a card, this
+endpoint must still return the plain story it always has — the outlook
+fields are additive and degrade to null, never a 500.
 """
+import logging
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -17,12 +27,15 @@ from app.db.collections import (
     behaviour_portrait_col,
     account_rates_col,
 )
+from app.services.debt_plan import get_debt_plan_cached
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.needle import (
     _credit_card_account_ids,
     _txns_for_period,
     _abs_amounts,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cards"])
 
@@ -36,6 +49,35 @@ router = APIRouter(tags=["cards"])
 # per-card totals, so it is held back as a separate, owner-approved change.
 # See the migration report for the measured size of the discrepancy.
 _EXCLUDE_CATEGORIES = {"Transfer", "Debt"}
+
+
+def _current_apr_and_promo_end(plan_card: dict, today: date) -> tuple:
+    """Read the debt-plan card's own `rate_schedule` (the same segments
+    compute_debt_plan built from confirmed card_terms) for the segment
+    covering `today`'s month, and return (apr_pct, promo_end).
+
+    apr_pct is the rate actually in effect right now (0% during an active
+    promo, the standard rate once it's rolled off, or None when there's no
+    confirmed rate on file for this month). promo_end is that segment's
+    "until" month label, but only when the segment is a promo — a standard-
+    rate segment has no promo to report.
+
+    rate_schedule segments are {"from", "until", "apr_pct", "source", "kind"}
+    month labels ("YYYY-MM"), "until" inclusive or None when open-ended —
+    see app.services.debt_plan._compute_rate_schedule.
+    """
+    month_str = today.strftime("%Y-%m")
+    for seg in plan_card.get("rate_schedule") or []:
+        seg_from = seg.get("from")
+        seg_until = seg.get("until")
+        if seg_from is None or seg_from > month_str:
+            continue
+        if seg_until is not None and month_str > seg_until:
+            continue
+        apr_pct = seg.get("apr_pct")
+        promo_end = seg_until if seg.get("source") == "promo" else None
+        return apr_pct, promo_end
+    return None, None
 
 
 @router.get("/cards/story")
@@ -102,9 +144,49 @@ async def cards_story(
             "balance": round(balance, 2),
             "delta": round(card_delta, 2),
             "apr": apr_map.get(aid),
+            # Outlook fields (G10) — default to absent/null; filled in below
+            # from the debt-plan engine when it's available for this card.
+            "payoff_month": None,
+            "promo_end": None,
+            "apr_pct": None,
+            "paying_interest": None,
+            "monthly_interest_now": None,
+            "cleared_monthly": None,
         })
 
     per_card.sort(key=lambda c: abs(c["delta"]), reverse=True)
+
+    # ── Outlook (debt-plan derived) ────────────────────────────────────────────
+    # Best-effort only: a bad debt-plan read must never break this page, it
+    # must just come back without the outlook fields (see module docstring).
+    extra_to_clear = None
+    if per_card:
+        try:
+            plan = await get_debt_plan_cached(uid)
+            plan_cards_by_id = {c["account_id"]: c for c in plan.get("cards", [])}
+            for c in per_card:
+                pc = plan_cards_by_id.get(c["account_id"])
+                if pc is None:
+                    continue
+                apr_pct, promo_end = _current_apr_and_promo_end(pc, today)
+                c["payoff_month"] = pc.get("payoff_month")
+                c["promo_end"] = promo_end
+                c["apr_pct"] = apr_pct
+                c["paying_interest"] = pc.get("paying_interest")
+                c["monthly_interest_now"] = pc.get("monthly_interest_now")
+                c["cleared_monthly"] = pc.get("classification") == "cleared_monthly"
+
+            extra = plan.get("extra_to_clear")
+            if extra:
+                extra_to_clear = {
+                    "extra_per_month": extra.get("amount"),
+                    "debt_free_month": extra.get("debt_free_month"),
+                }
+        except Exception:
+            log.warning(
+                "cards_story: debt plan unavailable for %s, outlook fields omitted", uid,
+                exc_info=True,
+            )
 
     # ── Spending drivers ──────────────────────────────────────────────────────
     category_totals: dict[str, float] = {}
@@ -163,4 +245,5 @@ async def cards_story(
         "drivers": drivers,
         "pattern_line": pattern_line,
         "trajectory": trajectory,
+        "extra_to_clear": extra_to_clear,
     }
