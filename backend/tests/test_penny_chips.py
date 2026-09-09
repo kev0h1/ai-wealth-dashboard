@@ -108,17 +108,15 @@ def test_home_payday_status_short_bills_never_says_negative_safe_to_spend(monkey
 
 
 def test_home_payday_status_short_bills_quotes_cash_not_net_when_card_growth_present(monkeypatch):
-    # G14: the Home hero (SafeToSpendCard.tsx) is cash-led — bills-short
-    # renders safe_to_spend_cash, never the net safe_to_spend (which also
-    # subtracts unpaid card growth). This chip sits under that hero, so it
-    # must quote the same £42 cash gap Kevin sees on the card, not the
-    # £803 net figure that folds card growth in (his own screen, backlog
-    # item G14: £42 cash gap + £761 unpaid card growth rendered as £803).
+    # A fallback card reserve is kept separate from the genuine cash gap.
+    # This chip must quote the same £42 cash gap the Home hero shows, then
+    # state the £761 card-balance fact separately.
     async def fake_sts(uid):
         return {
             "status": "ok", "state": "short", "short_reason": "bills",
             "safe_to_spend": -803.0, "safe_to_spend_cash": -42.0,
-            "card_growth_reserved": 761.0, "days_until_payday": 4,
+            "card_growth_total": 761.0, "card_growth_reserved": 761.0,
+            "card_growth_wording": "carried", "days_until_payday": 4,
             "next_payday": "2026-09-13", "lowest_projected_balance": None,
             "calculation_status": "complete",
         }
@@ -129,6 +127,7 @@ def test_home_payday_status_short_bills_quotes_cash_not_net_when_card_growth_pre
     assert "short of covering this pay period" in answer
     assert "£42" in answer
     assert "£803" not in answer
+    assert "£761 was added to your card balances this pay period" in answer
     _assert_house_style(answer)
 
 
@@ -151,21 +150,42 @@ def test_home_payday_status_short_bills_falls_back_to_net_when_cash_missing(monk
     _assert_house_style(answer)
 
 
-def test_home_payday_status_cards_short_never_says_short_of_covering(monkeypatch):
+def test_home_payday_status_unconfirmed_card_short_never_says_short_of_covering(monkeypatch):
     async def fake_sts(uid):
         return {
-            "status": "ok", "state": "short", "short_reason": "cards",
+            "status": "ok", "state": "short", "short_reason": "cards_unconfirmed",
             "safe_to_spend": -120.0, "days_until_payday": 6,
             "next_payday": "2026-09-12", "lowest_projected_balance": None,
+            "card_growth_total": 200.0, "card_growth_reserved": 200.0,
+            "card_growth_wording": "carried",
             "calculation_status": "complete",
         }
     monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
 
     result = _run(answer_chip(UID, "home_payday_status", None))
     answer = result["answer"]
-    assert "cards have used up what's spare" in answer
+    assert "card repayment still needs confirming" in answer
     assert "short of covering this pay period" not in answer
-    assert "£120" not in answer  # bills are covered — no shortfall figure to quote
+    assert "£120" not in answer  # bills are covered, no cash-shortfall figure to quote
+    assert "£200 was added to your card balances this pay period" in answer
+    _assert_house_style(answer)
+
+
+def test_home_payday_status_positive_cash_mentions_clear_monthly_card_due_date(monkeypatch):
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "state": "tight", "safe_to_spend": 38.0,
+            "days_until_payday": 4, "next_payday": "2026-09-13",
+            "lowest_projected_balance": None, "calculation_status": "complete",
+            "card_growth_total": 761.0, "card_growth_reserved": 0.0,
+            "card_growth_wording": "cleared_monthly",
+            "card_growth_due_date": "2026-09-18",
+        }
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+
+    answer = _run(answer_chip(UID, "home_payday_status", None))["answer"]
+    assert "£38 safe to spend" in answer
+    assert "£761 is on cards and is due around Fri 18 Sep" in answer
     _assert_house_style(answer)
 
 

@@ -55,7 +55,7 @@ verbatim. The LLM decides what to look up, never what the numbers are.
 
 | Tool | Backs onto | Returns |
 | --- | --- | --- |
-| `get_safe_to_spend` | `compute_safe_to_spend` (`analytics.py`) | net-of-card-growth STS per the net-position doctrine |
+| `get_safe_to_spend` | `compute_safe_to_spend` (`analytics.py`) | cash-led Safe to Spend after bills and set-asides, plus card growth as a separate fact with repayment wording/due date and a fallback reserve only when no repayment series is learned |
 | `get_upcoming_bills` | the cashflow engine, `_compute_cashflow_patterns` LIVE on a cache miss (mirrors `GET /cashflow`, audit fix 2026-08-26) | hedged, dated bill and income events, each with account name/bank/balance, kind, pending/edited/days-past-due/original-date/rule_label state (enrichment pass, 2026-08-27); `insufficient_data` only when the user has no connected accounts at all |
 | `search_transactions(q, category, merchants, from, to, txn_type)` | the same query builder as `GET /transactions/search` | at most 20 compact rows |
 | `get_accounts` | account service, plus a twin of `accountKind.ts`'s substring classifier (kind/dormant have no backend field), `preferences.home_pinned_accounts`, `sync_freshness.last_bank_sync` | balances, names, providers, types, kind label, status, dormant flag, pinned, last_synced; never credentials or tokens |

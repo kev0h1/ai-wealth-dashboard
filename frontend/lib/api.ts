@@ -613,9 +613,11 @@ export type SafeToSpend =
     }
   | {
       status: "ok";
-      /** Single source of truth for "what's free right now" — NET of any
-       * unpaid credit card growth reserved against the pot. */
+      /** Single source of truth for what is free right now after the cash
+       * forecast and set-asides. Only the unconfirmed-card fallback can
+       * reduce it beyond safe_to_spend_cash. */
       safe_to_spend: number;
+      calculation_version?: number;
       next_payday: string;
       days_until_payday: number;
       bills_total: number;
@@ -639,22 +641,29 @@ export type SafeToSpend =
        * (monthly)" instead of the ambiguous "/period". Null/absent when
        * the user's rhythm is custom/irregular — render unqualified. */
       commitments_reserved_period_label?: string | null;
-      /** The old cash-only runway (after commitments, before the card
-       * reserve) — kept for reference, not the figure to lead with. */
+      /** Cash available after the dated forecast, buffer, plans and
+       * envelopes, before any unconfirmed-card fallback reserve. */
       safe_to_spend_cash?: number;
       /** Lowest projected balance after scheduled bills and pre-payday income,
-       * before buffer, plans, allocations, and card-spending reserves. */
+       * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
-      /** >= 0, unpaid credit card growth reserved out of the pot. */
+      /** Positive net card-balance growth observed this pay period. */
+      card_growth_total?: number;
+      /** Portion held back because no repayment series has been learned. */
       card_growth_reserved?: number;
+      /** Copy treatment derived from the user's declared card terms. */
+      card_growth_wording?: "carried" | "cleared_monthly" | null;
+      /** Earliest learned repayment date for clear-monthly wording. */
+      card_growth_due_date?: string | null;
       /** Unfilled allocation envelopes reserved from this pay period. */
       allocations_reserved?: number;
       allocations_count?: number;
       /** Optional calculation health for rolling API deployments. */
       calculation_status?: "complete" | "degraded";
       unavailable_components?: string[];
-      /** Non-null only when state === "short" — which kind of shortfall. */
-      short_reason?: "bills" | "cards" | null;
+      /** Non-null only when state === "short" — which kind of shortfall.
+       * `cards` is retained only for historical design fixtures. */
+      short_reason?: "bills" | "cards" | "cards_unconfirmed" | null;
     };
 
 // ── Commitments — named future big expenses (holiday, car, fees) ─────────────

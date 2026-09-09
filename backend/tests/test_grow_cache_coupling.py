@@ -144,7 +144,11 @@ def test_fresh_safe_to_spend_write_retires_cached_grow_payload(monkeypatch):
     _patch_grow_collaborators(monkeypatch)
 
     moment_a = {"status": "ok", "state": "short", "safe_to_spend": -1053.91, "next_payday": "2026-09-25"}
-    moment_b = {"status": "ok", "state": "short", "safe_to_spend": -749.0, "next_payday": "2026-09-25"}
+    moment_b = {
+        "status": "ok", "state": "short", "safe_to_spend": -749.0,
+        "next_payday": "2026-09-25",
+        "calculation_version": analytics.SAFE_TO_SPEND_CALCULATION_VERSION,
+    }
 
     # No "safe_to_spend" cache entry exists yet, so grow_view's period gate
     # falls through to a direct (uncached) compute_safe_to_spend call —

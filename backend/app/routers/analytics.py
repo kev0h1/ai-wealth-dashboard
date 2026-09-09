@@ -11,6 +11,11 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+# Persisted response-cache entries outlive deployments. Bump this whenever
+# Safe-to-Spend arithmetic or response semantics change so an older payload
+# cannot briefly contradict the current Home card after a release.
+SAFE_TO_SPEND_CALCULATION_VERSION = 2
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -25,7 +30,7 @@ from app.db.collections import (
     mono_transactions_col, mpesa_transactions_col, statement_transactions_col,
     preferences_col, savings_insights_col, cashflow_cache_col, upcoming_overrides_col,
     upcoming_rules_col, planned_expenses_col, investment_notes_col,
-    confirmed_transfer_pairs_col, pending_transactions_col,
+    confirmed_transfer_pairs_col, pending_transactions_col, card_terms_col,
 )
 from app.services.region import get_user_region, get_kenya_transactions
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
@@ -3271,6 +3276,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "dest_account_bank":      _bank_label(r.get("dest_account_bank")) if _occ_kind == MOVEMENT else None,
                 "card_dest_account_name": r.get("card_dest_account_name") if _occ_kind == MOVEMENT else None,
                 "card_dest_account_bank": _bank_label(r.get("card_dest_account_bank")) if _occ_kind == MOVEMENT else None,
+                "card_dest_account_id":   r.get("card_dest_account_id") if _occ_kind == MOVEMENT else None,
             })
         # collision guard: a rolled pending occurrence must never duplicate/overtake the next cycle
         kept = []
@@ -3717,15 +3723,15 @@ async def compute_safe_to_spend(uid: str) -> dict:
        (negative) and pre-payday non-salary income (positive). Pool all accounts
        into one running balance seeded at the spendable cash sum.
     5. Track the MINIMUM running balance across the window — this is the safe floor.
-    6. safe_to_spend = min_running_balance − buffer − commitments_reserved.
-    6c. safe_to_spend_cash = safe_to_spend at this point (pre-card-reserve).
-        Reserve any unpaid credit-card growth this period
-        (`net_position.card_growth_unpaid`) so a user funding life on a card
-        never reads as having spare cash. safe_to_spend then becomes this NET
-        figure — the single source of truth every downstream engine (pace,
-        spend_impact, can_i) reads. See app/services/net_position.py.
-    7. Compute state: comfortable / tight / short (on the NET figure), plus
-       short_reason ("bills" vs "cards" — see net_position.short_reason_for).
+    6. safe_to_spend = min_running_balance − buffer − commitments_reserved
+       − allocations_reserved.
+    6c. safe_to_spend_cash = safe_to_spend at this point. Card growth is a
+        separate fact and is not normally subtracted from this pay period's
+        cash. Reserve only growth on a card with no learned repayment series,
+        so an unconfirmed pay-in-full bill still fails closed.
+    7. Compute state: comfortable / tight / short on the cash-led figure,
+       after any fallback reserve. short_reason distinguishes a cash gap from
+       an unconfirmed card bill.
     8. estimated = True when history is thin (n_months < 2).
 
     Kenya note: this pooled cash runway currently has UK-provider and GBP
@@ -3891,25 +3897,82 @@ async def compute_safe_to_spend(uid: str) -> dict:
         unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
 
-    # ── 6c. Card growth reserve ────────────────────────────────────────────────
-    # See app/services/net_position.py's module docstring: the figure above is
-    # a forward-looking cash STOCK that never sees credit-card balance growth,
-    # so it can hand out spending permission the user is quietly funding on a
-    # card. Reserve any unpaid card growth this period, net of any scheduled
-    # card payment already inside `window_bills` (the double-count guard).
-    # Failure-tolerant: any error → zero reserve, matching the pattern above.
+    # ── 6c. Card growth fact and fallback reserve ──────────────────────────────
+    # Card purchases do not leave cash in the period they are charged. Keep
+    # observed card growth visible as a separate fact, but do not subtract it
+    # from the cash runway when a repayment series has been learned. Growth on
+    # a card with no learned repayment series is still reserved as a fail-closed
+    # fallback. The helper groups one existing transaction read in memory, so
+    # this does not introduce a query per card.
     safe_to_spend_cash = safe_to_spend
+    card_growth_total = 0.0
     card_growth_reserved = 0.0
+    card_growth_wording = None
+    card_growth_due_date = None
+    growth_card_ids: set[str] = set()
     try:
-        from app.services.net_position import card_growth_unpaid
+        from app.services.net_position import card_growth_by_card
         _period_start, _ = get_pay_period_for_date(_today_d, _pay_cfg)
-        card_growth_reserved = await card_growth_unpaid(uid, _period_start, _today_d, window_bills)
+        card_rows = await card_growth_by_card(uid, _period_start, _today_d, window_bills)
+        if card_rows is None:
+            raise RuntimeError("card growth could not be verified")
+
+        card_growth_total = round(max(0.0, sum(
+            float(row.get("net_change", row["growth"])) for row in card_rows
+        )), 2)
+        growth_card_ids = {
+            str(row["account_id"]) for row in card_rows
+            if float(row["growth"]) > 0
+        }
+        learned_card_ids = {
+            str(pattern.get("card_dest_account_id"))
+            for pattern in (cached.get("recurring_spend") or [])
+            if pattern.get("card_dest_account_id")
+        }
+        unlearned_growth = round(sum(
+            float(row["unpaid_growth"])
+            for row in card_rows
+            if str(row["account_id"]) not in learned_card_ids
+        ), 2)
+        # A paydown on another card offsets portfolio growth. The cautious
+        # reserve can never exceed the user's actual net card-balance growth,
+        # otherwise the separate card fact and the arithmetic would diverge.
+        card_growth_reserved = round(min(card_growth_total, unlearned_growth), 2)
         if card_growth_reserved:
             safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
     except Exception:
-        logger.exception("card growth reserve failed for %s", uid)
+        logger.exception("card growth fact or reserve failed for %s", uid)
         unavailable_components.append("card_growth_reserve")
+        card_growth_total = 0.0
         card_growth_reserved = 0.0
+
+    # Asked card terms affect wording only, never the safety arithmetic. A
+    # missing or unavailable terms document falls back to the cautious carried
+    # wording without degrading the calculation. This is one user-scoped query,
+    # not a per-card fan-out.
+    if card_growth_total > 0:
+        card_growth_wording = "carried"
+        try:
+            terms = await card_terms_col.find({
+                "user_id": uid,
+                "account_id": {"$in": list(growth_card_ids)},
+            }).to_list(len(growth_card_ids))
+            clear_monthly_ids = {
+                str(term.get("account_id"))
+                for term in terms
+                if term.get("usage") == "clear_monthly"
+            }
+            if growth_card_ids and growth_card_ids.issubset(clear_monthly_ids):
+                card_growth_wording = "cleared_monthly"
+                due_dates = sorted(
+                    str(bill["expected_date"])
+                    for bill in upcoming_bills
+                    if str(bill.get("card_dest_account_id") or "") in growth_card_ids
+                    and bill.get("expected_date")
+                )
+                card_growth_due_date = due_dates[0] if due_dates else None
+        except Exception:
+            logger.exception("card growth wording lookup failed for %s", uid)
 
     # A spending-permission calculation must fail closed. Retain the result
     # shape for direct callers, but never grant positive headroom when a known
@@ -3922,9 +3985,8 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # ── 7. State: comfortable / tight / short ─────────────────────────────────
     # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
     # whichever is higher — calibrated to be meaningful but not alarmist.
-    # Derived on the NET figure (post card-growth-reserve), so every
-    # downstream engine (pace, spend_impact, can_i) inherits the conservative
-    # number.
+    # Derived on the cash-led figure after any fallback card reserve, so Home,
+    # pace, spend_impact and Can I all reason over the same period boundary.
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
     _cf = await _monthly_cashflow(uid, _region, _cutoff)
@@ -3938,12 +4000,12 @@ async def compute_safe_to_spend(uid: str) -> dict:
     else:
         state = "comfortable"
 
-    # short_reason distinguishes a genuine bills-risk short (safe_to_spend_cash
-    # itself non-positive — the only case that earns red) from a short that's
-    # purely card-funded spending (bills ARE covered). Pure derivation lives in
-    # net_position.short_reason_for so it's unit-testable in isolation.
+    # short_reason distinguishes a genuine cash gap from the narrow fallback
+    # where an unconfirmed card bill consumed otherwise-positive cash.
     from app.services.net_position import short_reason_for
-    short_reason = None if unavailable_components else short_reason_for(state, safe_to_spend_cash)
+    short_reason = None if unavailable_components else short_reason_for(
+        state, safe_to_spend_cash, card_growth_reserved,
+    )
 
     # ── 8. estimated flag ────────────────────────────────────────────────────
     estimated = _cf.get("n_months", 3) < 2
@@ -3963,6 +4025,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # for it, once per 90s per user.
     return {
         "status":              "ok",
+        "calculation_version": SAFE_TO_SPEND_CALCULATION_VERSION,
         "calculation_status":  "degraded" if unavailable_components else "complete",
         "unavailable_components": unavailable_components,
         "safe_to_spend":       safe_to_spend,
@@ -3983,7 +4046,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "lowest_projected_balance": round(min_running, 2),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
+        "card_growth_total":   card_growth_total,
         "card_growth_reserved": card_growth_reserved,
+        "card_growth_wording": card_growth_wording,
+        "card_growth_due_date": card_growth_due_date,
         "commitments_reserved": int(commitments_reserved),
         "commitments_count":   commitments_count,
         "commitments_reserved_period_label": (
@@ -4019,9 +4085,17 @@ async def get_cached_safe_to_spend(uid: str) -> dict:
     cached = await response_cache.aget("safe_to_spend", uid)
     if cached is None:
         cached = await response_cache.aget("safe_to_spend_series", uid)
-    if cached is not None:
+    if _safe_to_spend_cache_current(cached):
         return cached
     return await compute_safe_to_spend(uid)
+
+
+def _safe_to_spend_cache_current(payload: dict | None) -> bool:
+    """Reject persisted payloads produced under older arithmetic rules."""
+    return bool(
+        isinstance(payload, dict)
+        and payload.get("calculation_version") == SAFE_TO_SPEND_CALCULATION_VERSION
+    )
 
 
 async def build_safe_to_spend_response(uid: str, include_series: bool = False) -> dict:
@@ -4051,7 +4125,7 @@ async def get_safe_to_spend(include: str = "", user: dict = Depends(current_user
     # ── 0. Mongo-backed response cache (6h safety bound; exact invalidation
     # via the per-user data version — see app/services/response_cache.py) ────
     _cached_resp = await response_cache.aget(cache_name, uid)
-    if _cached_resp is not None:
+    if _safe_to_spend_cache_current(_cached_resp):
         return _cached_resp
 
     v = await response_cache.snapshot(uid)

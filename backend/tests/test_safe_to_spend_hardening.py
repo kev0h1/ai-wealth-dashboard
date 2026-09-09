@@ -15,6 +15,18 @@ import app.services.net_position as net_position
 import app.services.region as region_service
 
 
+def test_safe_to_spend_cache_rejects_payload_from_old_arithmetic():
+    assert not analytics._safe_to_spend_cache_current({
+        "status": "ok",
+        "safe_to_spend": -803.0,
+        "short_reason": "cards",
+    })
+    assert analytics._safe_to_spend_cache_current({
+        "status": "ok",
+        "calculation_version": analytics.SAFE_TO_SPEND_CALCULATION_VERSION,
+    })
+
+
 class _ListCol:
     def __init__(self, docs):
         self.docs = list(docs)
@@ -41,8 +53,11 @@ class _PrefsCol:
 
 
 class _CacheDocCol:
+    def __init__(self, doc=None):
+        self.doc = doc or {"_id": "user@example.com"}
+
     async def find_one(self, _query):
-        return {"_id": "user@example.com"}
+        return self.doc
 
 
 class _CacheSpy:
@@ -173,7 +188,17 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({
         "user_id": "user@example.com", "safe_to_spend_buffer": 10,
     }))
-    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
+    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol({
+        "_id": "user@example.com",
+        "recurring_spend": [
+            {"card_dest_account_id": "card1"},
+            {"card_dest_account_id": "card2"},
+        ],
+    }))
+    monkeypatch.setattr(analytics, "card_terms_col", _ListCol([
+        {"account_id": "card1", "usage": "clear_monthly"},
+        {"account_id": "card2", "usage": "carry"},
+    ]))
 
     async def uk(_uid):
         return "UK"
@@ -181,7 +206,13 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     async def cashflow_response(_cached, uid=None):
         return {
             "upcoming_bills": [
-                {"days_away": 1, "amount": 30.0},
+                {
+                    "days_away": 1,
+                    "amount": 30.0,
+                    "expected_date": "2026-09-18",
+                    "kind": analytics.MOVEMENT,
+                    "card_dest_account_id": "card1",
+                },
                 {
                     "days_away": 1,
                     "amount": 40.0,
@@ -202,7 +233,10 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
         return 4.0, 1
 
     async def card_growth(_uid, _start, _today, _bills):
-        return 3.0
+        return [
+            {"account_id": "card1", "net_change": 63.0, "growth": 63.0, "unpaid_growth": 63.0},
+            {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0},
+        ]
 
     async def monthly_cashflow(_uid, _region, _cutoff):
         return {"spending": 0.0, "n_months": 3}
@@ -215,7 +249,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", commitments)
     monkeypatch.setattr(allocations_router, "total_reserved_remaining", allocations)
-    monkeypatch.setattr(net_position, "card_growth_unpaid", card_growth)
+    monkeypatch.setattr(net_position, "card_growth_by_card", card_growth)
     monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
     monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
 
@@ -225,11 +259,116 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     # low point. £70 - £10 buffer - £5 plan - £4 envelope = £51 before cards.
     assert result["lowest_projected_balance"] == 70.0
     assert result["safe_to_spend_cash"] == 51.0
-    assert result["safe_to_spend"] == 48.0
+    assert result["safe_to_spend"] == 51.0
+    assert result["card_growth_total"] == 3.0
+    assert result["card_growth_reserved"] == 0.0
+    assert result["card_growth_wording"] == "cleared_monthly"
+    assert result["card_growth_due_date"] == "2026-09-18"
     assert result["bills_total"] == 30.0
     assert result["pooled_transfers_excluded"] == 40.0
     assert result["calculation_status"] == "complete"
     assert result["unavailable_components"] == []
+
+
+def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypatch):
+    monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
+    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol({
+        "_id": "user@example.com", "recurring_spend": [],
+    }))
+    monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
+
+    async def uk(_uid):
+        return "UK"
+
+    async def cashflow_response(_cached, uid=None):
+        return {"upcoming_bills": [], "upcoming_income": []}
+
+    async def accounts(_uid):
+        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+
+    async def no_commitments(_uid):
+        return 0, 0
+
+    async def no_allocations(_uid):
+        return 0.0, 0
+
+    async def unlearned_growth(_uid, _start, _today, _bills):
+        return [
+            {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 200.0},
+            {"account_id": "card2", "net_change": -50.0, "growth": 0.0, "unpaid_growth": 0.0},
+        ]
+
+    async def monthly_cashflow(_uid, _region, _cutoff):
+        return {"spending": 0.0, "n_months": 3}
+
+    async def no_sync(_uid):
+        return None
+
+    monkeypatch.setattr(region_service, "get_user_region", uk)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", no_allocations)
+    monkeypatch.setattr(net_position, "card_growth_by_card", unlearned_growth)
+    monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
+    monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
+
+    result = asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
+
+    assert result["safe_to_spend_cash"] == 100.0
+    assert result["card_growth_total"] == 150.0
+    # The unlearned card grew by £200, but a £50 paydown elsewhere means
+    # the portfolio grew by £150. The fallback reserve is capped to that
+    # visible total so the card fact and arithmetic still reconcile.
+    assert result["card_growth_reserved"] == 150.0
+    assert result["safe_to_spend"] == -50.0
+    assert result["state"] == "short"
+    assert result["short_reason"] == "cards_unconfirmed"
+
+
+def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypatch):
+    monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
+    monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
+
+    async def uk(_uid):
+        return "UK"
+
+    async def cashflow_response(_cached, uid=None):
+        return {"upcoming_bills": [], "upcoming_income": []}
+
+    async def accounts(_uid):
+        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+
+    async def no_commitments(_uid):
+        return 0, 0
+
+    async def no_allocations(_uid):
+        return 0.0, 0
+
+    async def failed_growth(_uid, _start, _today, _bills):
+        return None
+
+    async def monthly_cashflow(_uid, _region, _cutoff):
+        return {"spending": 0.0, "n_months": 3}
+
+    async def no_sync(_uid):
+        return None
+
+    monkeypatch.setattr(region_service, "get_user_region", uk)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", cashflow_response)
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", no_commitments)
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", no_allocations)
+    monkeypatch.setattr(net_position, "card_growth_by_card", failed_growth)
+    monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
+    monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
+
+    result = asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
+
+    assert result["calculation_status"] == "degraded"
+    assert result["unavailable_components"] == ["card_growth_reserve"]
+    assert result["safe_to_spend"] == 0.0
+    assert result["short_reason"] is None
 
 
 def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
@@ -252,7 +391,7 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
         return 0.0, 0
 
     async def no_card_growth(_uid, _start, _today, _bills):
-        return 0.0
+        return []
 
     async def monthly_cashflow(_uid, _region, _cutoff):
         return {"spending": 0.0, "n_months": 3}
@@ -265,7 +404,7 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
     monkeypatch.setattr(analytics, "_safe_to_spend_accounts", accounts)
     monkeypatch.setattr(commitments_router, "total_reserved_slices", unavailable_commitments)
     monkeypatch.setattr(allocations_router, "total_reserved_remaining", no_allocations)
-    monkeypatch.setattr(net_position, "card_growth_unpaid", no_card_growth)
+    monkeypatch.setattr(net_position, "card_growth_by_card", no_card_growth)
     monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", monthly_cashflow)
     monkeypatch.setattr(analytics, "last_bank_sync", no_sync)
 

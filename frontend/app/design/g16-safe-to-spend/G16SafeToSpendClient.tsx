@@ -157,19 +157,25 @@ function CardBalanceFact({ fixture }: { fixture: Fixture }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
-            <p className={`text-[11px] font-bold uppercase tracking-[0.075em] ${isUnconfirmed ? "text-amber-800 dark:text-amber-200" : "text-slate-500 dark:text-slate-400"}`}>
-              {isUnconfirmed ? "Card bill not confirmed" : "Card balances this pay period"}
+            <p className="text-[11px] font-bold uppercase tracking-[0.075em] text-slate-500 dark:text-slate-400">
+              Card balances this pay period
             </p>
-            <p className={`money shrink-0 text-sm font-bold ${isUnconfirmed ? "text-amber-800 dark:text-amber-200" : "text-slate-900 dark:text-slate-100"}`}>
+            <p aria-label={`increase of ${fmt(fixture.cardGrowth)}`} className="money shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">
               +{fmt(fixture.cardGrowth)}
             </p>
           </div>
-          <p className={`mt-1.5 text-[13px] leading-snug text-pretty ${isUnconfirmed ? "text-amber-900/85 dark:text-amber-100/85" : "text-slate-600 dark:text-slate-300"}`}>
+          {isUnconfirmed && (
+            <div className="mt-2 inline-flex min-h-7 items-center gap-1.5 rounded-full bg-amber-100 px-2.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-400/12 dark:text-amber-200">
+              <AlertCircle size={13} aria-hidden="true" />
+              Repayment not confirmed
+            </div>
+          )}
+          <p className="mt-1.5 text-[13px] leading-snug text-slate-600 dark:text-slate-300 text-pretty">
             {isUnconfirmed
               ? `${fmt(fixture.cardGrowth)} was added to a card whose repayment has not been identified, so we held it back.`
               : fixture.cardDueLabel
                 ? `Due around ${fixture.cardDueLabel}. It is not deducted from today’s cash figure.`
-                : "This increases the balance you are carrying. It is not deducted from the cash above."}
+                : "This added to your card balances this pay period. It is not deducted from the cash above."}
           </p>
           {!isUnconfirmed && (
             <p className="mt-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
@@ -177,7 +183,7 @@ function CardBalanceFact({ fixture }: { fixture: Fixture }) {
             </p>
           )}
           {isUnconfirmed && (
-            <p className="mt-2 text-[12px] font-semibold text-amber-800 dark:text-amber-200">
+            <p className="mt-2 text-[12px] font-semibold text-slate-700 dark:text-slate-200">
               That leaves a {fmt(fixture.cardReserve - fixture.cashBeforeCardCheck)} safety shortfall.
             </p>
           )}
@@ -194,7 +200,7 @@ function SafeToSpendPreview({ fixture, open }: { fixture: Fixture; open: boolean
   const StatusIcon = isUnconfirmed ? AlertCircle : ShieldCheck;
 
   return (
-    <section className="hero-arrive overflow-hidden rounded-3xl border border-white/70 bg-white shadow-[0_18px_55px_-32px_rgba(15,23,42,0.45)] dark:border-white/[0.08] dark:bg-slate-900 dark:shadow-black/30" aria-labelledby={`g16-heading-${fixture.slug}`}>
+    <section className="hero-arrive overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm dark:border-white/[0.08] dark:bg-slate-900 dark:shadow-none" aria-labelledby={`g16-heading-${fixture.slug}`}>
       <div className="p-5 pb-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.09em] text-slate-500 dark:text-slate-400">Safe to Spend</p>

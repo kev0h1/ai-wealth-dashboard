@@ -20,7 +20,12 @@ import app.services.categories as categories
 import app.services.needle as needle
 import app.services.spend_verdict as spend_verdict
 from app.services.categories import BUILTIN_CATEGORY_KINDS
-from app.services.net_position import card_growth_unpaid, period_net, short_reason_for
+from app.services.net_position import (
+    card_growth_by_card,
+    card_growth_unpaid,
+    period_net,
+    short_reason_for,
+)
 
 KIND_MAP = dict(BUILTIN_CATEGORY_KINDS)
 
@@ -174,20 +179,89 @@ def test_card_growth_failure_tolerant_returns_zero(monkeypatch):
     assert result == 0.0
 
 
+def test_card_growth_by_card_keeps_observed_fact_and_applies_exact_forecast(monkeypatch):
+    async def fake_card_ids(uid):
+        return {"card1", "card2"}
+
+    async def fake_txns(uid, start, end, account_ids=None):
+        return [{"account_id": "card1"}, {"account_id": "card2"}]
+
+    def fake_delta(txns):
+        return {"card1": 200.0, "card2": 60.0}[txns[0]["account_id"]]
+
+    monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
+    monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
+    monkeypatch.setattr(needle, "_card_delta", fake_delta)
+
+    rows = asyncio.run(card_growth_by_card(
+        "kevin",
+        date(2026, 8, 1),
+        date(2026, 8, 25),
+        [{"card_dest_account_id": "card1", "amount": 80.0, "is_credit_card": False}],
+    ))
+
+    assert rows == [
+        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 120.0},
+        {"account_id": "card2", "net_change": 60.0, "growth": 60.0, "unpaid_growth": 60.0},
+    ]
+
+
+def test_card_growth_by_card_preserves_a_signed_paydown_for_portfolio_netting(monkeypatch):
+    async def fake_card_ids(uid):
+        return {"card1", "card2"}
+
+    async def fake_txns(uid, start, end, account_ids=None):
+        return [{"account_id": "card1"}, {"account_id": "card2"}]
+
+    def fake_delta(txns):
+        return {"card1": 200.0, "card2": -60.0}[txns[0]["account_id"]]
+
+    monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
+    monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
+    monkeypatch.setattr(needle, "_card_delta", fake_delta)
+
+    rows = asyncio.run(card_growth_by_card(
+        "kevin", date(2026, 8, 1), date(2026, 8, 25),
+    ))
+
+    assert rows == [
+        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 200.0},
+        {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0},
+    ]
+    assert asyncio.run(card_growth_unpaid(
+        "kevin", date(2026, 8, 1), date(2026, 8, 25),
+    )) == 140.0
+
+
+def test_card_growth_by_card_returns_none_when_lookup_fails(monkeypatch):
+    async def boom(uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(needle, "_credit_card_account_ids", boom)
+    result = asyncio.run(card_growth_by_card(
+        "kevin", date(2026, 8, 1), date(2026, 8, 25),
+    ))
+    assert result is None
+
+
 # ── short_reason_for ──────────────────────────────────────────────────────
 
 def test_short_reason_none_when_not_short():
-    assert short_reason_for("comfortable", 500.0) is None
-    assert short_reason_for("tight", 50.0) is None
+    assert short_reason_for("comfortable", 500.0, 0.0) is None
+    assert short_reason_for("tight", 50.0, 40.0) is None
 
 
 def test_short_reason_bills_when_cash_pot_itself_non_positive():
-    assert short_reason_for("short", 0.0) == "bills"
-    assert short_reason_for("short", -20.0) == "bills"
+    assert short_reason_for("short", 0.0, 40.0) == "bills"
+    assert short_reason_for("short", -20.0, 0.0) == "bills"
 
 
-def test_short_reason_cards_when_bills_covered_but_net_short():
-    assert short_reason_for("short", 40.0) == "cards"
+def test_short_reason_cards_unconfirmed_when_fallback_reserve_makes_it_short():
+    assert short_reason_for("short", 40.0, 120.0) == "cards_unconfirmed"
+
+
+def test_short_reason_defensive_none_for_contradictory_short_state():
+    assert short_reason_for("short", 40.0, 0.0) is None
 
 
 # ── period_net ────────────────────────────────────────────────────────────

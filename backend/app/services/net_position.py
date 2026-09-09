@@ -12,11 +12,13 @@ re-deriving its own.
 
 Two frames, and they must NEVER be subtracted from each other:
 
-  (a) `card_growth_unpaid` — part of the POT, a STOCK figure. "How much
-      unpaid credit-card growth exists right now that the forward cash
-      runway hasn't accounted for." Floored at zero: cards being paid DOWN
-      must never inflate Safe-to-Spend (the cash cost of the paydown is
-      already reflected in account balances).
+  (a) `card_growth_by_card` / `card_growth_unpaid` — a STOCK fact. "How
+      much credit-card growth exists right now?" It is reported beside the
+      cash runway, not normally subtracted from it. Only growth on a card
+      with no learned repayment series is reserved by Safe-to-Spend as a
+      fail-closed fallback. Floored at zero: cards being paid DOWN must
+      never inflate Safe-to-Spend (the cash cost of the paydown is already
+      reflected in account balances).
 
   (b) `period_net` — the FLOW frame. "Income vs outflow so far this period,
       and the raw (unfloored, can be negative) card-growth figure that goes
@@ -77,42 +79,89 @@ async def card_growth_unpaid(
 
     Floored at zero: cards being paid DOWN must never inflate the pot.
     """
+    rows = await card_growth_by_card(uid, period_start, today, window_bills)
+    if rows is None:
+        return 0.0
+    observed_net = sum(float(row.get("net_change", row["growth"])) for row in rows)
+    scheduled_repayments = sum(
+        max(0.0, float(row["growth"]) - float(row["unpaid_growth"]))
+        for row in rows
+    )
+    return round(max(0.0, observed_net - scheduled_repayments), 2)
+
+
+async def card_growth_by_card(
+    uid: str,
+    period_start: date,
+    today: date,
+    window_bills: list[dict] | None = None,
+) -> list[dict] | None:
+    """Return positive card growth separately for each card.
+
+    Each row contains the signed ``net_change``, positive ``growth`` for
+    reserve decisions, and ``unpaid_growth`` after any forecast repayment
+    already present in the cash window. Keeping the signed value means a
+    paydown on one card offsets growth on another in the user-facing total,
+    while the fallback reserve can still be applied to the exact unlearned
+    card rather than guessed across the portfolio.
+
+    The helper performs the same account and transaction reads as the old
+    aggregate implementation, then groups in memory. ``None`` means the
+    lookup failed; Safe-to-Spend treats that as degraded and fails closed.
+    The compatibility wrapper above retains its historical zero-on-failure
+    behaviour for any descriptive caller.
+    """
     try:
         from app.services.needle import _card_delta, _credit_card_account_ids, _txns_for_period
 
         card_ids = await _credit_card_account_ids(uid)
         if not card_ids:
-            return 0.0
+            return []
 
         txns = await _txns_for_period(uid, period_start, today, account_ids=card_ids)
-        delta = _card_delta(txns)
+        by_card: dict[str, list[dict]] = {card_id: [] for card_id in card_ids}
+        for txn in txns:
+            account_id = str(txn.get("account_id") or "")
+            if account_id in by_card:
+                by_card[account_id].append(txn)
 
-        already_scheduled = 0.0
+        scheduled: dict[str, float] = {card_id: 0.0 for card_id in card_ids}
         for bill in (window_bills or []):
-            is_card = bill.get("is_credit_card")
-            if is_card is True:
-                matched = True
-            elif is_card is False:
-                # Explicit negative signal — trust it, no account_id
-                # fallback needed (and none wanted: a false account_id
-                # collision must never override a known-good flag).
-                matched = False
-            elif "account_id" in bill:
-                # No is_credit_card key on this bill dict (older caller) —
-                # fall back to account_id.
-                matched = str(bill.get("account_id") or "") in card_ids
+            destination = str(bill.get("card_dest_account_id") or "")
+            if destination in card_ids:
+                matched_id = destination
             else:
-                # Neither signal present — can't resolve this entry to a
-                # card account reliably, so skip the guard for it rather
-                # than risk a false match.
-                matched = False
-            if matched:
-                already_scheduled += float(bill.get("amount") or 0.0)
+                account_id = str(bill.get("account_id") or "")
+                is_card = bill.get("is_credit_card")
+                if is_card is not False and account_id in card_ids:
+                    matched_id = account_id
+                elif is_card is True and len(card_ids) == 1:
+                    # Backwards-compatible fallback for an older bill shape
+                    # that identifies a card payment but cannot name its
+                    # destination. With more than one card, guessing would
+                    # make the per-card reserve unsafe, so leave it unmatched.
+                    matched_id = next(iter(card_ids))
+                else:
+                    matched_id = ""
+            if matched_id:
+                scheduled[matched_id] += float(bill.get("amount") or 0.0)
 
-        return max(0.0, delta - already_scheduled)
+        rows: list[dict] = []
+        for card_id in sorted(card_ids):
+            net_change = round(float(_card_delta(by_card[card_id])), 2)
+            if net_change == 0:
+                continue
+            growth = round(max(0.0, net_change), 2)
+            rows.append({
+                "account_id": card_id,
+                "net_change": net_change,
+                "growth": growth,
+                "unpaid_growth": round(max(0.0, growth - scheduled[card_id]), 2),
+            })
+        return rows
     except Exception:
-        log.exception("card_growth_unpaid failed for %s — returning 0.0", uid)
-        return 0.0
+        log.exception("card_growth_by_card failed for %s", uid)
+        return None
 
 
 async def period_net(uid: str) -> dict | None:
@@ -168,26 +217,24 @@ async def period_net(uid: str) -> dict | None:
         return None
 
 
-def short_reason_for(state: str, safe_to_spend_cash: float) -> str | None:
+def short_reason_for(
+    state: str,
+    safe_to_spend_cash: float,
+    card_growth_reserved: float,
+) -> str | None:
     """Pure derivation of `compute_safe_to_spend`'s `short_reason` field,
     factored out here so it's unit-testable without the full
     `compute_safe_to_spend` DB fan-out.
 
-    None unless `state == "short"`. "bills" when the pre-card-reserve
-    (cash-only) figure was already non-positive — a genuine risk of not
-    covering bills, the only case that earns red in the UI. "cards"
-    otherwise — bills ARE covered, the shortfall is card-funded spending.
-
-    Since G14 (2026-09-09), this same split is what the Safe-to-Spend hero
-    (components/SafeToSpendCard.tsx) uses to decide what to render: "bills"
-    is exactly the case where the hero shows the cash gap in red ("£42
-    short"), and "cards" is exactly the case where the hero clamps to £0
-    amber. The hero's figure is always `safe_to_spend_cash` itself (floored
-    at £0), never the net `safe_to_spend` this function also takes card
-    growth into account for — card growth is reported on its own secondary
-    line instead of being folded into the hero number. No change to this
-    function's rule was needed for that redesign, it already matches.
+    None unless `state == "short"`. "bills" means the cash-only figure was
+    already non-positive, which is a genuine risk of not covering the pay
+    period. "cards_unconfirmed" means cash was positive but the fail-closed
+    reserve for a card with no learned repayment series consumed it.
     """
     if state != "short":
         return None
-    return "bills" if safe_to_spend_cash <= 0 else "cards"
+    if safe_to_spend_cash <= 0:
+        return "bills"
+    if card_growth_reserved > 0:
+        return "cards_unconfirmed"
+    return None

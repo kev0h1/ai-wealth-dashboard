@@ -136,7 +136,8 @@ TOOL_SCHEMAS = [
             "description": (
                 "The user's current safe-to-spend figure: the money that is genuinely "
                 "free to spend before their next payday, already net of upcoming bills "
-                "and any unpaid credit-card growth. Use this for ANY question about "
+                "and set-asides. Card balance growth is returned as a separate fact and "
+                "is not normally deducted from cash. Use this for ANY question about "
                 "how much the user can afford, has spare, or has left until payday. "
                 "The returned figures are authoritative, never estimate your own."
             ),
@@ -1893,12 +1894,17 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         return {"insufficient_data": True, "reason": "no account data connected yet"}
     return {
         "safe_to_spend": _money(sts.get("safe_to_spend")),
+        "safe_to_spend_cash": _money(sts.get("safe_to_spend_cash")),
         "next_payday": sts.get("next_payday"),
         "days_until_payday": sts.get("days_until_payday"),
         "state": sts.get("state"),
         "short_reason": sts.get("short_reason"),
         "bills_total": _money(sts.get("bills_total")),
         "card_debt": _money(sts.get("card_debt")),
+        "card_growth": _money(sts.get("card_growth_total")),
+        "card_growth_reserved": _money(sts.get("card_growth_reserved")),
+        "card_growth_wording": sts.get("card_growth_wording"),
+        "card_growth_due_date": sts.get("card_growth_due_date"),
         "estimated": sts.get("estimated"),
     }
 
@@ -3362,13 +3368,12 @@ _TERMS_COPY: dict[str, str] = {
     ),
     "reserved": (
         "Reserved money is notional, not physically moved. Two things get "
-        "reserved before your Safe to Spend figure is worked out: the "
-        "per-period slice for any active commitment you've set up, and "
-        "any credit-card growth this period that hasn't been paid off "
-        "yet, so spending you're quietly funding on a card doesn't get "
-        "counted as spare cash. Neither reservation transfers a penny "
-        "anywhere, they're simply subtracted from the figure so it "
-        "doesn't hand out permission the money isn't really free to use."
+        "reserved before your Safe to Spend figure is worked out for any "
+        "active commitment or envelope you've set up. Card balance growth "
+        "is shown separately because the purchase has not left cash yet. "
+        "Only growth on a card whose repayment has not been identified is "
+        "held back as a cautious fallback. A reservation never transfers a "
+        "penny anywhere, it only stops the same money being shown as free."
     ),
     "dormant": (
         "An account is marked dormant when its balance is exactly £0 and "
@@ -3481,10 +3486,12 @@ _NUMBERS_COPY: dict[str, str] = {
         "to spend before payday. It starts from the lowest point your "
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
-        "any reserved commitment slices, and any unpaid credit-card "
-        "growth this period. NOW minus BILLS doesn't equal FREE because "
+        "reserved commitment slices, and envelopes. Card balance growth "
+        "is shown beside FREE rather than normally being subtracted from "
+        "cash; only a card whose repayment has not been identified is held "
+        "back as a cautious fallback. NOW minus BILLS doesn't equal FREE because "
         "FREE also walks the whole period rather than just today, and "
-        "subtracts the buffer and both reserves on top, so it will "
+        "subtracts the buffer and set-asides on top, so it will "
         "usually read lower than a simple subtraction."
     ),
     "planning_runway": (
