@@ -1827,10 +1827,9 @@ export interface CycleStory {
 }
 
 // ── Debt plan rate-segment shape ───────────────────────────────────────────
-// DebtPlanView/DebtPlanViewCard and friends (the full GET /debt-plan payload
-// the retired /debt-plan page, DebtPlanPage.tsx, used to render) were
-// removed in the debt-plan page cleanup (2026-08-30) — DebtPlanRateSegment
-// survives because DebtPlanSummary below still uses it.
+// Shared by DebtPlanSummary below; GET /debt-plan/summary is the only
+// surviving debt-plan route (the full narrated view and its types were
+// retired with the old standalone debt-plan page).
 export type DebtPlanRateSegment = {
   from: string;               // "YYYY-MM"
   until: string | null;       // "YYYY-MM" or null
@@ -1848,12 +1847,11 @@ export type DebtBurndownOverrides = {
   aprs: Record<string, number>;
 };
 
-// Lightweight summary variant of DebtPlanView (GET /debt-plan/summary) — totals
-// buckets + per-card balance/rate schedule/demonstrated monthly payment, all
-// pulled from the same 90s-cached deterministic plan the Planning "Card plan"
-// entry card already reads (no extra cashflow fetch or LLM narration call).
-// index 0 of a card's rate_schedule is always "the segment covering now",
-// same contract the original minimal shape carried.
+// Per-card debt summary (GET /debt-plan/summary) — totals buckets + per-card
+// balance/rate schedule/demonstrated monthly payment, all pulled from the
+// same 90s-cached deterministic plan the Planning "Card plan" entry card
+// already reads (no extra cashflow fetch or LLM narration call).
+// index 0 of a card's rate_schedule is always "the segment covering now".
 export type DebtPlanSummary = {
   totals: {
     buckets: { carried_total: number; float_total: number };

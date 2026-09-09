@@ -98,7 +98,7 @@ def _add_months(d: date, n: int) -> date:
 
 
 def _human_month(label: str | None) -> str | None:
-    """'YYYY-MM' -> 'Mon YYYY' (matches debt_narration._month_label_to_human)."""
+    """'YYYY-MM' -> 'Mon YYYY' (matches debt_plan.month_label_to_human)."""
     if not label:
         return None
     try:

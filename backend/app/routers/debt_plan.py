@@ -1,29 +1,23 @@
-"""Debt plan router — Phase A + narration.
-
-GET /debt-plan  →  deterministic projection + Penny narration for the
-authenticated user's credit cards.  Session-auth only (same pattern as all
-other routers).
+"""Debt plan router.
 
 GET /debt-plan/summary  →  minimal, deterministic-only summary for the
 Planning "Card plan" entry card and Spend's debt burn-down chart widget.
 Deliberately calls ONLY the 90s-cached deterministic plan
-(get_debt_plan_cached), never get_debt_plan_view / app.services.debt_narration,
-so neither consumer waits on a cashflow fetch or an LLM narration call it
-doesn't read.
+(get_debt_plan_cached), the engine, never a narration layer, so neither
+consumer waits on a cashflow fetch or an LLM narration call it doesn't read.
+
+The full narrated view (GET /debt-plan) belonged to the standalone debt-plan
+page, retired 2026-08-05; the route and its narration layer
+(app.services.debt_narration) were removed once the Cards page's per-card
+outlook confirmed the engine (get_debt_plan_cached), not the narration, is
+what every surviving consumer needs.
 """
 from fastapi import APIRouter, Depends
 
 from app.core.auth import current_user
-from app.services.debt_narration import get_debt_plan_view
 from app.services.debt_plan import get_debt_plan_cached
 
 router = APIRouter(tags=["debt-plan"])
-
-
-@router.get("/debt-plan")
-async def get_debt_plan(user: dict = Depends(current_user)):
-    uid = user["email"]
-    return await get_debt_plan_view(uid)
 
 
 @router.get("/debt-plan/summary")
