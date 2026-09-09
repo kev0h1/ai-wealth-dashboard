@@ -3,12 +3,14 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { api, CardsStory } from "@/lib/api";
+import { api, CardsStory, CardsStoryCard } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
+import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import BottomNav from "@/components/BottomNav";
 import MoneyText from "@/components/MoneyText";
@@ -50,10 +52,45 @@ function monthShort(iso: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { month: "short" });
 }
 
+// ── "YYYY-MM" → "Mar 2027" (the debt-plan engine's own month label) ───────────
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+}
+
+// ── Per-card outlook caption for WHERE IT MOVED (G10, 2026-09-09) ─────────────
+// Priority, per Kevin's approved variant C2: a live 0% promo, then a
+// cleared-monthly card, then a plain clear month for a carried card. A
+// card genuinely being charged interest right now must say so in words on
+// that same "clears <month>" line, not rely on the amber colour alone
+// (colour-only meaning fails accessibility) — amber never lands on a
+// money figure, only on this text caption. Returns null when the engine
+// has nothing for this card, so the row omits the line entirely rather
+// than printing a placeholder.
+function cardOutlookCaption(c: CardsStoryCard): { text: string; amber: boolean } | null {
+  if (c.promo_end) {
+    const rate = c.apr_pct ?? 0;
+    return { text: `${rate}% until ${monthLabel(c.promo_end)}`, amber: false };
+  }
+  if (c.cleared_monthly) {
+    return { text: "clears in full each month", amber: false };
+  }
+  if (c.payoff_month) {
+    if (c.paying_interest) {
+      const clear = `clears ${monthLabel(c.payoff_month)}`;
+      const text = c.apr_pct != null ? `${c.apr_pct}%, ${clear}` : `interest charged, ${clear}`;
+      return { text, amber: true };
+    }
+    return { text: `clears ${monthLabel(c.payoff_month)}`, amber: false };
+  }
+  return null;
+}
+
 export default function CardsPage() {
   const router = useRouter();
   const { colours } = useColours();
   const { hideNetWorth } = usePreferences();
+  const { icons: iconOverrides } = useCategoryIcons();
 
   const [story, setStory] = useState<CardsStory | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,6 +192,18 @@ export default function CardsPage() {
   const trajSlice = trajectory.slice(-6);
   const maxAbsDelta = trajSlice.reduce((m, t) => Math.max(m, Math.abs(t.delta)), 0);
 
+  // ── Projection sentence under THE TRAJECTORY (G10, 2026-09-09) ────────────
+  // Framed as a projection ("would clear"), never a promise — demonstrated
+  // pace projected forward, not a scheduled outcome (no-conviction-on-
+  // predictions doctrine). Omitted entirely when extra_to_clear is null
+  // (nothing carried, the debt plan degraded, or the horizon can't clear it).
+  const extraToClear = story.extra_to_clear;
+  const projectionLine = extraToClear
+    ? extraToClear.extra_per_month === 0
+      ? `At your pace every carried card would clear by ${monthLabel(extraToClear.debt_free_month)}.`
+      : `${mask(fmtGBP(extraToClear.extra_per_month))} more a month would clear every carried card by ${monthLabel(extraToClear.debt_free_month)}.`
+    : null;
+
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       <div className="px-4 pt-6 pb-2 max-w-2xl mx-auto space-y-8">
@@ -236,6 +285,10 @@ export default function CardsPage() {
                 // have overpaid is never "owed", and a paid-off £0 card gets
                 // no caption at all.
                 const balanceCaption = c.balance < 0 ? "owed" : c.balance > 0 ? "in credit" : null;
+                const outlookCaption = cardOutlookCaption(c);
+                const outlookCaptionClass = outlookCaption?.amber
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-slate-400 dark:text-slate-500";
 
                 return (
                   <div key={key} className="px-4 py-3 flex items-center gap-3">
@@ -247,7 +300,7 @@ export default function CardsPage() {
                       brandBg={brand.background}
                     />
 
-                    {/* Middle: name + APR pill */}
+                    {/* Middle: name + APR pill + outlook caption */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
                         {c.name}
@@ -256,6 +309,11 @@ export default function CardsPage() {
                         <span className="inline-block mt-0.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 num">
                           {c.apr}% APR
                         </span>
+                      )}
+                      {outlookCaption && (
+                        <p className={`text-[11px] ${outlookCaptionClass}`}>
+                          {outlookCaption.text}
+                        </p>
                       )}
                     </div>
 
@@ -303,17 +361,17 @@ export default function CardsPage() {
               <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
                 {drivers.map((d) => {
                   const colour = getCategoryColour(d.category, colours);
+                  const CategoryIcon = getCategoryIcon(d.category, iconOverrides);
                   return (
                     <div key={d.category} className="px-4 py-3 flex items-center gap-3">
-                      {/* Category colour chip */}
+                      {/* Category icon chip — same convention as
+                          SpendVerdictView.tsx's IconChip (not exported, so
+                          reproduced here rather than imported). */}
                       <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                         style={{ backgroundColor: `${colour}26` }}
                       >
-                        <div
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: colour }}
-                        />
+                        <CategoryIcon size={16} style={{ color: colour }} />
                       </div>
 
                       {/* Category name */}
@@ -392,6 +450,17 @@ export default function CardsPage() {
             )}
           </div>
         </div>
+
+        {/* ── Projection sentence, no panel around it (Kevin's approved
+            variant C2) ────────────────────────────────────────────────── */}
+        {projectionLine && (
+          <p
+            className="rise-in -mt-4 text-sm text-slate-500 dark:text-slate-400 leading-snug"
+            style={{ "--rise-index": 5 } as React.CSSProperties}
+          >
+            <MoneyText text={projectionLine} />
+          </p>
+        )}
 
       </div>
       <BottomNav />

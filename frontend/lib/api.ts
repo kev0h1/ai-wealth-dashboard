@@ -1678,6 +1678,16 @@ export type CardsStoryCard = {
   balance: number;
   delta: number;
   apr: number | null;
+  // Outlook fields (G10, 2026-09-09) — sourced from the debt-plan engine
+  // (backend/app/services/debt_plan.py) and matched onto this card by
+  // account_id. Null/absent when the debt plan has nothing for this card,
+  // or degraded entirely (see CardsStory.extra_to_clear below).
+  payoff_month: string | null; // "YYYY-MM", the engine's own month label
+  promo_end: string | null; // "YYYY-MM", only set while a 0% promo is live
+  apr_pct: number | null; // rate in effect this month, from confirmed card_terms
+  paying_interest: boolean | null;
+  monthly_interest_now: number | null;
+  cleared_monthly: boolean | null;
 };
 
 export type CardsStory = {
@@ -1688,6 +1698,10 @@ export type CardsStory = {
   drivers: { category: string; total: number }[];
   pattern_line: string | null;
   trajectory: { period_end: string; delta: number }[];
+  // Top level, straight from the debt-plan engine's own extra_to_clear;
+  // null when there's nothing carried, the plan is unavailable, or every
+  // carried card already clears without extra.
+  extra_to_clear: { extra_per_month: number; debt_free_month: string } | null;
 };
 
 // ── Card terms (asked, never inferred — open banking has no APR data) ──────
