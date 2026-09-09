@@ -25,7 +25,7 @@ Open after this round (see session notes, not doctrine): dead `PlansDock` / `Com
 
 ## Backlog
 
-`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model, including the state machine (`todo` / `in-progress` / `blocked` / `review` / done) and the `add`/`review`/`todo` commands.
+`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model, including the state machine (`todo` / `in-progress` / `blocked` / `review` / done) and the `add`/`review`/`todo` commands. Codex agents follow this same board and branch-per-item workflow; their copy of it lives in `AGENTS.md`.
 
 Nothing is worked off-board. If what you have been asked to do is not on the board, add it first (`backend/.venv/bin/python scripts/backlog.py add <section-letter> "<one-sentence title>" --owner claude`, or `scripts/session.sh start <new-id> --title "..."`), then start it. When you finish, block, or hand back an item, record it on the board in the same turn; the page at /ops/go-live is what Kevin reads, and it only knows what the board knows. Sessions do not edit TODO.md by hand.
 

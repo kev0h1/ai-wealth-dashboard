@@ -123,7 +123,7 @@ class ItemActionRequest(BaseModel):
     action: Literal["done", "reopen", "start", "block", "note", "owner", "priority", "unblocks", "todo"]
     reason: Optional[str] = None
     text: Optional[str] = None
-    owner: Optional[Literal["kevin", "claude"]] = None
+    owner: Optional[Literal["kevin", "claude", "codex"]] = None
     commit: Optional[str] = None
     priority: Optional[Literal["p1", "p2", "p3"]] = None
     questions: Optional[list[str]] = None

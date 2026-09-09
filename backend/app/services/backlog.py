@@ -89,7 +89,7 @@ GIT_TIMEOUT = 15
 
 ITEM_STATES = ("todo", "in-progress", "blocked", "review")
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
-OWNERS = ("kevin", "claude")
+OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
 
@@ -98,12 +98,12 @@ ITEM_RE = re.compile(
     r"^(?P<prefix>- \[(?P<check>[ xX])\] \*\*(?P<id>[A-H]\d+)\.\s*(?P<title>.*?)\*\*)"
     r"(?P<tail>.*)$"
 )
-OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude)\]")
+OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude|codex)\]")
 STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review)(?::\s*([^\]]*))?\]")
 PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
 UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
 DONE_SUFFIX_RE = re.compile(r"\(done\s+(\d{4}-\d{2}-\d{2})(?:,\s*([^)]+))?\)\s*$")
-NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude)\): (.*)$")
+NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude|codex)\): (.*)$")
 
 
 def _parse_unblocks(raw: str) -> list[str]:

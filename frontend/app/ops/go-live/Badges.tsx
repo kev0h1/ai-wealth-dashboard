@@ -5,7 +5,16 @@
 // toggle button. Kept in one file since none of these carry their own
 // state or fetch logic — they're pure display plus a click callback.
 
-import { PRIORITY_LABEL, PRIORITY_PILL_CLASS, type GoLiveItem, type GoLiveOwner, type GoLivePriority } from "@/lib/goLive";
+import {
+  OWNER_INITIAL,
+  OWNER_LABEL,
+  PRIORITY_LABEL,
+  PRIORITY_PILL_CLASS,
+  nextOwner,
+  type GoLiveItem,
+  type GoLiveOwner,
+  type GoLivePriority,
+} from "@/lib/goLive";
 
 function formatDoneDate(iso: string): string {
   try {
@@ -93,29 +102,27 @@ export function OwnerToggle({
   onToggle: (next: GoLiveOwner) => void;
 }) {
   const current: GoLiveOwner = owner ?? "claude";
-  const label = current === "kevin" ? "Kevin" : "Claude";
   return (
     <button
       type="button"
       disabled={disabled}
-      onClick={() => onToggle(current === "kevin" ? "claude" : "kevin")}
+      onClick={() => onToggle(nextOwner(current))}
       className="inline-flex min-h-9 shrink-0 items-center rounded-full border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
-      title="Tap to reassign owner"
+      title="Tap to cycle owner (Kevin, Claude, Codex)"
     >
-      {label}
+      {OWNER_LABEL[current]}
     </button>
   );
 }
 
 export function OwnerInitialChip({ owner }: { owner: GoLiveOwner | null }) {
   const current: GoLiveOwner = owner ?? "claude";
-  const initial = current === "kevin" ? "K" : "C";
   return (
     <span
       className="money inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 dark:bg-white/10 dark:text-slate-300"
-      title={current === "kevin" ? "Kevin" : "Claude"}
+      title={OWNER_LABEL[current]}
     >
-      {initial}
+      {OWNER_INITIAL[current]}
     </span>
   );
 }

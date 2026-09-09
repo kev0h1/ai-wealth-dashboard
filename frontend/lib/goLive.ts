@@ -10,9 +10,37 @@
 // the page and its sub-components under app/ops/go-live/.
 
 export type GoLiveStatus = "ready" | "needs-kevin" | "blocked-deploy" | "submitted";
-export type GoLiveOwner = "kevin" | "claude";
+export type GoLiveOwner = "kevin" | "claude" | "codex";
 export type GoLiveItemState = "todo" | "in-progress" | "blocked" | "review" | "done";
 export type GoLivePriority = "p1" | "p2" | "p3";
+
+// ---------------------------------------------------------------------
+// Owner display — one shared vocabulary so the filter bar, board lanes,
+// detail sheet and compact toggle chip never drift from each other about
+// what an owner is called or how it cycles.
+// ---------------------------------------------------------------------
+
+export const OWNER_ORDER: GoLiveOwner[] = ["kevin", "claude", "codex"];
+
+export const OWNER_LABEL: Record<GoLiveOwner, string> = {
+  kevin: "Kevin",
+  claude: "Claude",
+  codex: "Codex",
+};
+
+export const OWNER_INITIAL: Record<GoLiveOwner, string> = {
+  kevin: "K",
+  claude: "C",
+  codex: "X",
+};
+
+/** Cycles kevin -> claude -> codex -> kevin, for the compact one-tap
+ *  reassign chip (`OwnerToggle` in Badges.tsx) where a three-way segmented
+ *  control would not fit. */
+export function nextOwner(current: GoLiveOwner): GoLiveOwner {
+  const idx = OWNER_ORDER.indexOf(current);
+  return OWNER_ORDER[(idx + 1) % OWNER_ORDER.length];
+}
 
 export type GoLiveNote = { date: string; actor: string; text: string };
 
@@ -100,7 +128,7 @@ export function groupItemsByOwner(items: GoLiveItem[]): GoLiveOwnerGroup[] {
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(item);
   }
-  const label = (key: string) => (key === "kevin" ? "Kevin" : key === "claude" ? "Claude" : "Unassigned");
+  const label = (key: string) => OWNER_LABEL[key as GoLiveOwner] ?? "Unassigned";
   const order = [...map.keys()].sort((a, b) => {
     if (a === "unassigned") return 1;
     if (b === "unassigned") return -1;
@@ -201,7 +229,7 @@ export function loadGoLiveFilters(): GoLiveFilters {
     if (!raw) return DEFAULT_GO_LIVE_FILTERS;
     const parsed = JSON.parse(raw) as Partial<GoLiveFilters>;
     return {
-      owner: parsed.owner === "kevin" || parsed.owner === "claude" ? parsed.owner : "all",
+      owner: OWNER_ORDER.includes(parsed.owner as GoLiveOwner) ? (parsed.owner as GoLiveOwner) : "all",
       priorities: Array.isArray(parsed.priorities) ? parsed.priorities.filter((p): p is GoLivePriority => PRIORITY_ORDER.includes(p as GoLivePriority)) : [],
       states: Array.isArray(parsed.states) ? parsed.states.filter((s): s is GoLiveFilterState => FILTER_STATE_ORDER.includes(s as GoLiveFilterState)) : [],
       search: typeof parsed.search === "string" ? parsed.search : "",
