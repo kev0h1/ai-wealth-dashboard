@@ -121,7 +121,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   const exactCashRunway = data.safe_to_spend_cash ?? null;
   const exactCardReserve = data.card_growth_reserved ?? null;
   const exactLowestProjected = data.lowest_projected_balance ?? null;
-  const gap = Math.abs(freeAmount);
 
   const amount = (value: number) => hidden ? "£••••" : fmt(value);
   const pennies = (value: number) => Math.abs(value) < 0.005 ? 0 : value;
@@ -166,8 +165,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
     heroAmount = 0;
     heroCaption = "free until payday";
   } else {
-    heroAmount = gap;
-    heroCaption = "safety gap before payday";
+    // Bills-short: the hero is always the cash position, never the net
+    // safe_to_spend figure. Card growth is reported separately below, it
+    // is never added into this number.
+    heroAmount = cashRunway == null ? 0 : Math.abs(cashRunway);
+    heroCaption = "short";
   }
 
   const pace = data.pace;
@@ -183,9 +185,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   const cashPositionLabel = cashRunway != null && cashRunway < 0
     ? "Cash after set-asides"
     : "Cash left after set-asides";
-  const showGapComposition = state === "short" && !isCardsShort && cashRunway != null && cashRunway < 0 && cardReserve != null && cardReserve > 0;
-  const compositionTotal = showGapComposition ? Math.abs(cashRunway) + cardReserve : 0;
-  const cashShare = compositionTotal > 0 ? Math.max(6, Math.min(94, Math.abs(cashRunway!) / compositionTotal * 100)) : 50;
+  // Single secondary line, shown in both short states whenever there is
+  // unpaid card growth to report. No breakdown bar, no two-figure grid,
+  // ever, in either state.
+  const showCardGrowthLine = state === "short" && cardReserve != null && cardReserve > 0;
   const recovery = state === "short"
     ? isCardsShort ? { label: "Review card spending", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : state === "tight" && (data.card_debt ?? 0) >= 1000 ? { label: "See your cards", href: "/cards" } : null;
@@ -209,36 +212,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
         </span>
       </h2>
 
-      {showGapComposition && (
-        <div className="mt-4" aria-label={`${amount(Math.abs(cashRunway))} projected cash gap and ${amount(cardReserve)} unpaid card balance growth make up the safety gap`}>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">What makes up the safety gap</p>
-          <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700" aria-hidden="true">
-            <span className="h-full bg-rose-300/80 dark:bg-rose-400/60" style={{ width: `${cashShare}%` }} />
-            <span className="h-full flex-1 bg-slate-300 dark:bg-slate-500" />
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-4">
-            <div>
-              <p className="money text-base font-bold text-slate-900 dark:text-slate-100">{amount(Math.abs(cashRunway))}</p>
-              <p className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">Projected cash gap</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">after bills and set-asides</p>
-            </div>
-            <div className="text-right">
-              <p className="money text-base font-bold text-slate-900 dark:text-slate-100">{amount(cardReserve)}</p>
-              <p className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">Unpaid card growth</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">net balance increase</p>
-            </div>
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">
-            This is not your total card spending. It is how much your balance has grown this pay period after payments and refunds, less any card bill already forecast. Spend shows your actual purchases.
-          </p>
-        </div>
-      )}
-
-      {!showGapComposition && cashRunway != null && cardReserve != null && cardReserve > 0 && (
+      {showCardGrowthLine && (
         <p className="mt-4 text-sm leading-relaxed text-slate-600 dark:text-slate-300 text-pretty">
-          {cashRunway < 0
-            ? <MoneyText text={`${amount(Math.abs(cashRunway))} is the projected cash gap after bills and set-asides.`} />
-            : <MoneyText text={`Bills and set-asides leave ${amount(cashRunway)}, but ${amount(cardReserve)} of unpaid card balance growth means nothing is free right now.`} />}
+          <MoneyText text={`${amount(cardReserve!)} went on cards unpaid this period.`} />
         </p>
       )}
 

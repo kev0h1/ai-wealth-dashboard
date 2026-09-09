@@ -88,7 +88,8 @@ def test_home_payday_status_short_bills_never_says_negative_safe_to_spend(monkey
     async def fake_sts(uid):
         return {
             "status": "ok", "state": "short", "short_reason": "bills",
-            "safe_to_spend": -748.91, "days_until_payday": 19,
+            "safe_to_spend": -748.91, "safe_to_spend_cash": -748.91,
+            "days_until_payday": 19,
             "next_payday": "2026-09-25", "lowest_projected_balance": 53.89,
             "calculation_status": "complete",
         }
@@ -103,6 +104,50 @@ def test_home_payday_status_short_bills_never_says_negative_safe_to_spend(monkey
     # The hardened requirement: never a bare negative "safe to spend" phrase.
     assert "−£749 safe to spend" not in answer and "-£749 safe to spend" not in answer
     assert "safe to spend" not in answer
+    _assert_house_style(answer)
+
+
+def test_home_payday_status_short_bills_quotes_cash_not_net_when_card_growth_present(monkeypatch):
+    # G14: the Home hero (SafeToSpendCard.tsx) is cash-led — bills-short
+    # renders safe_to_spend_cash, never the net safe_to_spend (which also
+    # subtracts unpaid card growth). This chip sits under that hero, so it
+    # must quote the same £42 cash gap Kevin sees on the card, not the
+    # £803 net figure that folds card growth in (his own screen, backlog
+    # item G14: £42 cash gap + £761 unpaid card growth rendered as £803).
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "state": "short", "short_reason": "bills",
+            "safe_to_spend": -803.0, "safe_to_spend_cash": -42.0,
+            "card_growth_reserved": 761.0, "days_until_payday": 4,
+            "next_payday": "2026-09-13", "lowest_projected_balance": None,
+            "calculation_status": "complete",
+        }
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+
+    result = _run(answer_chip(UID, "home_payday_status", None))
+    answer = result["answer"]
+    assert "short of covering this pay period" in answer
+    assert "£42" in answer
+    assert "£803" not in answer
+    _assert_house_style(answer)
+
+
+def test_home_payday_status_short_bills_falls_back_to_net_when_cash_missing(monkeypatch):
+    # Defensive fallback only — production always populates
+    # safe_to_spend_cash (app.routers.analytics), so this covers an
+    # unexpected/older cached shape rather than a real state.
+    async def fake_sts(uid):
+        return {
+            "status": "ok", "state": "short", "short_reason": "bills",
+            "safe_to_spend": -100.0, "days_until_payday": 2,
+            "next_payday": "2026-09-11", "lowest_projected_balance": None,
+            "calculation_status": "complete",
+        }
+    monkeypatch.setattr(analytics_module, "get_cached_safe_to_spend", fake_sts)
+
+    result = _run(answer_chip(UID, "home_payday_status", None))
+    answer = result["answer"]
+    assert "£100" in answer
     _assert_house_style(answer)
 
 
