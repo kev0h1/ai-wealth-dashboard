@@ -10,6 +10,8 @@ import { LayoutGrid, List, Search, X } from "lucide-react";
 import {
   FILTER_STATE_LABEL,
   FILTER_STATE_ORDER,
+  OWNER_LABEL,
+  OWNER_ORDER,
   PRIORITY_LABEL,
   PRIORITY_ORDER,
   type GoLiveFilterState,
@@ -20,8 +22,7 @@ import {
 
 const OWNER_OPTIONS: { value: "all" | GoLiveOwner; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "kevin", label: "Kevin" },
-  { value: "claude", label: "Claude" },
+  ...OWNER_ORDER.map((owner) => ({ value: owner, label: OWNER_LABEL[owner] })),
 ];
 
 function toggleValue<T>(list: T[], value: T): T[] {

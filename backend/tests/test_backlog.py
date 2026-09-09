@@ -192,6 +192,9 @@ def test_set_owner_round_trip_and_rejects_unknown_owner():
     doc.set_owner("A1", "kevin")
     assert doc.items["A1"].owner == "kevin"
     assert "[owner: kevin]" in doc.lines[doc.items["A1"].line_no]
+    doc.set_owner("A1", "codex")
+    assert doc.items["A1"].owner == "codex"
+    assert "[owner: codex]" in doc.lines[doc.items["A1"].line_no]
     with pytest.raises(backlog.BacklogError):
         doc.set_owner("A1", "nobody")
 
@@ -311,6 +314,17 @@ def test_add_note_appends_after_existing_notes_and_keeps_other_items_intact():
     assert doc.items["A3"].notes[-1].actor == "claude"
     # B1 must still parse correctly after the line-count shift.
     assert doc.items["B1"].text == "Something about B1."
+
+
+def test_add_note_by_codex_round_trips_through_reparse():
+    # NOTE_RE must recognise "codex" as an actor, not just kevin/claude —
+    # otherwise a codex-authored note is written to disk but silently
+    # dropped the next time the file is parsed back.
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.add_note("A1", "a codex note", "codex")
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].notes[-1].actor == "codex"
+    assert reparsed.items["A1"].notes[-1].text == "a codex note"
 
 
 def test_add_note_on_item_with_no_notes_yet():
@@ -646,6 +660,14 @@ def test_list_output_shows_review_branch(paths, mock_git, capsys):
 # ---------------------------------------------------------------------
 # add_item (allocate the next id in a section)
 # ---------------------------------------------------------------------
+
+
+def test_add_item_with_codex_owner_round_trips():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    item = doc.add_item("A", "A codex-owned item.", owner="codex")
+    assert item.owner == "codex"
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items[item.item_id].owner == "codex"
 
 
 def test_add_item_allocates_next_id_and_appends_to_section():
