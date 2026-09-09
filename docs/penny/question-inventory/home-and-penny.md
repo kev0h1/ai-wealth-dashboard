@@ -263,7 +263,7 @@ Gated on Home to the payday window (`lib/paydayWindow.ts`: live plan exists, OR 
 The single densest surface on Home. Every sub-element below is its own question generator.
 
 ### A7.1 Whisper label + state icon
-**Shows** — "SAFE TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight, or short-because-cards) / AlertTriangle (short-because-bills). Colour: emerald / amber / red.
+**Shows:** "SAFE TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight, or an unconfirmed card repayment) / AlertTriangle (cash shortfall). Colour is confined to the small signifier except for a genuine cash shortfall, where the hero figure is red too.
 
 | Bucket | Questions |
 |---|---|
@@ -272,13 +272,12 @@ The single densest surface on Home. Every sub-element below is its own question 
 | HOW | How do I get back to green? |
 | WHEN | Safe to spend between now and when? |
 
-### A7.2 Verdict headline (`SafeToSpendCard.tsx:173-184`)
-**Shows** one of four sentences (+ " · estimated" when `estimated`):
-- comfortable: **"You're okay. £X to spare this pay period."**
-- tight: **"Tight until your pay period ends. £X in hand."**
-- short + `short_reason === "cards"`: **"Bills are covered, but £X has gone on cards this period. Nothing spare until payday."**
-- short + bills: **"Short this pay period. £X to cover."**
-Note the client-side remap: a backend `short` with `safe_to_spend > −1` and not cards-driven is re-read as *comfortable* (`zeroSafe`, `:61`, `:124-126`).
+### A7.2 Verdict headline
+**Shows** one cash figure plus its period boundary (+ " · estimated" when `estimated`):
+- comfortable or tight: **"£X available in cash until {payday}."**
+- unconfirmed card repayment: **"£0 available in cash until {payday}."** with a **"Check card bill"** signifier; the underlying cash and reserve stay visible in the explanation.
+- cash shortfall: **"£X short before payday."**
+Note the client-side tolerance: a backend `short` within one penny of zero and without a short reason is re-read as *comfortable*.
 
 | Bucket | Questions |
 |---|---|
@@ -288,27 +287,27 @@ Note the client-side remap: a backend `short` with `safe_to_spend > −1` and no
 | HOW | How do I make it say "okay"? What single change gains me the most? How do I cover the £X gap? |
 | WHEN | Until when — what date does "this pay period" end? When does it recalculate? |
 
-### A7.3 NOW / BILLS / FREE tiles (`:267-295`)
-**Shows** — three count-up figures: **NOW** = `spendable_now`; **BILLS** = `bills_total` (with a leading "−" only when > 0); **FREE** = `|safe_to_spend|` (prefixed "−" when `state === "short"`). Masked to "£••••" under `hideNetWorth`. Explicitly NOW − BILLS ≠ FREE once card/commitment reserves exist.
+### A7.3 Collapsible cash calculation
+**Shows** ordered arithmetic rows only after **"How we got £X"** is opened: cash available now; the lowest cash point before payday after dated bills and income; safety buffer; plans; envelopes; and a signed cash total. Derived totals have a separator and every figure uses tabular monospace numerals. Masked to "£••••" under `hideNetWorth`.
 
 | Bucket | Questions |
 |---|---|
 | WHERE | Which accounts make up NOW? Which bills make up BILLS — list them. Where's the missing money — NOW minus BILLS doesn't equal FREE! |
-| WHAT | Does NOW include savings? Does BILLS include things I've already paid? Is FREE per-day or for the whole period? What is a "reserve"? |
-| WHY | Why doesn't the arithmetic add up? Why is BILLS higher than last period? Why did NOW drop overnight? Why is FREE negative? |
+| WHAT | Does cash now include savings? Does the forecast include things I've already paid? Is the final figure per-day or for the whole period? What is a "reserve"? |
+| WHY | Why is the lowest cash point not NOW minus BILLS? Why did cash now drop overnight? Why is the final cash position negative? |
 | HOW | How do I lower BILLS? How do I include/exclude an account from NOW? How do I see the maths? |
 | WHEN | Bills due by when? Is NOW as-of now or as-of last sync? |
 
-### A7.4 Cash-vs-cards chain line (`:301-310`, shows when `card_growth_reserved >= 10`)
-**Shows** — amber dot (only when short) + **"£{safe_to_spend_cash} before cards · £{card_growth_reserved} on cards · £{free} free|short"**.
+### A7.4 Card-balance fact
+**Shows** when `card_growth_total > 0`: **"Card balances this pay period +£X"**, explicitly defined as purchases minus refunds and repayments. A user who has said they clear the cards monthly sees **"Due around {forecast bill date}"**. Otherwise it says the balance increased and is not deducted from the cash figure. If no repayment series has been learned, an amber **"Repayment not confirmed"** signifier appears and the fallback reserve gets its own reconciled calculation.
 
 | Bucket | Questions |
 |---|---|
 | WHERE | Where did the £X on cards get spent — which merchants, which card? |
-| WHAT | What is "before cards"? Is it my raw balance? (It isn't — it's post-bills, post-buffer, post-commitments.) What is a "card reserve" — is the money set aside somewhere? What does "short" here mean vs the headline? |
-| WHY | Why is card spend deducted from my cash when I haven't paid the bill yet? Why £X reserved and not the full balance? Why did this line appear only now? |
-| HOW | How do I stop card spend eating my free cash — pay it off now? How do I turn this reserve off? |
-| WHEN | When is the card bill actually due? When does the reserve release? |
+| WHAT | Is this £X my purchases, my total balance, or the net balance change? What is an unconfirmed reserve, and is the money moved anywhere? |
+| WHY | Why is card activity separate from cash? Why was only £X held back rather than the full card balance? Why did this panel appear now? |
+| HOW | How do I tell the app that I clear this card monthly? How does it learn which bill repays which card? |
+| WHEN | When is the card bill expected? When does an unconfirmed reserve release? |
 
 ### A7.5 Pace + payday line (`:317-331`)
 **Shows** — either **"£X.XX/day until {today|tomorrow|Friday|Sat 30 Aug}"** (when `pace.state ∈ {comfortable,on_pace,ahead,early}` and `pace.sustainable != null`) or **"Pay period ends {label}"**; then optionally **" · ~£{payday_income} expected"**.

@@ -68,15 +68,12 @@ def _per_day_line(per_day: float) -> str:
     return f"That's about {_fmt_rate(per_day)} a day"
 
 
-# Owner-approved fix (2026-08) — safe_to_spend is net of unpaid card growth
-# and can land at or below zero (a "short" pot); the two `short_reason`
-# cases read differently on purpose (see the original can_i.py comment this
-# was lifted from): "bills" is a genuine risk, "cards" means bills ARE
-# covered and the shortfall is purely card-funded spending.
+# Safe-to-Spend is cash-led. Card growth is returned as a separate fact and
+# only an unconfirmed repayment can still create a card-related short state.
 def _nothing_spare_line(payday_label: str | None, short_reason: str | None) -> str:
     until = f"until {payday_label}" if payday_label else "until payday"
-    if short_reason == "cards":
-        return f"Bills are covered, but nothing spare {until}, it's gone on cards"
+    if short_reason == "cards_unconfirmed":
+        return f"Nothing spare {until}. A card repayment still needs confirming"
     return f"Nothing spare {until}, bills come first"
 
 
@@ -313,6 +310,10 @@ async def check_affordability(uid: str, amount: float, timeframe: str | None = N
         "state": sts.get("state"),
         "short_reason": sts.get("short_reason"),
         "bills_total": _money(sts.get("bills_total")),
+        "card_growth": _money(sts.get("card_growth_total")),
+        "card_growth_reserved": _money(sts.get("card_growth_reserved")),
+        "card_growth_wording": sts.get("card_growth_wording"),
+        "card_growth_due_date": sts.get("card_growth_due_date"),
     }
     if what_ifs.get("months_until_target"):
         result["months_until_target"] = what_ifs["months_until_target"]

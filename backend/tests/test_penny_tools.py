@@ -52,7 +52,7 @@ class _FakeCollection:
 
 
 def _account(id="acc1", name="Halifax Current", type="bank", subtype=None,
-             balance=100.0, provider="Halifax", status="connected", manual=False):
+    balance=100.0, provider="Halifax", status="connected", manual=False):
     return Account(id=id, name=name, type=type, subtype=subtype, balance=balance,
                    provider=provider, status=status, manual=manual)
 
@@ -365,7 +365,37 @@ def test_compute_today_items_persist_true_still_writes(monkeypatch):
     assert savings_insights.docs[0]["celebrated_at"] is not None
 
 
-# ── 2. get_recurring_payments ────────────────────────────────────────────
+# ── 2. get_safe_to_spend / recurring payments ───────────────────────────
+
+def test_get_safe_to_spend_returns_cash_and_card_growth_as_separate_facts(monkeypatch):
+    async def fake_safe_to_spend(uid):
+        return {
+            "status": "ok",
+            "safe_to_spend": 38.0,
+            "safe_to_spend_cash": 38.0,
+            "next_payday": "2026-09-13",
+            "days_until_payday": 4,
+            "state": "tight",
+            "short_reason": None,
+            "bills_total": 332.0,
+            "card_debt": 2104.0,
+            "card_growth_total": 761.0,
+            "card_growth_reserved": 0.0,
+            "card_growth_wording": "cleared_monthly",
+            "card_growth_due_date": "2026-09-18",
+            "estimated": False,
+        }
+
+    monkeypatch.setattr(penny_tools_module, "compute_safe_to_spend", fake_safe_to_spend)
+    result = asyncio.run(execute_tool("kevin", "get_safe_to_spend", {}))
+
+    assert result["safe_to_spend"] == {"raw": 38.0, "formatted": "£38"}
+    assert result["safe_to_spend_cash"] == {"raw": 38.0, "formatted": "£38"}
+    assert result["card_growth"] == {"raw": 761.0, "formatted": "£761"}
+    assert result["card_growth_reserved"] == {"raw": 0.0, "formatted": "£0"}
+    assert result["card_growth_wording"] == "cleared_monthly"
+    assert result["card_growth_due_date"] == "2026-09-18"
+
 
 def test_get_recurring_payments_shapes_series_with_cadence_and_account(monkeypatch):
     async def fake_load_cache(uid):

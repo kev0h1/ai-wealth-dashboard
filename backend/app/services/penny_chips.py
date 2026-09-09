@@ -214,7 +214,7 @@ def _engine_result(chip_id: str, answer: str, facts: dict | None = None) -> dict
 # ── home_payday_status — "How am I doing until payday?" ─────────────────────
 def _home_sts_state(sts: dict) -> tuple[str, bool]:
     """Twin of frontend/components/SafeToSpendCard.tsx's own state/label
-    derivation (its `state`/`isCardsShort`/`stateLabel` constants) — this
+    derivation (its `state`/`isCardsUnconfirmedShort`/`stateLabel` constants) — this
     chip's status word must never disagree with the Home hero it sits
     under, so it is computed here the SAME way, from the SAME cached
     result, rather than re-deriving a fresh judgement from `sts["state"]`
@@ -224,9 +224,9 @@ def _home_sts_state(sts: dict) -> tuple[str, bool]:
     raw_state = sts.get("state") or ""
     short_reason = sts.get("short_reason")
     free_amount = float(sts.get("safe_to_spend") or 0.0)
-    is_cards_short = raw_state == "short" and short_reason == "cards"
-    state = "comfortable" if (raw_state == "short" and not is_cards_short and free_amount > -1) else raw_state
-    return state, is_cards_short
+    is_cards_unconfirmed = raw_state == "short" and short_reason == "cards_unconfirmed"
+    state = "comfortable" if (raw_state == "short" and not is_cards_unconfirmed and free_amount > -1) else raw_state
+    return state, is_cards_unconfirmed
 
 
 async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
@@ -241,7 +241,7 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
         )
 
     free_amount = float(sts.get("safe_to_spend") or 0.0)
-    state, is_cards_short = _home_sts_state(sts)
+    state, is_cards_unconfirmed = _home_sts_state(sts)
     days = sts.get("days_until_payday")
     payday_label = _fmt_date_short(sts.get("next_payday"))
     days_text = _plural(days, "day") if isinstance(days, int) else "some days"
@@ -254,24 +254,14 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     # this figure "Final safety position", never "Safe to spend", for the
     # same reason.
     #
-    # Since G14 (2026-09-09) the card's hero is cash-led: in the bills-short
-    # branch below it renders `safe_to_spend_cash`, not the net
-    # `safe_to_spend` (which also has unpaid card growth subtracted out).
-    # This chip must quote the same figure the hero shows or Penny would
-    # contradict what Kevin is looking at, so the bills-short gap below is
-    # taken from `safe_to_spend_cash` too, falling back to the net figure
-    # only if the cash figure is unexpectedly absent from the cached result.
+    # Safe to Spend is cash-led. Card balance growth is a separate fact, and
+    # only an unconfirmed repayment can create the fallback short state.
     if state == "comfortable":
         sentence1 = f"You're on track: about {_fmt_gbp(free_amount)} safe to spend{when}."
     elif state == "tight":
         sentence1 = f"You're tight: about {_fmt_gbp(free_amount)} safe to spend{when}."
-    elif is_cards_short:
-        # Bills ARE covered here (see app.services.affordability's own
-        # `_nothing_spare_line`, the same cards-vs-bills distinction) — the
-        # card shows £0 free rather than a negative figure for this case,
-        # never "short of covering this pay period" (that phrase is
-        # reserved for a genuine bills shortfall, below).
-        sentence1 = f"Bills are covered, but cards have used up what's spare{when}."
+    elif is_cards_unconfirmed:
+        sentence1 = f"Bills are covered, but a card repayment still needs confirming{when}."
     else:
         cash = sts.get("safe_to_spend_cash")
         gap = abs(free_amount if cash is None else float(cash))
@@ -284,7 +274,20 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     elif lowest is not None:
         sentence2 = f"Your balance is projected to dip to about {_fmt_gbp(lowest)} before then."
 
-    return _engine_result("home_payday_status", f"{sentence1} {sentence2}", sts)
+    growth = float(sts.get("card_growth_total") or 0.0)
+    sentence_card = ""
+    if growth > 0:
+        due = _fmt_date_short(sts.get("card_growth_due_date"))
+        if sts.get("card_growth_wording") == "cleared_monthly" and due:
+            sentence_card = f"{_fmt_gbp(growth)} is on cards and is due around {due}."
+        else:
+            sentence_card = f"{_fmt_gbp(growth)} was added to your card balances this pay period."
+
+    return _engine_result(
+        "home_payday_status",
+        " ".join(part for part in (sentence1, sentence_card, sentence2) if part),
+        sts,
+    )
 
 
 # ── home_payday_due — "What's still due before payday?" ─────────────────────

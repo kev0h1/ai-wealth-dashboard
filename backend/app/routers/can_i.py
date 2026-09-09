@@ -65,6 +65,22 @@ def _fmt_gbp(amount: float, decimals: int = 0) -> str:
     return f"−£{abs(amount):,.{decimals}f}" if amount < 0 else f"£{amount:,.{decimals}f}"
 
 
+def _card_growth_context(sts: dict) -> str | None:
+    """Short card-balance fact that can sit beside the cash-led figure."""
+    growth = float(sts.get("card_growth_total") or 0.0)
+    if growth <= 0:
+        return None
+    if sts.get("card_growth_wording") == "cleared_monthly":
+        raw_due = sts.get("card_growth_due_date")
+        if raw_due:
+            try:
+                due = date.fromisoformat(str(raw_due)[:10]).strftime("%-d %b")
+                return f"{_fmt_gbp(growth)} on cards, due around {due}"
+            except ValueError:
+                pass
+    return f"{_fmt_gbp(growth)} added to card balances this pay period"
+
+
 def _round5(value: float) -> int:
     """Round to the nearest £5 — the "round" figure the chip-seeding rules ask
     for, never a jagged pence amount in a tappable suggestion."""
@@ -549,9 +565,9 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
 
     free = float(sts.get("safe_to_spend") or 0.0)
     days_left = int(sts.get("days_until_payday") or 0)
-    # free can be <= 0 (net of unpaid card growth) — never show a negative
-    # "free" figure here either; see app.services.affordability._nothing_
-    # spare_line for the shared phrasing this borrows.
+    card_context = _card_growth_context(sts)
+    # The figure is cash-led. Card balance growth is appended as a separate
+    # fact so this line never silently folds debt movement into available cash.
     if free > 0:
         context_line = f"{_fmt_gbp(free)} free · {days_left} day{'s' if days_left != 1 else ''} left"
     else:
@@ -563,6 +579,8 @@ async def can_i_suggestions(user: dict = Depends(current_user)):
             except ValueError:
                 payday_label = None
         context_line = _nothing_spare_line(payday_label, sts.get("short_reason"))
+    if card_context:
+        context_line += f" · {card_context}"
 
     chips: list[dict] = []
 

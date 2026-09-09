@@ -110,6 +110,13 @@ def test_run_penny_agent_one_tool_call_then_final_answer(monkeypatch):
     assert json.loads(tool_messages[0]["content"])["safe_to_spend"]["formatted"] == "£100"
 
 
+def test_system_prompt_keeps_card_growth_separate_from_cash():
+    prompt = penny_agent_module._SYSTEM_PROMPT
+    assert "Safe to Spend is a cash figure" in prompt
+    assert "mention that amount as a separate card-balance fact" in prompt
+    assert "Never add it to or subtract it from Safe to Spend" in prompt
+
+
 # ── 2. Model returns tool_calls forever -> capped at 4 model calls, None ───
 
 def test_run_penny_agent_infinite_tool_calls_stops_at_cap(monkeypatch):
