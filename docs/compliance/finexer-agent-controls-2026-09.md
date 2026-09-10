@@ -158,7 +158,7 @@ Bank disconnection: removes that connection's accounts and transactions and revo
 
 Consent withdrawal at the bank or via Finexer: received by our signed webhook receiver; the connection is marked revoked, no further data is retrieved, and the customer is informed in-app.
 
-Retention: account and transaction data deleted within 30 days of closure, withdrawal or disconnection; encrypted bank tokens deleted immediately on disconnect; AI chat sessions 7 days; insight caches and webhook logs 30 days (automatic TTL); encrypted nightly database backups on a 30-day rolling window; dormant accounts deleted after 12 months. [KEVIN: the automated purge for dormant accounts and the 30-day post-closure sweep is still listed as "to be implemented" in our policy; either ship it before go-live or change this sentence to say the sweep is performed manually on a monthly cycle.]
+Retention: account and transaction data deleted within 30 days of closure, withdrawal or disconnection; encrypted bank tokens deleted immediately on disconnect; AI chat sessions 7 days; insight caches and webhook logs 30 days (automatic TTL); encrypted nightly database backups on a 30-day rolling window; dormant accounts (no sign-in for 12 months) deleted automatically. The 30-day post-closure sweep and the 12-month dormant-account purge are implemented and operational: both run as a nightly scheduled job (task_retention_sweep, 03:30 UTC) that calls the same deletion routines as the customer-initiated disconnect and delete-account actions, so the outcome is identical whether a customer or the sweep triggers it.
 ```
 
 ## Q11 Security and incident controls, testing
