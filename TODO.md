@@ -192,46 +192,14 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **G26. Home Safe-to-Spend card: the space above and below the 'How we got' disclosure row is uneven (Kevin, 2026-09-10 screenshot). The disclosure container at components/SafeToSpendCard.tsx line 329 carries mt-3 plus a top border, and its summary is min-h-12 with items-center so the label sits about 14px below that border; the footer container at line 376 then adds its own mt-3 before its top border, so the gap under the label is about 26px against 14px above it. Even the two gaps up, and check the same disclosure pattern on the Upcoming and Planning Full calculation cards so all three match** [owner: claude] (done 2026-09-10, c844e8564eff7898ac42e2b4aec8651f9a8c6f1f)
 - [x] **G27. A connected credit card is missing from the Cards page and its repayment is not counted: the M&S card (account_number 7134, provider MS, status connected, connection_id 16e11ebfc2da47b6) does not appear in GET /cards/story's per_card list and its only transaction this period, an 806.00 'PAYMENT - THANK YOU' credit dated 2026-09-01, is excluded from the movement maths, so payments reads 123.39 rather than 929.39; routers/cards.py skips a card when abs(card_delta) < 1 and balance == 0 (line ~154) which should not catch this one, so the exclusion is happening earlier in _credit_card_account_ids; establish whether this card is legitimately excluded (stale or duplicate connection, or a card belonging to another person) or whether a real repayment is being dropped, and make the reason explicit in code rather than incidental** [owner: claude] [priority: p2] (done 2026-09-10, ed543c6f35f6ee9b24b6f58b60a733e32eef6826)
 - [x] **G28. Penny replies are cut off mid-word at exactly 60 characters (Kevin 2026-09-10 on prod: 'The £1,175 card balance growth this month came from new spen' and 'The £794 you moved to credit cards this period came from 3 p', both exactly 60 chars): services/penny_agent.py _parse_headline_reply_or_none line ~391 synthesises a fallback headline with first_sentence[:60] and no word-boundary trim whenever the model answers without the HEADLINE:/REPLY: labels; cut on a word boundary (or drop the synthetic headline entirely when the whole reply is one short sentence), and check why the card renders only the headline when the full text is returned as the body (components/PennyConversation.tsx); add a test asserting no synthesised headline ever ends mid-word** [owner: claude] [priority: p1] (done 2026-09-10, 343f4f7ea6ef0b843f2a98e7c8d70f57fb49af4c)
-- [ ] **G29. Inline Reconnect chip was never designed and makes every stale account row taller on both Home and Accounts (Kevin 2026-09-10 on prod, 8 rows needing reconnection): components/AccountLedgerRow.tsx line ~205 and components/AccountMiniCard.tsx line ~489 each add a Reconnect line inside the row, so the estate list on Home and the accounts list both grow by a line per affected account; propose a design that keeps the row height fixed (for example the amber signifier on the existing row with the reconnect action behind the row tap or a single grouped 'NEEDS RECONNECTING' action), variants for Kevin to pick on his phone per the design agreement, no in-place patching** [owner: codex] [priority: p2] [state: blocked: frontend build failed:
-
-> frontend@0.1.0 build
-> next build
-
-▲ Next.js 16.3.4 (Turbopack)
-- Environments: .env.local
-✓ Running next.config.ts took 145ms
-
-  Creating an optimized production build ...
-
-> Build error occurred
-Error: Turbopack build failed with 172 errors:
-./app/globals.css
-Error: Error]
+- [ ] **G29. Inline Reconnect chip was never designed and makes every stale account row taller on both Home and Accounts (Kevin 2026-09-10 on prod, 8 rows needing reconnection): components/AccountLedgerRow.tsx line ~205 and components/AccountMiniCard.tsx line ~489 each add a Reconnect line inside the row, so the estate list on Home and the accounts list both grow by a line per affected account; propose a design that keeps the row height fixed (for example the amber signifier on the existing row with the reconnect action behind the row tap or a single grouped 'NEEDS RECONNECTING' action), variants for Kevin to pick on his phone per the design agreement, no in-place patching** [owner: codex] [priority: p2]
+  - note (2026-09-10, claude): An integrate pass blocked this with 'frontend build failed: Turbopack 172 errors'. The cause was environmental, not this work: a stray symlink frontend/node_modules/node_modules in the shared tree pointed into the F17 worktree, whose own node_modules symlinks back, so Turbopack could resolve nothing. Symlink removed and stale .next cleared; the shared tree builds clean. Reset to to-do.
   - note (2026-09-10, kevin): Kevin 2026-09-10: run this through the Codex outside-critic design pass too, same method as G31 (OpenRouter gpt-5.3-codex), and bring variants back to Kevin before building.
   - note (2026-09-10, claude): session abandoned, branch feature-G29-reconnect-chip discarded
 - [x] **G30. Retire the savings-plan block: Kevin saw 'Your savings plan, 0 of 7 done' on prod Planning and expected it to be gone; app/planning/GrowPanel.tsx still renders savings_plans docs with tick, delete-step and delete-plan wired, but nothing in the frontend calls POST /savings/plan or the milestones endpoint any more (api.ts's saveSavingsPlan and addSavingsPlanMilestones have no callers), so the block only ever shows legacy data (UAT has zero savings_plans docs, prod still has Kevin's); confirm with Kevin then remove the block, the unused endpoints in routers/savings.py and the savings_plans collection, or restore a creation path if it is meant to live** [owner: claude] [priority: p2] (done 2026-09-10, 38863fde9d7420651500f77e8df846ab33aa4b7a)
-- [ ] **G31. Planning hero card design round via the Codex outside-critic pass (Kevin 2026-09-10, assigned to codex): the new Full calculation ledger (G18) puts horizontal rules above and below the 'Full calculation' toggle and above the 'Short each month' total, which read as clutter on the hero; remove those rules and take the whole hero card through a Codex design critique (docs pointer in the session notes, OpenRouter gpt-5.3-codex, verify the CSS is actually applied and rewrite its copy against Kevin's rules), covering the headline, the SHORT EACH MONTH chip, the two grey caption lines and the ledger; propose to Kevin before building** [owner: codex] [priority: p2] [state: in-progress]
-- [ ] **G32. Settings Penny section uses the generic Wand2 icon (app/settings/SettingsPage.tsx line ~825) where it should carry Penny's own mark from components/PennyMark.tsx; swap it, keeping the plain indigo IconChip tint rather than the indigo-to-violet gradient, because DESIGN.md's Penny Gradient Rule reserves that gradient for the Penny button itself (the existing comment at line ~819 explains why the gradient was avoided, that reasoning still holds)** [owner: claude] [state: blocked: git push origin main failed:
-To github.com:kev0h1/ai-wealth-dashboard.git
- ! [rejected]        main -> main (non-fast-forward)
-error: failed to push some refs to 'github.com:kev0h1/ai-wealth-dashboard.git'
-hint: Updates were rejected because the tip of your current branch is behind
-hint: its remote ] [state: blocked: frontend build failed:
-  - note (2026-09-10, claude): Blocked 2026-09-10 by 'frontend build failed: Turbopack 172 errors'. Not a fault in this branch: a stray symlink frontend/node_modules/node_modules in the SHARED tree pointed at /root/worktrees/feature-F17-mobile-connector-flag/frontend/node_modules, whose own node_modules symlinks back, so Turbopack reported 'points out of the filesystem root' and could resolve nothing. Left by F17's mobile-build verification at 14:38. Removed the symlink and cleared a stale .next; the shared tree builds clean again. Returned to review.
-
-> frontend@0.1.0 build
-> next build
-
-▲ Next.js 16.3.4 (Turbopack)
-- Environments: .env.local
-✓ Running next.config.ts took 111ms
-
-  Creating an optimized production build ...
-
-> Build error occurred
-Error: Turbopack build failed with 172 errors:
-./app/globals.css
-Error: Error]
+- [ ] **G31. Planning hero card design round via the Codex outside-critic pass (Kevin 2026-09-10, assigned to codex): the new Full calculation ledger (G18) puts horizontal rules above and below the 'Full calculation' toggle and above the 'Short each month' total, which read as clutter on the hero; remove those rules and take the whole hero card through a Codex design critique (docs pointer in the session notes, OpenRouter gpt-5.3-codex, verify the CSS is actually applied and rewrite its copy against Kevin's rules), covering the headline, the SHORT EACH MONTH chip, the two grey caption lines and the ledger; propose to Kevin before building** [owner: codex] [priority: p2] [state: review: feature-G31-planning-hero-card-design]
+- [ ] **G32. Settings Penny section uses the generic Wand2 icon (app/settings/SettingsPage.tsx line ~825) where it should carry Penny's own mark from components/PennyMark.tsx; swap it, keeping the plain indigo IconChip tint rather than the indigo-to-violet gradient, because DESIGN.md's Penny Gradient Rule reserves that gradient for the Penny button itself (the existing comment at line ~819 explains why the gradient was avoided, that reasoning still holds)** [owner: claude] [state: review: feature-G32-penny-mark-icon]
+  - note (2026-09-10, claude): An integrate pass blocked this with 'frontend build failed: Turbopack 172 errors'. Not a fault in this branch: a stray symlink frontend/node_modules/node_modules in the SHARED tree pointed at /root/worktrees/feature-F17-mobile-connector-flag/frontend/node_modules, whose own node_modules symlinks back, so Turbopack reported 'points out of the filesystem root' and could resolve nothing. Left by F17's mobile-build verification at 14:38. Removed the symlink and cleared a stale .next; the shared tree builds clean again.
 
 ## H. Repo hygiene
 
