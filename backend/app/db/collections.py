@@ -73,7 +73,6 @@ card_product_rates_col  = db["card_product_rates"]
 
 # Safety-net / savings goals
 savings_goals_col       = db["savings_goals"]
-savings_plans_col       = db["savings_plans"]
 manual_accounts_col     = db["manual_accounts"]
 manual_transactions_col    = db["manual_transactions"]
 manual_account_rules_col   = db["manual_account_rules"]

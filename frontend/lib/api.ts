@@ -1358,14 +1358,6 @@ export type TodayResponse = {
   items: CompanionItem[];
 };
 
-export type SuggestedPlan = {
-  mode?: "add" | "replace";
-  kind?: "debt" | "savings";
-  target_months?: number;
-  target_amount?: number;
-  milestones: { type: string; text: string; target_balance?: number }[];
-};
-
 export type SavingsAccountOption = {
   account_id: string;
   name: string;
@@ -1397,28 +1389,6 @@ export type SavingsGoalInput = {
   target_months?: number;
   target_amount?: number;
   account_ids: string[];
-};
-
-export type SavingsPlanMilestone = {
-  id: string;
-  type: "savings" | "action";
-  text: string;
-  target_balance: number | null;
-  done: boolean;
-  done_at: string | null;
-  live_category?: string;
-  live_target?: number;
-  live_spend?: number;
-};
-
-export type SavingsPlan = {
-  target_amount: number | null;
-  savings_at_creation: number | null;
-  created_at: string | null;
-  milestones: SavingsPlanMilestone[];
-  done_count: number;
-  total_count: number;
-  current_savings: number;
 };
 
 export function authHeaders(): HeadersInit {
@@ -2555,35 +2525,6 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<SavingsInsights>(r)),
-  getSavingsPlan: () => get<{ plan: SavingsPlan | null }>("/savings/plan"),
-  saveSavingsPlan: (plan: SuggestedPlan) =>
-    fetch(`${API_BASE}/savings/plan`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(plan),
-    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
-  addSavingsPlanMilestones: (plan: SuggestedPlan) =>
-    fetch(`${API_BASE}/savings/plan/milestones`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify(plan),
-    }).then((r) => toJson<{ plan: SavingsPlan | null; added: number }>(r)),
-  toggleSavingsPlanStep: (stepId: string, done: boolean) =>
-    fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ done }),
-    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
-  deleteSavingsPlanStep: (stepId: string) =>
-    fetch(`${API_BASE}/savings/plan/step/${encodeURIComponent(stepId)}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
-  deleteSavingsPlan: () =>
-    fetch(`${API_BASE}/savings/plan`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    }).then((r) => toJson<{ plan: SavingsPlan | null }>(r)),
   getPreferences: () => get<{
     hide_net_worth: boolean;
     dark_mode?: boolean;
