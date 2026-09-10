@@ -31,8 +31,19 @@ Commands:
                                         (see docs/ops/BACKLOG.md "Branch per
                                         item" — scripts/session.sh finish
                                         calls this once tests are green).
+    reject <id> "<reason>"              Reject an item sitting in review,
+                                        with a reason (required). Use this
+                                        the moment a reviewer finds a defect
+                                        in work sitting in review, leaving it
+                                        there is treated as consent to merge
+                                        by any integrate pass, including one
+                                        from a concurrent session. Keeps the
+                                        item's branch so the reviewer can see
+                                        which branch was refused; start or
+                                        todo moves it back out again.
     todo <id>                           Reset an item to to-do (clears any
-                                        state tag; used by session.sh abandon).
+                                        state tag, including a rejection;
+                                        used by session.sh abandon).
     done <id> [--commit <sha>] [--merge <sha>]
                                         Tick an item done. --merge is an
                                         alias for --commit for the case
@@ -81,6 +92,8 @@ def _print_result(item_id: str, result: dict, committed: bool) -> None:
 def _state_display(item: dict) -> str:
     if item["state"] == "review" and item.get("branch"):
         return f"review:{item['branch']}"
+    if item["state"] == "rejected" and item.get("branch"):
+        return f"rejected:{item['branch']}"
     return item["state"]
 
 
@@ -125,6 +138,11 @@ def cmd_block(args: argparse.Namespace) -> None:
 
 def cmd_review(args: argparse.Namespace) -> None:
     result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_reject(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_rejected(args.item_id, args.reason, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -213,7 +231,15 @@ def build_parser() -> argparse.ArgumentParser:
     add_actor(p_review)
     p_review.set_defaults(func=cmd_review)
 
-    p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag).")
+    p_reject = sub.add_parser(
+        "reject", help="Reject an item sitting in review, with a reason (a reviewer found a defect)."
+    )
+    p_reject.add_argument("item_id")
+    p_reject.add_argument("reason")
+    add_actor(p_reject)
+    p_reject.set_defaults(func=cmd_reject)
+
+    p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag, including a rejection).")
     p_todo.add_argument("item_id")
     add_actor(p_todo)
     p_todo.set_defaults(func=cmd_todo)

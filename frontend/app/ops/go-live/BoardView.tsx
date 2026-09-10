@@ -1,7 +1,8 @@
 "use client";
 
-// Kanban board: columns To do / In progress / Blocked / In review / Done,
-// swimlanes by section or owner (toggle), each lane collapsible and
+// Kanban board: columns To do / In progress / Blocked / In review /
+// Rejected / Done, swimlanes by section or owner (toggle), each lane
+// collapsible and
 // showing counts per column. Below `lg` this scrolls horizontally per lane,
 // with the lane label sticky on the left of that scroller. At `lg` and up
 // it switches to a true CSS grid instead — lane label as a fixed-width
@@ -101,13 +102,17 @@ function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
 
 /** Whether `laneKey`/`column` is a legal drop target for `activeItem` (or,
  *  when nothing is being dragged, whether it could ever be one — used to
- *  decide the droppable's `disabled` flag). Review is never a target.
- *  Section lanes are fixed by id (no cross-lane drops). Owner lanes allow
- *  moving freely between any of kevin/claude/codex but never *into*
- *  "unassigned" — there's no action that un-assigns an owner — while
- *  staying within an already unassigned item's own lane is fine. */
+ *  decide the droppable's `disabled` flag). Review and Rejected are never
+ *  targets: review is set automatically when a session finishes work, and
+ *  rejecting requires a reason a drag can't capture, so it only ever
+ *  happens through the detail sheet's "Reject, with a reason" control (see
+ *  ItemDetailSheet.tsx). Section lanes are fixed by id (no cross-lane
+ *  drops). Owner lanes allow moving freely between any of
+ *  kevin/claude/codex but never *into* "unassigned" — there's no action
+ *  that un-assigns an owner — while staying within an already unassigned
+ *  item's own lane is fine. */
 function isValidDropTarget(activeItem: GoLiveItem | undefined, lanes: GoLiveLaneMode, laneKey: string, column: GoLiveItemState): boolean {
-  if (column === "review") return false;
+  if (column === "review" || column === "rejected") return false;
   if (!activeItem) return true;
   const sourceLane = sourceLaneFor(activeItem, lanes);
   if (lanes === "section") return laneKey === sourceLane;
@@ -341,11 +346,11 @@ function LaneRow({
 const DESKTOP_HEADER_TOP = "var(--go-live-filter-h, 96px)";
 
 /** The `lg`-and-up board: a true CSS grid, lane label as a fixed 180px
- *  first column, five equal columns for the rest, column headers sticky
- *  under the filter bar, lanes as plain rows (no per-lane collapse — at
- *  this width a lane is already one compact row, not a tall mobile card).
- *  `minmax(0,1fr)` on every column means the grid always fits the
- *  container; nothing here needs `overflow-x-auto`. */
+ *  first column, one equal-width column per `BOARD_COLUMNS` entry for the
+ *  rest, column headers sticky under the filter bar, lanes as plain rows
+ *  (no per-lane collapse — at this width a lane is already one compact
+ *  row, not a tall mobile card). `minmax(0,1fr)` on every column means the
+ *  grid always fits the container; nothing here needs `overflow-x-auto`. */
 function DesktopBoardGrid({
   laneGroups,
   allItems,
@@ -370,7 +375,10 @@ function DesktopBoardGrid({
   const lastLaneIdx = laneGroups.length - 1;
 
   return (
-    <div className="grid grid-cols-[180px_repeat(5,minmax(0,1fr))] rounded-2xl border border-slate-200 dark:border-white/10">
+    <div
+      className="grid rounded-2xl border border-slate-200 dark:border-white/10"
+      style={{ gridTemplateColumns: `180px repeat(${BOARD_COLUMNS.length}, minmax(0, 1fr))` }}
+    >
       <div
         className="sticky z-10 rounded-tl-2xl border-b border-r border-slate-200 bg-[#f0f2f7]/95 backdrop-blur dark:border-white/10 dark:bg-[#0f172a]/95"
         style={{ top: DESKTOP_HEADER_TOP }}
@@ -720,7 +728,7 @@ export function BoardView({
           : { action: "todo" }
         : targetColumn === "in-progress"
         ? { action: "start" }
-        : { action: "done" }; // only "done" remains: review is excluded, blocked handled above
+        : { action: "done" }; // only "done" remains: review/rejected excluded above, blocked handled above
 
     const actions = ownerAction ? [ownerAction, columnAction] : [columnAction];
     fireOptimistic(item.id, targetLane, targetColumn, actions);

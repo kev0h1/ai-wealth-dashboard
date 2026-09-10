@@ -120,7 +120,7 @@ async def go_live(user: dict = Depends(current_user)):
 
 
 class ItemActionRequest(BaseModel):
-    action: Literal["done", "reopen", "start", "block", "note", "owner", "priority", "unblocks", "todo"]
+    action: Literal["done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo"]
     reason: Optional[str] = None
     text: Optional[str] = None
     owner: Optional[Literal["kevin", "claude", "codex"]] = None
@@ -169,6 +169,16 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
                 raise HTTPException(400, "reason is required to block an item")
             _, committed = backlog.set_state(
                 item_id, "blocked", reason=body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "reject":
+            if not body.reason:
+                raise HTTPException(400, "reason is required to reject an item")
+            # A reviewer who finds a defect in an item sitting in `review`
+            # uses this the moment they find it, since leaving the item in
+            # `review` is treated as consent to merge by any integrate
+            # pass, including one from a concurrent session (see H25).
+            _, committed = backlog.set_rejected(
+                item_id, body.reason, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
             )
         elif body.action == "note":
             if not body.text:

@@ -23,12 +23,28 @@ A TODO.md item line looks like this:
   trailing marker: `(done 2026-09-06, abc1234)` (the commit hash is
   optional). Marking an item done clears any state tag; reopening it
   clears the done marker and leaves the state at to do.
-- `[state: in-progress]`, `[state: blocked: <reason>]` or
-  `[state: review: feature-<ID>-<slug>]` is the workflow state. Absent
-  means to do. It is meaningless once the item is done (the checkbox
-  wins). The `review` state and its branch are set by
-  `scripts/session.sh finish` and consumed by `scripts/integrate.py`,
-  see "Branch per item" below.
+- `[state: in-progress]`, `[state: blocked: <reason>]`,
+  `[state: review: feature-<ID>-<slug>]` or `[state: rejected: <reason>]`
+  is the workflow state. Absent means to do. It is meaningless once the
+  item is done (the checkbox wins). The `review` state and its branch are
+  set by `scripts/session.sh finish` and consumed by
+  `scripts/integrate.py`, see "Branch per item" below.
+- `rejected` is what a reviewer sets the moment they find a defect in an
+  item sitting in `review`, instead of leaving it there. `review` alone
+  is treated as consent to merge by any integrate pass, including one
+  from a concurrent session, so a rejection has to land on the board
+  immediately, not just in conversation, or a pass can merge the very
+  branch that was just rejected (this is exactly what happened to G15 on
+  2026-09-10: a reviewer sent the branch back in conversation, and a
+  concurrent integrate pass merged it, ticked the item done, and deleted
+  the branch and worktree before the correction landed anywhere durable).
+  `rejected` requires a reason, the same way `review` requires a branch.
+  A rejected item keeps the branch it was rejected on in a separate
+  `[branch: <name>]` tag (since the `[state: rejected: ...]` slot already
+  carries the reason), so the reviewer can see which branch was refused.
+  `scripts/integrate.py` never selects a `rejected` item as a merge
+  candidate, `start` or `todo` moves it back out again (clearing both the
+  reason and the retained branch).
 - `[owner: kevin]` or `[owner: claude]` says who is doing the work.
 - `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
   priority. Absent means `p3`, the tag is only written for `p1`/`p2`, the
@@ -55,10 +71,14 @@ either file. It exposes:
   `.items()` and `.questions()` returning plain dicts ready to serialise.
 - `set_done(item_id, done, commit=None, actor="claude")`
 - `set_state(item_id, state, reason=None, branch=None, actor="claude")`:
-  `state` is `"todo"`, `"in-progress"`, `"blocked"` (needs `reason`) or
-  `"review"` (needs `branch`).
+  `state` is `"todo"`, `"in-progress"`, `"blocked"` (needs `reason`),
+  `"review"` (needs `branch`) or `"rejected"` (needs `reason`; retains the
+  item's existing branch unless a different one is passed explicitly).
 - `set_review(item_id, branch, actor="claude")`, convenience wrapper over
   `set_state(..., "review", branch=branch)`.
+- `set_rejected(item_id, reason, actor="claude")`, convenience wrapper
+  over `set_state(..., "rejected", reason=reason)`, what a reviewer uses
+  the moment they find a defect in an item sitting in `review`.
 - `add_item(section, title, owner=None, actor="claude")`, allocates the
   next id in `section` and appends it as a new to-do item.
 - `set_owner(item_id, owner, actor="claude")`
@@ -94,6 +114,7 @@ backend/.venv/bin/python scripts/backlog.py add A "New item title" --owner claud
 backend/.venv/bin/python scripts/backlog.py start <id>
 backend/.venv/bin/python scripts/backlog.py block <id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug>
+backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py todo <id>
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
@@ -106,7 +127,11 @@ backend/.venv/bin/python scripts/backlog.py status Q7 ready|needs-kevin|blocked-
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
-(`unblocks <id> ""`) to clear it.
+(`unblocks <id> ""`) to clear it. `reject` requires a reason, use it the
+moment a reviewer finds a defect in an item sitting in `review`, never
+leave the item sitting in `review` while the correction happens
+elsewhere, since `review` alone is treated as consent to merge by any
+integrate pass, including one from a concurrent session.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should
@@ -142,8 +167,8 @@ false.
 
 A sticky filter bar sits under the header: owner (All / Kevin / Claude),
 priority chips (P1/P2/P3, multi-select), state chips (Open / In progress
-/ Blocked / In review / Done, "Open" means not done), a search box, and
-a List/Board view toggle. All of it persists together under one
+/ Blocked / In review / Rejected / Done, "Open" means not done), a search
+box, and a List/Board view toggle. All of it persists together under one
 localStorage key (`wd_go_live_filters`, see `lib/goLive.ts`). The filters
 apply to both views and to the questionnaire section: a question is shown
 when its own status falls in the selected state chips, or, once an owner
@@ -154,20 +179,33 @@ open work is gating.
 List view is the original layout (sections as collapsible cards, items as
 rows) plus a priority pill and "unblocks Q5, Q6" tags on each item, and a
 "Unblocked by A1, A2" line on each question card whose ids scroll to that
-item's row. The item's "more actions" menu gained "Priority" (three-way)
-and "Unblocks…" (a comma-separated inline field) alongside Start/Block/
-Note. Board view is a kanban: columns To do / In progress / Blocked / In
-review / Done, swimlanes by section or owner (a "Lanes: Section | Owner"
-switch), each lane collapsible with per-column counts and a horizontally
-scrolling row of columns (the lane label stays put). Cards show the id in
-mono, a two-line-clamped title, an owner-initial chip, the priority pill,
-unblocks tags and a note count; tapping one opens `ItemDetailSheet.tsx`, a
-popover with the same controls as the list row (done, reopen, start,
-block with reason, note, owner, priority, unblocks). There is no
-drag-and-drop, every state change goes through a control, same as list
-view. The header hero keeps the overall done/total count and adds three
-figures computed from the whole (unfiltered) board: P1 items still open,
-blocked items, and items in review.
+item's row. Rejected items are pulled out of their section into a
+standalone "Rejected, needs a decision" lane pinned above the rest of the
+backlog (`ListView.tsx`), so a rejection reads as something needing a
+decision, never blends into the ordinary per-section list, and can't be
+missed the way it could before H25 (a rejection that only lived in
+conversation, with no board state of its own). The item's "more actions"
+menu gained "Priority" (three-way) and "Unblocks…" (a comma-separated
+inline field) alongside Start/Block/Note, plus "Reject" (shown only on an
+item in `review`, requires a reason, same reason-textarea pattern as
+Block). Board view is a kanban: columns To do / In progress / Blocked /
+In review / Rejected / Done, swimlanes by section or owner (a "Lanes:
+Section | Owner" switch), each lane collapsible with per-column counts
+and a horizontally scrolling row of columns (the lane label stays put).
+Cards show the id in mono, a two-line-clamped title, an owner-initial
+chip, the priority pill, unblocks tags and a note count; tapping one
+opens `ItemDetailSheet.tsx`, a popover with the same controls as the list
+row (done, reopen, start, block with reason, reject with reason on a
+review item, note, owner, priority, unblocks). Review and Rejected are
+never drag targets, review is set automatically and rejecting needs a
+reason a drag can't capture, so both only ever change through a control,
+same discipline as every other state change. The header hero keeps the
+overall done/total count and adds four figures computed from the whole
+(unfiltered) board: P1 items still open, blocked items, items in review,
+and rejected items. Rejected reads amber everywhere on this page, the
+same treatment as Blocked, never red, a rejection means a reviewer wants
+a decision, not that anything has failed (DESIGN.md "The Red Is Risk
+Rule").
 
 ## The shared working tree caveat
 

@@ -108,6 +108,7 @@ function ItemRow({
             onStart={() => onAction({ action: "start" })}
             onMoveToTodo={() => onAction({ action: "todo" })}
             onBlock={(reason) => onAction({ action: "block", reason })}
+            onReject={(reason) => onAction({ action: "reject", reason })}
             onNote={(text) => onAction({ action: "note", text })}
             onPriority={(priority) => onAction({ action: "priority", priority })}
             onUnblocks={(questions) => onAction({ action: "unblocks", questions })}
@@ -180,14 +181,38 @@ export function ListView({
   if (sections.length === 0) {
     return <p className="text-sm text-slate-500 dark:text-slate-400">No items match the current filters.</p>;
   }
+
+  // Rejected items are pulled out of their section into a standalone lane
+  // pinned above the rest of the backlog: a rejection is a reviewer
+  // saying a branch needs a decision before anything else happens to it,
+  // so it must never blend into the ordinary per-section list where an
+  // integrate pass (or Kevin skimming the board) could miss it entirely
+  // (see H25 — a rejection that only lived in conversation got overtaken
+  // by a concurrent integrate pass before it landed anywhere durable).
+  const rejectedItems = sections.flatMap((section) => section.items.filter((item) => item.state === "rejected"));
+  const regularSections = sections
+    .map((section) => ({ ...section, items: section.items.filter((item) => item.state !== "rejected") }))
+    .filter((section) => section.items.length > 0);
+
   return (
     <div className="space-y-3">
-      {sections.map((section, idx) => (
+      {rejectedItems.length > 0 && (
+        <SectionCard
+          key="rejected"
+          heading="Rejected, needs a decision"
+          items={rejectedItems}
+          defaultOpen
+          pendingIds={pendingIds}
+          saveNotes={saveNotes}
+          onAction={onAction}
+        />
+      )}
+      {regularSections.map((section, idx) => (
         <SectionCard
           key={section.section}
           heading={section.heading}
           items={section.items}
-          defaultOpen={idx === 0}
+          defaultOpen={idx === 0 && rejectedItems.length === 0}
           pendingIds={pendingIds}
           saveNotes={saveNotes}
           onAction={onAction}
