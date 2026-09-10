@@ -1683,13 +1683,13 @@ export default function PlanningPage() {
                 </details>
 
                 {savingsNow > 0 && (
-                  <div className="mt-2 flex items-center justify-between gap-3 px-1 text-xs text-slate-500 dark:text-slate-400">
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                     <span>Savings backup</span>
                     <span><span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">{sym}{savingsNow.toLocaleString("en-GB", { maximumFractionDigits: 0 })}</span> · not included</span>
                   </div>
                 )}
                 {genuineShortfalls.length === 0 && timingShortfalls.length === 0 && (
-                  <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     Predicted bills use your last 90 days.
                   </p>
                 )}
