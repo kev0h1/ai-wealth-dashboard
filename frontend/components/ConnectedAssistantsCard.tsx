@@ -387,22 +387,32 @@ export default function ConnectedAssistantsCard({
                   <p className="text-xs text-slate-400 dark:text-slate-500 py-1">No activity this month</p>
                 )}
                 {activity.status === "ready" && activity.calls.length > 0 && (
-                  <ul className="space-y-2 pt-1">
-                    {activity.calls.slice(0, 20).map((call, i) => (
-                      <li key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        {call.ok ? (
-                          <Check size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-                        ) : (
-                          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Failed
+                  <>
+                    <ul className="space-y-2 pt-1">
+                      {activity.calls.slice(0, 10).map((call, i) => (
+                        <li key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          {call.ok ? (
+                            <Check size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+                          ) : (
+                            <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                              Failed
+                            </span>
+                          )}
+                          <span className="truncate">
+                            {toolLabel(call.tool)} · {call.client} · {formatDateTime(call.ts)}
                           </span>
-                        )}
-                        <span className="truncate">
-                          {toolLabel(call.tool)} · {call.client} · {formatDateTime(call.ts)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                        </li>
+                      ))}
+                    </ul>
+                    {/* F14: the "90 days" here mirrors the backend's MCP_AUDIT_TTL_DAYS
+                        default (backend/app/core/config.py) and would drift if that env
+                        var is ever changed away from 90 without updating this string too. */}
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 pt-2">
+                      {activity.calls.length >= 10
+                        ? "Showing your most recent 10 calls. Sorted keeps this log for 90 days."
+                        : "Sorted keeps this activity log for 90 days."}
+                    </p>
+                  </>
                 )}
               </div>
             </div>

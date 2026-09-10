@@ -45,7 +45,7 @@ from app.core.config import (
 from app.core.ratelimit import check_keyed_limit
 from app.core.redis_client import get_redis, redis_ok
 from app.core.timeutil import as_utc
-from app.db.collections import mcp_calls_col, oauth_tokens_col
+from app.db.collections import mcp_call_counters_col, mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
 from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
 
@@ -361,8 +361,23 @@ async def _mcp_allowance_status(uid: str) -> dict:
 async def _write_audit(principal: dict, tool: str, ok: bool, latency_ms: float, dropped_keys: int) -> None:
     """Metering must never turn a working tool call into a user-facing
     failure (same doctrine as app.core.llm's record_llm_usage). Every
-    exception here is swallowed and logged, not raised."""
+    exception here is swallowed and logged, not raised.
+
+    Two independent, best-effort writes: the F14 durable per-(user,
+    month) counter (`mcp_call_counters_col`, the source of truth for the
+    monthly allowance, see app.core.subscription._mcp_call_count) and the
+    browsable audit row (`mcp_calls_col`, TTL-reaped after
+    MCP_AUDIT_TTL_DAYS). Each has its own try/except so a failure writing
+    one never blocks the other."""
     now = datetime.now(timezone.utc)
+    try:
+        await mcp_call_counters_col.update_one(
+            {"user_id": principal.get("uid"), "year_month": now.strftime("%Y-%m")},
+            {"$inc": {"count": 1}, "$set": {"updated_at": now}},
+            upsert=True,
+        )
+    except Exception:
+        logger.exception("mcp: failed to increment call counter for %s", principal.get("uid"))
     try:
         await mcp_calls_col.insert_one({
             "user_id": principal.get("uid"),
@@ -545,13 +560,21 @@ def _serialize_audit_row(doc: dict) -> dict:
 
 
 @router.get("/mcp/audit")
-async def get_mcp_audit(month: str | None = Query(None), user: dict = Depends(current_user)):
+async def get_mcp_audit(
+    month: str | None = Query(None),
+    limit: int = Query(10, ge=1, le=50),
+    user: dict = Depends(current_user),
+):
     """The caller's own `/mcp` audit rows for one calendar month (default:
     the current month), masked down to tool/client/ts/ok, for F4 (not yet
     built) to render on a "Connected assistants" settings surface. Every
     other audit field (latency_ms, dropped_keys) stays server-side. Not
     rate-limited itself: it is a cheap read of the caller's own already-
     written rows, not a tool-call surface.
+
+    F14: `limit` (default 10, max 50) caps how many of the month's rows come
+    back, most recent first, so a heavy user's month does not send the whole
+    thing inline. `month` still selects the calendar month as before.
 
     F7: also returns a `limits` block (burst/minute, daily soft cap, and the
     monthly allowance with used counts) so F9 can surface the caps
@@ -564,7 +587,7 @@ async def get_mcp_audit(month: str | None = Query(None), user: dict = Depends(cu
     cursor = mcp_calls_col.find(
         {"user_id": uid, "year_month": ym},
         {"_id": 0, "tool": 1, "client": 1, "ts": 1, "ok": 1},
-    ).sort("ts", -1)
+    ).sort("ts", -1).limit(limit)
     rows = [_serialize_audit_row(d) async for d in cursor]
     allowance = await _mcp_allowance_status(uid)
     daily_used = await _mcp_daily_used(uid)

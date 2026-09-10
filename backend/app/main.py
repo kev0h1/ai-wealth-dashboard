@@ -8,7 +8,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 import os
 
-from app.core.config import APP_URL, API_PUBLIC_URL, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN, TRUELAYER_CLIENT_ID
+from app.core.config import (
+    APP_URL, API_PUBLIC_URL, MCP_AUDIT_TTL_DAYS, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
+    TRUELAYER_CLIENT_ID,
+)
 from app.core.auth import auth_middleware
 from app.db.collections import (
     connections_col, accounts_col, transactions_col, preferences_col,
@@ -21,7 +24,7 @@ from app.db.collections import (
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col,
-    response_cache_col, mcp_calls_col,
+    response_cache_col, mcp_calls_col, mcp_call_counters_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     billing_customers_col, billing_events_col,
@@ -295,9 +298,21 @@ async def _create_indexes():
     await response_cache_col.create_index(
         "computed_at", expireAfterSeconds=6 * 3600, name="response_cache_ttl"
     )
-    # F3 /mcp connector audit log (app/routers/mcp.py), backs both
-    # check_mcp_allowance's monthly count and GET /mcp/audit's per-user read.
+    # F3 /mcp connector audit log (app/routers/mcp.py) — GET /mcp/audit's
+    # per-user, per-month read.
     await mcp_calls_col.create_index([("user_id", 1), ("year_month", 1)])
+    # F14: TTL — rows older than MCP_AUDIT_TTL_DAYS (default 90) are
+    # reaped automatically. The monthly allowance does NOT depend on this
+    # collection's row count any more (see mcp_call_counters_col above),
+    # so expiry here only ever affects the audit log a user can browse,
+    # never their usage total.
+    await mcp_calls_col.create_index(
+        "ts", expireAfterSeconds=MCP_AUDIT_TTL_DAYS * 24 * 3600, name="mcp_audit_ttl"
+    )
+    # F14: durable per-(user_id, year_month) call counter backing the
+    # monthly MCP allowance (app.core.subscription._mcp_call_count),
+    # immune to the mcp_calls_col TTL above.
+    await mcp_call_counters_col.create_index([("user_id", 1), ("year_month", 1)], unique=True)
     # F2 OAuth 2.1 authorisation server (app/routers/oauth.py). Codes and
     # tokens each TTL themselves out via their own `expires_at` (revocation
     # is an application-level flag, not what reaps the doc — a revoked
@@ -374,6 +389,7 @@ async def _migrate():
     asyncio.create_task(_cleanup_stale_yapily_data())
     asyncio.create_task(_seed_cashflow_cache())
     asyncio.create_task(_migrate_penny_topup_packs())
+    asyncio.create_task(_seed_mcp_call_counters())
 
 
 async def _encrypt_plaintext_tokens():
@@ -504,6 +520,41 @@ async def _migrate_penny_topup_packs():
         count += 1
     if count:
         print(f"[startup] migrated {count} legacy penny_topups docs to the B11 pack shape")
+
+
+async def _seed_mcp_call_counters():
+    """One-time (F14): backfill `mcp_call_counters_col` from `mcp_calls_col`
+    row counts, once per (user_id, year_month) pair, so usage already
+    accumulated before this migration ran is not lost once the TTL index
+    (F14) starts expiring rows older than MCP_AUDIT_TTL_DAYS. Idempotent
+    via $setOnInsert: a (user, month) pair that already has a counter doc
+    (from a prior run of this migration, or a live increment from
+    app.routers.mcp._write_audit) is left untouched, so re-running this on
+    every boot is safe and a second run seeds nothing new."""
+    from datetime import datetime, timezone
+    from app.db.collections import mcp_call_counters_col
+
+    now = datetime.now(timezone.utc)
+    seeded = 0
+    async for row in mcp_calls_col.aggregate([
+        {"$group": {"_id": {"user_id": "$user_id", "year_month": "$year_month"}, "count": {"$sum": 1}}},
+    ]):
+        uid = row["_id"].get("user_id")
+        ym = row["_id"].get("year_month")
+        if not uid or not ym:
+            continue
+        result = await mcp_call_counters_col.update_one(
+            {"user_id": uid, "year_month": ym},
+            {"$setOnInsert": {
+                "user_id": uid, "year_month": ym, "count": row["count"],
+                "updated_at": now, "seeded_from_rows": True,
+            }},
+            upsert=True,
+        )
+        if result.upserted_id is not None:
+            seeded += 1
+    if seeded:
+        print(f"[startup] seeded {seeded} mcp_call_counters docs from existing rows")
 
 
 async def _seed_subscriptions():

@@ -2096,8 +2096,12 @@ export const api = {
   // F3/F4: the caller's own `/mcp` calls for one calendar month (default
   // current month), most recent first — the "Connected assistants" card's
   // "View activity" expander.
-  getMcpAudit: (month?: string) =>
-    get<{ year_month: string; calls: McpAuditCall[] }>(`/mcp/audit${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+  getMcpAudit: (month?: string, limit = 10) => {
+    const params = new URLSearchParams();
+    if (month) params.set("month", month);
+    params.set("limit", String(limit));
+    return get<{ year_month: string; calls: McpAuditCall[] }>(`/mcp/audit?${params.toString()}`);
+  },
   setMirrorChoice: (trait_id: string, choice: "keep" | "change") =>
     post<{ ok: boolean; trait_id: string; choice: string }>("/mirror/choice", { trait_id, choice }),
   transportSummary: () => get<TransportSummary>("/transport/summary"),

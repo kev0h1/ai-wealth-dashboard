@@ -195,6 +195,12 @@ MCP_BURST_PER_MINUTE = int(os.getenv("MCP_BURST_PER_MINUTE", "60"))
 MCP_DAILY_SOFT_CAP = int(os.getenv("MCP_DAILY_SOFT_CAP", "500"))
 MCP_CHEAP_METHOD_PER_MINUTE = int(os.getenv("MCP_CHEAP_METHOD_PER_MINUTE", "240"))
 
+# F14: /mcp connector audit log retention (app/main.py's TTL index on
+# mcp_calls_col.ts). The monthly allowance survives this expiry because it
+# reads mcp_call_counters_col (a separate, never-expired counter), not
+# mcp_calls_col row counts — see app.core.subscription._mcp_call_count.
+MCP_AUDIT_TTL_DAYS = int(os.getenv("MCP_AUDIT_TTL_DAYS", "90"))
+
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):
