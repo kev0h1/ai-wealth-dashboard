@@ -317,15 +317,55 @@ export function humaniseBillName(name: string): string {
 // can't guarantee. See computeHeadsUp/HeadsUpSentence for the sibling
 // verdict that DOES name a bill, where it's the only fact in the sentence
 // and has the room.
+// G17: named days in this sentence read as a bare weekday ("Monday") or
+// "today"/"tomorrow" — never a day count ("the next 5 days"). A day count
+// shrinks every day as "today" advances toward the same fixed crossing day,
+// which reads as unstable even though nothing about the underlying data
+// changed; naming the day directly needs no such mental subtraction, and
+// since `frontLoaded` caps crossDay at 6 there's only ever one calendar
+// instance of that weekday inside the window, so it can't be ambiguous.
+// Reads the weekday off the bill's own pre-formatted `date` ("Wed 19 Aug",
+// the same string formatShortDate and the design fixtures already produce)
+// rather than re-deriving a date independently.
+const FULL_WEEKDAY: Record<string, string> = {
+  Sun: "Sunday",
+  Mon: "Monday",
+  Tue: "Tuesday",
+  Wed: "Wednesday",
+  Thu: "Thursday",
+  Fri: "Friday",
+  Sat: "Saturday",
+};
+
+function weekdayLabel(bill: ComingUpBill): string {
+  if (bill.daysAway === 0) return "today";
+  if (bill.daysAway === 1) return "tomorrow";
+  return FULL_WEEKDAY[bill.date.slice(0, 3)] ?? bill.date;
+}
+
 export type DropInsight =
   | { kind: "empty" }
+  // G17: no percentage anywhere here — `pct` and the "next N days" count
+  // are gone. `throughAmount` is the actual cumulative sum crossDay carries
+  // (what `pct` used to summarise as a rounded percentage), always paired
+  // with `total` so the reader can check the fraction themselves rather
+  // than being told a number to trust. `singleDay` is true when the window
+  // that crosses half the fortnight IS just today (crossDay === 0) — in
+  // that case throughAmount and leadDayTotal are the same figure and
+  // DropSentence renders one clause, not two. `sameDay` is true when the
+  // crossing day (crossDayLabel) and the day of the single heaviest bill
+  // in that window (leadWhen) are the same calendar day — the common case
+  // — and DropSentence folds that into one sentence instead of naming the
+  // same day twice.
   | {
       kind: "concentrated";
-      days: number;
-      pct: number;
+      crossDayLabel: string; // the day the running total passes half the fortnight
+      throughAmount: number; // cumulative total landing by (and including) crossDay
       leadExtra: number; // other bills sharing leadWhen's date
       leadDayTotal: number; // leadWhen's own day total
       leadWhen: string;
+      sameDay: boolean; // crossDayLabel and leadWhen are the same calendar day
+      singleDay: boolean; // the crossing day is today (window is one day wide)
       total: number;
     }
   // A runway genuinely worth naming — nothing lands for at least 2 days.
@@ -383,14 +423,21 @@ export function computeDrop(bills: ComingUpBill[]): DropInsight {
   if (frontLoaded) {
     const windowBills = bills.filter((b) => b.daysAway <= crossDay);
     const lead = windowBills.reduce((max, b) => (b.amount > max.amount ? b : max), windowBills[0]);
-    const cumAmt = days.slice(0, crossDay + 1).reduce((s, a) => s + a, 0);
+    const throughAmount = days.slice(0, crossDay + 1).reduce((s, a) => s + a, 0);
+    // Some bill must land on crossDay itself (otherwise the cumulative
+    // total would have already crossed half the fortnight on the day
+    // before, and the loop above would have broken there instead) —
+    // `find` always resolves; `lead` is only a defensive fallback.
+    const crossBill = bills.find((b) => b.daysAway === crossDay) ?? lead;
     return {
       kind: "concentrated",
-      days: crossDay + 1,
-      pct: Math.round((cumAmt / total) * 100),
+      crossDayLabel: weekdayLabel(crossBill),
+      throughAmount,
       leadExtra: otherBillsOnDay(lead.daysAway),
       leadDayTotal: days[lead.daysAway],
-      leadWhen: nextPaymentWhen(lead),
+      leadWhen: weekdayLabel(lead),
+      sameDay: lead.daysAway === crossDay,
+      singleDay: crossDay === 0,
       total,
     };
   }
@@ -414,7 +461,7 @@ export function computeDrop(bills: ComingUpBill[]): DropInsight {
       sameDay: gapDays === heaviestDayIndex,
       heavyExtra: otherBillsOnDay(heaviestDayIndex),
       heavyDayTotal: days[heaviestDayIndex],
-      heavyWhen: nextPaymentWhen(heavy),
+      heavyWhen: weekdayLabel(heavy),
       total,
     };
   }
@@ -424,7 +471,7 @@ export function computeDrop(bills: ComingUpBill[]): DropInsight {
     gapDays,
     heavyExtra: otherBillsOnDay(heaviestDayIndex),
     heavyDayTotal: days[heaviestDayIndex],
-    heavyWhen: nextPaymentWhen(heavy),
+    heavyWhen: weekdayLabel(heavy),
     total,
   };
 }
@@ -446,20 +493,36 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
     return <>Nothing due in the next 14 days.</>;
   }
   if (insight.kind === "concentrated") {
-    if (insight.days === 1) {
-      // The front-loaded window is exactly one day (today) — that IS the
-      // heaviest day, so don't restate "today" as two separate facts.
-      // Mirrors landing's sameDay fold below.
+    if (insight.singleDay) {
+      // The front-loaded window is exactly one day (today) — throughAmount
+      // and leadDayTotal are the same figure, so state it once rather than
+      // as "X of Y, Y of it today". Mirrors landing's sameDay fold below.
       return (
         <Fragment>
-          <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> due {insight.leadWhen}{" "}
-          across {paymentCount(insight.leadExtra + 1)}, {insight.pct}% of this fortnight.
+          <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> of the{" "}
+          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands
+          today, across {paymentCount(insight.leadExtra + 1)}.
+        </Fragment>
+      );
+    }
+    if (insight.sameDay) {
+      // The crossing day and the heaviest day are the same calendar day —
+      // don't name that day twice ("by Monday... on Monday itself"), fold
+      // it into one clean clause instead.
+      return (
+        <Fragment>
+          <span className="font-mono tabular-nums">{fmtSum(insight.throughAmount, sym)}</span> of the{" "}
+          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands by{" "}
+          {insight.crossDayLabel}, <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span>{" "}
+          of it on the same day, across {paymentCount(insight.leadExtra + 1)}.
         </Fragment>
       );
     }
     return (
       <Fragment>
-        The next {insight.days} days carry {insight.pct}%. Heaviest: {insight.leadWhen},{" "}
+        <span className="font-mono tabular-nums">{fmtSum(insight.throughAmount, sym)}</span> of the{" "}
+        <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight lands by{" "}
+        {insight.crossDayLabel}. The heaviest day is {insight.leadWhen},{" "}
         <span className="font-mono tabular-nums">{fmtSum(insight.leadDayTotal, sym)}</span> across{" "}
         {paymentCount(insight.leadExtra + 1)}.
       </Fragment>
@@ -472,7 +535,8 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
       return (
         <Fragment>
           <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when}{" "}
-          across {paymentCount(insight.heavyExtra + 1)}, the heaviest hit of the fortnight.
+          across {paymentCount(insight.heavyExtra + 1)}, the heaviest hit of the{" "}
+          <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight.
         </Fragment>
       );
     }
@@ -480,7 +544,8 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
       <Fragment>
         <span className="font-mono tabular-nums">{fmtSum(insight.landingAmount, sym)}</span> due {insight.when}. The
         heaviest day is {insight.heavyWhen},{" "}
-        <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> across{" "}
+        <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> of the{" "}
+        <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight, across{" "}
         {paymentCount(insight.heavyExtra + 1)}.
       </Fragment>
     );
@@ -492,7 +557,8 @@ export function DropSentence({ bills, sym = "£" }: { bills: ComingUpBill[]; sym
     <Fragment>
       Nothing&apos;s due for {insight.gapDays} day{insight.gapDays === 1 ? "" : "s"}. Then the heaviest day is{" "}
       {insight.heavyWhen},{" "}
-      <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> across{" "}
+      <span className="font-mono tabular-nums">{fmtSum(insight.heavyDayTotal, sym)}</span> of the{" "}
+      <span className="font-mono tabular-nums">{fmtSum(insight.total, sym)}</span> due this fortnight, across{" "}
       {paymentCount(insight.heavyExtra + 1)}.
     </Fragment>
   );
