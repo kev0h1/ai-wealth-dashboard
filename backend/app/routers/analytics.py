@@ -3906,6 +3906,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # this does not introduce a query per card.
     safe_to_spend_cash = safe_to_spend
     card_growth_total = 0.0
+    card_new_spend_total = 0.0
     card_growth_reserved = 0.0
     card_growth_wording = None
     card_growth_due_date = None
@@ -3920,6 +3921,17 @@ async def compute_safe_to_spend(uid: str) -> dict:
         card_growth_total = round(max(0.0, sum(
             float(row.get("net_change", row["growth"])) for row in card_rows
         )), 2)
+        # G24: purchases only, balance transfers/movement excluded — what the
+        # Home hero's "went on cards" line shows. Kept separate from
+        # card_growth_total/card_growth_reserved above, which must stay the
+        # TRUE balance-growth figure the fail-closed reserve depends on (a
+        # balance deliberately moved onto a card is still real debt owed,
+        # whether or not it was new spending). Defaults to 0.0 for any row
+        # dict that predates this field (e.g. a test double), same pattern
+        # as `row.get("net_change", row["growth"])` above.
+        card_new_spend_total = round(sum(
+            float(row.get("new_spend", 0.0)) for row in card_rows
+        ), 2)
         growth_card_ids = {
             str(row["account_id"]) for row in card_rows
             if float(row["growth"]) > 0
@@ -3944,6 +3956,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         logger.exception("card growth fact or reserve failed for %s", uid)
         unavailable_components.append("card_growth_reserve")
         card_growth_total = 0.0
+        card_new_spend_total = 0.0
         card_growth_reserved = 0.0
 
     # Asked card terms affect wording only, never the safety arithmetic. A
@@ -4047,6 +4060,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "payday_income":       payday_income,
         "card_debt":           card_debt,
         "card_growth_total":   card_growth_total,
+        "card_new_spend_total": card_new_spend_total,
         "card_growth_reserved": card_growth_reserved,
         "card_growth_wording": card_growth_wording,
         "card_growth_due_date": card_growth_due_date,

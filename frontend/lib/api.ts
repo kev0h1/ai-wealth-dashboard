@@ -647,8 +647,14 @@ export type SafeToSpend =
       /** Lowest projected balance after scheduled bills and pre-payday income,
        * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
-      /** Positive net card-balance growth observed this pay period. */
+      /** Positive net card-balance growth observed this pay period (all
+       * debits minus all credits, includes balance transfers). Drives the
+       * fail-closed reserve — not what the Home hero's card line displays. */
       card_growth_total?: number;
+      /** Purchases only this pay period, balance transfers/movement
+       * excluded (G24). What the Home hero's "went on cards" line shows;
+       * agrees exactly with the Cards page "What drove it" total. */
+      card_new_spend_total?: number;
       /** Portion held back because no repayment series has been learned. */
       card_growth_reserved?: number;
       /** Copy treatment derived from the user's declared card terms. */

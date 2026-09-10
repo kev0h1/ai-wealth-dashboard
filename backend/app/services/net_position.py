@@ -99,11 +99,18 @@ async def card_growth_by_card(
     """Return positive card growth separately for each card.
 
     Each row contains the signed ``net_change``, positive ``growth`` for
-    reserve decisions, and ``unpaid_growth`` after any forecast repayment
-    already present in the cash window. Keeping the signed value means a
-    paydown on one card offsets growth on another in the user-facing total,
-    while the fallback reserve can still be applied to the exact unlearned
-    card rather than guessed across the portfolio.
+    reserve decisions, ``unpaid_growth`` after any forecast repayment
+    already present in the cash window, and ``new_spend`` (G24) — the
+    spend-kind-only portion of that card's debits, i.e. `net_change` with
+    any balance-transfer/movement-kind debit excluded. `growth`/`net_change`
+    stay the TRUE balance figure the fail-closed reserve above depends on
+    (a card someone deliberately moved £800 of debt onto is still £800 more
+    owed, whether or not that £800 was "new spending"); `new_spend` is
+    purely descriptive, for callers that want to show "money actually
+    spent" without touching the reserve arithmetic. Keeping the signed
+    value means a paydown on one card offsets growth on another in the
+    user-facing total, while the fallback reserve can still be applied to
+    the exact unlearned card rather than guessed across the portfolio.
 
     The helper performs the same account and transaction reads as the old
     aggregate implementation, then groups in memory. ``None`` means the
@@ -113,12 +120,14 @@ async def card_growth_by_card(
     """
     try:
         from app.services.needle import _card_delta, _credit_card_account_ids, _txns_for_period
+        from app.services.categories import get_category_kinds, is_non_spend
 
         card_ids = await _credit_card_account_ids(uid)
         if not card_ids:
             return []
 
         txns = await _txns_for_period(uid, period_start, today, account_ids=card_ids)
+        kind_map = await get_category_kinds(uid)
         by_card: dict[str, list[dict]] = {card_id: [] for card_id in card_ids}
         for txn in txns:
             account_id = str(txn.get("account_id") or "")
@@ -148,8 +157,15 @@ async def card_growth_by_card(
 
         rows: list[dict] = []
         for card_id in sorted(card_ids):
-            net_change = round(float(_card_delta(by_card[card_id])), 2)
-            if net_change == 0:
+            card_txns = by_card[card_id]
+            net_change = round(float(_card_delta(card_txns)), 2)
+            new_spend = round(sum(
+                float(t.get("amount", 0) or 0)
+                for t in card_txns
+                if t.get("transaction_type") == "debit"
+                and not is_non_spend(kind_map, t.get("custom_category") or t.get("category") or "Other")
+            ), 2)
+            if net_change == 0 and new_spend == 0:
                 continue
             growth = round(max(0.0, net_change), 2)
             rows.append({
@@ -157,6 +173,7 @@ async def card_growth_by_card(
                 "net_change": net_change,
                 "growth": growth,
                 "unpaid_growth": round(max(0.0, growth - scheduled[card_id]), 2),
+                "new_spend": new_spend,
             })
         return rows
     except Exception:

@@ -250,14 +250,27 @@ export default function CardsPage() {
               </p>
             )}
 
-            {/* Clarifying sentence — contextualises the headline */}
+            {/* Clarifying sentence — contextualises the headline. Names the
+                balance-transfer amount inline (G24) whenever there is one,
+                so the sentence's own arithmetic reconciles with the
+                headline delta: new_spend + moved_between_cards − payments
+                == delta. Leaving moved_between_cards out here (as before)
+                made "put on £422, paid off £123" read as if balances should
+                have grown by only £299, when the headline said £1,175 —
+                the missing £877 balance transfer, otherwise only mentioned
+                in the separate line below. */}
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 leading-snug">
               <MoneyText text={
-                deltaAbs < 20
-                  ? `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
-                  : delta >= 20
-                  ? `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
-                  : `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
+                (() => {
+                  const movedClause = moved_between_cards > 0 ? `, moved ${mask(fmtGBP(moved_between_cards))} between cards` : "";
+                  if (deltaAbs < 20) {
+                    return `Your balances barely moved, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                  }
+                  if (delta >= 20) {
+                    return `Your balances grew by ${mask(fmtGBP(delta))}, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                  }
+                  return `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))}${movedClause} and paid off ${mask(fmtGBP(payments))}.`;
+                })()
               } />
             </p>
 

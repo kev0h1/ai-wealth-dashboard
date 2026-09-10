@@ -97,14 +97,29 @@ async def cards_story(
     txns = await _txns_for_period(uid, start, min(end, today), cc_ids) if cc_ids else []
     # `delta` drives the frontend's "Held steady / balances grew / balances
     # shrank" verdict and its colour, so it must reflect the card's ACTUAL
-    # balance movement: every debit minus every payment, regardless of
+    # balance movement: every debit minus every credit, regardless of
     # category. Narrowing it to spend-only debits would make a card that
     # grew by, say, £1,298 (because £877 of that was a balance transfer)
     # report as barely moving, which is wrong, and would disagree with the
     # per-card `delta` figures below (those already sum every debit per
     # card, uncategorised). So this value and its meaning are UNCHANGED;
-    # only the local variable is renamed to `full_debits` since it no
-    # longer doubles as the (now narrower) `new_spend` figure (G20).
+    # the local variable is named `full_debits` since it no longer doubles
+    # as the (now narrower) `new_spend` figure (G20), and `payments` stays
+    # the full, unconditional credit total (money that reduced the card
+    # balance, whatever its category) — a genuine card repayment made by
+    # direct debit is still a real payment even when the categoriser has
+    # tagged it Transfer.
+    #
+    # G24 (2026-09-10): `_abs_amounts` was already unconditional on both
+    # sides — it never filtered credits by category — so `delta` here was
+    # already the true net change. What was actually missing was a NAMED
+    # field for the movement-kind PORTION of `payments`, the credit-side
+    # mirror of `moved_between_cards` below: a balance paid off by transfer
+    # (categorised Transfer/Debt/Savings/Investment) was numerically
+    # included in `payments`/`delta` but had no field of its own, so a
+    # caller had no way to tell "£123 of genuine repayment" apart from "£123
+    # that just moved off this card by transfer" without re-deriving it from
+    # raw transactions. See `movement_in` below.
     full_debits, payments = _abs_amounts(txns)
     delta = full_debits - payments
 
@@ -215,15 +230,30 @@ async def cards_story(
     # every SPEND-kind debit, and the drivers list (top five + "Other
     # categories") is built to sum to it exactly, so the page always
     # reconciles.
+    #
+    # G24: the credit side gets the same kind split, one pass over the same
+    # `txns` list (no extra query). `movement_in` is the movement-kind
+    # portion of `payments` above — e.g. a balance paid down by transfer
+    # rather than a spend refund — named explicitly so a caller (the Cards
+    # page, Penny) never has to re-derive it from raw transactions. It is a
+    # SUBSET of `payments`, not an addition to it: `payments` keeps its
+    # existing meaning (every credit that reduced the balance) and `delta`
+    # is unaffected by this split.
     kind_map = await get_category_kinds(uid)
     category_totals: dict[str, float] = {}
     new_spend = 0.0
     moved_between_cards = 0.0
+    movement_in = 0.0
     for t in txns:
-        if t.get("transaction_type") != "debit":
-            continue
+        ttype = t.get("transaction_type")
         amt = float(t.get("amount", 0) or 0)
         cat = t.get("custom_category") or t.get("category") or "Other"
+        if ttype == "credit":
+            if is_non_spend(kind_map, cat):
+                movement_in += amt
+            continue
+        if ttype != "debit":
+            continue
         if is_non_spend(kind_map, cat):
             moved_between_cards += amt
             continue
@@ -273,6 +303,7 @@ async def cards_story(
             "new_spend": round(new_spend, 2),
             "payments": round(payments, 2),
             "moved_between_cards": round(moved_between_cards, 2),
+            "movement_in": round(movement_in, 2),
         },
         "per_card": per_card,
         "drivers": drivers,

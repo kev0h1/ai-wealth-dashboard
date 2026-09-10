@@ -83,6 +83,7 @@ function CalculationRow({
 
 function CardBalanceFact({
   growth,
+  newSpend,
   reserve,
   finalPosition,
   wording,
@@ -90,6 +91,7 @@ function CardBalanceFact({
   amount,
 }: {
   growth: number;
+  newSpend: number;
   reserve: number;
   finalPosition: number;
   wording: "carried" | "cleared_monthly" | null | undefined;
@@ -98,6 +100,15 @@ function CardBalanceFact({
 }) {
   const hasUnconfirmedReserve = reserve > 0;
   const due = dateLabel(dueDate);
+  // G24: while a card repayment is unconfirmed, the reserve maths (and the
+  // "held back" sentence below) is about real debt owed, so the headline
+  // stays the TRUE balance change — showing spend-only here could make the
+  // reserve look bigger than the figure it's held back from, which reads as
+  // broken and, worse, understates the risk. Once there's nothing
+  // unconfirmed, there's no safety story left to tell and the headline can
+  // show what Kevin actually asked Home to lead with: new spend only,
+  // because a balance transfer is deliberate debt-shuffling, not spending.
+  const headline = hasUnconfirmedReserve ? growth : newSpend;
 
   return (
     <aside className={`mt-5 rounded-2xl border px-3.5 py-3.5 ${hasUnconfirmedReserve ? "border-amber-200/80 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-400/[0.04]" : "border-slate-200/80 bg-slate-50/80 dark:border-white/[0.08] dark:bg-white/[0.035]"}`} aria-label="Card balance activity">
@@ -107,8 +118,8 @@ function CardBalanceFact({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.075em] text-slate-500 dark:text-slate-400">Card balances this pay period</p>
-            <p aria-label={`increase of ${amount(growth)}`} className="money shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">+{amount(growth)}</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.075em] text-slate-500 dark:text-slate-400">{hasUnconfirmedReserve ? "Card balances this pay period" : "Went on cards this pay period"}</p>
+            <p aria-label={`${hasUnconfirmedReserve ? "increase of" : "spent"} ${amount(headline)}`} className="money shrink-0 text-sm font-bold text-slate-900 dark:text-slate-100">+{amount(headline)}</p>
           </div>
 
           {hasUnconfirmedReserve ? (
@@ -135,7 +146,7 @@ function CardBalanceFact({
                     ? "Its repayment is forecast separately. It is not deducted from today’s cash figure."
                     : "This added to your card balances this pay period. It is not deducted from the cash above."}
               </p>
-              <p className="mt-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Net balance change: purchases minus refunds and repayments.</p>
+              <p className="mt-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Purchases only. Balance transfers and repayments are not counted here.</p>
             </>
           )}
         </div>
@@ -198,6 +209,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   const exactCashRunway = data.safe_to_spend_cash ?? data.safe_to_spend;
   const exactLowestProjected = data.lowest_projected_balance ?? null;
   const cardGrowth = zeroSafe(data.card_growth_total ?? 0);
+  const cardNewSpend = zeroSafe(data.card_new_spend_total ?? 0);
   const cardReserve = zeroSafe(data.card_growth_reserved ?? 0);
   const isCardsUnconfirmedShort = data.state === "short" && data.short_reason === "cards_unconfirmed";
   const state: "comfortable" | "tight" | "short" = data.state === "short" && !data.short_reason && freeAmount > -1 ? "comfortable" : data.state;
@@ -305,6 +317,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
       {cardGrowth > 0 && (
         <CardBalanceFact
           growth={cardGrowth}
+          newSpend={cardNewSpend}
           reserve={cardReserve}
           finalPosition={data.safe_to_spend}
           wording={data.card_growth_wording}
@@ -349,7 +362,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
 
             {cardGrowth > 0 && cardReserve <= 0 && (
               <p className="mt-4 border-l-2 border-slate-200 pl-3 text-[12px] leading-relaxed text-slate-500 dark:border-slate-700 dark:text-slate-400 text-pretty">
-                <MoneyText text={`The ${amount(cardGrowth)} card balance change is shown above for context. It is not part of this cash calculation.`} />
+                <MoneyText text={`The ${amount(cardNewSpend)} spent on cards is shown above for context. It is not part of this cash calculation.`} />
               </p>
             )}
 
