@@ -348,7 +348,8 @@ def _parse_headline_reply_or_none(raw: str, *, has_tool_grounding: bool = False)
     (true whenever this call's `tools_used` is non-empty, i.e. at least one
     real engine tool backed this specific answer) gates a narrow fallback:
     UNLABELLED, non-trivial content is accepted as the reply verbatim, with
-    a short headline synthesised from its first sentence, rather than
+    no headline (see the 2026-09-10 note further down, where a synthesised
+    headline turned out to routinely truncate mid-word), rather than
     discarded. This does not weaken rule 1's tool-grounding requirement
     (which was never mechanically enforced here in the first place, a
     correctly-labelled answer with an invented figure would have passed
@@ -387,9 +388,23 @@ def _parse_headline_reply_or_none(raw: str, *, has_tool_grounding: bool = False)
     fallback = (raw or "").strip()
     if len(fallback) < 10 or fallback.upper() == _OUT_OF_SCOPE_SENTINEL:
         return None
-    first_sentence = re.split(r"(?<=[.!?])\s+", fallback, maxsplit=1)[0].strip()
-    fallback_headline = (first_sentence[:60].rstrip(".!? ") or "Here's what I found")
-    return fallback_headline, fallback
+    # Bug fix, 2026-09-10 (owner-reported on prod, two real replies cut off
+    # mid-word at exactly 60 chars: "...came from new spen" and "...from 3
+    # p"): this used to synthesise a headline from `first_sentence[:60]`
+    # with no word-boundary trim, so it routinely sliced through a word or
+    # a currency figure. There is no universally-safe hard trim here — a
+    # sentence the model wrote as ordinary prose was never composed to fit
+    # an 8-word verdict headline, so any fixed-width cut risks landing the
+    # same failure somewhere else (mid-word, mid-number, or a clause that
+    # just reads as unfinished). The frontend already has a graceful path
+    # for exactly this shape: `PennyConversation.tsx`'s VerdictMsg treats a
+    # falsy `headline` as the `degraded` case and renders the full `reply`
+    # as plain body text instead of forcing a bold verdict line (see that
+    # file's own comment on the `degraded` field). Returning no synthetic
+    # headline here, rather than inventing one, is both simpler and safer
+    # than any truncation scheme, and the user gets the complete, untrimmed
+    # answer either way.
+    return "", fallback
 
 
 def _build_user_content(question: str, screen: str | None, context: str) -> str:
