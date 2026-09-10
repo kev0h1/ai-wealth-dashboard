@@ -12,8 +12,14 @@
 // are private to SettingsPage.tsx. No data fetching, no client state, no
 // auth — /design/* is exempt (see components/AuthProvider.tsx).
 // Deep-linkable at /design/settings-usage-row.
+//
+// G32 (2026-09-10): the header's icon was the generic Wand2 lucide icon,
+// copied verbatim from SettingsPage.tsx's own mistake — kept in sync here,
+// it now carries PennyMark at the same plain indigo tint (still no
+// gradient, Settings doesn't give advice, see DESIGN.md's Penny Gradient
+// Rule).
 
-import { Wand2 } from "lucide-react";
+import PennyMark from "@/components/PennyMark";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import type { SubscriptionInfo } from "@/lib/api";
 
@@ -85,7 +91,7 @@ function CardFrame({ label, info }: { label: string; info: SubscriptionInfo }) {
             style={{ background: `${INDIGO}26` }}
             aria-hidden="true"
           >
-            <Wand2 size={16} style={{ color: INDIGO }} />
+            <PennyMark size={16} style={{ color: INDIGO }} />
           </span>
           <div className="min-w-0 pt-0.5">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
