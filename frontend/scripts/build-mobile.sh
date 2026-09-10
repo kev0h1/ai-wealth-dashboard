@@ -187,6 +187,44 @@ if [ -z "${NEXT_PUBLIC_TRUELAYER_PICKER:-}" ]; then
   fi
 fi
 
+# MCP connector flag + URL (backlog A17 doctrine; mobile reach fixed by
+# F17). Settings' "Connected assistants" card
+# (components/ConnectedAssistantsCard.tsx) only renders when
+# NEXT_PUBLIC_MCP_CONNECTOR is "on" (frontend/lib/featureFlags.ts's
+# MCP_CONNECTOR), and only shows a usable connect address when
+# NEXT_PUBLIC_MCP_URL points at the connector (F8's MCP_URL). Before F17,
+# neither var could ever reach a mobile bundle: the rsync above excludes
+# .env.local (deliberately, H13, so a prod mobile build can't inherit the
+# UAT VPS's gitignored frontend/.env.local), and codemagic.yaml set neither
+# var, so the card stayed invisible in every mobile build even when the
+# build targeted the UAT API, which has the connector enabled. Same
+# UAT/prod split and same "explicit env var always wins" precedent as the
+# NEXT_PUBLIC_TRUELAYER_PICKER block above: "on" (and UAT's MCP URL) by
+# default, both explicitly OFF/unset when the build targets prod
+# (MOBILE_TARGET=prod, set by the ios-capacitor-prod Codemagic workflow, or
+# MOBILE_API_BASE pointing at a production API base, set by `npm run
+# build:mobile:prod`) — production must never show the connector, per A17.
+# The explicit-off-for-prod branch is a second guard, same reasoning as
+# NEXT_PUBLIC_TRUELAYER_PICKER's: belt and braces alongside the .env.local
+# exclusion above, in case a value arrives some other way.
+IS_PROD_MOBILE_BUILD=0
+[ "${MOBILE_TARGET:-}" = "prod" ] && IS_PROD_MOBILE_BUILD=1
+case "${MOBILE_API_BASE:-}" in
+  https://api.*) IS_PROD_MOBILE_BUILD=1 ;;
+  https://wealth.auriqltd.co.uk/api) IS_PROD_MOBILE_BUILD=1 ;;
+esac
+if [ "$IS_PROD_MOBILE_BUILD" = "1" ]; then
+  export NEXT_PUBLIC_MCP_CONNECTOR=off
+  unset NEXT_PUBLIC_MCP_URL
+else
+  if [ -z "${NEXT_PUBLIC_MCP_CONNECTOR:-}" ]; then
+    export NEXT_PUBLIC_MCP_CONNECTOR=on
+  fi
+  if [ -z "${NEXT_PUBLIC_MCP_URL:-}" ]; then
+    export NEXT_PUBLIC_MCP_URL=https://uat.wealth.auriqltd.co.uk/api/mcp
+  fi
+fi
+
 # MOBILE_API_BASE lets CI (or a local override) point the built app at a
 # different backend. Falls back to UAT when unset — Kevin's standing rule is
 # that Android APK builds always bake the UAT API base by default; only an
