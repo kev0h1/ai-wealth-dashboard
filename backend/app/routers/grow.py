@@ -27,7 +27,8 @@ from app.db.collections import (
 )
 from app.services.region import get_user_region
 from app.routers.card_terms import _promos_from_legacy
-from app.routers.savings import _cashflow, _current_savings, _target_amount
+from app.routers.savings import _current_savings, _target_amount
+from app.services.cashflow import monthly_cashflow_cached
 from app.services.debt_plan import get_debt_plan_cached, MATERIAL_BALANCE
 from app.routers.investments import _investment_display
 
@@ -51,6 +52,20 @@ TAX_LEVERS_LINK = {"label": "See your tax levers ›", "route": "/tax"}
 
 def _money(x: float) -> str:
     return f"£{x:,.0f}"
+
+
+def _cashflow_month_labels(n_months: int, now: datetime) -> list[str]:
+    """Date-range label for each 30-day bucket monthly_cashflow uses, oldest
+    first (bucket 0 = the most recent 30 days, so the last entry is 'now').
+    These are rolling 30-day windows anchored to today, not calendar
+    months, so they're labelled by date range rather than a month name —
+    a window like "12 Aug to 9 Sep" would be mislabelled as just "August"."""
+    labels = []
+    for i in reversed(range(n_months)):
+        end = now - timedelta(days=30 * i)
+        start = end - timedelta(days=30)
+        labels.append(f"{start.strftime('%-d %b')} to {end.strftime('%-d %b')}")
+    return labels
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -271,7 +286,11 @@ async def grow_view(user: dict = Depends(current_user)):
     period_gate = _period_gate(_sts)
 
     # ── Surplus & buffer (reuses savings.py helpers) ─────────────────────────
-    monthly_income, monthly_spending, monthly_surplus = await _cashflow(uid, region, cutoff)
+    cf = await monthly_cashflow_cached(uid, region, cutoff)
+    monthly_income = cf["income"]
+    monthly_spending = cf["spending"]
+    monthly_debt = cf["debt"]
+    monthly_surplus = round(monthly_income - monthly_spending - monthly_debt, 2)
     goal = await savings_goals_col.find_one({"_id": uid})
     current_savings = await _current_savings(uid, goal)
     target_amount = _target_amount(goal, monthly_spending)
@@ -525,9 +544,23 @@ async def grow_view(user: dict = Depends(current_user)):
         "The cash-ISA limit drops to £12,000 for under-65s from April 2027.",
     ]
 
+    surplus_ledger = {
+        "income": monthly_income,
+        "spending": monthly_spending,
+        "debt_deduction": monthly_debt,
+        # Planning's hero always applies the Savings-tab rule (subtracts debt
+        # repayments); explicit rather than inferring from debt_deduction == 0,
+        # since 0 can mean "no debt on file" not "the rule wasn't applied".
+        "debt_deducted": True,
+        "surplus": monthly_surplus,
+        "n_months": cf["n_months"],
+        "month_labels": _cashflow_month_labels(cf["n_months"], datetime.now()),
+    }
+
     result = {
         "verdict": verdict,
         "surplus_monthly": round(monthly_surplus, 2),
+        "surplus_ledger": surplus_ledger,
         "buffer": buffer,
         "debt": debt,
         "invest": invest,
