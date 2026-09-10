@@ -157,7 +157,7 @@ export default function CardsPage() {
   }
 
   const { period, movement, per_card, drivers, pattern_line, trajectory } = story;
-  const { delta, new_spend, payments } = movement;
+  const { delta, new_spend, payments, moved_between_cards } = movement;
   const { days_elapsed } = period;
 
   // ── Movement verdict ─────────────────────────────────────────────────────────
@@ -260,6 +260,15 @@ export default function CardsPage() {
                   : `Your balances shrank by ${mask(fmtGBP(deltaAbs))}, you put on ${mask(fmtGBP(new_spend))} and paid off ${mask(fmtGBP(payments))}.`
               } />
             </p>
+
+            {/* Card-to-card movement — Transfer/Debt/Savings/Investment debits
+                are money moved, not spend, so they're called out here rather
+                than folded into "New spend" or the drivers below (G20). */}
+            {moved_between_cards > 0 && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                <MoneyText text={`${mask(fmtGBP(moved_between_cards))} moved between cards.`} />
+              </p>
+            )}
           </div>
         </div>
 

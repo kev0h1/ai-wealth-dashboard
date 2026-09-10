@@ -34,21 +34,11 @@ from app.services.needle import (
     _txns_for_period,
     _abs_amounts,
 )
+from app.services.categories import get_category_kinds, is_non_spend
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cards"])
-
-# Categories dropped from the per-card "spending drivers" breakdown.
-#
-# NOT migrated to `app.services.categories.is_non_spend`, and the difference is
-# a real one rather than a stylistic one: this set omits Savings, Investment and
-# Income, all of which the shared helper treats as non-spend. A card debit
-# categorised Savings or Investment therefore still shows up here as card
-# spending. That is very likely wrong, but correcting it moves published
-# per-card totals, so it is held back as a separate, owner-approved change.
-# See the migration report for the measured size of the discrepancy.
-_EXCLUDE_CATEGORIES = {"Transfer", "Debt"}
 
 
 def _current_apr_and_promo_end(plan_card: dict, today: date) -> tuple:
@@ -104,8 +94,18 @@ async def cards_story(
 
     # ── Period transactions ───────────────────────────────────────────────────
     txns = await _txns_for_period(uid, start, min(end, today), cc_ids) if cc_ids else []
-    new_spend, payments = _abs_amounts(txns)
-    delta = new_spend - payments
+    # `delta` drives the frontend's "Held steady / balances grew / balances
+    # shrank" verdict and its colour, so it must reflect the card's ACTUAL
+    # balance movement: every debit minus every payment, regardless of
+    # category. Narrowing it to spend-only debits would make a card that
+    # grew by, say, £1,298 (because £877 of that was a balance transfer)
+    # report as barely moving, which is wrong, and would disagree with the
+    # per-card `delta` figures below (those already sum every debit per
+    # card, uncategorised). So this value and its meaning are UNCHANGED;
+    # only the local variable is renamed to `full_debits` since it no
+    # longer doubles as the (now narrower) `new_spend` figure (G20).
+    full_debits, payments = _abs_amounts(txns)
+    delta = full_debits - payments
 
     # ── Per-card breakdown ────────────────────────────────────────────────────
     # Fetch account docs for credit cards
@@ -189,20 +189,36 @@ async def cards_story(
             )
 
     # ── Spending drivers ──────────────────────────────────────────────────────
+    # Categories are split by declared kind (app.services.categories), not a
+    # hardcoded set (G20, 2026-09-10, replaces the old _EXCLUDE_CATEGORIES,
+    # which silently dropped a £876.76 Transfer debit and then truncated to
+    # the top five with no accounting for the rest). Movement-kind debits
+    # (Transfer, Debt, Savings, Investment, and any user-defined movement
+    # category) are money moved between cards, not spend: they are reported
+    # in `moved_between_cards`, never as a driver. `new_spend` is the sum of
+    # every SPEND-kind debit, and the drivers list (top five + "Other
+    # categories") is built to sum to it exactly, so the page always
+    # reconciles.
+    kind_map = await get_category_kinds(uid)
     category_totals: dict[str, float] = {}
+    new_spend = 0.0
+    moved_between_cards = 0.0
     for t in txns:
         if t.get("transaction_type") != "debit":
             continue
+        amt = float(t.get("amount", 0) or 0)
         cat = t.get("custom_category") or t.get("category") or "Other"
-        if cat in _EXCLUDE_CATEGORIES:
+        if is_non_spend(kind_map, cat):
+            moved_between_cards += amt
             continue
-        category_totals[cat] = category_totals.get(cat, 0.0) + float(t.get("amount", 0) or 0)
+        new_spend += amt
+        category_totals[cat] = category_totals.get(cat, 0.0) + amt
 
-    drivers = sorted(
-        [{"category": cat, "total": round(total, 2)} for cat, total in category_totals.items()],
-        key=lambda x: x["total"],
-        reverse=True,
-    )[:5]
+    ranked_cats = sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)
+    drivers = [{"category": cat, "total": round(total, 2)} for cat, total in ranked_cats[:5]]
+    other_total = round(sum(total for _, total in ranked_cats[5:]), 2)
+    if other_total > 0:
+        drivers.append({"category": "Other categories", "total": other_total})
 
     # ── Pattern line (credit_switch trait) ────────────────────────────────────
     pattern_line = None
@@ -240,6 +256,7 @@ async def cards_story(
             "delta": round(delta, 2),
             "new_spend": round(new_spend, 2),
             "payments": round(payments, 2),
+            "moved_between_cards": round(moved_between_cards, 2),
         },
         "per_card": per_card,
         "drivers": drivers,

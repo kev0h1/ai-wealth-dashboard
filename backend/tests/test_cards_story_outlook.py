@@ -16,9 +16,14 @@ import logging
 from datetime import date, datetime
 
 import app.routers.cards as cards
+from app.services.categories import CategoryKinds, BUILTIN_CATEGORY_KINDS
 
 
 UID = "kevin"
+
+
+async def _fake_get_category_kinds(uid):
+    return CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
 
 
 class _FixedDate(date):
@@ -104,6 +109,7 @@ def _run(monkeypatch, accounts, cc_ids, txns, *, plan=None, plan_raises=False, w
 
     monkeypatch.setattr(cards, "_credit_card_account_ids", _fake_cc_ids)
     monkeypatch.setattr(cards, "_txns_for_period", _fake_txns_for_period)
+    monkeypatch.setattr(cards, "get_category_kinds", _fake_get_category_kinds)
 
     async def _fake_get_debt_plan_cached(uid):
         if plan_raises:
