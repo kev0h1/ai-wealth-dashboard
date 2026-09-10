@@ -270,6 +270,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
   // Only show the bills/income rows when that simple sum actually
   // reconciles with the server's own lowest-balance walk; otherwise fall
   // back to the prose sentence rather than display rows that do not add up.
+  // Even when the rows do reconcile, the sentence stays on as a footnote
+  // under the "Lowest cash before payday" row: it is what tells the reader
+  // this figure is a date-ordered running minimum, not just simple
+  // arithmetic on the totals above it — exactly the distinction that can
+  // make the two diverge for a different payload.
   const canShowLedgerBreakdown = data.spendable_now != null && exactLowestProjected != null
     && Math.abs((data.spendable_now - data.bills_total + data.income_before_payday) - exactLowestProjected) < 0.02;
   const recovery = state === "short"
@@ -325,7 +330,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
               {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across included current accounts." />}
               {canShowLedgerBreakdown && data.bills_total > 0 && <CalculationRow operator="−" label="Bills before payday" value={exactAmount(data.bills_total)} spokenValue={`minus ${exactAmount(data.bills_total)}`} />}
               {canShowLedgerBreakdown && data.income_before_payday > 0 && <CalculationRow operator="+" label="Income before payday" value={exactAmount(data.income_before_payday)} spokenValue={`plus ${exactAmount(data.income_before_payday)}`} />}
-              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={canShowLedgerBreakdown ? undefined : cashFlowDetail} risk={exactLowestProjected < 0} />}
+              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} risk={exactLowestProjected < 0} />}
               {data.buffer > 0 && <CalculationRow operator="−" label="Safety buffer" value={exactAmount(data.buffer)} spokenValue={`minus ${exactAmount(data.buffer)}`} />}
               {calculationItems.map((item) => <CalculationRow key={item.label} operator="−" label={item.label} value={exactAmount(item.value)} spokenValue={`minus ${exactAmount(item.value)}`} />)}
               <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total risk={exactCashRunway < 0} />
