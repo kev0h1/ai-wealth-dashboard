@@ -963,6 +963,242 @@ def test_explain_missing_topic_also_returns_valid_keys_list():
     assert len(result["available_topics"]) > 30
 
 
+# ── 5c. explain(topic) — mcp_connector (F16, 2026-09-10) ────────────────────
+# Kevin, on prod: "how do I connect the app as an MCP" had no explain topic
+# to land on, so it fell through to the generic out-of-scope reply. The
+# connector's very existence in a deployment is gated by
+# `MCP_CONNECTOR_ENABLED` (A17) — UAT has it on, production ships it
+# entirely off pending the Finexer compliance answers — and the frontend's
+# Settings card (components/ConnectedAssistantsCard.tsx) doesn't render at
+# all when its mirror of that flag is off, so the copy must differ by
+# deployment: promising a production user a Settings card and a URL that
+# isn't there would be dishonest. `_mcp_connector_explainer` reads
+# `MCP_CONNECTOR_ENABLED` at CALL time (not baked into a fixed string at
+# import time the way every other explain entry is), so these tests
+# monkeypatch `penny_tools_module.MCP_CONNECTOR_ENABLED` directly — the
+# same pattern `tests/test_mcp_connector_flag.py` already uses on
+# `app.core.auth`'s own copy of the name, needed because the real
+# process-env-derived constant is always False in a worktree's pytest run
+# (see that constant's own comment in app.core.config).
+
+def test_explain_mcp_connector_disabled_never_mentions_settings_or_a_url(monkeypatch):
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
+    assert result["topic"] == "mcp_connector"
+    text = result["text"]
+    # Must still say what it is, that it's read-only, and that raw
+    # transactions never cross the boundary.
+    assert "MCP" in text
+    assert "read-only" in text
+    assert "raw transaction" in text
+    # Must NOT promise a production user UI that isn't rendered for them
+    # (ConnectedAssistantsCard.tsx doesn't render at all while the frontend's
+    # mirror of MCP_CONNECTOR_ENABLED is off).
+    assert "Settings" not in text
+    assert "http" not in text.lower()
+    assert "not turned on" in text or "isn't turned on" in text
+    assert "—" not in text and "–" not in text
+
+
+def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatch):
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
+    text = result["text"]
+    assert "MCP" in text                       # what it is
+    assert "read-only" in text                 # read-only
+    assert "raw transaction" in text            # no raw transactions
+    assert "Settings" in text and "Connected assistants" in text  # where to get the URL
+    assert "sign in" in text.lower()            # sign-in required
+    assert "Connect and Max" in text            # tiers
+    assert "—" not in text and "–" not in text  # no em/en-dashes
+
+
+def test_explain_mcp_connector_reachable_in_unknown_topic_valid_keys_list():
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "not_a_real_topic"}))
+    assert "mcp_connector" in result["available_topics"]
+
+
+def test_explain_tool_schema_description_documents_mcp_trigger_phrases():
+    # A short trigger like "mcp" must be documented as a distinct topic
+    # word, not just happen to appear inside an unrelated word — guards the
+    # tool description itself (the only thing the model has to go on when
+    # picking a topic key, there is no code-level keyword router any more,
+    # see PENNY_TOOLS.md's "What was deleted" section on the retired ladder).
+    import re
+
+    explain_schema = next(
+        s for s in penny_tools_module.TOOL_SCHEMAS if s["function"]["name"] == "explain"
+    )
+    description = explain_schema["function"]["description"]
+    assert "mcp_connector" in description
+    assert re.search(r"\bMCP\b", description)
+    assert re.search(r"\bconnect Claude\b", description, re.IGNORECASE)
+    # Kevin's exact phrasing must be represented so a real model reading
+    # this description has it verbatim to match against.
+    assert "how do I connect the app as an MCP" in description
+
+
+def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monkeypatch):
+    """Functional half of the fix, same shape as
+    test_run_penny_agent_account_move_arithmetic_question_reaches_tool_loop
+    in test_penny_agent.py: given a scripted model that calls
+    explain(topic="mcp_connector") for Kevin's exact question, the loop must
+    round-trip the real registry text back to the user rather than a
+    generic reply. This proves the WIRING (loop -> execute_tool ->
+    _exec_explain -> _mcp_connector_explainer), which is what is actually
+    testable without a live model call; nothing here asserts what a live
+    Haiku call would choose for arbitrary phrasing, only that the wiring is
+    correct once it does choose this tool."""
+    import asyncio as _asyncio
+    import json as _json
+
+    import app.services.penny_agent as penny_agent_module
+
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+
+    class _FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self._payload = payload
+            self.status_code = status_code
+
+        def json(self):
+            return self._payload
+
+    def _tool_call(name, args, call_id="call_1"):
+        return _FakeResponse({
+            "choices": [{
+                "message": {
+                    "content": None,
+                    "tool_calls": [{
+                        "id": call_id, "type": "function",
+                        "function": {"name": name, "arguments": _json.dumps(args)},
+                    }],
+                },
+            }],
+        })
+
+    def _final(text):
+        return _FakeResponse({"choices": [{"message": {"content": text}}]})
+
+    expected_text = asyncio.run(
+        execute_tool("kevin", "explain", {"topic": "mcp_connector"})
+    )["text"]
+
+    class _ScriptedClient:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.calls = []
+
+        def __call__(self, *a, **kw):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            self.calls.append(json)
+            i = len(self.calls) - 1
+            return self._responses[i] if i < len(self._responses) else self._responses[-1]
+
+    client = _ScriptedClient([
+        _tool_call("explain", {"topic": "mcp_connector"}),
+        _final(f"HEADLINE: How the MCP connector works\nREPLY: {expected_text}"),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fake_execute_tool(uid, name, args):
+        assert name == "explain"
+        assert args == {"topic": "mcp_connector"}
+        return await execute_tool(uid, name, args)
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
+
+    result = _asyncio.run(
+        penny_agent_module.run_penny_agent(
+            "kevin", "how do I connect the app as an MCP", [], "settings", "",
+        )
+    )
+    assert result is not None
+    assert result["tools_used"] == ["explain"]
+    assert result["reply"] == expected_text
+    assert "Connect and Max" in result["reply"]
+
+
+def test_run_penny_agent_unrelated_question_does_not_reach_mcp_connector(monkeypatch):
+    """Regression guard: adding the mcp_connector topic and its trigger
+    phrases to the explain tool's description must not disturb ordinary
+    routing for a completely unrelated question. Scripts the fake model to
+    answer an affordability question with get_safe_to_spend, same as
+    test_run_penny_agent_one_tool_call_then_final_answer in
+    test_penny_agent.py, and asserts explain/mcp_connector is nowhere in
+    the tools used."""
+    import asyncio as _asyncio
+    import json as _json
+
+    import app.services.penny_agent as penny_agent_module
+
+    class _FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self._payload = payload
+            self.status_code = status_code
+
+        def json(self):
+            return self._payload
+
+    class _ScriptedClient:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.calls = []
+
+        def __call__(self, *a, **kw):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            self.calls.append(json)
+            i = len(self.calls) - 1
+            return self._responses[i] if i < len(self._responses) else self._responses[-1]
+
+    client = _ScriptedClient([
+        _FakeResponse({
+            "choices": [{
+                "message": {
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_1", "type": "function",
+                        "function": {"name": "get_safe_to_spend", "arguments": "{}"},
+                    }],
+                },
+            }],
+        }),
+        _FakeResponse({"choices": [{"message": {
+            "content": "HEADLINE: You have headroom\nREPLY: You have £100 free until payday.",
+        }}]}),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fake_execute_tool(uid, name, args):
+        assert name == "get_safe_to_spend"
+        return {"safe_to_spend": {"raw": 100.0, "formatted": "£100"}}
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
+
+    result = _asyncio.run(
+        penny_agent_module.run_penny_agent("kevin", "how much can I spend this weekend", [], None, "")
+    )
+    assert result is not None
+    assert "explain" not in result["tools_used"]
+    assert result["tools_used"] == ["get_safe_to_spend"]
+
+
 # ── 5b. explain(topic) — money-basics registry (2026-08-27) ─────────────
 # The retired "Money basics" rotating Home card's 19 curated explainers
 # (app/content/money_basics.py's MONEY_BASICS), now grounding a new `explain`

@@ -74,6 +74,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
+from app.core.config import MCP_CONNECTOR_ENABLED
 from app.db.collections import (
     accounts_col, behaviour_portrait_col, card_terms_col, cashflow_cache_col,
     connections_col, finexer_consents_col, manual_account_rules_col,
@@ -348,12 +349,14 @@ TOOL_SCHEMAS = [
             "name": "explain",
             "description": (
                 "Fixed, pre-written explanations the model must use instead of "
-                "answering from its own understanding of the app. Four kinds "
+                "answering from its own understanding of the app. Five kinds "
                 "of topic, all in one flat namespace: "
                 "(a) a SCREEN or general-information topic ('what does this "
                 "page show') — home, spend, planning, insights, tax, grow, "
                 "debt, accounts, isa_capability, saving_vs_investing, "
-                "categorisation. "
+                "categorisation, mcp_connector ('how do I connect the app "
+                "as an MCP', 'connect Claude to my account', 'what is the "
+                "MCP connector', 'can I use this with an AI assistant'). "
                 "(b) a JARGON TERM the app uses ('what does X mean', 'what is "
                 "an aim') — moved, carried_vs_float, aim, reserved, dormant, "
                 "unplaced, usual_pace, one_off_vs_new_normal, "
@@ -3322,6 +3325,45 @@ _TOPIC_COPY: dict[str, str] = {
     "categorisation": _CATEGORISATION_EXPLAINER_REPLY,
 }
 
+# F16 (Kevin, 2026-09-10): "how do I connect the app as an MCP" had no
+# explain topic to land on, so it fell through to a generic reply. The
+# connector itself (F2/F3) is gated behind `MCP_CONNECTOR_ENABLED` (A17) —
+# UAT ships it on, production ships it entirely off pending the Finexer
+# compliance answers ("planned", not live) — and the frontend's own
+# Settings card (components/ConnectedAssistantsCard.tsx) simply doesn't
+# render at all when its mirror of that flag
+# (frontend/lib/featureFlags.ts's MCP_CONNECTOR) is off, so a production
+# user has no "Connected assistants" card to be pointed at. Two honest
+# variants rather than one, picked by `_mcp_connector_explainer` below —
+# saying "open Settings and paste the address" to a production user would
+# describe UI that isn't there.
+_MCP_CONNECTOR_ENABLED_REPLY = (
+    "Sorted can connect to an AI assistant such as Claude over MCP. It's "
+    "read-only, so the assistant can only see summaries like your Safe to "
+    "Spend verdict and account balances, never your raw transaction list. "
+    "To connect one, sign in to Sorted first, then in Settings open "
+    "Connected assistants and paste the address shown there into your "
+    "assistant. It's included on the Connect and Max plans."
+)
+_MCP_CONNECTOR_DISABLED_REPLY = (
+    "Sorted can connect to an AI assistant such as Claude over MCP, a "
+    "read-only connector that would only ever see summaries like your "
+    "Safe to Spend verdict and account balances, never your raw "
+    "transaction list. It isn't turned on for your account yet, check "
+    "back soon."
+)
+
+
+def _mcp_connector_explainer() -> str:
+    """Read `MCP_CONNECTOR_ENABLED` at CALL time, not at import time, so a
+    test can monkeypatch this module's own name for it (the same pattern
+    `tests/test_mcp_connector_flag.py` already uses on
+    `app.core.auth.MCP_CONNECTOR_ENABLED`) and exercise both branches
+    without a real process-env toggle — `app.core.config`'s own comment on
+    why the constant is fixed at import time from the process environment
+    explains why a worktree's pytest run always sees it disabled otherwise."""
+    return _MCP_CONNECTOR_ENABLED_REPLY if MCP_CONNECTOR_ENABLED else _MCP_CONNECTOR_DISABLED_REPLY
+
 # ── explain(topic) — terms registry ──────────────────────────────────────
 # Every entry below is derived from the actual backend/frontend code, not
 # invented (owner instruction, 2026-08-27 catalog expansion). Grounded
@@ -3696,9 +3738,16 @@ _ALL_EXPLAIN_COPY: dict[str, str] = {
 
 async def _exec_explain(topic: str | None) -> dict:
     key = (topic or "").strip().lower()
+    # mcp_connector is the one flag-dependent entry (see
+    # `_mcp_connector_explainer`'s own comment) — resolved here rather than
+    # baked into `_ALL_EXPLAIN_COPY` as a fixed string at import time, so it
+    # is not in that dict, but still counts as a valid, reachable key.
+    if key == "mcp_connector":
+        return {"topic": key, "text": _mcp_connector_explainer()}
     text = _ALL_EXPLAIN_COPY.get(key)
     if not text:
-        return {"error": f"no explanation for '{key}'", "available_topics": sorted(_ALL_EXPLAIN_COPY.keys())}
+        available = sorted(set(_ALL_EXPLAIN_COPY.keys()) | {"mcp_connector"})
+        return {"error": f"no explanation for '{key}'", "available_topics": available}
     return {"topic": key, "text": text}
 
 
