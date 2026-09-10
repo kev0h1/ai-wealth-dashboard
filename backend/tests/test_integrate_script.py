@@ -129,3 +129,76 @@ def test_restart_services_frontend_only_change_restarts_neither_backend_service(
     assert "wealth-api" not in restarted
     assert "wealth-worker" not in restarted
     assert restarted == ["wealth-frontend"]
+
+
+# --- health check retry (H24) --------------------------------------------
+#
+# A restart under concurrent build load can take a while to come back up
+# (F14, 2026-09-10: a single poll 5s after restart hit a non-200 because
+# another integrate pass was restarting services at the same moment, and a
+# perfectly good merge got reverted and blocked). These tests exercise the
+# retry helper directly, with real but tiny timeout/interval values so they
+# stay fast without needing to fake the clock.
+
+
+def test_wait_for_http_ok_succeeds_immediately_when_healthy(monkeypatch):
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: True)
+
+    ok, elapsed = integrate._wait_for_http_ok("http://example.invalid/health", timeout=1, interval=0.01)
+
+    assert ok is True
+    assert elapsed >= 0
+
+
+def test_wait_for_http_ok_retries_then_succeeds(monkeypatch):
+    attempts = {"n": 0}
+
+    def fake_http_ok(url):
+        attempts["n"] += 1
+        return attempts["n"] >= 3  # fails twice, succeeds on the third poll
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(integrate, "_http_ok", fake_http_ok)
+    monkeypatch.setattr(integrate.time, "sleep", lambda s: sleeps.append(s))
+
+    ok, elapsed = integrate._wait_for_http_ok("http://example.invalid/health", timeout=1, interval=0.01)
+
+    assert ok is True
+    assert attempts["n"] == 3
+    assert sleeps == [0.01, 0.01]  # slept between the two failed attempts, not after success
+
+
+def test_wait_for_http_ok_gives_up_after_timeout(monkeypatch):
+    monkeypatch.setattr(integrate, "_http_ok", lambda url: False)
+    monkeypatch.setattr(integrate.time, "sleep", lambda s: None)
+
+    ok, elapsed = integrate._wait_for_http_ok("http://example.invalid/health", timeout=0.05, interval=0.01)
+
+    assert ok is False
+
+
+def test_wait_and_check_health_raises_with_wait_duration_on_failure(monkeypatch):
+    monkeypatch.setattr(integrate, "_wait_for_http_ok", lambda url: (False, 61.2))
+
+    with pytest.raises(integrate.IntegrateError) as exc_info:
+        integrate._wait_and_check_health()
+
+    message = str(exc_info.value)
+    assert integrate.HEALTH_URLS[0] in message
+    assert "61.2" in message
+    assert "retrying for" in message
+    assert str(integrate.HEALTH_CHECK_TIMEOUT_S) in message
+
+
+def test_wait_and_check_health_passes_when_all_urls_ok(monkeypatch):
+    checked: list[str] = []
+
+    def fake_wait(url):
+        checked.append(url)
+        return True, 0.0
+
+    monkeypatch.setattr(integrate, "_wait_for_http_ok", fake_wait)
+
+    integrate._wait_and_check_health()  # must not raise
+
+    assert checked == integrate.HEALTH_URLS

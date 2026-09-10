@@ -56,6 +56,14 @@ from app.services import backlog  # noqa: E402
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
 GIT_TIMEOUT = 30
 HEALTH_URLS = ["http://localhost:8000/health", "http://127.0.0.1:3030/"]
+# A restart under concurrent build load can take a while to come back up
+# (see F14, 2026-09-10: a single poll 5s after restart hit a non-200 because
+# another integrate pass was restarting services at the same moment, and a
+# perfectly good merge got reverted and blocked). Poll up to
+# HEALTH_CHECK_TIMEOUT_S, sleeping HEALTH_CHECK_INTERVAL_S between attempts,
+# before treating the service as genuinely down.
+HEALTH_CHECK_TIMEOUT_S = 60
+HEALTH_CHECK_INTERVAL_S = 2
 
 
 class IntegrateError(RuntimeError):
@@ -188,11 +196,43 @@ def _restart_services(changed: set[str]) -> None:
         _systemctl_restart("wealth-worker")
 
 
+def _wait_for_http_ok(
+    url: str,
+    timeout: float = HEALTH_CHECK_TIMEOUT_S,
+    interval: float = HEALTH_CHECK_INTERVAL_S,
+) -> tuple[bool, float]:
+    """Poll `url` until it returns 200 or `timeout` seconds have elapsed,
+    sleeping `interval` seconds between attempts. Returns (ok, elapsed) so
+    the caller can report how long it actually waited either way -
+    distinguishing "never came up" from "one unlucky poll" is the whole
+    point of retrying (see the HEALTH_CHECK_* comment above)."""
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        attempt += 1
+        if _http_ok(url):
+            elapsed = time.monotonic() - start
+            if attempt > 1:
+                print(f"health check for {url} succeeded on attempt {attempt} after {elapsed:.1f}s")
+            return True, elapsed
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout:
+            return False, elapsed
+        print(
+            f"health check for {url} not ready yet (attempt {attempt}, {elapsed:.1f}s elapsed), "
+            f"retrying in {interval}s"
+        )
+        time.sleep(interval)
+
+
 def _wait_and_check_health() -> None:
-    time.sleep(5)
     for url in HEALTH_URLS:
-        if not _http_ok(url):
-            raise IntegrateError(f"health check failed for {url}")
+        ok, elapsed = _wait_for_http_ok(url)
+        if not ok:
+            raise IntegrateError(
+                f"health check failed for {url} after retrying for {elapsed:.1f}s "
+                f"(timeout {HEALTH_CHECK_TIMEOUT_S}s, interval {HEALTH_CHECK_INTERVAL_S}s)"
+            )
 
 
 def _run_backend_tests() -> None:
