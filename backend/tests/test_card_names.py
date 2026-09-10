@@ -108,6 +108,49 @@ def test_already_mixed_case_amex_descriptors_are_not_holder_name():
     assert looks_like_holder_name("British Airways American Express® C") is False
 
 
+# ── Regression: rule 2 must not eat mixed-case product names ───────────────
+#
+# A real bug found in review: the original rule 2 matched ANY 3+-word
+# alphabetic descriptor regardless of case (the code didn't match its own
+# "ALL-CAPS" docstring), so a genuine mixed-case card product name like
+# "Sainsburys Nectar Dual" or "John Lewis Partnership" was misclassified as
+# a holder name and its descriptor was thrown away and replaced with just
+# the bank name — worse than the shouty-name problem the ticket set out to
+# fix. Fixed two ways: (1) rule 2 now requires the descriptor to be
+# genuinely ALL-CAPS (core.isupper()) before it can fire at all, and (2)
+# `build_display_name` checks `_provider_already_named` BEFORE the
+# holder-name rules, since a descriptor that already names its own bank is
+# definitionally not a bare cardholder name.
+
+def test_mixed_case_three_word_product_names_are_not_holder_name_shaped():
+    assert looks_like_holder_name("Sainsburys Nectar Dual") is False
+    assert looks_like_holder_name("John Lewis Partnership") is False
+    assert looks_like_holder_name("Virgin Atlantic Reward Plus") is False
+    assert looks_like_holder_name("Tesco Clubcard Credit") is False
+
+
+def test_mixed_case_product_names_survive_build_display_name_unchanged():
+    # All four already name their own bank (once spacing/punctuation is
+    # squashed out), so they take the "provider already named" path and
+    # come back completely unprefixed and unmodified — never collapsed
+    # down to just the bank name.
+    assert build_display_name("Sainsburys Nectar Dual", "SAINSBURYS") == "Sainsburys Nectar Dual"
+    assert build_display_name("John Lewis Partnership", "JOHNLEWIS") == "John Lewis Partnership"
+    assert build_display_name("Virgin Atlantic Reward Plus", "VIRGIN") == "Virgin Atlantic Reward Plus"
+    assert build_display_name("Tesco Clubcard Credit", "TESCO") == "Tesco Clubcard Credit"
+
+
+def test_mixed_case_three_word_descriptor_not_naming_its_provider_is_still_preserved():
+    # Even when the bank ISN'T already named in the descriptor, a
+    # mixed-case 3-word descriptor must never be treated as a holder name
+    # — the product text is preserved, just with the ordinary bank prefix
+    # (rule 4), not discarded in favour of the bare bank name.
+    assert looks_like_holder_name("Reward Explorer Plan") is False
+    name = build_display_name("Reward Explorer Plan", "MONZO")
+    assert name == "Monzo Reward Explorer Plan"
+    assert "Reward Explorer Plan" in name
+
+
 # ── build_display_name (pure, single card, no disambiguation) ──────────────
 
 def test_shouty_descriptor_is_title_cased_and_prefixed():

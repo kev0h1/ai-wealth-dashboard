@@ -147,12 +147,17 @@ def looks_like_holder_name(descriptor: str, holder_name: str | None = None) -> b
        followed by "/MR", "/MRS", "/MS", "/DR" in any case) — a structural
        shape, not a name lookup, so it catches ANY comma-formatted
        descriptor regardless of whose name it is.
-    2. Three-or-more space-separated, purely-alphabetic ALL-CAPS words with
-       none of them a generic card/product term (_PRODUCT_WORDS) — also
-       structural. Two-word all-caps descriptors are deliberately NOT
-       caught by this path ("IBCM PLATINUM", "MASTERCARD" are two words or
-       fewer) since two generic words is too weak a signal on its own and
-       would misclassify real product names.
+    2. Three-or-more space-separated, purely-alphabetic words, where the
+       descriptor is genuinely ALL-CAPS (no lowercase letters anywhere —
+       checked against `core`, not word-by-word) AND none of the words is
+       a generic card/product term (_PRODUCT_WORDS). Both conditions are
+       load-bearing: mixed case is a strong signal the bank deliberately
+       formatted a product name ("Sainsburys Nectar Dual", "John Lewis
+       Partnership") — those are never holder names regardless of word
+       count, so this path never even looks at them. Two-word ALL-CAPS
+       descriptors are also deliberately NOT caught by this path ("IBCM
+       PLATINUM", "MASTERCARD" are two words or fewer) since two generic
+       words is too weak a signal on its own.
     3. The descriptor's words are a superset of the CURRENT user's own
        session name's words (see `_matches_holder_name`) — catches a
        plain two-word "FORENAME SURNAME" descriptor for the account owner
@@ -171,6 +176,7 @@ def looks_like_holder_name(descriptor: str, holder_name: str | None = None) -> b
     words = core.split()
     if (
         len(words) >= 3
+        and core.isupper()
         and all(re.fullmatch(r"[A-Za-z'\-]+", w) for w in words)
         and not any(w.upper() in _PRODUCT_WORDS for w in words)
     ):
@@ -179,20 +185,33 @@ def looks_like_holder_name(descriptor: str, holder_name: str | None = None) -> b
     return _matches_holder_name(core, holder_name)
 
 
+def _squash(s: str | None) -> str:
+    """Letters/digits only, upper-cased, ALL spacing and punctuation
+    dropped — used only for "is this bank named somewhere in this text"
+    containment checks, where a space or apostrophe boundary shouldn't
+    decide the answer (raw provider "JOHNLEWIS" vs a descriptor that
+    spells it "John Lewis Partnership" are the same bank either way)."""
+    return re.sub(r"[^A-Z0-9]", "", (s or "").upper())
+
+
 def _provider_already_named(descriptor: str, provider_display: str, raw_provider: str | None) -> bool:
     """True when the descriptor already names the bank (e.g. "American
-    Express® Corporate Green C" under provider AMEX) so `build_display_name`
-    doesn't double it up into "American Express American Express®...".
-    Compares letters/digits only (case-insensitive, symbols like ® and
-    punctuation stripped) against both the resolved display name and the
-    raw provider string, since either could be the one that shows up in
-    the descriptor text."""
-    d = _normalise_provider_key(descriptor)
+    Express® Corporate Green C" under provider AMEX, or "Sainsburys Nectar
+    Dual" under provider SAINSBURYS) so `build_display_name` doesn't double
+    it up into "American Express American Express®..." — and, just as
+    importantly, so a genuine product name that happens to already carry
+    its bank's name is never mistaken for a bare holder-name descriptor
+    (see `build_display_name`'s call order). Compares squashed
+    letters/digits only against both the resolved display name and the raw
+    provider string, since either could be the one spelled out in the
+    descriptor text; candidates under 3 characters are skipped so a short
+    provider code (e.g. "MS") can't produce an accidental substring match."""
+    d = _squash(descriptor)
     if not d:
         return False
     for candidate in (provider_display, raw_provider):
-        c = _normalise_provider_key(candidate)
-        if c and c in d:
+        c = _squash(candidate)
+        if c and len(c) >= 3 and c in d:
             return True
     return False
 
@@ -221,22 +240,28 @@ def build_display_name(
 
     Rules, in order:
       - blank/missing name -> just the bank name.
+      - name already contains the bank name -> title-cased (if shouty)
+        name, unprefixed, so it doesn't double up. Checked BEFORE the
+        holder-name rule below: a descriptor that already names its own
+        bank is definitionally not a bare cardholder name ("Sainsburys
+        Nectar Dual" under provider Sainsburys is a product name the bank
+        chose, not a person), so this ordering closes off a whole class of
+        false positives at zero cost rather than relying on the
+        holder-name heuristic to correctly exclude every such case itself.
       - holder-name-shaped name (`looks_like_holder_name`) -> just the bank
         name; printing a person's own name tells the reader nothing about
         which card it is.
-      - name already contains the bank name -> title-cased (if shouty)
-        name, unprefixed, so it doesn't double up.
       - otherwise -> "<bank name> <title-cased-if-shouty name>".
     """
     display_provider = provider_display_name(provider)
     name = (raw_name or "").strip()
     if not name:
         return display_provider
-    if looks_like_holder_name(name, holder_name):
-        return display_provider
     humanised = _humanise(name)
     if _provider_already_named(name, display_provider, provider):
         return humanised
+    if looks_like_holder_name(name, holder_name):
+        return display_provider
     return f"{display_provider} {humanised}".strip()
 
 
