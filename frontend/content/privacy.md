@@ -124,7 +124,9 @@ We keep data only as long as necessary for the purposes described in this policy
 | Chat sessions | 7 days |
 | Webhook logs | 30 days |
 | Insight caches | 30 days |
+<!-- mcp-connector:start -->
 | Connector audit log (Section 6) | 90 days |
+<!-- mcp-connector:end -->
 | Encrypted backups | Rolling 30-day window |
 
 ## 10. How to delete your data

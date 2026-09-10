@@ -1,7 +1,7 @@
 <!-- The sections marked mcp-connector:start/end below are shown in the app only when the MCP connector flag (MCP_CONNECTOR_ENABLED / NEXT_PUBLIC_MCP_CONNECTOR) is on; this file keeps the full text regardless, as the canonical published copy. -->
 # Privacy Policy
 
-**Last updated:** 2026-09-08
+**Last updated:** 2026-09-10
 **Version:** 1.0
 
 This Privacy Policy explains how we collect, use, share and protect your personal data when you use our personal finance app, Sorted. It is written for UK residents aged 18 or over. Please read it alongside any in-app consent screens you are shown when you connect a bank account.
@@ -72,7 +72,7 @@ You can also connect your own AI assistant, for example Claude or ChatGPT, to re
 - **What it cannot read.** It cannot read your individual transactions, account numbers, sort codes, IBANs, card numbers or bank consent identifiers. These are removed before anything leaves Sorted.
 - **What it cannot do.** The connector is read-only. It cannot move money, change your settings or make any changes in Sorted.
 - **Who receives the data.** Your chosen assistant provider, for example Anthropic or OpenAI, receives it, at your instruction, under your own agreement with them. They are not our sub-processor, and we do not control what they do with it once they have it. Please check their own privacy terms.
-- **Audit log.** We keep a record of every connector request, including which tool was used, when, and by which client, and this is visible to you.
+- **Audit log.** We keep a record of every connector request, including which tool was used, when, and by which client, and this is visible to you. We keep this log for 90 days, after which each request record is deleted automatically; it does not affect your monthly usage count, which we keep separately for billing purposes.
 - **How to stop.** You can disconnect the assistant from its own settings or, once available, from Settings within Sorted. Connection tokens can also be revoked by us if we believe one is being misused.
 
 Our lawful basis for this processing is your explicit instruction, in the same way as the explicit consent basis described in Section 3: you choose to connect an assistant and which scopes it may read, and you can withdraw that at any time by disconnecting it.
@@ -125,6 +125,9 @@ We keep data only as long as necessary for the purposes described in this policy
 | Chat sessions | 7 days |
 | Webhook logs | 30 days |
 | Insight caches | 30 days |
+<!-- mcp-connector:start -->
+| Connector audit log (Section 6) | 90 days |
+<!-- mcp-connector:end -->
 | Encrypted backups | Rolling 30-day window |
 
 ## 10. How to delete your data

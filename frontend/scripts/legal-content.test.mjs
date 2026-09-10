@@ -106,6 +106,14 @@ check(
   'privacy.md disabled output final heading is "## 15. How to contact us and how to complain"',
   privacyOff.includes("## 15. How to contact us and how to complain")
 );
+check(
+  "privacy.md disabled output has no Connector audit log retention row",
+  !privacyOff.includes("Connector audit log")
+);
+check(
+  "privacy.md disabled output has no mention of \"connector\" at all (production, A17 connector-off)",
+  !/connector/i.test(privacyOff)
+);
 
 const termsHeadings = [...termsOff.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]));
 check(
