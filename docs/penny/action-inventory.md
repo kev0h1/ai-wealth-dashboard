@@ -185,9 +185,6 @@ reconciled against that real total.
 | Add an offline savings pot | `components/SavingsGoalSheet.tsx:60` | `POST /savings/manual-account` (`addSavingsManualAccount`) | none | gap |
 | Edit an offline savings pot | `components/SavingsGoalSheet.tsx:57` | `PATCH /savings/manual-account/{id}` (`updateSavingsManualAccount`) | none | gap |
 | Delete an offline savings pot | `components/SavingsGoalSheet.tsx:74` | `DELETE /savings/manual-account/{id}` (`deleteSavingsManualAccount`) | none | gap |
-| Tick / untick a savings-plan step | `app/planning/GrowPanel.tsx:827` | `PATCH /savings/plan/step/{id}` (`toggleSavingsPlanStep`) | none | gap |
-| Delete a savings-plan step | `app/planning/GrowPanel.tsx:834` | `DELETE /savings/plan/step/{id}` (`deleteSavingsPlanStep`) | none | gap |
-| Delete the whole savings plan | `app/planning/GrowPanel.tsx:841` | `DELETE /savings/plan` (`deleteSavingsPlan`) | none | gap |
 | Set an aim / checkpoint on a category | `components/AimSheet.tsx:80`, `components/SpendVerdictView.tsx:195` | `POST /checkpoints` (`createCheckpoint`) | `get_mirror` returns active aims | partial |
 | Cancel an aim / checkpoint | `components/SpendVerdictView.tsx:154`, `app/mirror/MirrorPage.tsx:272` | `DELETE /checkpoints/{id}` (`cancelCheckpoint`) | `propose_delete_checkpoint` (B14) | covered |
 
@@ -321,15 +318,15 @@ same cost-control reasoning PENNY_TOOLS.md's B17 paragraph gives.
 
 | | Count |
 |---|---|
-| Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 93 |
+| Total UI write actions (api.ts write methods with at least one caller, excluding auth/push/admin plumbing) | 90 |
 | Covered | 39 |
 | Partial | 15 |
-| Gap | 38 |
+| Gap | 35 |
 | n/a (Penny's own consent and proposal plumbing) | 1 counted (grant consent); execute/cancel excluded |
 
 The 39 covered: `patchTransaction`, `addRule`, `dismissRecurring`, `restoreRecurring`, `addPlanned`, `createCommitment`, `setMirrorChoice`, `skipUpcomingOccurrence`, `editUpcoming`, `clearUpcomingOverride`, `deleteAllocation`, `deletePlanned`, `cancelCommitment`, `cancelCheckpoint`, `updatePreferences` used for `hide_net_worth`, `pay_period_config`, `debt_target_months`, `debt_tracking_start`, `income_value`, `pension_annual`, `has_child_benefit`, `cover_plan_excluded_accounts`, `syncAll`, `createManualAccount`, `updateManualAccount`, `deleteManualAccount`, `addManualTransaction`, `updateManualTransaction`, `deleteManualTransaction`, `createManualAccountRule`, `updateManualAccountRule`, `deleteManualAccountRule`, `saveCardTerms`, `dismissSpotlightInsight`, `markInsightOpened`, `saveInsightContext`, `recordTrendIntent`, `intentPreview`, `deleteIntent`. (`propose_disconnect_bank`/`propose_pin_insight`/`propose_label_merchant`/`propose_remove_merchant_label` are four further covered capabilities on top of these 39 — see the paragraphs above for why they aren't counted here.)
 
-## 4. Gaps grouped (38)
+## 4. Gaps grouped (35)
 
 Accounts and connections (5): sync history, delete a single bank account, Mono exchange, refresh investment prices, delete investment account.
 
@@ -337,7 +334,7 @@ Transactions and categories (7): undo a rule, resolve a movement, add custom cat
 
 Bills, upcoming, allocations (2): hide/unhide a set-aside row, bring back an engine-vetoed series.
 
-Plans, commitments, goals (6): add/edit/delete an offline savings pot, tick a savings-plan step, delete a savings-plan step, delete the savings plan.
+Plans, commitments, goals (3): add/edit/delete an offline savings pot.
 
 Cards and terms (1): card-terms lookup (deliberate, B17 — see above).
 
@@ -355,7 +352,7 @@ Owner/admin-only: `goLiveItemAction`, `goLiveQuestionStatus` (surface `app/ops/g
 
 Penny transport, not a user action: `canI` (`POST /can-i`), `pennyChip` (`POST /penny/chip`).
 
-Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `saveSavingsPlan`, `addSavingsPlanMilestones`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `monoSync`, `deleteMonoConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`; `yapilyRequisition`'s caller `components/YapilyConnect.tsx` is not imported by any page.
+Unwired write methods exported from api.ts with no caller in frontend/ (dead or awaiting a UI, excluded from counts): `syncAccounts`, `autoCategorise`, `dismissMiscategorised`, `deleteSavingsGoal`, `newChatSession`, `yapilySync`, `deleteYapilyConnection`, `monoSync`, `deleteMonoConnection`, `setAccountRate`, `parseRule`, `setTransactionPlanned`, `labelBill`, `deleteBillLabel`, `pinSavingsInsight`, `refreshSavingsInsights`, `markInsightsViewed`, `confirmIncomeStream`, `rejectIncomeStream`, `setManualIncome`, `deleteIncomeStream`; `yapilyRequisition`'s caller `components/YapilyConnect.tsx` is not imported by any page.
 
 ## 6. Side findings
 

@@ -6,8 +6,8 @@
 // of its own) inside LongTermPlanningPage.tsx: verdict hero, an optional
 // `stripSlot` render prop (the section jump strip, its own row right under
 // the hero), the priority ladder, the CashAndInvestments card (buffer +
-// save-vs-invest split, merged, owner decision 2026-09-04), savings plan
-// milestones, then `debtSlot` and `goalsSlot` supplied by the caller
+// save-vs-invest split, merged, owner decision 2026-09-04), then `debtSlot`
+// and `goalsSlot` supplied by the caller
 // (LongTermPlanningPage's own DebtPosition and long-term-goals section),
 // then quiet notes. The ladder is folded rather than fully expanded (owner review,
 // 2026-09-04, variant A of the planning-ladder preview): completed rungs
@@ -38,12 +38,11 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { GrowLadderStep, GrowView } from "@wealth/shared";
-import { api, SavingsInsights, SavingsPlan } from "@/lib/api";
+import { api, SavingsInsights } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
 import { usePreferences } from "@/components/PreferencesContext";
 import MoneyText from "@/components/MoneyText";
 import SavingsGoalSheet from "@/components/SavingsGoalSheet";
-import SavingsPlanCard from "@/components/SavingsPlanCard";
 
 // ── formatting ───────────────────────────────────────────────────────────
 
@@ -815,7 +814,6 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
   // Safety-net goal editor state — fetched alongside the grow view, in
   // parallel, tolerating failure (the Edit affordance simply stays hidden).
   const [savings, setSavings] = useState<SavingsInsights | null>(null);
-  const [savingsPlan, setSavingsPlan] = useState<SavingsPlan | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   // `onLoaded` is held in a ref rather than a `load` dependency: the caller
@@ -845,12 +843,10 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
 
   const loadSavings = useCallback(async () => {
     try {
-      const [s, p] = await Promise.all([api.savingsInsights(), api.getSavingsPlan()]);
+      const s = await api.savingsInsights();
       setSavings(s);
-      setSavingsPlan(p.plan);
     } catch {
       setSavings(null);
-      setSavingsPlan(null);
     }
   }, []);
 
@@ -867,27 +863,6 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
       loadSavings();
     });
   }, [load, loadSavings]);
-
-  async function toggleSavingsStep(id: string, done: boolean) {
-    try {
-      const { plan } = await api.toggleSavingsPlanStep(id, done);
-      setSavingsPlan(plan);
-    } catch {}
-  }
-
-  async function deleteSavingsStep(id: string) {
-    try {
-      const { plan } = await api.deleteSavingsPlanStep(id);
-      setSavingsPlan(plan);
-    } catch {}
-  }
-
-  async function deleteSavingsPlanFn() {
-    try {
-      await api.deleteSavingsPlan();
-      setSavingsPlan(null);
-    } catch {}
-  }
 
   const hasLadder = !!view && view.ladder.length > 0;
 
@@ -941,19 +916,6 @@ export default function GrowPanel({ onLoaded, debtSlot, goalsSlot, stripSlot }: 
               hideValues={hideNetWorth}
               onEdit={savings ? () => setSheetOpen(true) : undefined}
             />
-
-            {/* ── Savings plan milestones — sits below the merged card once a plan exists ── */}
-            {savings?.configured && savingsPlan && (
-              <SavingsPlanCard
-                plan={savingsPlan}
-                sym={sym}
-                accent="#059669"
-                hideValues={hideNetWorth}
-                onToggleStep={toggleSavingsStep}
-                onDeleteStep={deleteSavingsStep}
-                onDelete={deleteSavingsPlanFn}
-              />
-            )}
           </div>
         )}
 
