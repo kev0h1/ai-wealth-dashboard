@@ -340,6 +340,20 @@ then `npx next start -p <free-port>`, then `google-chrome --headless=new
 <url>`, then stop the server and delete `.next`/`out`/any stray
 `ai-wealth-dashboard/` dir that `next build --webpack` can leave behind).
 
+**Mobile builds (F17, 2026-09-10):** `frontend/.env.local` never reaches a
+mobile bundle (Android APK or Codemagic TestFlight build) at all, so until
+F17 `NEXT_PUBLIC_MCP_CONNECTOR` could never be "on" in one even when the
+build targeted the UAT API. `frontend/scripts/build-mobile.sh` now derives
+it itself, same UAT/prod split and same precedent as the
+`NEXT_PUBLIC_TRUELAYER_PICKER` block right above it in that script: "on" by
+default (day-to-day Android APKs and the `ios-capacitor` TestFlight
+workflow), explicitly `off` when the build targets prod (`MOBILE_TARGET=prod`,
+set by the `ios-capacitor-prod` Codemagic workflow, or `MOBILE_API_BASE`
+pointing at a production API base). `codemagic.yaml`'s `ios-capacitor`
+workflow also sets `NEXT_PUBLIC_MCP_CONNECTOR: "on"` explicitly in its own
+`environment.vars`, belt and braces alongside the script's own derivation;
+`ios-capacitor-prod` sets neither this nor `NEXT_PUBLIC_MCP_URL`, ever.
+
 ### MCP connector URL
 
 F8 (2026-09-08): the connector's own public URL is a separate setting from
@@ -366,6 +380,14 @@ in `backend/.env`) so the metadata `resource` a connector discovers agrees
 with the URL the card tells the user to add. Leave both unset in
 production until A18 gives `api.wealth.auriqltd.co.uk` (or a dedicated
 `mcp.` host) a real DNS record.
+
+Mobile builds get the same UAT value the same way as
+`NEXT_PUBLIC_MCP_CONNECTOR` above (F17, 2026-09-10): `build-mobile.sh` sets
+`NEXT_PUBLIC_MCP_URL=https://uat.wealth.auriqltd.co.uk/api/mcp` itself for
+non-prod targets (unset, falling back to the compiled-in prod default, for
+prod targets — harmless since the connector flag is off there too), and
+`codemagic.yaml`'s `ios-capacitor` workflow sets it explicitly as well;
+`ios-capacitor-prod` never sets it.
 
 **WWW-Authenticate header (F11, 2026-09-08):** the `WWW-Authenticate`
 header an unauthenticated `/mcp` 401 carries (`app/core/auth.py`'s
