@@ -963,41 +963,88 @@ def test_explain_missing_topic_also_returns_valid_keys_list():
     assert len(result["available_topics"]) > 30
 
 
-# ── 5c. explain(topic) — mcp_connector (F16, 2026-09-10) ────────────────────
+# ── 5c. explain(topic) — mcp_connector (F16, 2026-09-10, reworked same day
+# after rejection in review) ─────────────────────────────────────────────
 # Kevin, on prod: "how do I connect the app as an MCP" had no explain topic
 # to land on, so it fell through to the generic out-of-scope reply. The
-# connector's very existence in a deployment is gated by
-# `MCP_CONNECTOR_ENABLED` (A17) — UAT has it on, production ships it
-# entirely off pending the Finexer compliance answers — and the frontend's
-# Settings card (components/ConnectedAssistantsCard.tsx) doesn't render at
-# all when its mirror of that flag is off, so the copy must differ by
-# deployment: promising a production user a Settings card and a URL that
-# isn't there would be dishonest. `_mcp_connector_explainer` reads
-# `MCP_CONNECTOR_ENABLED` at CALL time (not baked into a fixed string at
-# import time the way every other explain entry is), so these tests
-# monkeypatch `penny_tools_module.MCP_CONNECTOR_ENABLED` directly — the
-# same pattern `tests/test_mcp_connector_flag.py` already uses on
-# `app.core.auth`'s own copy of the name, needed because the real
+# first pass here gated only the COPY on MCP_CONNECTOR_ENABLED (A17),
+# writing a second not-yet-available variant for the flag-off case.
+# Kevin rejected that: A17 exists specifically so a
+# connector-off deployment (production, pending the Finexer compliance
+# answers) ships with the connector entirely ABSENT -- hidden from
+# Settings, stripped from the legal pages -- and copy describing the
+# connector at all, even to say it is not live yet, puts it back into
+# production through a different door and promises timing Kevin has not
+# committed to. The fix gates the topic's very EXISTENCE on the flag, at
+# the registry level: with the flag off, mcp_connector is not a valid
+# topic, is absent from the explain tool's own description, and is absent
+# from the unknown-topic valid-keys list -- a question about it falls
+# through to the generic reply exactly as it did before this feature
+# existed, and no connector copy is reachable by any path.
+#
+# `_explain_tool_description`/`_exec_explain` both read `MCP_CONNECTOR_ENABLED`
+# at CALL time (not baked into a fixed value at import time the way most of
+# this registry is), so these tests monkeypatch `penny_tools_module.MCP_CONNECTOR_ENABLED`
+# directly -- the same pattern `tests/test_mcp_connector_flag.py` already
+# uses on `app.core.auth`'s own copy of the name, needed because the real
 # process-env-derived constant is always False in a worktree's pytest run
-# (see that constant's own comment in app.core.config).
+# (see that constant's own comment in app.core.config). The "flag off"
+# tests below deliberately do NOT monkeypatch anything -- pytest's own
+# import-time value is already False, exactly mirroring what a real
+# production process sees, so asserting against the untouched module state
+# proves what production actually ships, not a simulation of it.
 
-def test_explain_mcp_connector_disabled_never_mentions_settings_or_a_url(monkeypatch):
-    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
+def test_explain_mcp_connector_disabled_topic_is_not_valid():
+    # No monkeypatch -- this is the real off-state pytest imports with,
+    # matching production exactly (backend/.env is never loaded here).
+    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
-    assert result["topic"] == "mcp_connector"
-    text = result["text"]
-    # Must still say what it is, that it's read-only, and that raw
-    # transactions never cross the boundary.
-    assert "MCP" in text
-    assert "read-only" in text
-    assert "raw transaction" in text
-    # Must NOT promise a production user UI that isn't rendered for them
-    # (ConnectedAssistantsCard.tsx doesn't render at all while the frontend's
-    # mirror of MCP_CONNECTOR_ENABLED is off).
-    assert "Settings" not in text
-    assert "http" not in text.lower()
-    assert "not turned on" in text or "isn't turned on" in text
-    assert "—" not in text and "–" not in text
+    assert "error" in result
+    assert "topic" not in result
+    assert "text" not in result
+
+
+def test_explain_mcp_connector_disabled_absent_from_tool_description():
+    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+    description = penny_tools_module._explain_tool_description()
+    assert "mcp_connector" not in description
+    assert "MCP" not in description
+    assert "Claude" not in description
+    # The LIVE schema actually sent to the model -- not just the helper
+    # function in isolation -- must be clean too, since this is what the
+    # deployed process really offers.
+    explain_schema = next(
+        s for s in penny_tools_module.TOOL_SCHEMAS if s["function"]["name"] == "explain"
+    )
+    assert "mcp_connector" not in explain_schema["function"]["description"]
+
+
+def test_explain_mcp_connector_disabled_absent_from_valid_keys_list():
+    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+    result = asyncio.run(execute_tool("kevin", "explain", {"topic": "not_a_real_topic"}))
+    assert "mcp_connector" not in result["available_topics"]
+
+
+def test_rejected_not_yet_available_copy_does_not_exist_in_backend_source():
+    """Kevin's rejection was specific about the exact phrasing the first
+    pass shipped for the flag-off case (a two-word "not yet available"
+    framing followed by a vague callback-later line) -- that copy must not
+    exist anywhere in the codebase, not just be unreachable at runtime, any
+    surviving trace of it is exactly the door back into production Kevin
+    rejected. Scans this module's own source file directly (not imported
+    constants), so a future edit that reintroduces it anywhere in this file
+    fails this test even before it is wired up to anything reachable. The
+    target phrase is built from parts rather than written as one literal
+    here, so this test file itself never contains the contiguous string a
+    repo-wide grep for it would also flag."""
+    import pathlib
+
+    rejected_phrase_1 = "isn't turned on" + " for your account yet"
+    rejected_phrase_2 = "check " + "back soon"
+    source = pathlib.Path(penny_tools_module.__file__).read_text()
+    assert rejected_phrase_1 not in source
+    assert rejected_phrase_2 not in source
+    assert "not turned on" not in source
 
 
 def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatch):
@@ -1013,23 +1060,23 @@ def test_explain_mcp_connector_enabled_covers_all_five_required_facts(monkeypatc
     assert "—" not in text and "–" not in text  # no em/en-dashes
 
 
-def test_explain_mcp_connector_reachable_in_unknown_topic_valid_keys_list():
+def test_explain_mcp_connector_enabled_reachable_in_valid_keys_list(monkeypatch):
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "not_a_real_topic"}))
     assert "mcp_connector" in result["available_topics"]
 
 
-def test_explain_tool_schema_description_documents_mcp_trigger_phrases():
+def test_explain_tool_schema_description_documents_mcp_trigger_phrases_when_enabled(monkeypatch):
     # A short trigger like "mcp" must be documented as a distinct topic
-    # word, not just happen to appear inside an unrelated word — guards the
-    # tool description itself (the only thing the model has to go on when
-    # picking a topic key, there is no code-level keyword router any more,
-    # see PENNY_TOOLS.md's "What was deleted" section on the retired ladder).
+    # word, not just happen to appear inside an unrelated word -- guards
+    # the tool description itself (the only thing the model has to go on
+    # when picking a topic key, there is no code-level keyword router any
+    # more, see PENNY_TOOLS.md's "What was deleted" section on the retired
+    # ladder).
     import re
 
-    explain_schema = next(
-        s for s in penny_tools_module.TOOL_SCHEMAS if s["function"]["name"] == "explain"
-    )
-    description = explain_schema["function"]["description"]
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", True)
+    description = penny_tools_module._explain_tool_description()
     assert "mcp_connector" in description
     assert re.search(r"\bMCP\b", description)
     assert re.search(r"\bconnect Claude\b", description, re.IGNORECASE)
@@ -1042,13 +1089,13 @@ def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monke
     """Functional half of the fix, same shape as
     test_run_penny_agent_account_move_arithmetic_question_reaches_tool_loop
     in test_penny_agent.py: given a scripted model that calls
-    explain(topic="mcp_connector") for Kevin's exact question, the loop must
-    round-trip the real registry text back to the user rather than a
-    generic reply. This proves the WIRING (loop -> execute_tool ->
-    _exec_explain -> _mcp_connector_explainer), which is what is actually
-    testable without a live model call; nothing here asserts what a live
-    Haiku call would choose for arbitrary phrasing, only that the wiring is
-    correct once it does choose this tool."""
+    explain(topic="mcp_connector") for Kevin's exact question on a
+    deployment where the connector IS on, the loop must round-trip the
+    real registry text back to the user rather than a generic reply. This
+    proves the WIRING (loop -> execute_tool -> _exec_explain), which is
+    what is actually testable without a live model call; nothing here
+    asserts what a live Haiku call would choose for arbitrary phrasing,
+    only that the wiring is correct once it does choose this tool."""
     import asyncio as _asyncio
     import json as _json
 
@@ -1127,6 +1174,88 @@ def test_run_penny_agent_kevins_mcp_question_reaches_explain_mcp_connector(monke
     assert "Connect and Max" in result["reply"]
 
 
+def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_copy(monkeypatch):
+    """Defense in depth for a connector-off deployment: even if a model
+    somehow still called explain(topic="mcp_connector") (a stale cached
+    prompt, a hallucinated key, a client bypassing the tool description
+    entirely), the REAL _exec_explain must refuse it exactly like any other
+    unknown topic -- no connector copy is reachable by any path, not just
+    hidden from the description. No monkeypatch: MCP_CONNECTOR_ENABLED is
+    already False here, matching production."""
+    import asyncio as _asyncio
+    import json as _json
+
+    import app.services.penny_agent as penny_agent_module
+
+    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+
+    class _FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self._payload = payload
+            self.status_code = status_code
+
+        def json(self):
+            return self._payload
+
+    def _tool_call(name, args, call_id="call_1"):
+        return _FakeResponse({
+            "choices": [{
+                "message": {
+                    "content": None,
+                    "tool_calls": [{
+                        "id": call_id, "type": "function",
+                        "function": {"name": name, "arguments": _json.dumps(args)},
+                    }],
+                },
+            }],
+        })
+
+    def _final(text):
+        return _FakeResponse({"choices": [{"message": {"content": text}}]})
+
+    class _ScriptedClient:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.calls = []
+
+        def __call__(self, *a, **kw):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            self.calls.append(json)
+            i = len(self.calls) - 1
+            return self._responses[i] if i < len(self._responses) else self._responses[-1]
+
+    client = _ScriptedClient([
+        _tool_call("explain", {"topic": "mcp_connector"}),
+        _final("HEADLINE: About that\nREPLY: I don't have information on that."),
+    ])
+    monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
+
+    async def fake_execute_tool(uid, name, args):
+        # Route through the REAL executor, not a stub -- this is the point
+        # of the test, proving _exec_explain itself refuses the topic.
+        return await execute_tool(uid, name, args)
+
+    monkeypatch.setattr(penny_agent_module, "execute_tool", fake_execute_tool)
+
+    result = _asyncio.run(
+        penny_agent_module.run_penny_agent(
+            "kevin", "how do I connect the app as an MCP", [], "settings", "",
+        )
+    )
+    assert result is not None
+    assert "Connect and Max" not in result["reply"]
+    assert "read-only" not in result["reply"]
+    assert result["reply"] == "I don't have information on that."
+
+
 def test_run_penny_agent_unrelated_question_does_not_reach_mcp_connector(monkeypatch):
     """Regression guard: adding the mcp_connector topic and its trigger
     phrases to the explain tool's description must not disturb ordinary
@@ -1197,6 +1326,8 @@ def test_run_penny_agent_unrelated_question_does_not_reach_mcp_connector(monkeyp
     assert result is not None
     assert "explain" not in result["tools_used"]
     assert result["tools_used"] == ["get_safe_to_spend"]
+
+
 
 
 # ── 5b. explain(topic) — money-basics registry (2026-08-27) ─────────────

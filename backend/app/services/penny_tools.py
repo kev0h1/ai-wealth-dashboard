@@ -128,6 +128,80 @@ def _money(amount, decimals: int = 0) -> dict:
     return {"raw": round(val, 2), "formatted": _fmt_gbp(val, decimals)}
 
 
+def _explain_tool_description() -> str:
+    """The `explain` tool's own description, built by reading
+    `MCP_CONNECTOR_ENABLED` at CALL time rather than baking a fixed string
+    at import time, so a test can monkeypatch this module's own name for it
+    (the same pattern `tests/test_mcp_connector_flag.py` already uses on
+    `app.core.auth`'s copy of the flag) and exercise both branches.
+    `TOOL_SCHEMAS` below calls this exactly once, at import time, which is
+    the correct real behaviour for a live deployment: `MCP_CONNECTOR_ENABLED`
+    is itself fixed at process boot from the environment (see
+    app.core.config's own comment on why) and never changes for the life of
+    a running process, so a production process that boots with the
+    connector off can never send this tool's description to the model with
+    `mcp_connector` mentioned in it at all.
+
+    F16 rework, 2026-09-10 (Kevin, after rejecting the first pass): A17
+    exists specifically so a connector-off deployment ships with the
+    connector entirely ABSENT — hidden from Settings, stripped from the
+    legal pages, the Finexer questionnaire answer says "planned", not live.
+    An explain topic that still described the connector when the flag was
+    off, even a variant framed as not-yet-available with a vague timeline,
+    put the connector back into production through a different door and
+    promised timing Kevin had not committed to. The fix gates the topic's very
+    EXISTENCE on the flag, at the registry level, rather than branching the
+    copy: when the flag is off, `mcp_connector` is not a valid topic key
+    at all, is absent from this description, and is absent from the
+    unknown-topic valid-keys list `_exec_explain` returns (see that
+    function) — no unreleased-feature copy sits in the production bundle
+    in any form."""
+    mcp_clause = (
+        ", mcp_connector ('how do I connect the app as an MCP', 'connect "
+        "Claude to my account', 'what is the MCP connector', 'can I use "
+        "this with an AI assistant')"
+        if MCP_CONNECTOR_ENABLED else ""
+    )
+    return (
+        "Fixed, pre-written explanations the model must use instead of "
+        "answering from its own understanding of the app. Five kinds "
+        "of topic, all in one flat namespace: "
+        "(a) a SCREEN or general-information topic ('what does this "
+        "page show') — home, spend, planning, insights, tax, grow, "
+        "debt, accounts, isa_capability, saving_vs_investing, "
+        f"categorisation{mcp_clause}. "
+        "(b) a JARGON TERM the app uses ('what does X mean', 'what is "
+        "an aim') — moved, carried_vs_float, aim, reserved, dormant, "
+        "unplaced, usual_pace, one_off_vs_new_normal, "
+        "demonstrated_movement, buffer, pay_period, "
+        "red_amber_doctrine, offset_shadow, pinned_dismissal. "
+        "(c) a HEADLINE NUMBER's definition and which sibling figure "
+        "it disagrees with and why ('why don't these numbers agree') "
+        "— safe_to_spend_free, planning_runway, grow_surplus_monthly, "
+        "spend_out, spend_majority_header, over_time_chart, "
+        "month_end_cash, moved_total. "
+        "(d) a HOW-DO-I walkthrough for an app action — change_bill, "
+        "stop_prediction, skip_occurrence, set_cancel_aim, "
+        "recategorise_and_rule, review_transfers, confirm_payday, "
+        "set_pay_period, reconnect_bank, add_card_rates, pin_account, "
+        "add_offline_account, plan_oneoff_vs_commitment. "
+        "(e) a UK MONEY-BASICS explainer, general information not "
+        "personal to the user ('what is an ISA', 'should I pay off "
+        "debt before investing') — isa-allowance, cash-vs-ss-isa, "
+        "lisa, personal-savings-allowance, emergency-fund, "
+        "high-interest-debt-first, pension-match, "
+        "pension-tax-relief, compound-interest, investment-fees, "
+        "diversification, dividend-allowance, cgt-allowance, "
+        "tax-year-dates, premium-bonds, marriage-allowance, "
+        "conscious-spending-plan, fifty-thirty-twenty, "
+        "pay-yourself-first. "
+        "Call this for ANY of these question shapes. An unknown topic "
+        "returns the full list of valid keys to pick from. The "
+        "returned text is complete and final, follow it closely "
+        "rather than inventing your own explanation."
+    )
+
+
 # ── Tool catalog ───────────────────────────────────────────────────────────
 TOOL_SCHEMAS = [
     {
@@ -347,46 +421,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "explain",
-            "description": (
-                "Fixed, pre-written explanations the model must use instead of "
-                "answering from its own understanding of the app. Five kinds "
-                "of topic, all in one flat namespace: "
-                "(a) a SCREEN or general-information topic ('what does this "
-                "page show') — home, spend, planning, insights, tax, grow, "
-                "debt, accounts, isa_capability, saving_vs_investing, "
-                "categorisation, mcp_connector ('how do I connect the app "
-                "as an MCP', 'connect Claude to my account', 'what is the "
-                "MCP connector', 'can I use this with an AI assistant'). "
-                "(b) a JARGON TERM the app uses ('what does X mean', 'what is "
-                "an aim') — moved, carried_vs_float, aim, reserved, dormant, "
-                "unplaced, usual_pace, one_off_vs_new_normal, "
-                "demonstrated_movement, buffer, pay_period, "
-                "red_amber_doctrine, offset_shadow, pinned_dismissal. "
-                "(c) a HEADLINE NUMBER's definition and which sibling figure "
-                "it disagrees with and why ('why don't these numbers agree') "
-                "— safe_to_spend_free, planning_runway, grow_surplus_monthly, "
-                "spend_out, spend_majority_header, over_time_chart, "
-                "month_end_cash, moved_total. "
-                "(d) a HOW-DO-I walkthrough for an app action — change_bill, "
-                "stop_prediction, skip_occurrence, set_cancel_aim, "
-                "recategorise_and_rule, review_transfers, confirm_payday, "
-                "set_pay_period, reconnect_bank, add_card_rates, pin_account, "
-                "add_offline_account, plan_oneoff_vs_commitment. "
-                "(e) a UK MONEY-BASICS explainer, general information not "
-                "personal to the user ('what is an ISA', 'should I pay off "
-                "debt before investing') — isa-allowance, cash-vs-ss-isa, "
-                "lisa, personal-savings-allowance, emergency-fund, "
-                "high-interest-debt-first, pension-match, "
-                "pension-tax-relief, compound-interest, investment-fees, "
-                "diversification, dividend-allowance, cgt-allowance, "
-                "tax-year-dates, premium-bonds, marriage-allowance, "
-                "conscious-spending-plan, fifty-thirty-twenty, "
-                "pay-yourself-first. "
-                "Call this for ANY of these question shapes. An unknown topic "
-                "returns the full list of valid keys to pick from. The "
-                "returned text is complete and final, follow it closely "
-                "rather than inventing your own explanation."
-            ),
+            "description": _explain_tool_description(),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -3325,19 +3360,22 @@ _TOPIC_COPY: dict[str, str] = {
     "categorisation": _CATEGORISATION_EXPLAINER_REPLY,
 }
 
-# F16 (Kevin, 2026-09-10): "how do I connect the app as an MCP" had no
-# explain topic to land on, so it fell through to a generic reply. The
-# connector itself (F2/F3) is gated behind `MCP_CONNECTOR_ENABLED` (A17) —
-# UAT ships it on, production ships it entirely off pending the Finexer
-# compliance answers ("planned", not live) — and the frontend's own
-# Settings card (components/ConnectedAssistantsCard.tsx) simply doesn't
-# render at all when its mirror of that flag
-# (frontend/lib/featureFlags.ts's MCP_CONNECTOR) is off, so a production
-# user has no "Connected assistants" card to be pointed at. Two honest
-# variants rather than one, picked by `_mcp_connector_explainer` below —
-# saying "open Settings and paste the address" to a production user would
-# describe UI that isn't there.
-_MCP_CONNECTOR_ENABLED_REPLY = (
+# F16 (Kevin, 2026-09-10, reworked same day after rejection in review):
+# "how do I connect the app as an MCP" had no explain topic to land on, so
+# it fell through to a generic reply. The connector itself (F2/F3) is
+# gated behind `MCP_CONNECTOR_ENABLED` (A17) — UAT ships it on, production
+# ships it entirely off pending the Finexer compliance answers ("planned",
+# not live), hidden from Settings and stripped from the legal pages. The
+# first pass here wrote a second, not-yet-available variant of this copy
+# for the flag-off case — rejected: A17 exists
+# specifically so a connector-off deployment ships with the connector
+# ABSENT, and copy describing it (even to say it is not live yet) puts it
+# back into production through a different door, and promises timing
+# Kevin has not committed to. There is now exactly ONE reply, used only
+# when the connector actually exists in this deployment — see
+# `_exec_explain` and `_explain_tool_description` above, which both gate
+# the topic's very EXISTENCE on the flag rather than branching its copy.
+_MCP_CONNECTOR_REPLY = (
     "Sorted can connect to an AI assistant such as Claude over MCP. It's "
     "read-only, so the assistant can only see summaries like your Safe to "
     "Spend verdict and account balances, never your raw transaction list. "
@@ -3345,24 +3383,6 @@ _MCP_CONNECTOR_ENABLED_REPLY = (
     "Connected assistants and paste the address shown there into your "
     "assistant. It's included on the Connect and Max plans."
 )
-_MCP_CONNECTOR_DISABLED_REPLY = (
-    "Sorted can connect to an AI assistant such as Claude over MCP, a "
-    "read-only connector that would only ever see summaries like your "
-    "Safe to Spend verdict and account balances, never your raw "
-    "transaction list. It isn't turned on for your account yet, check "
-    "back soon."
-)
-
-
-def _mcp_connector_explainer() -> str:
-    """Read `MCP_CONNECTOR_ENABLED` at CALL time, not at import time, so a
-    test can monkeypatch this module's own name for it (the same pattern
-    `tests/test_mcp_connector_flag.py` already uses on
-    `app.core.auth.MCP_CONNECTOR_ENABLED`) and exercise both branches
-    without a real process-env toggle — `app.core.config`'s own comment on
-    why the constant is fixed at import time from the process environment
-    explains why a worktree's pytest run always sees it disabled otherwise."""
-    return _MCP_CONNECTOR_ENABLED_REPLY if MCP_CONNECTOR_ENABLED else _MCP_CONNECTOR_DISABLED_REPLY
 
 # ── explain(topic) — terms registry ──────────────────────────────────────
 # Every entry below is derived from the actual backend/frontend code, not
@@ -3738,16 +3758,24 @@ _ALL_EXPLAIN_COPY: dict[str, str] = {
 
 async def _exec_explain(topic: str | None) -> dict:
     key = (topic or "").strip().lower()
-    # mcp_connector is the one flag-dependent entry (see
-    # `_mcp_connector_explainer`'s own comment) — resolved here rather than
-    # baked into `_ALL_EXPLAIN_COPY` as a fixed string at import time, so it
-    # is not in that dict, but still counts as a valid, reachable key.
-    if key == "mcp_connector":
-        return {"topic": key, "text": _mcp_connector_explainer()}
+    # mcp_connector is the one flag-dependent entry: it is a valid,
+    # reachable topic key ONLY when this deployment actually has the
+    # connector (`MCP_CONNECTOR_ENABLED`, read here at CALL time so tests
+    # can monkeypatch this module's own name for it — see
+    # `_explain_tool_description`'s own comment for why, and for why the
+    # topic's EXISTENCE is gated rather than its copy). When the flag is
+    # off, this branch is skipped entirely: the key falls through to the
+    # ordinary "not found" path below exactly like any other unknown
+    # topic, is absent from `available_topics`, and no connector copy is
+    # reachable by any path — not even a "not available yet" string.
+    if key == "mcp_connector" and MCP_CONNECTOR_ENABLED:
+        return {"topic": key, "text": _MCP_CONNECTOR_REPLY}
     text = _ALL_EXPLAIN_COPY.get(key)
     if not text:
-        available = sorted(set(_ALL_EXPLAIN_COPY.keys()) | {"mcp_connector"})
-        return {"error": f"no explanation for '{key}'", "available_topics": available}
+        available = set(_ALL_EXPLAIN_COPY.keys())
+        if MCP_CONNECTOR_ENABLED:
+            available.add("mcp_connector")
+        return {"error": f"no explanation for '{key}'", "available_topics": sorted(available)}
     return {"topic": key, "text": text}
 
 
