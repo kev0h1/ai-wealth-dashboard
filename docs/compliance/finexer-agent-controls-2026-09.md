@@ -147,7 +147,7 @@ Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-i
 
 ## Q10 Retention, deletion and consent withdrawal
 
-Status: blocked-deploy
+Status: ready
 
 ```text
 Confirmed; the following controls are implemented and operational in production. [KEVIN: true only after the production deploy.]
