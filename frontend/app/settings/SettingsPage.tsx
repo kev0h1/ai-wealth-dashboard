@@ -19,9 +19,9 @@ import {
   UserRound,
   HelpCircle,
   AlertTriangle,
-  Wand2,
   KeyRound,
 } from "lucide-react";
+import PennyMark from "@/components/PennyMark";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection } from "@/lib/api";
@@ -62,7 +62,7 @@ function jumpTo(id: string) {
 
 // ~15%-alpha tinted icon chip — the Category Voice Rule (DESIGN.md): colour
 // as a tinted chip + full-strength icon, never a flooded surface.
-function IconChip({ icon: Icon, hex }: { icon: LucideIcon; hex: string }) {
+function IconChip({ icon: Icon, hex }: { icon: LucideIcon | typeof PennyMark; hex: string }) {
   return (
     <span
       className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -80,7 +80,7 @@ function SectionHeader({
   title,
   subtitle,
 }: {
-  icon: LucideIcon;
+  icon: LucideIcon | typeof PennyMark;
   hex: string;
   title: string;
   subtitle?: string;
@@ -816,13 +816,17 @@ export default function SettingsPage() {
             different permission). A small dedicated card, same
             glass-card/SectionHeader family as every other section here,
             was the more honest fit than forcing this into a card about
-            something else. Icon is a plain INDIGO-tinted IconChip (Wand2),
+            something else. Icon is a plain INDIGO-tinted IconChip carrying
+            Penny's own mark (PennyMark, not the generic Wand2 lucide icon),
             not the Penny gradient: DESIGN.md's Penny Gradient Rule reserves
             that gradient for surfaces that give advice, and Settings isn't
-            one. B5: Penny messages usage now lives in the "Your plan" card
-            above, not here. */}
+            one. That reasoning still holds, only the glyph inside the chip
+            changed (G32, 2026-09-10) so Penny's identity mark shows up here
+            too, same tint as every other row on this page. B5: Penny
+            messages usage now lives in the "Your plan" card above, not
+            here. */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <SectionHeader icon={Wand2} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
+          <SectionHeader icon={PennyMark} hex={INDIGO} title="Penny" subtitle="What Penny can do on your behalf" />
 
           <div className="px-4 py-3.5">
             {rawPrefs?.penny_agent_consent ? (
