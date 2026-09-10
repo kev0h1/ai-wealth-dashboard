@@ -648,7 +648,23 @@ def run_smoke_checks(base_url: str = PROD_WEB_URL, timeout: int = HTTP_TIMEOUT) 
 
     add("health", "/api/health", {200}, "200")
     add("subscription (auth required)", "/api/subscription", {401}, "401")
-    add("mcp connector absent", "/api/mcp", {404}, "404 (or reports the code)")
+    # F2/F11/F12: the auth middleware (app/core/auth.py) runs BEFORE
+    # routing and returns 401 for any path that isn't on its open list,
+    # whether or not a route exists behind it, so a bare 404 from /api/mcp
+    # is unreachable and can never prove the connector is absent (an
+    # unauthenticated hit on any made-up /api/* path also gets 401). The
+    # connector's own unauthenticated discovery endpoint is only added to
+    # that open list when MCP_CONNECTOR_ENABLED is true, so it is the one
+    # signal that actually distinguishes "connector present" from
+    # "connector absent": 401 (gated, or 404 if even further unreachable)
+    # means absent as required; 200 means it is mounted and its OAuth
+    # metadata is being served to anyone, which is the failure case here.
+    add(
+        "mcp connector not publicly discoverable",
+        "/api/.well-known/oauth-authorization-server",
+        {401, 404},
+        "401 or 404 (200 would mean the connector is mounted and its OAuth discovery document is publicly served, i.e. NOT absent)",
+    )
     add("accounts (auth required)", "/api/accounts", {401}, "401")
 
     homepage_status = http_status(base_url, timeout=timeout)
@@ -846,8 +862,9 @@ def cmd_deploy(args: argparse.Namespace) -> int:
             print("[dry-run] would poll Railway (both services) until latest deployment is SUCCESS at "
                   f"{main_sha[:8] if main_sha else '?'} (or, if still deploying from main, treat the current "
                   "SUCCESS deployment at that sha as done)")
-        print("[dry-run] would run smoke checks: /api/health (200), /api/subscription (401), /api/mcp "
-              "(404 or report code), /api/accounts (401), homepage (200 + <title>), /terms (200), /privacy (200)")
+        print("[dry-run] would run smoke checks: /api/health (200), /api/subscription (401), "
+              "/api/.well-known/oauth-authorization-server (401 or 404, connector must not be publicly "
+              "discoverable), /api/accounts (401), homepage (200 + <title>), /terms (200), /privacy (200)")
         print(f"[dry-run] would tag {utc_release_tag()} on {main_sha}, push it, and print the summary")
         _, codemagic_msg = trigger_codemagic_prod_build(
             os.environ.get("CODEMAGIC_APP_ID"), os.environ.get("CODEMAGIC_API_TOKEN"),

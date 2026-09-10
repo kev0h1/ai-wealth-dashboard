@@ -310,7 +310,7 @@ def test_print_check_table_runs_without_error(capsys):
 def test_format_smoke_table_pass_fail():
     checks = [
         release.SmokeCheck("health", "https://x/api/health", "200", "200", True),
-        release.SmokeCheck("mcp", "https://x/api/mcp", "404", "200", False),
+        release.SmokeCheck("mcp", "https://x/api/.well-known/oauth-authorization-server", "401 or 404", "200", False),
     ]
     table = release.format_smoke_table(checks)
     assert "PASS" in table
@@ -321,6 +321,69 @@ def test_format_smoke_table_pass_fail():
 def test_format_smoke_table_empty():
     table = release.format_smoke_table([])
     assert "check" in table  # header still prints
+
+
+# ── run_smoke_checks: mcp connector discovery endpoint ───────────────────
+#
+# The old check curled /api/mcp expecting 404. That is unreachable: the
+# auth middleware (backend/app/core/auth.py) returns 401 for ANY path
+# outside its open list before routing ever runs, so an unregistered route
+# 401s exactly like a registered-but-gated one. These tests fake
+# release.http_status per URL (never touch the network) and exercise the
+# connector's own unauthenticated discovery endpoint, which is the one
+# signal that actually distinguishes "connector absent" from "connector
+# present": it is only added to the middleware's open-path list when
+# MCP_CONNECTOR_ENABLED is true.
+
+
+def _fake_http_status(status_map):
+    def fake(url, timeout=15):
+        return status_map.get(url, 599)
+
+    return fake
+
+
+def _base_status_map(base, discovery_status):
+    return {
+        f"{base}/api/health": 200,
+        f"{base}/api/subscription": 401,
+        f"{base}/api/.well-known/oauth-authorization-server": discovery_status,
+        f"{base}/api/accounts": 401,
+        base: 500,  # homepage: non-200 so the <title> fetch is skipped, no network
+        f"{base}/terms": 200,
+        f"{base}/privacy": 200,
+    }
+
+
+def test_run_smoke_checks_mcp_discovery_401_when_connector_off_passes(monkeypatch):
+    base = "https://x.test"
+    monkeypatch.setattr(release, "http_status", _fake_http_status(_base_status_map(base, 401)))
+    checks = release.run_smoke_checks(base_url=base)
+    check = {c.name: c for c in checks}["mcp connector not publicly discoverable"]
+    assert check.passed is True
+    assert check.actual == "401"
+
+
+def test_run_smoke_checks_mcp_discovery_404_when_connector_off_passes(monkeypatch):
+    base = "https://x.test"
+    monkeypatch.setattr(release, "http_status", _fake_http_status(_base_status_map(base, 404)))
+    checks = release.run_smoke_checks(base_url=base)
+    check = {c.name: c for c in checks}["mcp connector not publicly discoverable"]
+    assert check.passed is True
+    assert check.actual == "404"
+
+
+def test_run_smoke_checks_mcp_discovery_200_when_connector_on_fails(monkeypatch):
+    base = "https://x.test"
+    monkeypatch.setattr(release, "http_status", _fake_http_status(_base_status_map(base, 200)))
+    checks = release.run_smoke_checks(base_url=base)
+    check = {c.name: c for c in checks}["mcp connector not publicly discoverable"]
+    assert check.passed is False
+    assert check.actual == "200"
+    # The row's "expected" label is the only place the failure is explained
+    # (the table has no separate per-row message column), so it must say
+    # why 200 is bad, not just what was wanted.
+    assert "connector is mounted" in check.expected
 
 
 # ── sync-vars: value resolution + arg construction ───────────────────────
