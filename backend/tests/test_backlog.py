@@ -8,6 +8,7 @@ ever touches the real git history or network.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -889,3 +890,108 @@ def test_cli_add_and_review_edit_backlog_root_regardless_of_cwd(tmp_path):
     )
     assert list_result.returncode == 0, list_result.stderr
     assert "review:feature-A4-cli-added-item" in list_result.stdout
+
+
+# ---------------------------------------------------------------------
+# `backlog.py show` — the read-only, machine-readable single-item mode
+# added for item H21 (scripts/session.sh used to scrape `list`'s
+# human-readable table with awk to decide whether an id was free, which
+# is how `start` ended up silently re-attaching to a *done* item).
+# ---------------------------------------------------------------------
+
+SHOW_FIXTURE = """# Backlog fixture for `show` tests
+
+## H. Section H heading
+
+- [ ] **H1. Todo item, ready to start.** [owner: claude] Nothing special.
+- [ ] **H2. In progress item.** [owner: claude] [state: in-progress] Someone already has it.
+- [ ] **H3. Blocked item with a reason.** [owner: claude] [state: blocked: waiting on Kevin] Needs Kevin.
+- [ ] **H4. Blocked item, no reason given.** [owner: claude] [state: blocked] Needs something.
+- [ ] **H5. Review item.** [owner: claude] [state: review: feature-H5-thing] Sent to review.
+- [x] **H6. Done item.** [owner: claude] Already done. (done 2026-09-01, abc1234)
+"""
+
+
+def _make_board_root(tmp_path: Path, todo_text: str) -> Path:
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(todo_text, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+    return board_root
+
+
+def _cli_show(board_root: Path, item_id: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "show", item_id],
+        cwd=board_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_cli_show_todo_item(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H1")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["id"] == "H1"
+    assert data["state"] == "todo"
+    assert data["reason"] is None
+    assert data["branch"] is None
+
+
+def test_cli_show_in_progress_item(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H2")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["state"] == "in-progress"
+
+
+def test_cli_show_blocked_item_with_reason(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H3")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["state"] == "blocked"
+    assert data["reason"] == "waiting on Kevin"
+
+
+def test_cli_show_blocked_item_without_reason(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H4")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["state"] == "blocked"
+    assert data["reason"] is None
+
+
+def test_cli_show_review_item_includes_branch(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H5")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["state"] == "review"
+    assert data["branch"] == "feature-H5-thing"
+
+
+def test_cli_show_done_item(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H6")
+    assert result.returncode == 0, result.stderr
+    data = json.loads(result.stdout)
+    assert data["state"] == "done"
+    assert data["done_at"] == "2026-09-01"
+
+
+def test_cli_show_unknown_item_errors(tmp_path):
+    board_root = _make_board_root(tmp_path, SHOW_FIXTURE)
+    result = _cli_show(board_root, "H999")
+    assert result.returncode == 1
+    assert "not a known backlog item" in result.stderr

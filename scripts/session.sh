@@ -15,6 +15,12 @@
 # convention, named item/<ID>-<slug> — `list`/`abandon` still recognise
 # those so they can be cleaned up.
 #
+# `start` refuses to attach to an existing item unless it is in `todo`
+# state (an in-progress/blocked/review/done id is a different session's or
+# already finished, not a fresh one to pick up), and `--title` always
+# allocates a brand-new id via `scripts/backlog.py add` rather than assuming
+# the caller guessed a free one; see cmd_start below and item H21.
+#
 # Usage:
 #   scripts/session.sh start <ID> [slug] [--title "New item title"]
 #   scripts/session.sh finish <ID>
@@ -34,10 +40,20 @@ Usage:
       Create a worktree + branch feature-<ID>[-slug] for backlog item <ID>
       (the slug is appended only when you pass one, or one can be derived
       from the item's title), symlink node_modules/.venv into it, mark the
-      item in-progress, and print the worktree path. If <ID> doesn't exist
-      yet, pass --title to create it first (it is added to the section
-      matching <ID>'s leading letter; the id actually used is whatever
-      scripts/backlog.py add allocates, printed by this command).
+      item in-progress, and print the worktree path.
+
+      Without --title: <ID> must already exist on the board AND be in
+      `todo` state. If it's in-progress, blocked, review, or done, this
+      refuses with an explanation instead of silently attaching to it
+      (attaching to a done or already-claimed item is how stray branches
+      happen; see item H21).
+
+      With --title: always allocates a FRESH id via `scripts/backlog.py
+      add`, added to the section matching <ID>'s leading letter, and never
+      looks up <ID> at all. Even if <ID> already exists and is in `todo`
+      state, --title wins and a new item is created. The id actually used
+      is whatever scripts/backlog.py add allocates, printed prominently by
+      this command; use that id (not <ID>) for finish/abandon.
 
   scripts/session.sh finish <ID>
       Run inside the worktree for <ID>: backend tests, frontend typecheck,
@@ -84,17 +100,14 @@ find_worktree_for_id() {
     2>/dev/null | head -1
 }
 
-item_title() {
-  # Prints the item's title, or nothing (and exit 1) if it doesn't exist.
+item_json() {
+  # Prints the item as one JSON object (via `backlog.py show`, the
+  # machine-readable read-only mode, see item H21), or nothing (and
+  # exit 1) if it doesn't exist. Deliberately not scraping `list`'s
+  # human-readable table with awk: that's what let `start` silently
+  # attach to a done item before.
   local id="$1"
-  "$VENV_PY" "$BACKLOG_PY" list 2>/dev/null | awk -v id="$id" '
-    $1 == id {
-      for (i = 5; i <= NF; i++) printf "%s%s", (i > 5 ? " " : ""), $i
-      print ""
-      found = 1
-    }
-    END { if (!found) exit 1 }
-  '
+  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" show "$id" 2>/dev/null)
 }
 
 derive_slug() {
@@ -124,25 +137,61 @@ cmd_start() {
   (cd "$SHARED_TREE" && git fetch origin)
 
   local existing_title
-  if existing_title="$(item_title "$id")"; then
-    :
-  elif [[ -n "$title" ]]; then
+  if [[ -n "$title" ]]; then
+    # --title always wins and always allocates a fresh id: it never looks
+    # up <ID>, even when <ID> already exists and is in `todo` state (see
+    # usage text above and item H21).
     local section="${id:0:1}"
     if ! [[ "$section" =~ ^[A-H]$ ]]; then
       err "can't infer a section from id '$id' (expected e.g. A1, H2)"
       exit 1
     fi
-    log "item $id not found; adding it to section $section with --title"
+    log "--title given; allocating a fresh item in section $section (not looking up $id)..."
     local new_id
     new_id="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" add "$section" "$title" --owner claude)"
+    log "allocated new item $new_id: $title"
     if [[ "$new_id" != "$id" ]]; then
       log "note: requested id was $id, board allocated $new_id instead — using $new_id from here on"
     fi
     id="$new_id"
     existing_title="$title"
   else
-    err "item $id not found in the board; pass --title \"...\" to create it"
-    exit 1
+    local item_data
+    if ! item_data="$(item_json "$id")"; then
+      err "item $id not found in the board; pass --title \"...\" to create it"
+      exit 1
+    fi
+    local state
+    state="$(jq -r '.state' <<<"$item_data")"
+    case "$state" in
+      todo)
+        ;;
+      in-progress)
+        err "item $id is already in-progress; another session may already hold it. Check 'scripts/session.sh list'; if that session is dead, reset it with 'backend/.venv/bin/python scripts/backlog.py todo $id' from the shared tree before starting again."
+        exit 1
+        ;;
+      review)
+        local branch
+        branch="$(jq -r '.branch // empty' <<<"$item_data")"
+        err "item $id is in review${branch:+ on branch $branch}; it is waiting on the next integrate pass, not a new session."
+        exit 1
+        ;;
+      blocked)
+        local reason
+        reason="$(jq -r '.reason // empty' <<<"$item_data")"
+        err "item $id is blocked${reason:+: $reason}; resolve the block before starting a session on it."
+        exit 1
+        ;;
+      done)
+        err "item $id is already done; pass --title \"...\" to open a new item instead of reusing a completed one."
+        exit 1
+        ;;
+      *)
+        err "item $id has unrecognised state '$state'; refusing to start a session on it."
+        exit 1
+        ;;
+    esac
+    existing_title="$(jq -r '.title' <<<"$item_data")"
   fi
 
   if [[ -z "$slug" ]]; then
