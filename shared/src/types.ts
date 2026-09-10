@@ -776,9 +776,20 @@ export interface GrowLadderStep {
   link?: { label: string; route: string };
 }
 
+export interface GrowSurplusLedger {
+  income: number;
+  spending: number;
+  debt_deduction: number;
+  debt_deducted: boolean;
+  surplus: number;
+  n_months: number;
+  month_labels: string[];
+}
+
 export interface GrowView {
   verdict: GrowVerdict;
   surplus_monthly: number;
+  surplus_ledger: GrowSurplusLedger;
   buffer: GrowBuffer;
   debt: GrowDebt;
   invest: GrowInvest;

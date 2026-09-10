@@ -96,6 +96,18 @@ function baseGrowView(): Omit<GrowView, "period_gate"> {
       sub: "Your buffer covers ~7 days",
     },
     surplus_monthly: -412.5,
+    // income - spending - debt_deduction = 6187.5 - 5800 - 800 = -412.5,
+    // matching surplus_monthly above (the same rule GrowHero's "Full
+    // calculation" ledger sums from).
+    surplus_ledger: {
+      income: 6187.5,
+      spending: 5800,
+      debt_deduction: 800,
+      debt_deducted: true,
+      surplus: -412.5,
+      n_months: 3,
+      month_labels: ["6 Jun to 6 Jul", "6 Jul to 5 Aug", "5 Aug to 4 Sep"],
+    },
     buffer: { current: 1165.83, target: 15498.57, pct: 7.5, days_covered: 7, target_months: 3 },
     debt: {
       has_debt: true,
