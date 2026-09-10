@@ -109,14 +109,23 @@ deployment newer than the push, Railway until both services' latest
 deployment is `SUCCESS` at the released sha (if a service still deploys
 from `main`, `deploy` treats the current `SUCCESS` deployment already at
 that sha as done rather than waiting forever). Then runs smoke checks
-(`/api/health` 200, `/api/subscription` 401, `/api/mcp` 404 or reports
-the actual code, `/api/accounts` 401, the homepage 200 with a `<title>`,
+(`/api/health` 200, `/api/subscription` 401, `/api/.well-known/oauth-authorization-server`
+401 or 404, `/api/accounts` 401, the homepage 200 with a `<title>`,
 `/terms` and `/privacy` 200), tags the released sha `release-YYYYMMDD-HHMM`,
 pushes the tag, and prints a summary: tag, sha, previous release sha, the
 Vercel deployment, the Railway deployment ids, and the smoke-check table.
 `--dry-run` runs every precondition and prints what it would do, without
 pushing, polling, or tagging anything, that's the mode this item's own
 author ran for real.
+
+The connector-absence check deliberately does not expect a 404: the auth
+middleware (`backend/app/core/auth.py`) runs before routing and returns 401
+for any path outside its open list whether or not a route exists behind it,
+so a plain 401 (or 404) is not proof the connector's route is unregistered,
+only that it isn't served without one. `/api/.well-known/oauth-authorization-server`
+is added to that open list only when `MCP_CONNECTOR_ENABLED` is true, so it
+is the one endpoint that actually reveals whether the connector is mounted;
+a 200 there in production is the failure case.
 
 ## d) Rollback
 
