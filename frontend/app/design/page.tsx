@@ -175,6 +175,16 @@ const ROUTES: PreviewRoute[] = [
     ],
   },
   {
+    slug: "g31-planning-hero",
+    name: "g31-planning-hero",
+    description:
+      "G31 Planning hero hierarchy round using reconciled typical-month fixtures · A plain verbal verdict with one methodology line and borderless disclosure (recommended after outside-critic pass) / B signed cockpit reading with a three-month calibration marker / C always-visible working to expose the density trade-off · short −£119 and spare +£332 states, all currency signed and monospaced, no production component or API changes · ?variant=a|b|c&state=short|spare&mode=light|dark&open=1",
+    states: [
+      { label: "Short", value: "short" },
+      { label: "Spare", value: "spare" },
+    ],
+  },
+  {
     slug: "account-rows",
     name: "account-rows",
     description: "Credit-card row cleanup (taste + impeccable pass) · owner phone screenshot 2026-08-30 /accounts: rose balance + orphan \"owed\" line + ragged APR/promo-chip stack made credit rows read as a different component family to current/savings rows · 3 variants against the real 7 cards + one no-terms fixture (A one grammar, rows byte-identical to accounts, terms fold into the subline, amber dot only on an expiring promo / B disciplined card row, one right column, red reserved for cards actually accruing interest / C off the row, terms move to a group-header caption + CardTermsSheet, rows fully uniform) · in-page variant switcher, ?variant=a|b|c&mode=light|dark",
