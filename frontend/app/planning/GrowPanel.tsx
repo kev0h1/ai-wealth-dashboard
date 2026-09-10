@@ -77,15 +77,25 @@ function periodShortSubline(surplusMonthly: number): string {
   return "Your typical month has been about even, this is timing, not trend.";
 }
 
-/** ISO date ("2026-09-30") → readable UK date ("30 Sep 2026"). Uses UTC to
- *  avoid off-by-one drift since the API sends date-only ISO strings. */
-export function formatPromoCliff(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+function monthlyVerdict(surplus: number): string {
+  if (surplus < 0) return `You’re ${money(Math.abs(surplus))} short in a typical month`;
+  if (surplus > 0) return `You have ${money(surplus)} spare in a typical month`;
+  return "Your income and spending are about even in a typical month";
+}
+
+function monthList(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? "your recent month";
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+}
+
+function ledgerLens(monthLabels: string[]): string {
+  const period = monthLabels.length === 0
+    ? "Based on your recent months."
+    : monthLabels.length === 1
+      ? `Based on ${monthList(monthLabels)}.`
+      : `Monthly median across ${monthList(monthLabels)}.`;
+  return `${period} Transfers to savings and investments are excluded.`;
 }
 
 /** Best-effort icon per rung, keyed off free-text title/key from the API.
@@ -506,11 +516,8 @@ export function CollapsedLadder({ steps, hideValues }: { steps: GrowLadderStep[]
 // ── hero verdict — the gauge cluster's headline reading ──────────────────
 
 /** Extracted so design previews (see frontend/app/design/planning-ladder)
- *  can render the exact live hero markup with one addition: an optional
- *  `attention` slot rendered directly under the sub line (under the surplus
- *  chip in the normal branch, under the "to cover" subline in the short
- *  branch). `attention` is undefined in live code, so live output is
- *  byte-identical to before this extraction. */
+ *  can render the exact live hero markup with an optional `attention` slot
+ *  directly under the supporting line. */
 export function GrowHero({
   view,
   hideValues,
@@ -523,133 +530,107 @@ export function GrowHero({
   attention?: ReactNode;
 }) {
   return (
-    <div className="glass-hero rounded-3xl p-5 relative overflow-hidden">
-      {/* quiet dashboard-panel backdrop: faint horizontal scan lines */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.05] dark:opacity-[0.08]"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(180deg, currentColor 0px, currentColor 1px, transparent 1px, transparent 5px)",
-        }}
-        aria-hidden
-      />
-      <div className="relative">
-        {view.period_gate?.short ? (
-          // ── SHORT: the current pay period needs covering first —
-          // owner decision, 2026-08-30. Leads with the period truth
-          // (same red-alarm severity Home's Safe-to-Spend hero gives
-          // this exact fact — SafeToSpendCard.tsx's AlertTriangle/
-          // red-500 short-state treatment, borrowed unchanged), the
-          // typical-month median demotes to a quiet reassurance line
-          // and the SPARE stat chip does not render as the lead.
-          <>
-            <div className="flex items-center gap-1.5 mb-2">
-              <AlertTriangle size={13} className="text-red-500 dark:text-red-400" />
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                Planning
-              </p>
-            </div>
-            <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              This period needs you first
-            </h1>
-            <p className="mt-1.5 text-base font-semibold text-red-500 dark:text-red-400">
-              <MoneyText text={maskMoney(`${money(view.period_gate.to_cover)} to cover before payday`, hideValues)} />
+    <div className="glass-hero rounded-3xl p-5 overflow-hidden">
+      {view.period_gate?.short ? (
+        <>
+          <div className="flex items-center gap-1.5 mb-2">
+            <AlertTriangle size={13} className="text-red-500 dark:text-red-400" aria-hidden="true" />
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+              Planning
             </p>
-            {attention}
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-              <MoneyText text={maskMoney(periodShortSubline(view.surplus_monthly), hideValues)} />
+          </div>
+          <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            This period needs you first
+          </h1>
+          <p className="mt-1.5 text-base font-semibold text-red-500 dark:text-red-400">
+            <MoneyText text={maskMoney(`${money(view.period_gate.to_cover)} to cover before payday`, hideValues)} />
+          </p>
+          {attention}
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <MoneyText text={maskMoney(periodShortSubline(view.surplus_monthly), hideValues)} />
+          </p>
+          <button
+            onClick={onSeeDue}
+            className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
+          >
+            See what&apos;s due ›
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-1.5 mb-2">
+            <Gauge size={13} className="text-indigo-500" aria-hidden="true" />
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+              Planning
             </p>
-            <button
-              onClick={onSeeDue}
-              className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:opacity-80 active:scale-[0.98] transition-[transform,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded"
-            >
-              See what&apos;s due ›
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-1.5 mb-2">
-              <Gauge size={13} className="text-indigo-500" />
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                Planning
-              </p>
-            </div>
-            <h1 className="text-[28px] leading-tight font-bold tracking-tight text-slate-900 dark:text-slate-50">
-              <MoneyText text={maskMoney(view.verdict.headline, hideValues)} />
-            </h1>
-            <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300"><MoneyText text={maskMoney(view.verdict.sub, hideValues)} /></p>
-            {view.debt.all_promo && view.debt.promo_cliff && (
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Your card&apos;s at 0% until {formatPromoCliff(view.debt.promo_cliff)}, the after-debt figure reflects those repayments.
-              </p>
-            )}
+          </div>
+          <h1 className="mt-4 text-[28px] leading-[1.12] font-bold tracking-tight text-slate-950 dark:text-white text-pretty">
+            <MoneyText text={maskMoney(monthlyVerdict(view.surplus_monthly), hideValues)} />
+          </h1>
+          <p className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 text-pretty">
+            Based on your recent income, typical spending and debt repayments.
+          </p>
+          {attention}
 
-            <div className="mt-4 glass-tile rounded-xl px-3.5 py-2.5 inline-flex items-baseline gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                {view.surplus_monthly < 0 ? "Short each month" : "Spare each month"}
-              </span>
-              <span className="text-base font-bold text-slate-900 dark:text-slate-50 font-mono tabular-nums">
-                {maskMoney(money(Math.abs(view.surplus_monthly)), hideValues)}
-              </span>
-            </div>
-            {attention}
-            {/* Honest-lens label — this is a smoothed median, not a
-                live period figure; makes that explicit rather than
-                letting it read as "your current situation". */}
-            <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
-              Based on your typical month, smoothed over 90 days.
-            </p>
-            <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
-              Excludes money moved to savings or investments.
-            </p>
-
-            {/* Guarded: a "grow" response cached (up to 6h TTL, see
-                response_cache.py) just before this field shipped won't
-                carry surplus_ledger yet — degrade to no disclosure rather
-                than crashing the whole hero on a stale payload. */}
-            {view.surplus_ledger && (
-              <details className="group mt-3 border-t border-slate-200/80 pt-2 dark:border-white/10">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
-                  Full calculation
-                  <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-                </summary>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  Based on your last {view.surplus_ledger.n_months} {view.surplus_ledger.n_months === 1 ? "month" : "months"} ({view.surplus_ledger.month_labels.join(", ")}).
-                </p>
-                <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
-                  <div className="flex items-center justify-between gap-4 py-1.5">
-                    <dt>Typical income</dt>
-                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                      {maskMoney(`+${money(view.surplus_ledger.income)}`, hideValues)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4 py-1.5">
-                    <dt>Typical spending</dt>
-                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                      {maskMoney(`−${money(view.surplus_ledger.spending)}`, hideValues)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4 py-1.5">
-                    <dt>Debt repayments</dt>
-                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                      {maskMoney(`−${money(view.surplus_ledger.debt_deduction)}`, hideValues)}
-                    </dd>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
-                    <dt>{view.surplus_ledger.surplus < 0 ? "Short each month" : "Spare each month"}</dt>
-                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                      {maskMoney(money(Math.abs(view.surplus_ledger.surplus)), hideValues)}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
-                  This is a typical month, smoothed to reduce one-off spikes. It isn&apos;t this pay period&apos;s actual numbers.
-                </p>
-              </details>
-            )}
-          </>
-        )}
-      </div>
+          {view.surplus_ledger && (
+            <details className="group mt-3">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 active:opacity-70 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+                How we calculated this
+                <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+              </summary>
+              <dl className="mt-2 space-y-0.5 text-[13px] text-slate-600 dark:text-slate-300">
+                <div className="flex min-h-9 items-center justify-between gap-4">
+                  <dt>Typical income</dt>
+                  <dd className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    {maskMoney(`+${money(view.surplus_ledger.income)}`, hideValues)}
+                  </dd>
+                </div>
+                <div className="flex min-h-9 items-center justify-between gap-4">
+                  <dt>Typical spending</dt>
+                  <dd className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    {maskMoney(`−${money(view.surplus_ledger.spending)}`, hideValues)}
+                  </dd>
+                </div>
+                <div className="flex min-h-9 items-center justify-between gap-4">
+                  <dt>Debt repayments</dt>
+                  <dd className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    {maskMoney(`−${money(view.surplus_ledger.debt_deduction)}`, hideValues)}
+                  </dd>
+                </div>
+                <div className={`mt-2 flex min-h-12 items-center justify-between gap-4 rounded-xl px-3 ${
+                  view.surplus_ledger.surplus < 0
+                    ? "bg-red-50/80 dark:bg-red-400/[0.08]"
+                    : view.surplus_ledger.surplus > 0
+                      ? "bg-emerald-50/80 dark:bg-emerald-400/[0.08]"
+                      : "bg-slate-50 dark:bg-white/[0.04]"
+                }`}>
+                  <dt className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        view.surplus_ledger.surplus < 0
+                          ? "bg-red-500 dark:bg-red-400"
+                          : view.surplus_ledger.surplus > 0
+                            ? "bg-emerald-500 dark:bg-emerald-400"
+                            : "bg-slate-400"
+                      }`}
+                    />
+                    Monthly position
+                  </dt>
+                  <dd className="shrink-0 text-right font-mono tabular-nums font-bold text-slate-950 dark:text-white">
+                    {maskMoney(`${
+                      view.surplus_ledger.surplus < 0 ? "−" : view.surplus_ledger.surplus > 0 ? "+" : ""
+                    }${money(Math.abs(view.surplus_ledger.surplus))}`, hideValues)} {view.surplus_ledger.surplus < 0 ? "short" : view.surplus_ledger.surplus > 0 ? "spare" : "even"}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-[12px] leading-snug text-slate-500 dark:text-slate-400">
+                {ledgerLens(view.surplus_ledger.month_labels)}
+              </p>
+            </details>
+          )}
+        </>
+      )}
     </div>
   );
 }
