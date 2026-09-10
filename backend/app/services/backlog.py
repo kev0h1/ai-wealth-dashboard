@@ -12,16 +12,27 @@ Model on a TODO.md item line:
     - [ ] **A1. Title.** [owner: claude] [state: in-progress] Description text.
       - note (2026-09-06, kevin): a note about A1.
 
-`[state: ...]` is one of `in-progress`, `blocked: <reason>`, or
-`review: <branch>` (see docs/ops/BACKLOG.md "Branch per item" — a session
-finishing work on a worktree branch sends the item to review with the
-branch name attached, and `scripts/integrate.py` either merges it to `done`
-or bounces it back to `blocked` with the conflict/failure reason); absent
-means to do. The checkbox carries done/not-done, independent of the state
-tag — marking an item done clears any state tag. A done item gets a
-trailing `(done 2026-09-06, abc1234)` marker (commit hash optional, and for
-an integrated item is the merge commit on main). Notes are indented
-sub-bullets directly under the item line.
+`[state: ...]` is one of `in-progress`, `blocked: <reason>`,
+`review: <branch>`, or `rejected: <reason>` (see docs/ops/BACKLOG.md
+"Branch per item" — a session finishing work on a worktree branch sends
+the item to review with the branch name attached, and
+`scripts/integrate.py` either merges it to `done` or bounces it back to
+`blocked` with the conflict/failure reason); absent means to do. A
+reviewer who finds a defect in an item sitting in `review` marks it
+`rejected` instead of leaving it in `review` — a `review` item is treated
+as consent to merge by any integrate pass, including one from a
+concurrent session, so a rejection has to land on the board immediately,
+not just in conversation (see the `reject` command below). Rejecting
+keeps the item's branch (so the reviewer can see which branch was
+refused) in a separate `[branch: <name>]` tag, since the `[state:
+rejected: ...]` slot is already carrying the reason; `scripts/integrate.py`
+never selects a `rejected` item as a merge candidate. Moving a rejected
+item back to `todo` or `in-progress` clears both the rejection reason and
+the retained branch. The checkbox carries done/not-done, independent of
+the state tag — marking an item done clears any state tag. A done item
+gets a trailing `(done 2026-09-06, abc1234)` marker (commit hash optional,
+and for an integrated item is the merge commit on main). Notes are
+indented sub-bullets directly under the item line.
 
 Questions in the compliance doc keep their existing `## Qn <title>` /
 `Status: <status>` shape; `status` is one of ready, needs-kevin,
@@ -87,7 +98,7 @@ COMPLIANCE_PATH = _compliance_path()
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
-ITEM_STATES = ("todo", "in-progress", "blocked", "review")
+ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected")
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
@@ -99,9 +110,14 @@ ITEM_RE = re.compile(
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude|codex)\]")
-STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review)(?::\s*([^\]]*))?\]")
+STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected)(?::\s*([^\]]*))?\]")
 PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
 UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
+# A rejected item's branch is stored separately from `[state: rejected:
+# <reason>]` (that slot already carries the reason) so the reviewer can
+# still see which branch was refused. Not used by any other state today —
+# `review` keeps its branch inline as `[state: review: <branch>]`.
+BRANCH_RE = re.compile(r"\[branch:\s*([^\]]*)\]")
 DONE_SUFFIX_RE = re.compile(r"\(done\s+(\d{4}-\d{2}-\d{2})(?:,\s*([^)]+))?\)\s*$")
 NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude|codex)\): (.*)$")
 
@@ -212,14 +228,14 @@ class BacklogItem:
     text: str
     owner: Optional[str]
     done: bool
-    state: str  # "todo" | "in-progress" | "blocked" | "review" (meaningless once done)
+    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" (meaningless once done)
     reason: Optional[str]
     done_at: Optional[str]
     commit: Optional[str]
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
-    branch: Optional[str] = None  # set when state == "review"
+    branch: Optional[str] = None  # set when state == "review" or "rejected"
     priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
     unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
 
@@ -232,8 +248,8 @@ class BacklogItem:
             "text": self.text,
             "owner": self.owner,
             "state": state,
-            "reason": self.reason if state == "blocked" else None,
-            "branch": self.branch if state == "review" else None,
+            "reason": self.reason if state in ("blocked", "rejected") else None,
+            "branch": self.branch if state in ("review", "rejected") else None,
             "done_at": self.done_at,
             "commit": self.commit,
             "notes": [n.to_dict() for n in self.notes],
@@ -272,14 +288,24 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         unblocks = _parse_unblocks(unblocks_m.group(1))
         tail = UNBLOCKS_RE.sub("", tail, count=1)
 
+    # The standalone `[branch: ...]` tag (used by `rejected` to retain the
+    # branch it was rejected on) is parsed before STATE_RE below so a
+    # `review` item's inline branch (which STATE_RE captures directly)
+    # always wins if somehow both are present.
+    branch_tag: Optional[str] = None
+    branch_m = BRANCH_RE.search(tail)
+    if branch_m:
+        branch_tag = branch_m.group(1).strip() or None
+        tail = BRANCH_RE.sub("", tail, count=1)
+
     state = "todo"
     reason: Optional[str] = None
-    branch: Optional[str] = None
+    branch: Optional[str] = branch_tag
     state_m = STATE_RE.search(tail)
     if state_m:
         state = state_m.group(1)
         detail = (state_m.group(2) or "").strip() or None
-        if state == "blocked":
+        if state in ("blocked", "rejected"):
             reason = detail
         elif state == "review":
             branch = detail
@@ -295,12 +321,12 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         owner=owner,
         done=done,
         state=state,
-        reason=reason if state == "blocked" else None,
+        reason=reason if state in ("blocked", "rejected") else None,
         done_at=done_at if done else None,
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
-        branch=branch if state == "review" else None,
+        branch=branch if state in ("review", "rejected") else None,
         priority=priority,
         unblocks=unblocks,
     )
@@ -320,6 +346,10 @@ def _render_item_line(item: BacklogItem) -> str:
             segments.append(f"[state: blocked: {item.reason or ''}]")
         elif item.state == "review":
             segments.append(f"[state: review: {item.branch or ''}]")
+        elif item.state == "rejected":
+            segments.append(f"[state: rejected: {item.reason or ''}]")
+            if item.branch:
+                segments.append(f"[branch: {item.branch}]")
         else:
             segments.append(f"[state: {item.state}]")
     if item.unblocks:
@@ -413,10 +443,21 @@ class TodoDoc:
             raise BacklogError(f"invalid state: {state!r} (must be one of {ITEM_STATES})")
         if state == "review" and not branch:
             raise BacklogError("branch is required to set state to review")
+        if state == "rejected" and not reason:
+            raise BacklogError("reason is required to set state to rejected")
         item = self.item(item_id)
         item.state = state
-        item.reason = reason if state == "blocked" else None
-        item.branch = branch if state == "review" else None
+        item.reason = reason if state in ("blocked", "rejected") else None
+        if state == "review":
+            item.branch = branch
+        elif state == "rejected":
+            # A rejection normally follows straight out of `review`, so
+            # retain whatever branch the item already had (the branch it's
+            # being rejected on) unless the caller explicitly passes a
+            # different one; going to any other state below clears it.
+            item.branch = branch or item.branch
+        else:
+            item.branch = None
         self._rewrite(item)
         return item
 
@@ -699,6 +740,7 @@ def set_state(
         "blocked": "blocked",
         "todo": "reset to to-do",
         "review": f"sent to review ({branch})",
+        "rejected": f"rejected ({reason})",
     }[state]
     committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
@@ -717,6 +759,25 @@ def set_review(
     branch is pushed, and what `scripts/integrate.py` reads back to find
     the branches waiting to be merged into main."""
     return set_state(item_id, "review", branch=branch, actor=actor, todo_path=todo_path, repo_root=repo_root)
+
+
+def set_rejected(
+    item_id: str,
+    reason: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Convenience wrapper over `set_state(..., "rejected", reason=reason)`
+    — what a reviewer uses the moment they find a defect in an item sitting
+    in `review`, rather than leaving it there (where any integrate pass,
+    including one from a concurrent session, treats `review` as consent to
+    merge). Keeps the item's existing branch (see `TodoDoc.set_state`) so
+    the reviewer can see which branch was refused;
+    `scripts/integrate.py` never selects a `rejected` item as a merge
+    candidate."""
+    return set_state(item_id, "rejected", reason=reason, actor=actor, todo_path=todo_path, repo_root=repo_root)
 
 
 def add_item(

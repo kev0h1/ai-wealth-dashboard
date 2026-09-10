@@ -1456,6 +1456,7 @@ export type GoLiveItemAction =
   | { action: "todo" }
   | { action: "start" }
   | { action: "block"; reason: string }
+  | { action: "reject"; reason: string }
   | { action: "note"; text: string }
   | { action: "owner"; owner: GoLiveOwner }
   | { action: "priority"; priority: "p1" | "p2" | "p3" }

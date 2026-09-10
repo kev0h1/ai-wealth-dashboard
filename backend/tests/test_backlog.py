@@ -635,6 +635,210 @@ def test_mark_done_from_review_clears_state_and_branch():
     assert doc.items["A1"].to_dict()["branch"] is None
 
 
+# ---------------------------------------------------------------------
+# rejected state (H25 — a reviewer's rejection has to land on the board
+# immediately, since a `review` item is otherwise treated as consent to
+# merge by any integrate pass, including one from a concurrent session).
+# ---------------------------------------------------------------------
+
+
+def test_set_state_rejected_requires_a_reason():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    with pytest.raises(backlog.BacklogError):
+        doc.set_state("A1", "rejected")
+
+
+def test_reject_sets_state_reason_and_retains_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "rejected", reason="broke the safe-to-spend guard")
+
+    item = doc.items["A1"]
+    assert item.state == "rejected"
+    assert item.reason == "broke the safe-to-spend guard"
+    # The branch is retained from the prior review state, not cleared.
+    assert item.branch == "feature-A1-first-item"
+
+    line = doc.lines[item.line_no]
+    assert "[state: rejected: broke the safe-to-spend guard]" in line
+    assert "[branch: feature-A1-first-item]" in line
+    assert item.to_dict()["reason"] == "broke the safe-to-spend guard"
+    assert item.to_dict()["branch"] == "feature-A1-first-item"
+    assert item.to_dict()["state"] == "rejected"
+
+
+def test_reject_can_take_an_explicit_branch_override():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    # A1 has no prior branch (never sent to review) — reject can still be
+    # given one explicitly.
+    doc.set_state("A1", "rejected", reason="wrong approach", branch="feature-A1-alt")
+    assert doc.items["A1"].branch == "feature-A1-alt"
+
+
+def test_rejected_item_round_trips_through_parse_and_serialise_unchanged():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "rejected", reason="broke the safe-to-spend guard")
+    first_text = doc.text()
+
+    reparsed = backlog.TodoDoc.parse(first_text)
+    a1 = reparsed.items["A1"]
+    assert a1.state == "rejected"
+    assert a1.reason == "broke the safe-to-spend guard"
+    assert a1.branch == "feature-A1-first-item"
+
+    # Re-serialising the reparsed doc must produce byte-identical output —
+    # the same idempotency guarantee every other state already has.
+    assert reparsed.text() == first_text
+
+
+def test_rejected_then_moved_to_todo_clears_reason_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "rejected", reason="broke the safe-to-spend guard")
+    doc.set_state("A1", "todo")
+
+    item = doc.items["A1"]
+    assert item.state == "todo"
+    assert item.reason is None
+    assert item.branch is None
+    line = doc.lines[item.line_no]
+    assert "[state:" not in line
+    assert "[branch:" not in line
+
+
+def test_rejected_then_started_clears_reason_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "rejected", reason="broke the safe-to-spend guard")
+    doc.set_state("A1", "in-progress")
+
+    item = doc.items["A1"]
+    assert item.state == "in-progress"
+    assert item.reason is None
+    assert item.branch is None
+    line = doc.lines[item.line_no]
+    assert "[state: in-progress]" in line
+    assert "[branch:" not in line
+
+
+def test_mark_done_from_rejected_clears_state_reason_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "rejected", reason="broke the safe-to-spend guard")
+    doc.set_done("A1", True, commit="deadbee")
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[state:" not in line
+    assert "[branch:" not in line
+    assert doc.items["A1"].state == "todo"
+    assert doc.items["A1"].to_dict()["branch"] is None
+    assert doc.items["A1"].to_dict()["reason"] is None
+
+
+def test_public_set_rejected_writes_file_and_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    item, committed = backlog.set_rejected(
+        "A1", "broke the safe-to-spend guard", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "rejected"
+    assert item["reason"] == "broke the safe-to-spend guard"
+    assert item["branch"] == "feature-A1-first-item"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 rejected (broke the safe-to-spend guard) by kevin" in commit_call.args[0]
+
+
+def test_public_set_state_rejected_without_reason_raises(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_state("A1", "rejected", actor="claude", todo_path=todo_path, repo_root=repo_root)
+
+
+def test_list_output_shows_rejected_branch(paths, mock_git):
+    todo_path, compliance_path = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_rejected("A1", "wrong approach", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+    snapshot = backlog.load(todo_path=todo_path, compliance_path=compliance_path)
+    a1 = next(i for i in snapshot.items() if i["id"] == "A1")
+    assert a1["state"] == "rejected"
+    assert a1["branch"] == "feature-A1-first-item"
+    assert a1["reason"] == "wrong approach"
+
+
+def test_cli_reject_and_state_display(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+
+    review_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "review", "A1", "--branch", "feature-A1-first-item"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert review_result.returncode == 0, review_result.stderr
+
+    reject_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "reject", "A1", "found a defect in review"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert reject_result.returncode == 0, reject_result.stderr
+
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: rejected: found a defect in review]" in saved
+    assert "[branch: feature-A1-first-item]" in saved
+
+    list_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "list"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert list_result.returncode == 0, list_result.stderr
+    assert "rejected:feature-A1-first-item" in list_result.stdout
+
+    # `start` moves it back out again, clearing the rejection.
+    start_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "start", "A1"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert start_result.returncode == 0, start_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: in-progress]" in saved
+    assert "rejected" not in saved
+    assert "[branch:" not in saved
+
+
+def test_cli_reject_without_reason_errors(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "reject", "A1"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    # argparse itself rejects the missing positional "reason" arg.
+    assert result.returncode != 0
+
+
 def test_public_set_review_writes_file_and_commit_message(paths, mock_git):
     todo_path, _ = paths
     repo_root = todo_path.parent

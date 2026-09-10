@@ -47,6 +47,16 @@ export function StatePill({ item }: { item: GoLiveItem }) {
       </span>
     );
   }
+  if (item.state === "rejected") {
+    // Same amber treatment as Blocked, never red: a rejection means a
+    // reviewer found something and this needs a decision, not that
+    // anything has failed (DESIGN.md "The Red Is Risk Rule").
+    return (
+      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        Rejected{item.reason ? `: ${item.reason}` : ""}
+      </span>
+    );
+  }
   // done
   const short = item.commit ? item.commit.slice(0, 7) : null;
   return (

@@ -39,6 +39,15 @@ unrecorded.
   `backend/.venv/bin/python scripts/backlog.py block <ID> "<reason>"`, and
   add anything else worth keeping with
   `backend/.venv/bin/python scripts/backlog.py note <ID> "<text>"`.
+- If you are reviewing someone else's item and find a defect in work
+  sitting in `review`, reject it immediately rather than leaving it in
+  `review` while you say so elsewhere: `review` alone is treated as
+  consent to merge by any integrate pass, including one from a
+  concurrent session, so a rejection that only exists in conversation can
+  be overtaken by a pass that merges the very branch just rejected.
+  `backend/.venv/bin/python scripts/backlog.py reject <ID> "<reason>"`
+  requires a reason and keeps the item's branch so the next person can
+  see which one was refused. `start` or `todo` moves it back out again.
 - Never commit `backend/.env` or any other key/secret file. Never edit
   files outside this repository.
 - Copy rules apply to every user-facing string you write: no em dashes,

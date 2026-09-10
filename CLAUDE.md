@@ -25,7 +25,7 @@ Open after this round (see session notes, not doctrine): dead `PlansDock` / `Com
 
 ## Backlog
 
-`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model, including the state machine (`todo` / `in-progress` / `blocked` / `review` / done) and the `add`/`review`/`todo` commands. Codex agents follow this same board and branch-per-item workflow; their copy of it lives in `AGENTS.md`.
+`TODO.md` and the Finexer compliance doc are the board: content and workflow (state, owner, notes) live in the same markdown, git is the history, and the private page `/ops/go-live` reads and writes them live. See `docs/ops/BACKLOG.md` for the full model, including the state machine (`todo` / `in-progress` / `blocked` / `review` / `rejected` / done) and the `add`/`review`/`reject`/`todo` commands. `rejected` is what a reviewer sets the instant they find a defect in an item sitting in `review`, using `scripts/backlog.py reject <ID> "<reason>"` (or the Reject control on `/ops/go-live`), never by leaving it in `review` while the fix happens elsewhere: `review` alone reads as consent to merge to any integrate pass, including one from a concurrent session, so a rejection that only exists in conversation can and has been overtaken by a pass that merges the very branch just rejected (see docs/ops/BACKLOG.md for the exact 2026-09-10 incident this closes). `start` or `todo` moves an item back out of `rejected`. Codex agents follow this same board and branch-per-item workflow; their copy of it lives in `AGENTS.md`.
 
 Nothing is worked off-board. If what you have been asked to do is not on the board, add it first (`backend/.venv/bin/python scripts/backlog.py add <section-letter> "<one-sentence title>" --owner claude`, or `scripts/session.sh start <new-id> --title "..."`), then start it. When you finish, block, or hand back an item, record it on the board in the same turn; the page at /ops/go-live is what Kevin reads, and it only knows what the board knows. Sessions do not edit TODO.md by hand.
 
@@ -38,6 +38,7 @@ scripts/session.sh abandon <item-id>
 
 backend/.venv/bin/python scripts/backlog.py start <item-id>
 backend/.venv/bin/python scripts/backlog.py block <item-id> "<reason>"
+backend/.venv/bin/python scripts/backlog.py reject <item-id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py done <item-id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py priority <item-id> p1|p2|p3
 backend/.venv/bin/python scripts/backlog.py unblocks <item-id> Q5,Q6
