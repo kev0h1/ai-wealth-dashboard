@@ -95,7 +95,7 @@ Status: blocked-deploy
 Final published versions:
 - Terms and Conditions: https://wealth.auriqltd.co.uk/terms
 - Privacy Policy: https://wealth.auriqltd.co.uk/privacy
-PDF copies attached. [KEVIN: export from the site after deploy.]
+PDF copies attached, exported 2026-09-10 from the live pages: https://wealth.auriqltd.co.uk/TERMS.pdf (7 pages, "Last updated: 2026-09-08", version 1.0) and https://wealth.auriqltd.co.uk/PRIVACY.pdf (7 pages, "Last updated: 2026-09-10", version 1.0). Both confirmed live and downloadable, and checked for content: neither PDF mentions the MCP connector or "connected assistant" feature described in Q2, consistent with that feature being planned but not enabled in production.
 
 We confirm they accurately reflect the Sorted service:
 - Finexer's role and the AIS arrangement: Terms sections 2 and 5; Privacy sections 1, 4 and 6 (Finexer listed as the open banking sub-processor).
@@ -119,11 +119,9 @@ How this is enforced in the product:
 - Savings insights are generated under fixed rules: no suggestion to move card debt, third-party predictions always hedged, all savings figures presented as estimates. A post-processing guard rejects any output that breaches them.
 - Debt payoff shows the customer's own repayment order and timelines from their existing accounts; it does not propose consolidation, balance transfers, lenders or debt solutions.
 - Investment holdings can be tracked as a category; the product offers no investment recommendations, comparisons or execution.
-- Tax content is limited to general explanation of UK rules; no product or scheme is recommended.
+- Tax content is limited to general explanation of UK rules. The live tax explainer's prompt (Penny agent loop) carries a hard rule, shipped 2026-09-06: never suggest, name or recommend a specific product, provider, scheme or investment, including EIS/SEIS opportunities, to obtain a relief; explain the mechanics only, and point to a regulated adviser for anything recommendation-shaped. Covered by an automated test.
 
 The planned connected assistant feature (Q2) does not change this. Sorted's tools only return the customer's own data and Sorted's own deterministic figures; any advice a customer's external assistant gives is that assistant's, under the customer's contract with its provider, and nothing in Sorted recommends or steers towards it.
-
-[KEVIN: we intend to tighten the tax explainer's prompt before go-live so it cannot discuss specific investment schemes; confirm.]
 ```
 
 ## Q9 AI and third-party processing
@@ -150,7 +148,7 @@ Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-i
 Status: ready
 
 ```text
-Confirmed; the following controls are implemented and operational in production. [KEVIN: true only after the production deploy.]
+Confirmed; the following controls are implemented and operational in production, verified 2026-09-10 following the production deploy (tag release-20260910-1137, live on Vercel and Railway).
 
 Customer deletion: "Delete account and all data" in Settings erases the customer's records across every data store in one operation (accounts, transactions, consents, preferences, plans, insights, push tokens, linked sign-in identities) and revokes all open banking consents with Finexer.
 
@@ -171,7 +169,7 @@ Confirmed; the controls in our Security and Incident Response Policy are impleme
 Testing completed prior to launch:
 - Automated backend test suite of over 1,150 tests run on every change, including tests for the webhook signature verification, sign-in gating and safe-to-spend hardening.
 - Internal security review of authentication, session handling, data hygiene on logout, and the webhook receiver (August and September 2026).
-- Dependency vulnerability audit of backend and frontend packages. [KEVIN: to be run and dated before submission.]
+- Dependency vulnerability audit, dated 2026-09-10. Backend (`pip-audit` 2.10.1, 81 pkgs): 0 known advisories. Frontend production (`npm audit --omit=dev`): 1 moderate (DoS on invalid input, Next.js transitive dep, fix available). Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped. No Critical or High shipped to production.
 - No independent penetration test has been commissioned at this stage. [KEVIN: decide whether to commission one; Finexer may expect it.]
 
 Outstanding findings: none rated Critical or High. Two Medium items identified in internal review were closed before submission: a client-side cache holding account details after logout, and a legacy login path removed from the codebase. [KEVIN: both must actually be closed first; the legacy PIN login and the localStorage account-number item are still open as of 2026-09-06.]
