@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "g29-reconnect-rows",
+    name: "g29-reconnect-rows",
+    description:
+      "G29 fixed-height reconnect round across Home and Accounts, using 8 stale accounts grouped into 3 provider connections · A provider-level disclosure band with quiet row dots (recommended after outside-critic pass) / B visible provider repair queue / C fixed-height split row actions retained as a repetition and focus-order contrast · static fixtures, no account data or OAuth calls · ?variant=a|b|c&surface=accounts|home&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "oauth-consent",
     name: "oauth-consent",
     description:
@@ -165,6 +172,16 @@ const ROUTES: PreviewRoute[] = [
     states: [
       { label: "Short period", value: "short" },
       { label: "Calm period", value: "calm" },
+    ],
+  },
+  {
+    slug: "g31-planning-hero",
+    name: "g31-planning-hero",
+    description:
+      "G31 Planning hero hierarchy round using reconciled typical-month fixtures · A plain verbal verdict with one methodology line and borderless disclosure (recommended after outside-critic pass) / B signed cockpit reading with a three-month calibration marker / C always-visible working to expose the density trade-off · short −£119 and spare +£332 states, all currency signed and monospaced, no production component or API changes · ?variant=a|b|c&state=short|spare&mode=light|dark&open=1",
+    states: [
+      { label: "Short", value: "short" },
+      { label: "Spare", value: "spare" },
     ],
   },
   {

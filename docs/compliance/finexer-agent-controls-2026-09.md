@@ -1,6 +1,6 @@
 # Finexer Agent Management and Controls Compliance, draft answers
 
-Drafted 2026-09-06 from the codebase, SECURITY.md, PRIVACY.md and TERMS.md. Items marked [KEVIN] need a decision or a fact only the directors hold. Each answer block must stay under 2000 characters. Answers that say "production" are only true once the current branch is deployed to Vercel and Railway; see "Prerequisites" at the end.
+Drafted 2026-09-06 from the codebase, SECURITY.md, PRIVACY.md and TERMS.md. Items marked [KEVIN] need a decision or a fact only the directors hold. Each answer block must stay under 2000 characters. The branch this document was drafted against was deployed to production (Vercel and both Railway services) and tagged `release-20260910-1137` on 2026-09-10; answers that say "production" describe that deployed state. See "Prerequisites" at the end for what is still outstanding.
 
 ## Q1 Start date
 
@@ -82,7 +82,7 @@ Status: blocked-deploy
 Attached screenshots:
 A. Terms and Conditions, section 2 "Regulatory status" at https://wealth.auriqltd.co.uk/terms: states that AURIQ LTD is not authorised by the FCA in its own right, that account information services are provided through Finexer LTD, an FCA-authorised firm, and that AURIQ LTD acts as a registered agent of Finexer LTD, with a pointer to the FCA Financial Services Register.
 B. Privacy Policy, section 1 "Our regulated status" at https://wealth.auriqltd.co.uk/privacy: same disclosure, and section 4 describing the open banking consent through Finexer.
-C. In-app bank connection step: the disclosure line shown immediately before the customer is sent to the Finexer consent page. [KEVIN: this line does not exist in the app yet; approve adding "Account information is provided by Finexer LTD, authorised by the FCA. AURIQ LTD acts as Finexer's agent." to the connect-bank sheet and the sign-in footer, then capture it.]
+C. In-app bank connection step: the disclosure line "Account information is provided by Finexer LTD, authorised by the FCA. AURIQ LTD acts as Finexer's agent." is shown in the connect-bank sheet and the sign-in footer (`frontend/lib/regulatoryCopy.ts`, single source of truth for both), live in production. [KEVIN: screenshot of this line still to be captured, see A6.]
 
 [KEVIN: the FRN field on this form is blank. The published wording says "registered agent" in the present tense. Confirm with Finexer that the agent registration will appear on the register before go-live, or agree interim wording such as "AURIQ LTD has applied to be registered as an agent of Finexer LTD; the account information service is provided under Finexer LTD's authorisation."]
 ```
@@ -104,7 +104,7 @@ We confirm they accurately reflect the Sorted service:
 - Retention and deletion: Privacy sections 8 and 9 (30-day deletion after closure, withdrawal or disconnection; 12-month dormant account deletion; 7-day chat retention; 30-day caches, webhook logs and encrypted backups), mirrored in our Security and Incident Response Policy section 6.
 - Complaints: Terms section 16.
 
-Two updates are being made before submission: the Privacy Policy's account-details paragraph will name Sign in with Apple alongside Google, and Apple will be listed as an identity provider in the sub-processor table. [KEVIN: confirm and deploy.]
+Two updates identified before submission are made and live in production: the Privacy Policy's account-details paragraph names Sign in with Apple alongside Google (including the Hide My Email relay address behaviour), and Apple is listed as an identity provider in the sub-processor table.
 ```
 
 ## Q8 Scope of AI functionality
@@ -148,7 +148,7 @@ Changes since onboarding: (1) Sign in with Apple; Apple receives only the sign-i
 Status: ready
 
 ```text
-Confirmed; the following controls are implemented and operational in production, verified 2026-09-10 following the production deploy (tag release-20260910-1137, live on Vercel and Railway).
+Confirmed; the following controls are implemented and operational in production, verified 2026-09-10 following the production deploy (tag `release-20260910-1137`, live on Vercel and Railway).
 
 Customer deletion: "Delete account and all data" in Settings erases the customer's records across every data store in one operation (accounts, transactions, consents, preferences, plans, insights, push tokens, linked sign-in identities) and revokes all open banking consents with Finexer.
 
@@ -172,7 +172,7 @@ Testing completed prior to launch:
 - Dependency vulnerability audit, dated 2026-09-10. Backend (`pip-audit` 2.10.1, 81 pkgs): 0 known advisories. Frontend production (`npm audit --omit=dev`): 1 moderate (DoS on invalid input, Next.js transitive dep, fix available). Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped. No Critical or High shipped to production.
 - No independent penetration test has been commissioned at this stage. [KEVIN: decide whether to commission one; Finexer may expect it.]
 
-Outstanding findings: none rated Critical or High. Two Medium items identified in internal review were closed before submission: a client-side cache holding account details after logout, and a legacy login path removed from the codebase. [KEVIN: both must actually be closed first; the legacy PIN login and the localStorage account-number item are still open as of 2026-09-06.]
+Outstanding findings: none rated Critical or High. Two Medium items from internal review are closed and live in production: the legacy PIN-entry login (hardcoded PIN, unreferenced) was deleted, and the client-side reconnect cache that held a raw account number and sort code in localStorage now stores only the provider, account id and a masked last four digits.
 ```
 
 ## Q12 Insurance
@@ -203,10 +203,10 @@ There are no other material regulatory, security or operational matters to bring
 
 ## Prerequisites before submitting
 
-1. Deploy the current branch to production (Vercel frontend and both Railway services). Production today returns 404 for /terms and /privacy, still serves the API docs, and has no Finexer webhook receiver.
-2. Close the two open security items (legacy PIN login in source; account number and sort code held in localStorage) and run a dependency audit.
-3. Decide the FRN wording and add the in-app agent disclosure line.
-4. Update the Privacy Policy for Sign in with Apple, and TERMS.md/PRIVACY.md at the repo root must stay in sync with frontend/content.
-5. Create the Play Console record so the Q4 Play URL exists.
-6. Capture the Q5 recording and Q6 screenshots on production.
-7. Insurance documents (Q12), restore test date and complaints details (Q13).
+1. Done 2026-09-10. Deployed to production (Vercel frontend and both Railway services), tagged `release-20260910-1137`. `/terms` and `/privacy` return 200, API docs are disabled (404), and the Finexer webhook receiver is live.
+2. Done. The legacy PIN login and the localStorage account-number/sort-code item are both closed in source and deployed; a dependency audit was run and dated 2026-09-10 (SECURITY.md section 2): backend 0 known advisories, one moderate advisory in frontend production dependencies (fix available), no Critical or High shipped to production.
+3. The in-app agent disclosure line is added and live (connect-bank sheet and sign-in footer). Still outstanding: decide the FRN wording (A5).
+4. The Privacy Policy is updated for Sign in with Apple and live. Still outstanding: `TERMS.md` and `PRIVACY.md` at the repo root are not in sync with `frontend/content/` (`TERMS.md` still carries a "DRAFT for review, not yet published" banner and an older last-updated date; `frontend/content/terms.md` is the published copy). Bring the root copies in line before submission.
+5. Create the Play Console record so the Q4 Play URL exists (A9, still open).
+6. Capture the Q5 recording and Q6 screenshots on production (A6, still open).
+7. Insurance documents (Q12), restore test date and complaints details (Q13), all still open.
