@@ -165,7 +165,7 @@ cmd_start() {
     fi
     log "--title given; allocating a fresh item in section $section (not looking up $id)..."
     local new_id
-    new_id="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" add "$section" "$title" --owner claude)"
+    new_id="$(cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" add "$section" "$title" --owner "$caller_agent")"
     log "allocated new item $new_id: $title"
     if [[ "$new_id" != "$id" ]]; then
       log "note: requested id was $id, board allocated $new_id instead — using $new_id from here on"

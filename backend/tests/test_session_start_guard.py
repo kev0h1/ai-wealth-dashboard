@@ -386,3 +386,33 @@ def test_start_rejects_invalid_backlog_agent_value(tmp_path):
     assert "BACKLOG_AGENT" in result.stderr
     assert "gpt5" in result.stderr
     assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_title_creates_item_owned_by_codex_when_agent_is_codex(tmp_path):
+    """--title always allocates a fresh item (see the H21 tests above); it
+    must own that fresh item to the caller's own type, not hardcode
+    `claude`, or a Codex session using --title would immediately violate
+    the very rule H29 exists to enforce."""
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H9", "--title", "New codex idea", agent="codex")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    # OWNER_GUARD_FIXTURE's highest existing H-number is 3, so --title
+    # allocates H4.
+    new_data = _show(board_root, "H4")
+    assert new_data["title"] == "New codex idea"
+    assert new_data["owner"] == "codex"
+    assert new_data["state"] == "in-progress"
+
+
+def test_start_title_creates_item_owned_by_claude_when_agent_unset(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H9", "--title", "New claude idea")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    new_data = _show(board_root, "H4")
+    assert new_data["title"] == "New claude idea"
+    assert new_data["owner"] == "claude"
+    assert new_data["state"] == "in-progress"
