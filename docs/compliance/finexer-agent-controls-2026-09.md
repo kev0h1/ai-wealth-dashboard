@@ -169,7 +169,7 @@ Confirmed; the controls in our Security and Incident Response Policy are impleme
 Testing completed prior to launch:
 - Automated backend test suite of over 1,150 tests run on every change, including tests for the webhook signature verification, sign-in gating and safe-to-spend hardening.
 - Internal security review of authentication, session handling, data hygiene on logout, and the webhook receiver (August and September 2026).
-- Dependency vulnerability audit, dated 2026-09-10. Backend (`pip-audit` 2.10.1, 81 packages): 0 known advisories. Frontend production (`npm audit --omit=dev`): 1 moderate (DoS on invalid input, Next.js transitive dependency, fix available). Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped. No Critical or High in anything shipped to production.
+- Dependency vulnerability audit, dated 2026-09-10. Backend (`pip-audit` 2.10.1, 81 pkgs): 0 known advisories. Frontend production (`npm audit --omit=dev`): 1 moderate (DoS on invalid input, Next.js transitive dep, fix available). Full `npm audit` incl. dev tooling: 5 advisories (1 low, 1 moderate, 3 high), all dev-only, never shipped. No Critical or High shipped to production.
 - No independent penetration test has been commissioned at this stage. [KEVIN: decide whether to commission one; Finexer may expect it.]
 
 Outstanding findings: none rated Critical or High. Two Medium items identified in internal review were closed before submission: a client-side cache holding account details after logout, and a legacy login path removed from the codebase. [KEVIN: both must actually be closed first; the legacy PIN login and the localStorage account-number item are still open as of 2026-09-06.]
