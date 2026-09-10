@@ -17,7 +17,9 @@ test_transfer_pairs.py already established.
 import asyncio
 from datetime import date, datetime
 
+import app.services.categories as categories
 import app.services.needle as needle
+from app.services.categories import BUILTIN_CATEGORY_KINDS
 from app.services.net_position import card_growth_unpaid
 
 
@@ -150,10 +152,17 @@ def test_card_growth_unpaid_not_silently_zero_for_yapily_only_card(monkeypatch):
         {"user_id": "kevin", "account_id": "yapily-card-1", "amount": 200.0,
          "transaction_type": "debit", "date": datetime(2026, 8, 5)},
     ]
+    async def fake_kinds(uid):
+        return dict(BUILTIN_CATEGORY_KINDS)
+
     monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol([]))
     monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol(yapily_accounts))
     monkeypatch.setattr(needle, "transactions_col", _FakeTxnsCol([]))
     monkeypatch.setattr(needle, "yapily_transactions_col", _FakeTxnsCol(yapily_txns))
+    # G24: card_growth_by_card (which this exercises via card_growth_unpaid)
+    # now also reads category kinds to split out new_spend — mock it so
+    # this stays a pure unit test rather than a real DB call.
+    monkeypatch.setattr(categories, "get_category_kinds", fake_kinds)
 
     result = asyncio.run(card_growth_unpaid("kevin", date(2026, 8, 1), date(2026, 8, 25)))
     assert result == 200.0

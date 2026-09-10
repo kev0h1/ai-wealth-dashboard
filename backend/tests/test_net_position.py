@@ -30,6 +30,10 @@ from app.services.net_position import (
 KIND_MAP = dict(BUILTIN_CATEGORY_KINDS)
 
 
+async def _fake_kinds(uid):
+    return KIND_MAP
+
+
 class _FakePrefsCol:
     def __init__(self, doc):
         self._doc = doc
@@ -61,6 +65,7 @@ def test_card_growth_floored_at_zero_when_cards_paid_down(monkeypatch):
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
 
     result = asyncio.run(card_growth_unpaid("kevin", date(2026, 8, 1), date(2026, 8, 25)))
     assert result == 0.0
@@ -79,6 +84,7 @@ def test_card_growth_double_count_guard_subtracts_scheduled_card_bill(monkeypatc
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
 
     window_bills = [
         {"account_id": "card1", "amount": 80.0},   # resolves to the card — subtracted
@@ -103,6 +109,7 @@ def test_card_growth_guard_skipped_when_bill_has_no_account_id(monkeypatch):
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
 
     window_bills = [{"amount": 80.0}]  # no account_id key at all
     result = asyncio.run(
@@ -129,6 +136,7 @@ def test_card_growth_guard_matches_via_is_credit_card_flag_when_account_id_diffe
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
 
     window_bills = [{"account_id": "some-other-spelling", "amount": 80.0, "is_credit_card": True}]
     result = asyncio.run(
@@ -153,6 +161,7 @@ def test_card_growth_guard_explicit_false_is_credit_card_not_overridden_by_accou
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", _fake_kinds)
 
     window_bills = [{"account_id": "card1", "amount": 80.0, "is_credit_card": False}]
     result = asyncio.run(
@@ -189,9 +198,13 @@ def test_card_growth_by_card_keeps_observed_fact_and_applies_exact_forecast(monk
     def fake_delta(txns):
         return {"card1": 200.0, "card2": 60.0}[txns[0]["account_id"]]
 
+    async def fake_kinds(uid):
+        return KIND_MAP
+
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", fake_kinds)
 
     rows = asyncio.run(card_growth_by_card(
         "kevin",
@@ -200,9 +213,12 @@ def test_card_growth_by_card_keeps_observed_fact_and_applies_exact_forecast(monk
         [{"card_dest_account_id": "card1", "amount": 80.0, "is_credit_card": False}],
     ))
 
+    # Fixture txns carry no transaction_type/category, so new_spend is 0.0 —
+    # this test is about the growth/unpaid_growth forecast maths, not new_spend
+    # (see the dedicated new_spend tests below for that split).
     assert rows == [
-        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 120.0},
-        {"account_id": "card2", "net_change": 60.0, "growth": 60.0, "unpaid_growth": 60.0},
+        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 120.0, "new_spend": 0.0},
+        {"account_id": "card2", "net_change": 60.0, "growth": 60.0, "unpaid_growth": 60.0, "new_spend": 0.0},
     ]
 
 
@@ -216,21 +232,62 @@ def test_card_growth_by_card_preserves_a_signed_paydown_for_portfolio_netting(mo
     def fake_delta(txns):
         return {"card1": 200.0, "card2": -60.0}[txns[0]["account_id"]]
 
+    async def fake_kinds(uid):
+        return KIND_MAP
+
     monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
     monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
     monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", fake_kinds)
 
     rows = asyncio.run(card_growth_by_card(
         "kevin", date(2026, 8, 1), date(2026, 8, 25),
     ))
 
     assert rows == [
-        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 200.0},
-        {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0},
+        {"account_id": "card1", "net_change": 200.0, "growth": 200.0, "unpaid_growth": 200.0, "new_spend": 0.0},
+        {"account_id": "card2", "net_change": -60.0, "growth": 0.0, "unpaid_growth": 0.0, "new_spend": 0.0},
     ]
     assert asyncio.run(card_growth_unpaid(
         "kevin", date(2026, 8, 1), date(2026, 8, 25),
     )) == 140.0
+
+
+def test_card_growth_by_card_new_spend_excludes_movement_kind_debits(monkeypatch):
+    """G24: new_spend on a row is the spend-kind-only portion of that card's
+    debits — a balance-transfer debit (movement kind) inflates net_change but
+    must NOT inflate new_spend, and a movement-kind credit must not either."""
+    async def fake_card_ids(uid):
+        return {"card1"}
+
+    card1_txns = [
+        {"account_id": "card1", "transaction_type": "debit", "amount": 50.0, "category": "Shopping"},
+        {"account_id": "card1", "transaction_type": "debit", "amount": 300.0, "category": "Transfer"},  # balance transfer in — movement, not spend
+        {"account_id": "card1", "transaction_type": "credit", "amount": 40.0, "category": "Transfer"},  # paid off by transfer — movement credit
+    ]
+
+    async def fake_txns(uid, start, end, account_ids=None):
+        return card1_txns
+
+    def fake_delta(txns):
+        # debits (50+300) minus credits (40) = 310, matching _card_delta's
+        # real (unconditional) behaviour — not re-mocked away here so the
+        # test also proves new_spend and net_change can legitimately diverge.
+        return 310.0
+
+    async def fake_kinds(uid):
+        return KIND_MAP
+
+    monkeypatch.setattr(needle, "_credit_card_account_ids", fake_card_ids)
+    monkeypatch.setattr(needle, "_txns_for_period", fake_txns)
+    monkeypatch.setattr(needle, "_card_delta", fake_delta)
+    monkeypatch.setattr(categories, "get_category_kinds", fake_kinds)
+
+    rows = asyncio.run(card_growth_by_card("kevin", date(2026, 8, 1), date(2026, 8, 25)))
+
+    assert rows == [
+        {"account_id": "card1", "net_change": 310.0, "growth": 310.0, "unpaid_growth": 310.0, "new_spend": 50.0},
+    ]
 
 
 def test_card_growth_by_card_returns_none_when_lookup_fails(monkeypatch):
