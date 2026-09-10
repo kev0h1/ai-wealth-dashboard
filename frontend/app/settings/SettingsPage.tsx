@@ -24,8 +24,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
-import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection, McpAuditCall } from "@/lib/api";
-import ConnectedAssistantsCard, { ConnectionsState, ActivityState } from "@/components/ConnectedAssistantsCard";
+import { api, NotificationPrefs, Account, IdentitiesResponse, OAuthConnection } from "@/lib/api";
+import ConnectedAssistantsCard, { ConnectionsState } from "@/components/ConnectedAssistantsCard";
 import { usePennyUsage, refreshPennyUsage } from "@/components/PennySheetProvider";
 import YourPlanCard from "@/components/YourPlanCard";
 import { getAccountsCached } from "@/lib/accountsCache";
@@ -205,14 +205,12 @@ export default function SettingsPage() {
   const [pennyConsentRevoking, setPennyConsentRevoking] = useState(false);
   const [pennyConsentMsg, setPennyConsentMsg] = useState<string | null>(null);
 
-  // F4: "Connected assistants" card. Connections load on mount; the audit
-  // log (GET /mcp/audit) is only fetched the first time "View activity"
-  // opens (auditFetched guards against refetching on every collapse/expand
-  // toggle within the same page visit).
+  // F4: "Connected assistants" card. Connections load on mount.
+  // F15: the card's own inline activity list (and its lazily-fetched GET
+  // /mcp/audit call) is gone, the card links straight to /mcp-activity
+  // (F14) instead, so there is no audit fetch or "already fetched" guard
+  // to own here any more.
   const [connectionsState, setConnectionsState] = useState<ConnectionsState>({ status: "loading" });
-  const [activityOpen, setActivityOpen] = useState(false);
-  const [activityState, setActivityState] = useState<ActivityState>({ status: "idle" });
-  const [auditFetched, setAuditFetched] = useState(false);
 
   function fetchConnections() {
     api.listOAuthConnections()
@@ -231,18 +229,6 @@ export default function SettingsPage() {
       return true;
     } catch {
       return false;
-    }
-  }
-
-  function handleToggleActivity() {
-    const next = !activityOpen;
-    setActivityOpen(next);
-    if (next && !auditFetched) {
-      setAuditFetched(true);
-      setActivityState({ status: "loading" });
-      api.getMcpAudit()
-        .then((r) => setActivityState({ status: "ready", calls: r.calls }))
-        .catch(() => setActivityState({ status: "error" }));
     }
   }
 
@@ -877,9 +863,6 @@ export default function SettingsPage() {
           <ConnectedAssistantsCard
             state={connectionsState}
             onDisconnect={handleDisconnectAssistant}
-            activity={activityState}
-            activityOpen={activityOpen}
-            onToggleActivity={handleToggleActivity}
             tierAllowance={pennyUsage.info?.limits?.mcp_tool_calls_per_month ?? null}
             allowance={pennyUsage.info?.mcp ?? null}
             mcpPacks={pennyUsage.info?.mcp_packs ?? []}

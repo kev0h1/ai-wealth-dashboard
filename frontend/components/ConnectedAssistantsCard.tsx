@@ -3,8 +3,8 @@
 // F4: "Connected assistants" — Settings card listing the OAuth 2.1
 // connectors (F2, backend/app/routers/oauth.py) a user has approved to
 // read their Sorted data over MCP (F3, app/routers/mcp.py), with a
-// per-connector Disconnect and an expander onto the user's own `/mcp`
-// audit log (F3's GET /mcp/audit).
+// per-connector Disconnect and a link onto the full paginated activity
+// log at /mcp-activity (F14).
 //
 // Fully presentational, no fetching of its own — same convention as
 // OAuthConsentCard.tsx and PennyUsageRow.tsx, so the live card
@@ -14,10 +14,14 @@
 //   - `state`: the GET /oauth/connections result (or loading/error).
 //   - `onDisconnect(clientId)`: perform DELETE /oauth/connections/{id}
 //     and refetch `state`; resolves to whether it succeeded.
-//   - `activity` / `activityOpen` / `onToggleActivity`: the GET
-//     /mcp/audit result for the current month, fetched lazily the first
-//     time the expander opens (SettingsPage owns the "already fetched"
-//     guard, this component just renders whatever state it's given).
+//
+// F15: this card used to carry its own inline slice of the GET /mcp/audit
+// log behind a "View activity" / "Hide activity" toggle, duplicating
+// /mcp-activity (F14, cursor-paginated, filterable, the real place to read
+// activity). Kevin asked for exactly one way in, so the toggle and inline
+// list are gone; the card only ever links out to /mcp-activity now. The
+// `formatDateTime`/`toolLabel` helpers below stay exported because
+// app/mcp-activity/McpActivityPage.tsx still imports them for its own rows.
 //
 // A connection only counts as "connected" while it still has at least
 // one live token (`active_tokens > 0`) — a fully revoked client's docs
@@ -29,10 +33,10 @@
 // row.
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plug, Check, ChevronDown } from "lucide-react";
+import { Plug } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
-import type { OAuthConnection, McpAuditCall } from "@/lib/api";
+import type { OAuthConnection } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
 import { formatPennyResetDate } from "@/components/PennySheetProvider";
@@ -44,12 +48,6 @@ export type ConnectionsState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "ready"; connections: OAuthConnection[] };
-
-export type ActivityState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; calls: McpAuditCall[] };
 
 /** F9: this calendar month's MCP connector call allowance (GET
  * /subscription's `mcp` block), or null before that fetch has resolved. */
@@ -166,9 +164,6 @@ export function toolLabel(tool: string): string {
 export default function ConnectedAssistantsCard({
   state,
   onDisconnect,
-  activity,
-  activityOpen,
-  onToggleActivity,
   tierAllowance,
   allowance,
   mcpPacks,
@@ -177,9 +172,6 @@ export default function ConnectedAssistantsCard({
 }: {
   state: ConnectionsState;
   onDisconnect: (clientId: string) => Promise<boolean>;
-  activity: ActivityState;
-  activityOpen: boolean;
-  onToggleActivity: () => void;
   /** F8: the signed-in user's `mcp_tool_calls_per_month` limit (GET
    * /subscription's SubscriptionLimits), or null before that fetch has
    * resolved. Statements/Lite/Standard carry 0 here; Connect/Max carry a
@@ -351,85 +343,26 @@ export default function ConnectedAssistantsCard({
         </>
       )}
 
+      {/* F15: the inline activity list (and its "View activity" / "Hide
+          activity" toggle) is gone, Kevin wants exactly one way into
+          activity, the full log at /mcp-activity (F14: cursor pagination,
+          per-assistant filter chips, date grouping). This footer is the
+          single unconditional retention line plus that one link, "90 days"
+          mirrors the backend's MCP_AUDIT_TTL_DAYS default
+          (backend/app/core/config.py) and would drift if that env var is
+          ever changed away from 90 without updating this string too. */}
       {state.status !== "loading" && !isTierGated && (
-        <>
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700">
-            <p className="text-xs text-slate-400 dark:text-slate-500">Every request is logged</p>
-            <button
-              type="button"
-              onClick={onToggleActivity}
-              aria-expanded={activityOpen}
-              className="flex-shrink-0 min-h-[44px] px-3 flex items-center gap-1 text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
-            >
-              {activityOpen ? "Hide activity" : "View activity"}
-              <ChevronDown
-                size={14}
-                className={`transition-transform duration-200 ${activityOpen ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-
-          <div
-            className={`grid transition-[grid-template-rows,opacity] duration-200 ease-[var(--ease-out)] ${
-              activityOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-            }`}
-            inert={!activityOpen}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700">
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            Sorted keeps this activity log for 90 days.
+          </p>
+          <Link
+            href="/mcp-activity"
+            className="flex-shrink-0 min-h-[44px] px-3 flex items-center text-sm font-medium text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-900/10 active:bg-indigo-100 transition-colors"
           >
-            <div className="overflow-hidden">
-              <div className="px-4 pb-3.5">
-                {activity.status === "loading" && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">Checking…</p>
-                )}
-                {activity.status === "error" && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">Could not load activity</p>
-                )}
-                {activity.status === "ready" && activity.calls.length === 0 && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 py-1">No activity this month</p>
-                )}
-                {activity.status === "ready" && activity.calls.length > 0 && (
-                  <ul className="space-y-2 pt-1">
-                    {activity.calls.slice(0, 10).map((call, i) => (
-                      <li key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        {call.ok ? (
-                          <Check size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
-                        ) : (
-                          <span className="flex-shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Failed
-                          </span>
-                        )}
-                        <span className="truncate">
-                          {toolLabel(call.tool)} · {call.client} · {formatDateTime(call.ts)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {/* F14: the "90 days" here mirrors the backend's MCP_AUDIT_TTL_DAYS
-                    default (backend/app/core/config.py) and would drift if that env
-                    var is ever changed away from 90 without updating this string too.
-                    The link to the full log is shown whenever the activity fetch has
-                    settled, even with zero rows this month, since the full log can
-                    still hold rows from an earlier month within the retention window. */}
-                {activity.status === "ready" && (
-                  <div className="pt-2 flex items-center justify-between gap-3">
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                      {activity.calls.length >= 10
-                        ? "Showing your most recent 10 calls. Sorted keeps this log for 90 days."
-                        : "Sorted keeps this activity log for 90 days."}
-                    </p>
-                    <Link
-                      href="/mcp-activity"
-                      className="flex-shrink-0 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
-                    >
-                      View full log
-                    </Link>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+            View full log
+          </Link>
+        </div>
       )}
 
       {/* F9: "Need more calls?" — upsell for the MCP call pack. B5: a real
