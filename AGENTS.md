@@ -14,6 +14,16 @@ unrecorded.
 - Nothing is worked off-board. If the task in front of you is not already
   on the board, add it first, then start it:
   `backend/.venv/bin/python scripts/backlog.py add <section-letter> "<one sentence title>" --owner codex`
+- Each agent only works items owned by its own model type. A Codex session
+  only starts items marked `[owner: codex]`. Items marked `[owner: claude]`
+  belong to Claude sessions, and items marked `[owner: kevin]` are Kevin's
+  own; leave both alone, even when asked to clear the board. When adding
+  an unplanned item, set `--owner codex` unless Kevin says otherwise. If
+  Kevin asks for work on an item owned by another agent, say so and let
+  him reassign it with `scripts/backlog.py owner <id> codex`; never
+  reassign it silently. `scripts/session.sh start` enforces this: set
+  `BACKLOG_AGENT=codex` before calling it, and it refuses to start an item
+  whose owner does not match unless `--any-owner` is passed.
 - Before editing any code, start a session for the item and work only
   inside the worktree it prints: `scripts/session.sh start <ID>`. Never
   edit files in `/root/ai-wealth-dashboard` itself, that is the shared
