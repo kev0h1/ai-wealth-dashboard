@@ -131,6 +131,77 @@ def test_restart_services_frontend_only_change_restarts_neither_backend_service(
     assert restarted == ["wealth-frontend"]
 
 
+# --- frontend gate checks (H23) -------------------------------------------
+#
+# scripts/session.sh finish already ran check:design-index and (H23)
+# check:legal-content before pushing a branch for review, but integrate.py
+# itself never re-ran them, so a merge could still land a broken privacy.md
+# renumbering on main if review was skipped or predated the gate (F14,
+# 2026-09-10). These tests exercise _run_frontend_checks directly with a
+# fake _sh so no real npm command runs.
+
+
+def test_run_frontend_checks_noop_when_frontend_and_shared_untouched(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: calls.append((a, k)) or (0, ""))
+
+    integrate._run_frontend_checks({"backend/app/services/x.py"})
+
+    assert calls == []
+
+
+def test_run_frontend_checks_runs_design_index_then_legal_content_when_frontend_changed(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        calls.append(cmd)
+        return 0, ""
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+
+    integrate._run_frontend_checks({"frontend/components/Foo.tsx"})
+
+    assert calls == [
+        ["npm", "run", "-s", "check:design-index"],
+        ["npm", "run", "-s", "check:legal-content"],
+    ]
+
+
+def test_run_frontend_checks_runs_when_shared_changed(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(integrate, "_sh", lambda cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT: (calls.append(cmd), (0, ""))[1])
+
+    integrate._run_frontend_checks({"shared/types.ts"})
+
+    assert len(calls) == 2
+
+
+def test_run_frontend_checks_raises_and_stops_on_design_index_failure(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        calls.append(cmd)
+        return (1, "design index broken") if cmd[-1] == "check:design-index" else (0, "")
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+
+    with pytest.raises(integrate.IntegrateError, match="check:design-index failed"):
+        integrate._run_frontend_checks({"frontend/app/page.tsx"})
+
+    # stopped after the failing check, never ran check:legal-content
+    assert calls == [["npm", "run", "-s", "check:design-index"]]
+
+
+def test_run_frontend_checks_raises_on_legal_content_failure(monkeypatch):
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        return (1, "marker contract broken") if cmd[-1] == "check:legal-content" else (0, "")
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+
+    with pytest.raises(integrate.IntegrateError, match="check:legal-content failed"):
+        integrate._run_frontend_checks({"frontend/content/privacy.md"})
+
+
 # --- health check retry (H24) --------------------------------------------
 #
 # A restart under concurrent build load can take a while to come back up
