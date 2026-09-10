@@ -10,6 +10,16 @@ Run from the shared tree with its venv:
 For each board item in state `review` with a branch (see
 `scripts/session.sh finish`), in id order, this:
 
+An item a reviewer has marked `rejected` (`scripts/backlog.py reject <id>
+"<reason>"`) is never a merge candidate: `_review_items()` only ever
+selects items in state `review`, and a rejected item's state is
+`rejected`, not `review`. Each pass still prints one `[skipped-rejected]`
+line per rejected item and counts them in the summary, so a rejection
+that keeps a branch out of a merge is visible in the run's own output
+rather than a silent absence (see H25 — before this, a rejection that
+only existed in conversation was invisible to a concurrent integrate
+pass, which merged the rejected branch anyway).
+
   1. Warns (but does not block) if the recorded branch doesn't start with
      `feature-<ID>` for that item's id — branches are named
      `feature-<ID>[-slug]`, but a branch is merged regardless of its
@@ -136,6 +146,20 @@ def _check_preconditions(allow_branch: Optional[str]) -> None:
 def _review_items() -> list[dict]:
     snapshot = backlog.load()
     items = [i for i in snapshot.items() if i.get("state") == "review" and i.get("branch")]
+    items.sort(key=lambda i: _id_sort_key(i["id"]))
+    return items
+
+
+def _rejected_items() -> list[dict]:
+    """Items a reviewer has rejected (see H25: a reviewer's rejection has
+    to land on the board immediately, because `review` alone is treated as
+    consent to merge by any pass, including one from a concurrent
+    session). `_review_items()` above already excludes these outright — a
+    rejected item's state is `rejected`, not `review` — so this is purely
+    for visibility: `integrate_once` prints one of these per rejected item
+    so a skip-because-rejected never reads as a silent absence."""
+    snapshot = backlog.load()
+    items = [i for i in snapshot.items() if i.get("state") == "rejected"]
     items.sort(key=lambda i: _id_sort_key(i["id"]))
     return items
 
@@ -404,8 +428,22 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 return 1
 
             items = _review_items()
+            rejected = _rejected_items()
+            for item in rejected:
+                branch_note = f", branch {item['branch']}" if item.get("branch") else ""
+                print(
+                    f"[skipped-rejected] {item['id']}: rejected "
+                    f"({item.get('reason') or 'no reason recorded'}){branch_note}, not eligible for merge"
+                )
+
             if not items:
-                print("nothing to integrate (no board items in review state)")
+                if rejected:
+                    print(
+                        f"nothing to integrate (no board items in review state; "
+                        f"{len(rejected)} item(s) rejected, not eligible)"
+                    )
+                else:
+                    print("nothing to integrate (no board items in review state)")
                 return 0
 
             merged: list[str] = []
@@ -421,7 +459,10 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 {"merged": merged, "blocked": blocked, "skipped": skipped}[result].append(detail)
 
             print()
-            print(f"Summary: {len(merged)} merged, {len(blocked)} blocked, {len(skipped)} skipped.")
+            print(
+                f"Summary: {len(merged)} merged, {len(blocked)} blocked, {len(skipped)} skipped, "
+                f"{len(rejected)} rejected (not eligible for merge)."
+            )
             return 0
     except IntegrateError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -77,8 +77,9 @@ export interface OAuthConnection {
 }
 
 // F3/F4: one row of a user's own `/mcp` audit log (backend/app/routers/mcp.py
-// GET /mcp/audit), masked server-side down to tool/client/ts/ok — for F4's
-// "Connected assistants" card's "View activity" expander.
+// GET /mcp/audit), masked server-side down to tool/client/ts/ok. F15: the
+// "Connected assistants" card's own inline "View activity" expander is
+// gone, this type now only backs the full log page at /mcp-activity (F14).
 export interface McpAuditCall {
   tool: string;
   client: string;
@@ -1461,6 +1462,7 @@ export type GoLiveItemAction =
   | { action: "todo" }
   | { action: "start" }
   | { action: "block"; reason: string }
+  | { action: "reject"; reason: string }
   | { action: "note"; text: string }
   | { action: "owner"; owner: GoLiveOwner }
   | { action: "priority"; priority: "p1" | "p2" | "p3" }
@@ -2105,19 +2107,18 @@ export const api = {
       method: "DELETE",
       headers: authHeaders(),
     }).then((r) => toJson<{ ok: boolean; revoked: number }>(r)),
-  // F3/F4: the caller's own `/mcp` calls for one calendar month (default
-  // current month), most recent first — the "Connected assistants" card's
-  // "View activity" expander.
+  // F3/F4: the caller's own `/mcp` calls, most recent first.
   //
   // F14: `opts.cursor`/`opts.client` back the full, paginated audit log
-  // page (app/mcp-activity/McpActivityPage.tsx) — omitted here, this is
-  // still the card's own unpaginated first-page call, unchanged. Passing
-  // `month: "all"` (new) drops the year_month filter server-side so the
-  // full-log page can browse the caller's whole TTL-bounded history
-  // instead of one month at a time; `year_month` in the response is then
-  // `null`. `next_cursor`/`clients` are always present in the response
-  // (see backend/app/routers/mcp.py get_mcp_audit) even though the card
-  // itself ignores them.
+  // page (app/mcp-activity/McpActivityPage.tsx), which always passes
+  // `month: "all"` to drop the year_month filter server-side so it can
+  // browse the caller's whole TTL-bounded history instead of one month at
+  // a time; `year_month` in the response is then `null`. `next_cursor`/
+  // `clients` are always present in the response (see
+  // backend/app/routers/mcp.py get_mcp_audit). F15: the "Connected
+  // assistants" Settings card used to be this helper's other caller (its
+  // own unpaginated first-page fetch behind a "View activity" expander) —
+  // that inline list is gone, so /mcp-activity is now the only caller.
   getMcpAudit: (month?: string, limit = 10, opts?: { cursor?: string; client?: string }) => {
     const params = new URLSearchParams();
     if (month) params.set("month", month);

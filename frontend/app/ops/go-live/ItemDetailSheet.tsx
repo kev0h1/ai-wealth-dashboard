@@ -1,10 +1,11 @@
 "use client";
 
 // The board card's detail sheet: the same controls as the list-view row
-// (done/reopen, owner, start, block with reason, note, priority,
-// unblocks) collected into one popover since a kanban card doesn't have
-// room for the list's inline buttons. Opened by tapping a card in
-// BoardView; no drag-and-drop, every state change goes through here.
+// (done/reopen, owner, start, block with reason, reject with reason
+// (review items only), note, priority, unblocks) collected into one
+// popover since a kanban card doesn't have room for the list's inline
+// buttons. Opened by tapping a card in BoardView; no drag-and-drop, every
+// state change goes through here.
 
 import { useEffect, useState } from "react";
 import { Square, SquareCheck, X } from "lucide-react";
@@ -36,6 +37,7 @@ export function ItemDetailSheet({
   onClose: () => void;
 }) {
   const [blockReason, setBlockReason] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
   const [noteText, setNoteText] = useState("");
   const [unblocksDraft, setUnblocksDraft] = useState(item.unblocks.join(", "));
 
@@ -189,6 +191,32 @@ export function ItemDetailSheet({
                   className="min-h-9 shrink-0 rounded-lg bg-slate-800 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-700"
                 >
                   Block
+                </button>
+              </div>
+            </div>
+          )}
+
+          {item.state === "review" && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Reject, with a reason</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Reason"
+                  className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  disabled={pending || !rejectReason.trim()}
+                  onClick={() => {
+                    onAction({ action: "reject", reason: rejectReason.trim() });
+                    setRejectReason("");
+                  }}
+                  className="min-h-9 shrink-0 rounded-lg bg-slate-800 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-700"
+                >
+                  Reject
                 </button>
               </div>
             </div>
