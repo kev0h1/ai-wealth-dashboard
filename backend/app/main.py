@@ -309,6 +309,17 @@ async def _create_indexes():
     await mcp_calls_col.create_index(
         "ts", expireAfterSeconds=MCP_AUDIT_TTL_DAYS * 24 * 3600, name="mcp_audit_ttl"
     )
+    # F14: GET /mcp/audit's cursor-paginated full-log page sorts by
+    # `(ts desc, _id desc)` scoped to one user, with or without a
+    # `year_month` filter (see get_mcp_audit's "month=all" shape) — the
+    # (user_id, year_month) index above only helps the exact-month case and
+    # cannot serve the sort, which would otherwise force an in-memory sort
+    # or (for month=all) a full collection scan. This index lets Mongo
+    # narrow to the user via the prefix and walk `ts` already in the
+    # required order for every shape of the query.
+    await mcp_calls_col.create_index(
+        [("user_id", 1), ("ts", -1)], name="mcp_audit_user_ts"
+    )
     # F14: durable per-(user_id, year_month) call counter backing the
     # monthly MCP allowance (app.core.subscription._mcp_call_count),
     # immune to the mcp_calls_col TTL above.

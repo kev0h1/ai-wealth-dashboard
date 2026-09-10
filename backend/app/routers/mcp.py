@@ -26,6 +26,7 @@ re-deriving it, so that swap should not have to touch anything below
 `resolve_mcp_principal` itself. A v1 session-bearer principal is granted all
 three scopes and reports `client: "session"`.
 """
+import base64
 import hashlib
 import json
 import logging
@@ -33,6 +34,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -559,22 +561,65 @@ def _serialize_audit_row(doc: dict) -> dict:
     }
 
 
+def _encode_audit_cursor(ts: datetime, doc_id) -> str:
+    """F14 full-log page: an opaque cursor over `(ts, _id)`, the same pair
+    the query below sorts and filters by. `_id` is the tiebreaker: two
+    `tools/call` audit rows for the same user can share a millisecond `ts`
+    under load, and `ts` alone is not unique, so a cursor built from `ts`
+    only could skip or repeat rows straddling a page boundary."""
+    raw = f"{ts.isoformat()}|{doc_id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def _decode_audit_cursor(raw: str) -> tuple[datetime, ObjectId]:
+    try:
+        decoded = base64.urlsafe_b64decode(raw.encode()).decode()
+        ts_str, id_str = decoded.split("|", 1)
+        return datetime.fromisoformat(ts_str), ObjectId(id_str)
+    except Exception as exc:
+        raise HTTPException(400, "Invalid cursor") from exc
+
+
 @router.get("/mcp/audit")
 async def get_mcp_audit(
     month: str | None = Query(None),
     limit: int = Query(10, ge=1, le=50),
+    cursor: str | None = Query(None),
+    client: str | None = Query(None),
     user: dict = Depends(current_user),
 ):
-    """The caller's own `/mcp` audit rows for one calendar month (default:
-    the current month), masked down to tool/client/ts/ok, for F4 (not yet
-    built) to render on a "Connected assistants" settings surface. Every
-    other audit field (latency_ms, dropped_keys) stays server-side. Not
-    rate-limited itself: it is a cheap read of the caller's own already-
-    written rows, not a tool-call surface.
+    """The caller's own `/mcp` audit rows, masked down to tool/client/ts/ok,
+    for F4's "Connected assistants" settings card AND (F14) the full,
+    paginated audit log page it links to. Every other audit field
+    (latency_ms, dropped_keys) stays server-side. Not rate-limited itself:
+    it is a cheap read of the caller's own already-written rows, not a
+    tool-call surface.
 
-    F14: `limit` (default 10, max 50) caps how many of the month's rows come
-    back, most recent first, so a heavy user's month does not send the whole
-    thing inline. `month` still selects the calendar month as before.
+    `month` (unchanged, defaults to the current calendar month, exact
+    "YYYY-MM" match) and `limit` (unchanged, default 10, max 50) keep every
+    existing caller — the "Connected assistants" card's inline preview —
+    working exactly as before, including its response shape (`year_month`
+    always a string, no `cursor`/`client` passed). Passing `month=all` is
+    new: it drops the year_month filter entirely so the full-log page can
+    browse the caller's whole (TTL-bounded, see MCP_AUDIT_TTL_DAYS) history
+    rather than one month at a time; `year_month` in the response is then
+    `null` since no single month applies.
+
+    F14 pagination: rows are sorted `(ts desc, _id desc)`, a total order
+    (see `_encode_audit_cursor`'s docstring on why `_id` is needed as a
+    tiebreaker). `cursor` (opaque, from a previous response's `next_cursor`)
+    resumes strictly after that row; omitting it starts from the most
+    recent row. The response's own `next_cursor` is the cursor for the next
+    page, or `null` once the caller has reached the oldest row for the
+    current filter scope. `client` (optional) narrows to audit rows whose
+    stored `client` field (see `_write_audit`; the connector's display name,
+    or "session" for the F3 session-bearer stopgap) exactly matches.
+
+    `clients`: the distinct `client` values across this user's whole audit
+    log (not narrowed by `month` or `client` themselves, so the full-log
+    page's filter dropdown does not collapse to one option once a filter is
+    applied), for the frontend to render filter choices without a second
+    endpoint.
 
     F7: also returns a `limits` block (burst/minute, daily soft cap, and the
     monthly allowance with used counts) so F9 can surface the caps
@@ -583,17 +628,52 @@ async def get_mcp_audit(
     as `check_mcp_principal_limit` would key it for a session-bearer
     principal (no client_id to prefer)."""
     uid = user.get("email")
-    ym = month or datetime.now(timezone.utc).strftime("%Y-%m")
-    cursor = mcp_calls_col.find(
-        {"user_id": uid, "year_month": ym},
-        {"_id": 0, "tool": 1, "client": 1, "ts": 1, "ok": 1},
-    ).sort("ts", -1).limit(limit)
-    rows = [_serialize_audit_row(d) async for d in cursor]
+
+    query: dict = {"user_id": uid}
+    if month is None:
+        ym: str | None = datetime.now(timezone.utc).strftime("%Y-%m")
+        query["year_month"] = ym
+    elif month == "all":
+        ym = None
+    else:
+        ym = month
+        query["year_month"] = ym
+    if client:
+        query["client"] = client
+    if cursor:
+        cursor_ts, cursor_id = _decode_audit_cursor(cursor)
+        query["$or"] = [
+            {"ts": {"$lt": cursor_ts}},
+            {"ts": cursor_ts, "_id": {"$lt": cursor_id}},
+        ]
+
+    # F14: served by the (user_id, ts) index (see app/main.py _create_indexes)
+    # for both the month-scoped and month=all shapes — `year_month`/`client`
+    # are residual filters evaluated per document, but user_id narrows the
+    # index scan and ts is already in the index's own sort order, so no
+    # in-memory sort or collection scan is needed either way. `limit + 1` is
+    # fetched so the presence of a further row (not the row itself) decides
+    # whether `next_cursor` is null.
+    rows_cursor = mcp_calls_col.find(
+        query, {"tool": 1, "client": 1, "ts": 1, "ok": 1},
+    ).sort([("ts", -1), ("_id", -1)]).limit(limit + 1)
+    docs = [d async for d in rows_cursor]
+
+    next_cursor = None
+    if len(docs) > limit:
+        docs = docs[:limit]
+        last = docs[-1]
+        next_cursor = _encode_audit_cursor(last["ts"], last["_id"])
+
+    rows = [_serialize_audit_row(d) for d in docs]
+    clients = sorted(c for c in await mcp_calls_col.distinct("client", {"user_id": uid}) if c)
     allowance = await _mcp_allowance_status(uid)
     daily_used = await _mcp_daily_used(uid)
     return {
         "year_month": ym,
         "calls": rows,
+        "next_cursor": next_cursor,
+        "clients": clients,
         "limits": {
             "burst_per_minute": MCP_BURST_PER_MINUTE,
             "daily_soft_cap": MCP_DAILY_SOFT_CAP,

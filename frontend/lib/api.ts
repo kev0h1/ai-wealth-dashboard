@@ -2096,11 +2096,28 @@ export const api = {
   // F3/F4: the caller's own `/mcp` calls for one calendar month (default
   // current month), most recent first — the "Connected assistants" card's
   // "View activity" expander.
-  getMcpAudit: (month?: string, limit = 10) => {
+  //
+  // F14: `opts.cursor`/`opts.client` back the full, paginated audit log
+  // page (app/mcp-activity/McpActivityPage.tsx) — omitted here, this is
+  // still the card's own unpaginated first-page call, unchanged. Passing
+  // `month: "all"` (new) drops the year_month filter server-side so the
+  // full-log page can browse the caller's whole TTL-bounded history
+  // instead of one month at a time; `year_month` in the response is then
+  // `null`. `next_cursor`/`clients` are always present in the response
+  // (see backend/app/routers/mcp.py get_mcp_audit) even though the card
+  // itself ignores them.
+  getMcpAudit: (month?: string, limit = 10, opts?: { cursor?: string; client?: string }) => {
     const params = new URLSearchParams();
     if (month) params.set("month", month);
     params.set("limit", String(limit));
-    return get<{ year_month: string; calls: McpAuditCall[] }>(`/mcp/audit?${params.toString()}`);
+    if (opts?.cursor) params.set("cursor", opts.cursor);
+    if (opts?.client) params.set("client", opts.client);
+    return get<{
+      year_month: string | null;
+      calls: McpAuditCall[];
+      next_cursor: string | null;
+      clients: string[];
+    }>(`/mcp/audit?${params.toString()}`);
   },
   setMirrorChoice: (trait_id: string, choice: "keep" | "change") =>
     post<{ ok: boolean; trait_id: string; choice: string }>("/mirror/choice", { trait_id, choice }),
