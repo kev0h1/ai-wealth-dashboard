@@ -141,6 +141,21 @@ workflows:
         # with `[ "${IOS_PUSH_ENABLED:-false}" = "true" ]`, a YAML boolean `true`
         # would not match that string comparison.
         IOS_PUSH_ENABLED: "true"
+        # MCP connector flag + URL (backlog A17, mobile reach: F17). UAT-only,
+        # matching NEXT_PUBLIC_MCP_CONNECTOR=on / NEXT_PUBLIC_MCP_URL on the
+        # UAT frontend service (this VPS's gitignored frontend/.env.local) and
+        # DEPLOY.md's "MCP connector flag"/"MCP connector URL" sections.
+        # frontend/scripts/build-mobile.sh's shared "Build web" step below
+        # would derive the same values from MOBILE_TARGET=uat (the default)
+        # on its own, but this workflow sets them explicitly too, same
+        # belt-and-braces reasoning as MOBILE_TARGET/BUILD_TAG_ENV above:
+        # explicit per-workflow vars are the source of truth for what a
+        # given Codemagic workflow bakes, not an implicit script fallback.
+        # The ios-capacitor-prod workflow below must NEVER set these — A17
+        # doctrine is that the connector stays entirely absent from
+        # production until compliance sign-off.
+        NEXT_PUBLIC_MCP_CONNECTOR: "on"
+        NEXT_PUBLIC_MCP_URL: "https://uat.wealth.auriqltd.co.uk/api/mcp"
     scripts:
       - &step_build_web
         name: Build web (mobile static export)
