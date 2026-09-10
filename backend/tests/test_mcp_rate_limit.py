@@ -187,6 +187,41 @@ class _FakeAuditCol:
         return _FakeEmptyCursor()
 
 
+class _FakeCounterCol:
+    """F14: stands in for `mcp_call_counters_col`. `_mcp_call_count`
+    (behind check_mcp_allowance) only calls `find_one`; `_write_audit`'s
+    live increment calls `update_one` with `$inc`/`$set`, upsert=True."""
+
+    def __init__(self):
+        self.docs: list[dict] = []
+
+    async def find_one(self, query):
+        uid = query.get("user_id")
+        ym = query.get("year_month")
+        for d in self.docs:
+            if d.get("user_id") == uid and d.get("year_month") == ym:
+                return d
+        return None
+
+    async def update_one(self, query, update, upsert=False):
+        uid = query.get("user_id")
+        ym = query.get("year_month")
+        for d in self.docs:
+            if d.get("user_id") == uid and d.get("year_month") == ym:
+                for k, v in (update.get("$inc") or {}).items():
+                    d[k] = d.get(k, 0) + v
+                for k, v in (update.get("$set") or {}).items():
+                    d[k] = v
+                return
+        if upsert:
+            doc = {"user_id": uid, "year_month": ym}
+            for k, v in (update.get("$inc") or {}).items():
+                doc[k] = v
+            for k, v in (update.get("$set") or {}).items():
+                doc[k] = v
+            self.docs.append(doc)
+
+
 class _FakeSubscription:
     def __init__(self, tier_name="connect", mcp_limit=2000):
         self.tier_name = tier_name
@@ -225,6 +260,11 @@ def test_rate_limited_call_writes_no_audit_doc_and_spends_no_monthly_allowance(m
     monkeypatch.setattr(mcp, "mcp_calls_col", audit)
     monkeypatch.setattr(db_collections_module, "mcp_calls_col", audit)
     monkeypatch.setattr(db_collections_module, "mcp_call_packs_col", _FakeAuditCol())
+    # F14: mcp_allowance/check_mcp_allowance now read this month's usage from
+    # mcp_call_counters_col, not mcp_calls_col row counts.
+    counters = _FakeCounterCol()
+    monkeypatch.setattr(mcp, "mcp_call_counters_col", counters)
+    monkeypatch.setattr(db_collections_module, "mcp_call_counters_col", counters)
 
     async def fake_get_subscription(uid):
         return _FakeSubscription()

@@ -13,10 +13,16 @@ the pack-inflated limit itself is spent), POST /subscription/admin/topup
 kind="mcp" (writes the right doc), and GET /subscription's `mcp`/`mcp_packs`
 payload shape.
 
-Fakes `mcp_call_packs_col`/`mcp_calls_col` the same way
+Fakes `mcp_call_packs_col`/`mcp_call_counters_col` the same way
 tests/test_penny_topup_packs.py fakes `penny_topups_col`/`llm_usage_col`
 (no real Mongo) — `_FakePacksCol` additionally supports `update_one` since
-settle_mcp_packs persists pack draw-downs."""
+settle_mcp_packs persists pack draw-downs.
+
+F14: usage is read from `mcp_call_counters_col` (the durable per-(user,
+month) counter), not `mcp_calls_col` row counts, since `mcp_allowance`/
+`settle_mcp_packs` now delegate to `app.core.subscription._mcp_call_count`.
+`_FakeCounterCol` reproduces the old `_FakeMcpCallsCol.count_documents`
+semantics behind `find_one`, the only method `_mcp_call_count` calls."""
 import asyncio
 from datetime import datetime, timedelta, timezone
 
@@ -52,18 +58,21 @@ class _FakeCursor:
             yield d
 
 
-class _FakeMcpCallsCol:
-    """Twin of test_mcp_endpoint.py's `_FakeAuditCol`, trimmed to what
-    `settle_mcp_packs`/`mcp_allowance`/`check_mcp_allowance` need:
-    `count_documents` keyed by (user_id, year_month)."""
+class _FakeCounterCol:
+    """F14: stands in for `mcp_call_counters_col`. `_mcp_call_count`
+    (app.core.subscription) only ever calls `find_one`, keyed by
+    (user_id, year_month) — this fake tallies seeded rows for that pair,
+    same counting semantics as the `_FakeMcpCallsCol.count_documents` it
+    replaces here."""
 
     def __init__(self, docs=None):
         self.docs: list[dict] = list(docs or [])
 
-    async def count_documents(self, query):
+    async def find_one(self, query):
         uid = query.get("user_id")
         ym = query.get("year_month")
-        return sum(1 for d in self.docs if d.get("user_id") == uid and d.get("year_month") == ym)
+        n = sum(1 for d in self.docs if d.get("user_id") == uid and d.get("year_month") == ym)
+        return {"count": n} if n else None
 
     async def insert_one(self, doc):
         self.docs.append(dict(doc))
@@ -144,12 +153,12 @@ def _patch(monkeypatch, *, used_this_month=0, packs=None, sub=None):
         return sub or _FakeConnectSub()
     monkeypatch.setattr(subscription_module, "get_subscription", fake_get_subscription)
 
-    fake_calls = _FakeMcpCallsCol(_calls(UID, ym, used_this_month))
-    monkeypatch.setattr(db_collections_module, "mcp_calls_col", fake_calls)
+    fake_counters = _FakeCounterCol(_calls(UID, ym, used_this_month))
+    monkeypatch.setattr(db_collections_module, "mcp_call_counters_col", fake_counters)
 
     fake_packs = _FakePacksCol(packs or [])
     monkeypatch.setattr(db_collections_module, "mcp_call_packs_col", fake_packs)
-    return fake_packs, fake_calls
+    return fake_packs, fake_counters
 
 
 # ── 1. Active pack folds into this month's limit ────────────────────────
@@ -206,10 +215,10 @@ def test_past_month_overflow_settles_onto_oldest_pack_and_is_idempotent(monkeypa
     last_ym = _ym(last_month_start)
 
     pack = _pack(UID, remaining=1000, purchased_at=last_month_start, year_month=last_ym)
-    fake_packs, fake_calls = _patch(monkeypatch, used_this_month=0, packs=[pack])
+    fake_packs, fake_counters = _patch(monkeypatch, used_this_month=0, packs=[pack])
     # Last month: 2300 calls used against a 2000 allowance -> 300 overflow,
     # drawn from the pack (still has all 1000 remaining at this point).
-    fake_calls.docs.extend(_calls(UID, last_ym, 2300))
+    fake_counters.docs.extend(_calls(UID, last_ym, 2300))
 
     allowance = _run(subscription_module.mcp_allowance(UID))
     assert fake_packs.docs[0]["remaining"] == 700  # 1000 - 300 overflow
@@ -228,10 +237,10 @@ def test_past_month_overflow_only_settles_up_to_pack_remaining(monkeypatch):
     last_ym = _ym(last_month_start)
 
     pack = _pack(UID, remaining=50, purchased_at=last_month_start, year_month=last_ym)
-    fake_packs, fake_calls = _patch(monkeypatch, used_this_month=0, packs=[pack])
+    fake_packs, fake_counters = _patch(monkeypatch, used_this_month=0, packs=[pack])
     # 2500 used last month against 2000 allowance -> 500 overflow, but the
     # pack only has 50 left -> settles to 0, never negative.
-    fake_calls.docs.extend(_calls(UID, last_ym, 2500))
+    fake_counters.docs.extend(_calls(UID, last_ym, 2500))
 
     _run(subscription_module.mcp_allowance(UID))
     assert fake_packs.docs[0]["remaining"] == 0

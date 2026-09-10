@@ -303,17 +303,31 @@ async def settle_topups(email: str, now: datetime) -> list[dict]:
     )
 
 
+async def _mcp_call_count(email: str, ym: str) -> int:
+    """This calendar month's /mcp `tools/call` count for `email`, read from
+    the F14 per-(user_id, year_month) counter doc (`mcp_call_counters_col`)
+    rather than counting `mcp_calls_col` rows — the audit log TTLs out
+    after MCP_AUDIT_TTL_DAYS (app/main.py), so counting rows would let
+    expiry silently reset a user's usage mid-cycle. Returns 0 if no
+    counter doc exists yet for this (user, month) pair (a user with no
+    calls this month, or a month that predates F14 and was never seeded
+    by _seed_mcp_call_counters)."""
+    from app.db.collections import mcp_call_counters_col
+    doc = await mcp_call_counters_col.find_one({"user_id": email, "year_month": ym})
+    return int(doc["count"]) if doc else 0
+
+
 async def settle_mcp_packs(email: str, now: datetime) -> list[dict]:
     """Thin wrapper around `_settle_packs` for MCP connector call packs
-    (`mcp_call_packs_col`, F9). Usage is counted straight off
-    `mcp_calls_col` (one doc per successful `tools/call`) rather than
-    through `app.core.llm.monthly_usage`, which only knows about LLM
+    (`mcp_call_packs_col`, F9). Usage is read via `_mcp_call_count` (F14:
+    the durable per-month counter, not `mcp_calls_col` row counts) rather
+    than through `app.core.llm.monthly_usage`, which only knows about LLM
     pipelines. See `mcp_allowance` for how the result is folded into this
     month's limit."""
-    from app.db.collections import mcp_call_packs_col, mcp_calls_col
+    from app.db.collections import mcp_call_packs_col
 
     async def _mcp_usage(email: str, ym: str) -> int:
-        return await mcp_calls_col.count_documents({"user_id": email, "year_month": ym})
+        return await _mcp_call_count(email, ym)
 
     return await _settle_packs(
         email, now, col=mcp_call_packs_col,
@@ -402,16 +416,14 @@ async def mcp_allowance(email: str) -> dict:
 
     Returns `{"tier", "limit" (tier limit + active pack remaining; None
     when the tier itself is unlimited; 0 stays 0, packs not applied),
-    "used" (this month's `mcp_calls_col` count), "remaining" (None when
-    unlimited), "resets_on" ("YYYY-MM-DD", the 1st of next month UTC),
-    "pack_calls" (active pack remaining total, 0 if none — reported even
-    when the tier is 0 and it isn't folded into `limit`, so the UI can
+    "used" (this month's `mcp_call_counters_col` count, F14), "remaining"
+    (None when unlimited), "resets_on" ("YYYY-MM-DD", the 1st of next month
+    UTC), "pack_calls" (active pack remaining total, 0 if none — reported
+    even when the tier is 0 and it isn't folded into `limit`, so the UI can
     still explain an unused pack), "pack_expires_soonest" (ISO date of the
     soonest-expiring ACTIVE pack, or None), "packs_bought_this_month"
     (count of packs with this calendar month as their purchase month, any
     source)}`."""
-    from app.db.collections import mcp_calls_col
-
     sub = await get_subscription(email)
     tier_limit = sub.limit("mcp_tool_calls_per_month")
 
@@ -437,7 +449,7 @@ async def mcp_allowance(email: str) -> dict:
     else:
         limit = tier_limit + pack_calls
 
-    used = await mcp_calls_col.count_documents({"user_id": email, "year_month": ym})
+    used = await _mcp_call_count(email, ym)
     remaining = None if limit is None else max(0, limit - used)
 
     resets_on = _next_month_first_day(now)

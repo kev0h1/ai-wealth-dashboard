@@ -28,6 +28,7 @@
 // gap between an optimistic disconnect and the next refetch dropping the
 // row.
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Plug, Check, ChevronDown } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
@@ -142,13 +143,13 @@ function McpPackRow({
   );
 }
 
-function formatDate(iso: string): string {
+export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
@@ -158,7 +159,7 @@ function formatDateTime(iso: string): string {
 
 // No shared TOOL_LABELS map exists yet (grepped, nothing else needs one) —
 // "get_safe_to_spend" -> "get safe to spend" reads fine for an audit log.
-function toolLabel(tool: string): string {
+export function toolLabel(tool: string): string {
   return tool.replace(/_/g, " ");
 }
 
@@ -388,7 +389,7 @@ export default function ConnectedAssistantsCard({
                 )}
                 {activity.status === "ready" && activity.calls.length > 0 && (
                   <ul className="space-y-2 pt-1">
-                    {activity.calls.slice(0, 20).map((call, i) => (
+                    {activity.calls.slice(0, 10).map((call, i) => (
                       <li key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         {call.ok ? (
                           <Check size={12} className="flex-shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
@@ -403,6 +404,27 @@ export default function ConnectedAssistantsCard({
                       </li>
                     ))}
                   </ul>
+                )}
+                {/* F14: the "90 days" here mirrors the backend's MCP_AUDIT_TTL_DAYS
+                    default (backend/app/core/config.py) and would drift if that env
+                    var is ever changed away from 90 without updating this string too.
+                    The link to the full log is shown whenever the activity fetch has
+                    settled, even with zero rows this month, since the full log can
+                    still hold rows from an earlier month within the retention window. */}
+                {activity.status === "ready" && (
+                  <div className="pt-2 flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      {activity.calls.length >= 10
+                        ? "Showing your most recent 10 calls. Sorted keeps this log for 90 days."
+                        : "Sorted keeps this activity log for 90 days."}
+                    </p>
+                    <Link
+                      href="/mcp-activity"
+                      className="flex-shrink-0 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity"
+                    >
+                      View full log
+                    </Link>
+                  </div>
                 )}
               </div>
             </div>
