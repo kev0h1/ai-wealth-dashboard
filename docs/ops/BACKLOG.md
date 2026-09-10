@@ -29,6 +29,13 @@ A TODO.md item line looks like this:
   item is done (the checkbox wins). The `review` state and its branch are
   set by `scripts/session.sh finish` and consumed by
   `scripts/integrate.py`, see "Branch per item" below.
+- A `blocked` reason on a design item must point at something Kevin can
+  actually see, never at a choice he hasn't been shown yet. See "Design
+  work" in `CLAUDE.md` and `AGENTS.md`: it requires coded, linkable
+  variants under `frontend/app/design/<slug>/` to exist before an item is
+  blocked for Kevin's choice, the fix for the B19 mistake, where an item
+  was blocked "awaiting Kevin's choice of plan-picker variant" with no
+  variants built.
 - `rejected` is what a reviewer sets the moment they find a defect in an
   item sitting in `review`, instead of leaving it there. `review` alone
   is treated as consent to merge by any integrate pass, including one
