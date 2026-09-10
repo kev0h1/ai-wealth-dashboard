@@ -11,6 +11,15 @@ Run with `backend/.venv/bin/python scripts/backlog.py <command> ...`.
 
 Commands:
     list                                Print every item and question.
+    show <id>                           Print one item as a single JSON
+                                        object (id, title, state, reason,
+                                        branch, owner, done_at, ...) and
+                                        exit 1 with an error on stderr if
+                                        <id> doesn't exist. Read-only;
+                                        meant for scripts (e.g.
+                                        scripts/session.sh) to check an
+                                        item's state without scraping the
+                                        human-readable `list` table.
     add <section> "<title>" [--owner kevin|claude|codex]
                                         Add a new item under section heading
                                         "## <section>. ..." (e.g. A, H) with
@@ -53,6 +62,7 @@ under `/root/worktrees/<branch>`. Set `BACKLOG_ROOT` to point it elsewhere
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -86,6 +96,12 @@ def cmd_list(args: argparse.Namespace) -> None:
     print(f"{'q':<5} {'status':<15} {'unblocked_by':<14} {'title'}")
     for q in snapshot.questions():
         print(f"{q['q']:<5} {q['status']:<15} {', '.join(q['unblocked_by']) or '-':<14} {q['title']}")
+
+
+def cmd_show(args: argparse.Namespace) -> None:
+    snapshot = backlog.load()
+    item = snapshot.todo.item(args.item_id)  # raises BacklogError if unknown
+    print(json.dumps(item.to_dict()))
 
 
 def cmd_add(args: argparse.Namespace) -> None:
@@ -166,6 +182,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list = sub.add_parser("list", help="Print every item and question.")
     p_list.set_defaults(func=cmd_list)
+
+    p_show = sub.add_parser(
+        "show", help="Print one item as JSON (read-only; for scripts to check state without scraping `list`)."
+    )
+    p_show.add_argument("item_id")
+    p_show.set_defaults(func=cmd_show)
 
     p_add = sub.add_parser("add", help="Add a new item under a section heading; prints the new id.")
     p_add.add_argument("section", help="Section letter, e.g. A or H (must already have a '## <section>.' heading).")
