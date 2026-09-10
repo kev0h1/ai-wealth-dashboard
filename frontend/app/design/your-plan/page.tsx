@@ -1,119 +1,342 @@
 "use client";
 
-// TEMPORARY PREVIEW — delete with the other /design/* routes.
-// B5: "Your plan" Settings card, real components/YourPlanCard.tsx (placed
-// directly above the Penny card in app/settings/SettingsPage.tsx, hosting
-// PennyUsageRow.tsx the way that component's own docstring anticipated)
-// against static SubscriptionInfo fixtures, no data fetching, no session
-// — /design/* is exempt (see components/AuthProvider.tsx).
+// TEMPORARY PREVIEW, delete with the other /design/* routes.
+// B19: five-tier picker variants for Kevin to compare before the picker is
+// wired into Settings or onboarding. Static fixtures only, no API calls.
 //
-// Two headline states per Kevin's ask: billing not live (today, everywhere
-// — no Stripe account exists yet, "Plans and packs are coming soon.") and
-// billing live (once BILLING_ENABLED, "Manage plan" opens Stripe's
-// customer portal). "Manage plan" is wired to the real
-// api.openBillingPortal() call inside YourPlanCard.tsx itself (same
-// self-contained pattern as MoreMessagesSheet.tsx's checkout buttons) — on
-// this unauthenticated preview page clicking it will fail and show the
-// component's own inline error line, which is the correct, safe failure
-// mode to demonstrate here rather than something to route around.
-//
-// Deep-linkable at /design/your-plan.
+// /design/your-plan?variant=a|b|c&context=settings|onboarding&mode=light|dark&billing=off|on
 
-import YourPlanCard from "@/components/YourPlanCard";
-import type { SubscriptionInfo } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Crown,
+  FileText,
+  Landmark,
+  Link2,
+  X,
+  Zap,
+} from "lucide-react";
 
-function fixture(
-  tier: SubscriptionInfo["tier"],
-  billingLive: boolean,
-  usage: Partial<SubscriptionInfo["usage"]>,
-): SubscriptionInfo {
-  return {
-    tier,
-    status: "active",
-    prices_gbp: { statements: 0, lite: 5.99, standard: 9.99, connect: 12.99, max: 16.99 },
-    billing_live: billingLive,
-    topup: { messages: 100, price_gbp: 2.99 },
-    topups: [
-      { id: "small", messages: 20, price_gbp: 0.99, badge: null },
-      { id: "medium", messages: 100, price_gbp: 2.99, badge: "Most popular" },
-      { id: "large", messages: 200, price_gbp: 4.99, badge: "Best value" },
-    ],
-    limits: {
-      open_banking: true,
-      max_banks: null,
-      max_accounts: null,
-      refresh: "daily",
-      penny_messages_per_month: 150,
-      mcp_tool_calls_per_month: null,
-      history_days: null,
-      statement_uploads_per_month: null,
-    },
-    usage: {
-      year_month: "2026-09",
-      penny_messages: 0,
-      cost_usd: 0,
-      penny_limit: 150,
-      penny_remaining: 150,
-      penny_resets_on: "2026-10-01",
-      penny_topup_messages: 0,
-      penny_topup_expires_soonest: null,
-      penny_packs_bought_this_month: 0,
-      ...usage,
-    },
-  };
+type Variant = "a" | "b" | "c";
+type Context = "settings" | "onboarding";
+type Mode = "light" | "dark";
+type Billing = "off" | "on";
+type TierName = "statements" | "lite" | "standard" | "connect" | "max";
+
+type Tier = {
+  id: TierName;
+  name: string;
+  price: number;
+  lead: string;
+  includes: string[];
+  icon: typeof FileText;
+};
+
+const TIERS: Tier[] = [
+  {
+    id: "statements",
+    name: "Statements",
+    price: 0,
+    lead: "A clear money view from uploaded statements.",
+    includes: ["3 statement uploads a month", "90 days of history", "10 Penny messages a month"],
+    icon: FileText,
+  },
+  {
+    id: "lite",
+    name: "Lite",
+    price: 5.99,
+    lead: "Keep up with day-to-day money across your main banks.",
+    includes: ["Up to 3 connected banks", "Daily bank updates", "6 months of history", "40 Penny messages a month"],
+    icon: Landmark,
+  },
+  {
+    id: "standard",
+    name: "Standard",
+    price: 9.99,
+    lead: "Your full money picture, kept up to date through the day.",
+    includes: ["Up to 20 connected accounts", "Updates every 4 hours", "Full history", "150 Penny messages a month"],
+    icon: Zap,
+  },
+  {
+    id: "connect",
+    name: "Connect",
+    price: 12.99,
+    lead: "Use your Sorted figures in an assistant you connect.",
+    includes: ["Everything in Standard", "2,000 connected-assistant calls a month", "Read-only sharing you can revoke"],
+    icon: Link2,
+  },
+  {
+    id: "max",
+    name: "Max",
+    price: 16.99,
+    lead: "The highest limits and fastest updates.",
+    includes: ["All your bank accounts", "Priority bank updates", "400 Penny messages a month", "5,000 connected-assistant calls a month"],
+    icon: Crown,
+  },
+];
+
+const NOTES: Record<Variant, { title: string; thesis: string; risk: string }> = {
+  a: {
+    title: "A · Capability ladder · recommended",
+    thesis: "All five choices stay visible. One selected rung opens to show exactly what that plan includes.",
+    risk: "Comparing every detail still takes five taps, but the default view stays compact enough for a phone.",
+  },
+  b: {
+    title: "B · Plan cards",
+    thesis: "Each plan gets a complete card, making benefits easy to scan without opening anything.",
+    risk: "The five-card stack is long and makes the decision feel heavier during onboarding.",
+  },
+  c: {
+    title: "C · Needs first",
+    thesis: "Translate tiers into five recognisable jobs before revealing the exact allowance detail.",
+    risk: "The plain-language jobs help orientation, but hide more of the factual comparison behind a tap.",
+  },
+};
+
+function price(tier: Tier): string {
+  return tier.price === 0 ? "Free" : `£${tier.price.toFixed(2)}`;
 }
 
-const NOT_LIVE = fixture("standard", false, { penny_messages: 37, penny_limit: 150, penny_remaining: 113 });
-const LIVE_STANDARD = fixture("standard", true, { penny_messages: 92, penny_limit: 150, penny_remaining: 58 });
-const LIVE_MAX = fixture("max", true, { penny_messages: 84, penny_limit: null, penny_remaining: null });
-const LOADING = null;
-
-function CardFrame({ label, info, error = false }: { label: string; info: SubscriptionInfo | null; error?: boolean }) {
+function Price({ tier, compact = false }: { tier: Tier; compact?: boolean }) {
+  if (tier.price === 0) {
+    return <span className={`${compact ? "text-[14px]" : "text-[18px]"} font-bold text-slate-950 dark:text-white`}>Free</span>;
+  }
   return (
-    <div>
-      <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-2">{label}</p>
-      <YourPlanCard info={info} error={error} />
+    <span className="whitespace-nowrap text-slate-950 dark:text-white">
+      <span className={`money ${compact ? "text-[14px]" : "text-[18px]"} font-bold`}>£{tier.price.toFixed(2)}</span>
+      <span className="ml-0.5 text-[10px] text-slate-400 dark:text-slate-500">/month</span>
+    </span>
+  );
+}
+
+function Includes({ tier, quiet = false }: { tier: Tier; quiet?: boolean }) {
+  return (
+    <ul className="mt-3 space-y-2">
+      {tier.includes.map((item) => (
+        <li key={item} className={`flex items-start gap-2 text-[12px] leading-snug ${quiet ? "text-slate-500 dark:text-slate-400" : "text-slate-600 dark:text-slate-300"}`}>
+          <Check size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-400" strokeWidth={2.5} />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function VariantA({ selected, current, onSelect }: { selected: TierName; current: TierName | null; onSelect: (tier: TierName) => void }) {
+  return (
+    <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
+      {TIERS.map((tier, index) => {
+        const active = tier.id === selected;
+        const Icon = tier.icon;
+        return (
+          <details key={tier.id} open={active ? true : undefined} className={`group ${index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""}`}>
+            <summary onClick={(event) => { event.preventDefault(); onSelect(tier.id); }} className={`flex min-h-[68px] cursor-pointer list-none items-center gap-3 px-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : "active:bg-slate-50 dark:active:bg-white/[0.04]"}`}>
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"}`}>
+                <Icon size={16} aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-[14px] font-bold text-slate-900 dark:text-slate-100">{tier.name}</span>
+                  {active && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300">{tier.id === current ? "Current" : "Selected"}</span>}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">{tier.lead}</span>
+              </span>
+              <Price tier={tier} compact />
+              <ChevronDown size={15} aria-hidden="true" className="shrink-0 text-slate-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+            </summary>
+            <div className="border-t border-indigo-100/70 bg-indigo-50/40 px-4 pb-4 pt-3 dark:border-indigo-400/10 dark:bg-indigo-400/[0.035]">
+              <p className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">{tier.lead}</p>
+              <Includes tier={tier} />
+            </div>
+          </details>
+        );
+      })}
     </div>
   );
 }
 
-function ThemeBlock({ dark }: { dark: boolean }) {
+function VariantB({ selected, current, onSelect }: { selected: TierName; current: TierName | null; onSelect: (tier: TierName) => void }) {
   return (
-    <div className={dark ? "dark" : ""} style={{ colorScheme: dark ? "dark" : "light" }}>
-      <div className="rounded-3xl p-4 space-y-5 bg-[#f0f2f7] dark:bg-[#0f172a]">
-        <CardFrame label="Billing not live (today, everywhere)" info={NOT_LIVE} />
-        <CardFrame label="Billing live, Standard plan" info={LIVE_STANDARD} />
-        <CardFrame label="Billing live, Max plan (unlimited Penny messages)" info={LIVE_MAX} />
-        <CardFrame label="Loading" info={LOADING} />
-        <CardFrame label="Failed to load" info={null} error={true} />
+    <div className="space-y-3">
+      {TIERS.map((tier) => {
+        const active = tier.id === selected;
+        const Icon = tier.icon;
+        return (
+          <button
+            type="button"
+            key={tier.id}
+            onClick={() => onSelect(tier.id)}
+            className={`w-full rounded-2xl p-4 text-left shadow-sm outline-none transition-transform active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:shadow-none ${active ? "bg-indigo-50 ring-2 ring-indigo-500 dark:bg-indigo-400/[0.08]" : "bg-white ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:ring-white/[0.07]"}`}
+          >
+            <span className="flex items-start gap-3">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"}`}>
+                <Icon size={16} aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[15px] font-bold text-slate-900 dark:text-slate-100">
+                    {tier.name}
+                    {tier.id === current && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300">Current</span>}
+                  </span>
+                  <Price tier={tier} />
+                </span>
+                <span className="mt-1 block text-[12px] leading-snug text-slate-500 dark:text-slate-400">{tier.lead}</span>
+                <Includes tier={tier} quiet />
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function VariantC({ selected, current, onSelect }: { selected: TierName; current: TierName | null; onSelect: (tier: TierName) => void }) {
+  const jobs: Record<TierName, string> = {
+    statements: "I upload statements",
+    lite: "I want the basics connected",
+    standard: "I want my full picture",
+    connect: "I use another AI assistant",
+    max: "I want the highest limits",
+  };
+  const chosen = TIERS.find((tier) => tier.id === selected) ?? TIERS[0];
+  return (
+    <div className="space-y-3">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
+        {TIERS.map((tier, index) => {
+          const active = tier.id === selected;
+          return (
+            <button key={tier.id} type="button" onClick={() => onSelect(tier.id)} className={`flex min-h-[58px] w-full items-center gap-3 px-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 ${index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""} ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : "active:bg-slate-50 dark:active:bg-white/[0.04]"}`}>
+              <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 dark:border-slate-600"}`}>
+                {active && <Check size={11} aria-hidden="true" strokeWidth={3} />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold text-slate-900 dark:text-slate-100">{jobs[tier.id]}</span>
+                <span className="block text-[11px] text-slate-500 dark:text-slate-400">{tier.name}{tier.id === current ? " · Current" : ""}</span>
+              </span>
+              <span className="text-[12px] font-semibold text-slate-800 dark:text-slate-200">{price(tier)}</span>
+              <ChevronRight size={15} aria-hidden="true" className="text-slate-400" />
+            </button>
+          );
+        })}
+      </div>
+      <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">{chosen.name} includes</p>
+            <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">{chosen.lead}</p>
+          </div>
+          <Price tier={chosen} compact />
+        </div>
+        <Includes tier={chosen} />
       </div>
     </div>
+  );
+}
+
+function ChoiceAction({ selected, current, billing, context }: { selected: TierName; current: TierName | null; billing: Billing; context: Context }) {
+  const tier = TIERS.find((item) => item.id === selected) ?? TIERS[0];
+  const isCurrent = selected === current;
+  const paidUnavailable = tier.price > 0 && billing === "off";
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        disabled={isCurrent || paidUnavailable}
+        className="min-h-12 w-full rounded-xl bg-indigo-600 px-4 text-[14px] font-semibold text-white shadow-sm transition active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+      >
+        {isCurrent ? "Current plan" : context === "onboarding" ? `Continue with ${tier.name}` : tier.id === "statements" ? "Choose Statements" : `Move to ${tier.name}`}
+      </button>
+      {!isCurrent && paidUnavailable && (
+        <p className="mt-2 text-center text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+          Paid plans are not available yet. You can start free with Statements.
+        </p>
+      )}
+      {context === "onboarding" && tier.id !== "statements" && billing === "on" && (
+        <p className="mt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">You’ll finish payment securely before setup continues.</p>
+      )}
+    </div>
+  );
+}
+
+function Controls({ variant, context, mode, billing }: { variant: Variant; context: Context; mode: Mode; billing: Billing }) {
+  return (
+    <nav aria-label="Preview controls" className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-2" style={{ bottom: "calc(env(safe-area-inset-bottom) + 10px)" }}>
+      <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/15 bg-slate-950/95 p-1 shadow-xl">
+        {(["a", "b", "c"] as Variant[]).map((item) => (
+          <a key={item} href={`?variant=${item}&context=${context}&mode=${mode}&billing=${billing}`} className={`grid min-h-11 min-w-11 place-items-center rounded-full text-xs font-bold ${variant === item ? "bg-indigo-600 text-white" : "text-slate-400"}`}>{item.toUpperCase()}</a>
+        ))}
+        <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-white/15" />
+        <a href={`?variant=${variant}&context=${context === "settings" ? "onboarding" : "settings"}&mode=${mode}&billing=${billing}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{context === "settings" ? "Onboard" : "Settings"}</a>
+        <a href={`?variant=${variant}&context=${context}&mode=${mode === "light" ? "dark" : "light"}&billing=${billing}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{mode === "light" ? "Dark" : "Light"}</a>
+        <a href={`?variant=${variant}&context=${context}&mode=${mode}&billing=${billing === "off" ? "on" : "off"}`} className="flex min-h-11 items-center rounded-full px-2.5 text-[11px] font-semibold text-slate-300">{billing === "off" ? "Billing on" : "Billing off"}</a>
+      </div>
+    </nav>
   );
 }
 
 export default function Page() {
+  const params = useSearchParams();
+  const rawVariant = params.get("variant");
+  const rawContext = params.get("context");
+  const rawMode = params.get("mode");
+  const rawBilling = params.get("billing");
+  const variant: Variant = rawVariant === "b" || rawVariant === "c" ? rawVariant : "a";
+  const context: Context = rawContext === "onboarding" ? "onboarding" : "settings";
+  const mode: Mode = rawMode === "dark" ? "dark" : "light";
+  const billing: Billing = rawBilling === "on" ? "on" : "off";
+  const current: TierName | null = context === "settings" ? "standard" : null;
+  const [selected, setSelected] = useState<TierName>(() => current ?? "statements");
+  const note = NOTES[variant];
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", mode === "dark");
+    document.documentElement.style.colorScheme = mode;
+    return () => {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.colorScheme = "light";
+    };
+  }, [mode]);
+
   return (
-    <div className="min-h-screen bg-[#f0f2f7] dark:bg-[#0f172a]">
-      <div className="mx-auto max-w-[430px] px-4 py-8">
-        <h1 className="text-[20px] font-bold text-slate-900 dark:text-white">Your plan</h1>
-        <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          Backlog B5, real YourPlanCard.tsx against fixtures
-        </p>
+    <div className={mode === "dark" ? "dark" : ""}>
+      <main className="min-h-dvh bg-[#f0f2f7] pb-24 text-slate-900 dark:bg-[#0f172a] dark:text-slate-100">
+        <div className="mx-auto min-h-dvh max-w-[430px] px-4 pb-8 pt-[calc(env(safe-area-inset-top)+20px)]">
+        {context === "settings" ? (
+          <header className="mb-5 flex items-center gap-3">
+            <button type="button" aria-label="Back to Settings" className="grid min-h-11 min-w-11 place-items-center rounded-xl text-slate-600 active:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:active:bg-white/[0.05]"><ArrowLeft size={19} /></button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Your plan</p>
+              <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-950 dark:text-white">Choose what works for you</h1>
+            </div>
+            <button type="button" aria-label="Close plan picker" className="grid min-h-11 min-w-11 place-items-center rounded-xl text-slate-500 active:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:active:bg-white/[0.05]"><X size={18} /></button>
+          </header>
+        ) : (
+          <header className="mb-5">
+            <div className="mb-7 flex gap-2" aria-label="Onboarding step 3 of 6">
+              {[0, 1, 2, 3, 4, 5].map((item) => <span key={item} className={`h-1.5 rounded-full ${item === 2 ? "w-6 bg-indigo-500" : item < 2 ? "w-4 bg-indigo-300 dark:bg-indigo-700" : "w-4 bg-slate-200 dark:bg-slate-700"}`} />)}
+            </div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Start your way</p>
+            <h1 className="mt-1 text-[24px] font-bold leading-tight tracking-tight text-slate-950 dark:text-white">Choose how you want to use Sorted</h1>
+            <p className="mt-2 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">Statements is free and selected for you. You can change plan any time in Settings.</p>
+          </header>
+        )}
 
-        <div className="mt-6 flex flex-col gap-8">
-          <ThemeBlock dark={false} />
-          <ThemeBlock dark={true} />
+        {variant === "a" ? <VariantA selected={selected} current={current} onSelect={setSelected} /> : variant === "b" ? <VariantB selected={selected} current={current} onSelect={setSelected} /> : <VariantC selected={selected} current={current} onSelect={setSelected} />}
+        <ChoiceAction selected={selected} current={current} billing={billing} context={context} />
+
+        <section className="mt-7 rounded-2xl border border-dashed border-slate-300 px-4 py-3 dark:border-slate-700" aria-label="Design notes">
+          <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-400">{note.title}</p>
+          <p className="mt-1.5 text-[12px] leading-snug text-slate-600 dark:text-slate-300">{note.thesis}</p>
+          <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">Risk: {note.risk}</p>
+        </section>
         </div>
-
-        <p className="mt-8 text-[11px] text-slate-500 dark:text-slate-400 text-pretty">
-          Tier and price come from `prices_gbp[tier]` (GET /subscription). PennyUsageRow.tsx renders unchanged
-          inside this card, moved here from the Penny card. &ldquo;Manage plan&rdquo; only appears once
-          `billing_live` is true and opens Stripe&apos;s customer portal (POST /billing/portal); until then the
-          card shows &ldquo;Plans and packs are coming soon.&rdquo; Neither state is reachable in any environment
-          today, no Stripe account exists yet (see CLAUDE.md&apos;s Backlog B5 note and DEPLOY.md&apos;s Stripe
-          setup checklist).
-        </p>
-      </div>
+        <Controls variant={variant} context={context} mode={mode} billing={billing} />
+      </main>
     </div>
   );
 }
