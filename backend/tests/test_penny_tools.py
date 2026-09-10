@@ -984,43 +984,56 @@ def test_explain_missing_topic_also_returns_valid_keys_list():
 #
 # `_explain_tool_description`/`_exec_explain` both read `MCP_CONNECTOR_ENABLED`
 # at CALL time (not baked into a fixed value at import time the way most of
-# this registry is), so these tests monkeypatch `penny_tools_module.MCP_CONNECTOR_ENABLED`
-# directly -- the same pattern `tests/test_mcp_connector_flag.py` already
-# uses on `app.core.auth`'s own copy of the name, needed because the real
-# process-env-derived constant is always False in a worktree's pytest run
-# (see that constant's own comment in app.core.config). The "flag off"
-# tests below deliberately do NOT monkeypatch anything -- pytest's own
-# import-time value is already False, exactly mirroring what a real
-# production process sees, so asserting against the untouched module state
-# proves what production actually ships, not a simulation of it.
+# this registry is), so every test below monkeypatches
+# `penny_tools_module.MCP_CONNECTOR_ENABLED` EXPLICITLY, in both directions
+# -- the same pattern `tests/test_mcp_connector_flag.py` already uses on
+# `app.core.auth`'s own copy of the name. A worktree's pytest run happens
+# to see the flag off (no `backend/.env`), but the standing rule in this
+# repo (previously hit by A17 itself) is that a test must never assert on
+# the AMBIENT process environment: integrate runs this same suite in the
+# shared tree, which DOES load `backend/.env`, and UAT sets
+# `MCP_CONNECTOR_ENABLED=true` there, so a "flag off" test that relied on
+# the ambient value rather than forcing it passed in a worktree and failed
+# at integrate. Every test here forces the value it needs, so the file
+# passes identically regardless of what the process environment holds.
 
-def test_explain_mcp_connector_disabled_topic_is_not_valid():
-    # No monkeypatch -- this is the real off-state pytest imports with,
-    # matching production exactly (backend/.env is never loaded here).
-    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+def test_explain_mcp_connector_disabled_topic_is_not_valid(monkeypatch):
+    # Explicit monkeypatch, never the ambient process environment: a
+    # worktree's pytest run happens to see the flag off (no backend/.env),
+    # but integrate runs this same suite in the shared tree, which DOES
+    # load backend/.env, and UAT sets MCP_CONNECTOR_ENABLED=true there --
+    # asserting on the ambient value passed in a worktree and failed at
+    # integrate (the exact trap A17 hit before this file). Forcing the
+    # value here makes the test pass identically regardless of what the
+    # process environment happens to hold.
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "mcp_connector"}))
     assert "error" in result
     assert "topic" not in result
     assert "text" not in result
 
 
-def test_explain_mcp_connector_disabled_absent_from_tool_description():
-    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+def test_explain_mcp_connector_disabled_absent_from_tool_description(monkeypatch):
+    # Explicit monkeypatch (see the comment on the previous test for why).
+    # `TOOL_SCHEMAS` itself is a module-level list built ONCE at import
+    # time -- exactly the real behaviour for a live deployment, since
+    # MCP_CONNECTOR_ENABLED is itself fixed at process boot and never
+    # changes for that process's lifetime -- so monkeypatching the flag
+    # here cannot retroactively change that already-built constant, and a
+    # test that tried to assert against it would be back to reading
+    # whatever the ambient environment happened to be at import time. The
+    # right seam is `_explain_tool_description()`, which is independently
+    # callable and reads the flag fresh on every call -- exercised here
+    # under the patched value, not the frozen constant.
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
     description = penny_tools_module._explain_tool_description()
     assert "mcp_connector" not in description
     assert "MCP" not in description
     assert "Claude" not in description
-    # The LIVE schema actually sent to the model -- not just the helper
-    # function in isolation -- must be clean too, since this is what the
-    # deployed process really offers.
-    explain_schema = next(
-        s for s in penny_tools_module.TOOL_SCHEMAS if s["function"]["name"] == "explain"
-    )
-    assert "mcp_connector" not in explain_schema["function"]["description"]
 
 
-def test_explain_mcp_connector_disabled_absent_from_valid_keys_list():
-    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+def test_explain_mcp_connector_disabled_absent_from_valid_keys_list(monkeypatch):
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
     result = asyncio.run(execute_tool("kevin", "explain", {"topic": "not_a_real_topic"}))
     assert "mcp_connector" not in result["available_topics"]
 
@@ -1180,14 +1193,15 @@ def test_run_penny_agent_mcp_question_on_disabled_deployment_gets_no_connector_c
     prompt, a hallucinated key, a client bypassing the tool description
     entirely), the REAL _exec_explain must refuse it exactly like any other
     unknown topic -- no connector copy is reachable by any path, not just
-    hidden from the description. No monkeypatch: MCP_CONNECTOR_ENABLED is
-    already False here, matching production."""
+    hidden from the description. Explicit monkeypatch to False, never the
+    ambient process environment (see the comment on
+    test_explain_mcp_connector_disabled_topic_is_not_valid for why)."""
     import asyncio as _asyncio
     import json as _json
 
     import app.services.penny_agent as penny_agent_module
 
-    assert penny_tools_module.MCP_CONNECTOR_ENABLED is False
+    monkeypatch.setattr(penny_tools_module, "MCP_CONNECTOR_ENABLED", False)
 
     class _FakeResponse:
         def __init__(self, payload, status_code=200):
