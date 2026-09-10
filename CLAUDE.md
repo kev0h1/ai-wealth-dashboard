@@ -7,6 +7,24 @@ anti-references) and `DESIGN.md` (visual system: tokens, named rules, do's/don't
 North Star: "The Calm Cockpit", verdicts lead, colour is information, red means
 genuine risk only, the indigo→violet gradient belongs to Penny alone.
 
+## Design work
+
+Before any UI work, read `PRODUCT.md` and `DESIGN.md`. The north star is "The Calm Cockpit": verdicts lead, colour is information, red means genuine financial risk only, and the indigo to violet gradient belongs to Penny alone.
+
+Never patch visuals in place, and never change a production component first. Design changes are proposed to Kevin, agreed, then built.
+
+Propose the change as two or three coded art-direction variants under `frontend/app/design/<slug>/`, registered in `frontend/app/design/page.tsx` (the `check:design-index` gate, run by `scripts/session.sh finish`, enforces that every preview directory is indexed). Variants are real coded pages, not mockups or descriptions.
+
+Verify your own work before Kevin sees it. `/design/*` pages are auth-exempt and deep-linkable, so screenshot them with headless Chrome and read the screenshots yourself, fixing anything clipped, unreadable or off-token. Authenticated product pages cannot be screenshotted, which is the reason previews exist. On this host, Chrome clamps `--window-size` to a 500px minimum width, so use a Puppeteer viewport override for true phone widths, and pass `--virtual-time-budget=4000` so client components have hydrated before the shot is taken.
+
+Only then block the item for Kevin's choice, and the block reason must carry working preview links: one per variant, or one link plus the `?state=` values that select each variant. Never block an item asking Kevin to choose between variants that do not exist yet; that was the B19 mistake, blocking "awaiting Kevin's choice of plan-picker variant" without having built any variants, so Kevin was asked to choose between previews that did not exist. If you are not ready to show him something real, the item stays in progress, not blocked.
+
+Kevin picks on his phone. His choice becomes a separate implementation item that folds the winning variant into the production component, in the shape "Implement approved <ID> variant A on ...".
+
+Where a design build changes a production component, have an independent reviewer agent audit the diff against `DESIGN.md` before Kevin sees it: authenticated pages cannot be screenshotted, so code-level review is the only gate.
+
+Copy rules apply to every user-facing string: no em dashes, British English, and the currency minus sign stays.
+
 ## Surface map (reindexed 2026-09-04 after the Codex design round)
 
 `main` is the integration branch and what UAT runs from the shared tree; `release` is the production branch (Vercel and Railway). All work happens on `feature-<ID>[-slug]` branches in worktrees via `scripts/session.sh` and reaches `main` only through `scripts/integrate.py` (see the Backlog section below); `docs/mobile-porting-checkpoint` is retired and must not be committed to. `AGENTS.md` is Codex's own workflow file; it coexists with this file. UAT frontend listens on `http://127.0.0.1:3030`, API on `:8000`.
