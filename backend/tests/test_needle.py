@@ -100,6 +100,29 @@ def test_credit_card_account_ids_excludes_yapily_current_account(monkeypatch):
     assert ids == set()
 
 
+def test_credit_card_account_ids_never_leaks_another_users_card(monkeypatch):
+    # G27 (2026-09-10): a card that looked "missing" from one user's Cards
+    # page turned out to belong to a different user_id in the same shared
+    # accounts_col — both are `type: credit_card` docs, but
+    # `_credit_card_account_ids` is called with one uid at a time and every
+    # query it runs is `{"user_id": uid}`. This pins that isolation
+    # explicitly: two users' credit-card accounts sitting in the same
+    # collection must never mix into a single caller's result, however
+    # similar their shape (same provider, same doc structure).
+    accounts = [
+        {"user_id": "kevin", "account_id": "kevin-card", "type": "credit_card", "subtype": ""},
+        {"user_id": "someone-else", "account_id": "someone-elses-card", "type": "credit_card", "subtype": ""},
+    ]
+    monkeypatch.setattr(needle, "accounts_col", _FakeAccountsCol(accounts))
+    monkeypatch.setattr(needle, "yapily_accounts_col", _FakeAccountsCol([]))
+
+    kevin_ids = asyncio.run(needle._credit_card_account_ids("kevin"))
+    other_ids = asyncio.run(needle._credit_card_account_ids("someone-else"))
+
+    assert kevin_ids == {"kevin-card"}
+    assert other_ids == {"someone-elses-card"}
+
+
 # ── _txns_for_period ─────────────────────────────────────────────────────────
 
 def test_txns_for_period_unions_yapily(monkeypatch):
