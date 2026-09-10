@@ -227,9 +227,21 @@ async def cards_story(
     # (Transfer, Debt, Savings, Investment, and any user-defined movement
     # category) are money moved between cards, not spend: they are reported
     # in `moved_between_cards`, never as a driver. `new_spend` is the sum of
-    # every SPEND-kind debit, and the drivers list (top five + "Other
-    # categories") is built to sum to it exactly, so the page always
-    # reconciles.
+    # every SPEND-kind debit, and the drivers list is built to sum to it
+    # exactly, so the page always reconciles.
+    #
+    # G25 (2026-09-10): G20's own fix for the drivers/new_spend mismatch
+    # introduced a NEW version of the same bug it was fixing — it truncated
+    # to the top five categories and folded the rest into an invented
+    # "Other categories" row, which is not a category that exists anywhere
+    # else in the app (not on the Spend page, not in the category picker),
+    # and which hid a real category (Kevin's case: Eating Out, £18.25) behind
+    # a made-up label. Every real spend-kind category this period is now
+    # returned, unranked-by-cutoff, so `sum(drivers) == new_spend` holds with
+    # no synthetic bucket required. No cap: capping and lumping the remainder
+    # is exactly the "Other categories" bug reappearing under a different
+    # excuse, and this page's category count per period is small (rarely
+    # more than the handful of categories a card actually gets used for).
     #
     # G24: the credit side gets the same kind split, one pass over the same
     # `txns` list (no extra query). `movement_in` is the movement-kind
@@ -261,10 +273,7 @@ async def cards_story(
         category_totals[cat] = category_totals.get(cat, 0.0) + amt
 
     ranked_cats = sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)
-    drivers = [{"category": cat, "total": round(total, 2)} for cat, total in ranked_cats[:5]]
-    other_total = round(sum(total for _, total in ranked_cats[5:]), 2)
-    if other_total > 0:
-        drivers.append({"category": "Other categories", "total": other_total})
+    drivers = [{"category": cat, "total": round(total, 2)} for cat, total in ranked_cats]
 
     # ── Pattern line (credit_switch trait) ────────────────────────────────────
     pattern_line = None

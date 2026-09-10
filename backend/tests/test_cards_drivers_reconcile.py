@@ -1,20 +1,26 @@
-"""Coverage for G20 (2026-09-10): the cards page "What drove it" section must
-always reconcile with "New spend" (app/routers/cards.py, `cards_story`).
+"""Coverage for G20/G25 (2026-09-10): the cards page "What drove it" section
+must always reconcile with "New spend" (app/routers/cards.py, `cards_story`),
+and must show real categories only.
 
-Before this fix, `movement.new_spend` summed EVERY debit on the cards
+G20's original bug: `movement.new_spend` summed EVERY debit on the cards
 (including a Transfer-categorised balance transfer), while the `drivers`
 list separately dropped a hardcoded `{Transfer, Debt}` set and then
 truncated to the top five categories with no accounting for the rest — so
 the two headline numbers on the same page silently disagreed by however
 much fell into a movement category or past the fifth driver.
 
-The fix: category kind (spend vs movement) is resolved through the shared
-`app.services.categories` helper, not a hardcoded set. `new_spend` is now
-spend-only; movement-kind debits (Transfer, Debt, Savings, Investment, and
-any user-defined movement category) are reported separately as
-`moved_between_cards` and never appear in `drivers`. The drivers list keeps
-its top five categories and adds a final "Other categories" row carrying
-the sum of everything else, so `sum(drivers) == new_spend` always holds.
+G20's fix (category kind resolved through `app.services.categories`, not a
+hardcoded set) solved the movement-category half of that, but reintroduced
+the truncation half under a different name: it kept the top-five cut and
+folded the remainder into an invented "Other categories" row — not a
+category that exists anywhere else in the app — which is exactly the same
+"a real category silently vanishes" bug the fix claimed to close, just
+renamed. Kevin's real report: "Other categories £18.25" was exactly one
+real category, Eating Out.
+
+G25's fix: no cap, no synthetic bucket. Every real spend-kind category this
+period is returned, so `sum(drivers) == new_spend` holds with nothing
+invented and nothing hidden.
 
 No mongomock is available in this environment, so this file reuses the same
 fake-collection / monkeypatch pattern already established in
@@ -115,8 +121,9 @@ def _run(monkeypatch, accounts, cc_ids, txns, *, which="current"):
 
 # Six spend categories (real card debits), one Transfer (a balance transfer —
 # movement, not spend) and a payment. Eating Out is deliberately the smallest
-# so it's the one pushed into "Other categories" after the top-five cut,
-# matching Kevin's real report (Eating Out at £18.25 silently vanishing).
+# so it's the one that used to be pushed into "Other categories" after the
+# top-five cut, matching Kevin's real report (Eating Out at £18.25 silently
+# vanishing). It must now appear in `drivers` BY NAME.
 _TRANSFER_AMOUNT = 876.76
 _SPEND = [
     ("Groceries", 200.00),
@@ -139,30 +146,33 @@ def _seven_txn_fixture():
     return accounts, cc_ids, txns
 
 
-def test_drivers_reconcile_with_new_spend_and_transfer_is_isolated(monkeypatch):
+def test_drivers_show_every_real_category_no_truncation_no_synthetic_bucket(monkeypatch):
     accounts, cc_ids, txns = _seven_txn_fixture()
     story = _run(monkeypatch, accounts, cc_ids, txns)
     movement = story["movement"]
     drivers = story["drivers"]
 
-    # Six categories in, top five + one "Other categories" overflow row out.
+    # All six real spend categories come back, nothing capped, nothing
+    # invented to stand in for a cut-off remainder.
     assert len(drivers) == 6
     names = [d["category"] for d in drivers]
     assert "Transfer" not in names
-    assert "Other categories" in names
+    assert "Other categories" not in names
+    assert set(names) == {cat for cat, _ in _SPEND}
 
-    # The overflow row carries exactly the smallest (sixth) category.
-    other_row = next(d for d in drivers if d["category"] == "Other categories")
-    assert other_row["total"] == 18.25
+    # The category that used to be silently folded into "Other categories"
+    # now appears by its own real name, for its own real amount.
+    eating_out_row = next(d for d in drivers if d["category"] == "Eating Out")
+    assert eating_out_row["total"] == 18.25
 
     # new_spend is spend-only: the six category amounts, not the transfer.
     expected_new_spend = round(sum(amt for _, amt in _SPEND), 2)
     assert movement["new_spend"] == expected_new_spend
 
-    # Drivers always sum to new_spend (tolerance matches the precedent in
-    # test_cycle_story_cards_breakdown.py's own reconciliation test).
+    # Drivers always sum to new_spend exactly — no synthetic bucket means no
+    # rounding slack is needed to make that true.
     drivers_sum = round(sum(d["total"] for d in drivers), 2)
-    assert abs(drivers_sum - movement["new_spend"]) <= 0.01
+    assert drivers_sum == movement["new_spend"]
 
     # The transfer is isolated in moved_between_cards, not folded into
     # new_spend and not counted as a driver.
@@ -181,7 +191,32 @@ def test_drivers_reconcile_with_new_spend_and_transfer_is_isolated(monkeypatch):
     assert movement["payments"] == _PAYMENT_AMOUNT
 
 
-def test_other_categories_row_omitted_when_five_or_fewer_spend_categories(monkeypatch):
+def test_drivers_reconcile_with_more_than_five_real_categories(monkeypatch):
+    """G25 regression guard: more than five spend categories in one period
+    must not trigger truncation or a synthetic row — this is the exact
+    shape (six categories, one below-the-fold) Kevin's real report hit."""
+    accounts = [_acc("cc_a", "Amex Platinum", "amex", -500.0)]
+    cc_ids = {"cc_a"}
+    txns = []
+    eight_spend = _SPEND + [("Health", 12.00), ("Software", 9.99)]
+    for cat, amt in eight_spend:
+        txns.append(_txn("cc_a", amt, D1, "debit", cat))
+
+    story = _run(monkeypatch, accounts, cc_ids, txns)
+    drivers = story["drivers"]
+
+    assert len(drivers) == 8
+    assert all(d["category"] != "Other categories" for d in drivers)
+    names = [d["category"] for d in drivers]
+    assert set(names) == {cat for cat, _ in eight_spend}
+
+    expected_new_spend = round(sum(amt for _, amt in eight_spend), 2)
+    assert story["movement"]["new_spend"] == expected_new_spend
+    drivers_sum = round(sum(d["total"] for d in drivers), 2)
+    assert drivers_sum == expected_new_spend
+
+
+def test_drivers_reconcile_when_five_or_fewer_spend_categories(monkeypatch):
     accounts = [_acc("cc_a", "Amex Platinum", "amex", -500.0)]
     cc_ids = {"cc_a"}
     txns = [_txn("cc_a", _TRANSFER_AMOUNT, D1, "debit", "Transfer")]
@@ -199,4 +234,4 @@ def test_other_categories_row_omitted_when_five_or_fewer_spend_categories(monkey
     expected_new_spend = round(sum(amt for _, amt in five_spend), 2)
     assert story["movement"]["new_spend"] == expected_new_spend
     drivers_sum = round(sum(d["total"] for d in drivers), 2)
-    assert abs(drivers_sum - expected_new_spend) <= 0.01
+    assert drivers_sum == expected_new_spend
