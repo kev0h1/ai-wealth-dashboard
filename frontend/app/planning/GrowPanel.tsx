@@ -27,6 +27,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ChevronDown,
   ChevronRight,
   CircleCheck,
   Gauge,
@@ -602,6 +603,51 @@ export function GrowHero({
             <p className="mt-1 text-[10px] text-slate-400 dark:text-slate-500">
               Excludes money moved to savings or investments.
             </p>
+
+            {/* Guarded: a "grow" response cached (up to 6h TTL, see
+                response_cache.py) just before this field shipped won't
+                carry surplus_ledger yet — degrade to no disclosure rather
+                than crashing the whole hero on a stale payload. */}
+            {view.surplus_ledger && (
+              <details className="group mt-3 border-t border-slate-200/80 pt-2 dark:border-white/10">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-indigo-600 outline-none hover:text-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 [&::-webkit-details-marker]:hidden">
+                  Full calculation
+                  <ChevronDown size={16} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Based on your last {view.surplus_ledger.n_months} {view.surplus_ledger.n_months === 1 ? "month" : "months"} ({view.surplus_ledger.month_labels.join(", ")}).
+                </p>
+                <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
+                  <div className="flex items-center justify-between gap-4 py-1.5">
+                    <dt>Typical income</dt>
+                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                      {maskMoney(`+${money(view.surplus_ledger.income)}`, hideValues)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 py-1.5">
+                    <dt>Typical spending</dt>
+                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                      {maskMoney(`−${money(view.surplus_ledger.spending)}`, hideValues)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 py-1.5">
+                    <dt>Debt repayments</dt>
+                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                      {maskMoney(`−${money(view.surplus_ledger.debt_deduction)}`, hideValues)}
+                    </dd>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-4 border-t border-slate-200/80 pt-2 font-semibold dark:border-white/10">
+                    <dt>{view.surplus_ledger.surplus < 0 ? "Short each month" : "Spare each month"}</dt>
+                    <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                      {maskMoney(money(Math.abs(view.surplus_ledger.surplus)), hideValues)}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-2 text-[10px] text-slate-400 dark:text-slate-500">
+                  This is a typical month, smoothed to reduce one-off spikes. It isn&apos;t this pay period&apos;s actual numbers.
+                </p>
+              </details>
+            )}
           </>
         )}
       </div>
