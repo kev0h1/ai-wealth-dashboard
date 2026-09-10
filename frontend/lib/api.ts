@@ -1683,6 +1683,12 @@ export type NeedleSummary = {
 export type CardsStoryCard = {
   account_id: string;
   name: string;
+  // Clean, disambiguated label for display (G15, backend/app/services/card_names.py):
+  // bank prefix, title-cased shouty descriptors, holder-name fallback, last
+  // four digits (or an ordinal) when two cards would otherwise share a
+  // name. `name` above stays the raw bank descriptor for matching/search;
+  // always render `display_name` in the UI, never `name`.
+  display_name: string;
   provider: string;
   balance: number;
   delta: number;

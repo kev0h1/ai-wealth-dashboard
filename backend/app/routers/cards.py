@@ -35,6 +35,7 @@ from app.services.needle import (
     _abs_amounts,
 )
 from app.services.categories import get_category_kinds, is_non_spend
+from app.services.card_names import apply_card_display_names
 
 log = logging.getLogger(__name__)
 
@@ -141,6 +142,7 @@ async def cards_story(
             "account_id": aid,
             "name": a.get("name"),
             "provider": a.get("provider"),
+            "account_number": a.get("account_number"),
             "balance": round(balance, 2),
             "delta": round(card_delta, 2),
             "apr": apr_map.get(aid),
@@ -155,6 +157,20 @@ async def cards_story(
         })
 
     per_card.sort(key=lambda c: abs(c["delta"]), reverse=True)
+
+    # ── Display names (G15) ────────────────────────────────────────────────────
+    # Clean, disambiguated names for the whole set (bank prefix, title-cased
+    # shouty descriptors, holder-name fallback, last-four/ordinal
+    # disambiguation across every card this endpoint returns — see
+    # app.services.card_names for the rules). `raw_name`/`account_number`
+    # stay off the wire: `name` above is the pre-existing raw descriptor
+    # kept for matching/debugging, and account_number is never returned at
+    # all (same doctrine as penny_tools._card_candidate_summary — an
+    # account number must never leave this API, even masked to last-four,
+    # since some connections store it unmasked).
+    per_card = apply_card_display_names(per_card, holder_name=user.get("name"))
+    for c in per_card:
+        c.pop("account_number", None)
 
     # ── Outlook (debt-plan derived) ────────────────────────────────────────────
     # Best-effort only: a bad debt-plan read must never break this page, it
