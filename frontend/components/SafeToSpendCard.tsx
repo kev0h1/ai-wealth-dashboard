@@ -373,7 +373,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry }: SafeT
         </details>
       </div>
 
-      <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 dark:border-white/10">
+      <div className="space-y-1 border-t border-slate-100 pt-3 dark:border-white/10">
         <p className="text-[12px] text-slate-500 dark:text-slate-400 text-pretty"><MoneyText text={showPace ? `${hidden ? "£••••" : fmt2(pace!.sustainable!)}/day until ${paydayLabel}` : `Pay period ends ${paydayLabel}`} />{(data.payday_income ?? 0) > 0 && <><span aria-hidden="true"> · </span><MoneyText text={`~${hidden ? "£••••" : fmt(data.payday_income!)} expected`} /></>}</p>
         {freshnessLabel && <p className="text-sm text-slate-500 dark:text-slate-400">{freshnessLabel}</p>}
       </div>
