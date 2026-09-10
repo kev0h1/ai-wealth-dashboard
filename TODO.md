@@ -147,6 +147,11 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 ........................................................................ [  6%]
 ........................................................................ [ 10%]
 .................................] [state: blocked: backend test suite failed:
+  - note (2026-09-10, claude): Integrate blocked this once with 'backend test suite failed'. Re-ran the full suite in the worktree against current main: 2073 passed, 1 failed, and the single failure is the known pre-existing flaky tests/test_spotlight.py::test_material_estimate_change_earns_return_with_reason that integrate normally deselects. Nothing wrong with this branch; requeued.
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [ 10%]
+.................................] [state: blocked: backend test suite failed:
 ........................................................................ [  3%]
 ........................................................................ [  6%]
 ........................................................................ [ 10%]
