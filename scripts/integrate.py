@@ -20,11 +20,13 @@ For each board item in state `review` with a branch (see
      into the shared venv if `backend/requirements.txt` changed, `npm ci` in
      `frontend/` if `frontend/package-lock.json` or `package.json` changed),
      then runs the backend test suite. If `frontend/` or `shared/` changed in
-     the merge, `npm run build` + restart `wealth-frontend`; if `backend/`
-     changed, restart `wealth-api` and `wealth-worker` (the worker imports
-     services and core modules under `backend/app`, not just
-     `backend/app/workers`, so any backend change can affect its cron code);
-     then checks both health endpoints.
+     the merge, also runs `npm run -s check:design-index` and
+     `npm run -s check:legal-content` (the same gate `scripts/session.sh
+     finish` runs - see H23), then `npm run build` + restart
+     `wealth-frontend`; if `backend/` changed, restart `wealth-api` and
+     `wealth-worker` (the worker imports services and core modules under
+     `backend/app`, not just `backend/app/workers`, so any backend change
+     can affect its cron code); then checks both health endpoints.
   4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
      services again from the restored tree, and block the item with the
      first 300 characters of the failure.
@@ -56,6 +58,14 @@ from app.services import backlog  # noqa: E402
 LOCK_PATH = REPO_ROOT / ".integrate.lock"
 GIT_TIMEOUT = 30
 HEALTH_URLS = ["http://localhost:8000/health", "http://127.0.0.1:3030/"]
+# A restart under concurrent build load can take a while to come back up
+# (see F14, 2026-09-10: a single poll 5s after restart hit a non-200 because
+# another integrate pass was restarting services at the same moment, and a
+# perfectly good merge got reverted and blocked). Poll up to
+# HEALTH_CHECK_TIMEOUT_S, sleeping HEALTH_CHECK_INTERVAL_S between attempts,
+# before treating the service as genuinely down.
+HEALTH_CHECK_TIMEOUT_S = 60
+HEALTH_CHECK_INTERVAL_S = 2
 
 
 class IntegrateError(RuntimeError):
@@ -188,11 +198,68 @@ def _restart_services(changed: set[str]) -> None:
         _systemctl_restart("wealth-worker")
 
 
+def _wait_for_http_ok(
+    url: str,
+    timeout: float = HEALTH_CHECK_TIMEOUT_S,
+    interval: float = HEALTH_CHECK_INTERVAL_S,
+) -> tuple[bool, float]:
+    """Poll `url` until it returns 200 or `timeout` seconds have elapsed,
+    sleeping `interval` seconds between attempts. Returns (ok, elapsed) so
+    the caller can report how long it actually waited either way -
+    distinguishing "never came up" from "one unlucky poll" is the whole
+    point of retrying (see the HEALTH_CHECK_* comment above)."""
+    start = time.monotonic()
+    attempt = 0
+    while True:
+        attempt += 1
+        if _http_ok(url):
+            elapsed = time.monotonic() - start
+            if attempt > 1:
+                print(f"health check for {url} succeeded on attempt {attempt} after {elapsed:.1f}s")
+            return True, elapsed
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout:
+            return False, elapsed
+        print(
+            f"health check for {url} not ready yet (attempt {attempt}, {elapsed:.1f}s elapsed), "
+            f"retrying in {interval}s"
+        )
+        time.sleep(interval)
+
+
 def _wait_and_check_health() -> None:
-    time.sleep(5)
     for url in HEALTH_URLS:
-        if not _http_ok(url):
-            raise IntegrateError(f"health check failed for {url}")
+        ok, elapsed = _wait_for_http_ok(url)
+        if not ok:
+            raise IntegrateError(
+                f"health check failed for {url} after retrying for {elapsed:.1f}s "
+                f"(timeout {HEALTH_CHECK_TIMEOUT_S}s, interval {HEALTH_CHECK_INTERVAL_S}s)"
+            )
+
+
+def _run_frontend_checks(changed: set[str]) -> None:
+    """Run the same gate `scripts/session.sh finish` runs before a branch
+    touching frontend/ or shared/ reaches main: the design preview index
+    check and the legal-content marker/renumbering check (H23). Before H23
+    neither check ran here, only in `finish` - so a merge could still reach
+    main with a broken preview index or a broken privacy.md/terms.md
+    contract if review bypassed or predated that gate (see F14,
+    2026-09-10, which shipped a broken Section 6 cross-reference into the
+    connector-off privacy policy render)."""
+    frontend_or_shared = any(
+        p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/")
+        for p in changed
+    )
+    if not frontend_or_shared:
+        return
+    print("checking design preview index (frontend/ or shared/ changed)")
+    rc, out = _sh(["npm", "run", "-s", "check:design-index"], cwd=REPO_ROOT / "frontend", timeout=60)
+    if rc != 0:
+        raise IntegrateError(f"check:design-index failed:\n{out}")
+    print("checking legal content marker/renumbering contract (frontend/ or shared/ changed)")
+    rc, out = _sh(["npm", "run", "-s", "check:legal-content"], cwd=REPO_ROOT / "frontend", timeout=60)
+    if rc != 0:
+        raise IntegrateError(f"check:legal-content failed:\n{out}")
 
 
 def _run_backend_tests() -> None:
@@ -294,6 +361,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     try:
         _install_dependencies(changed)
         _run_backend_tests()
+        _run_frontend_checks(changed)
         _restart_services(changed)
         _wait_and_check_health()
     except IntegrateError as exc:
