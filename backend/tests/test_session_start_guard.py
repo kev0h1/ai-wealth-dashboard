@@ -66,13 +66,26 @@ GUARD_FIXTURE = """# Backlog fixture for session.sh start guard tests
 - [x] **H6. Done item.** [owner: claude] Already done. (done 2026-09-01, abc1234)
 """
 
+# Separate fixture for the item-H29 owner guard tests below, kept apart
+# from GUARD_FIXTURE so it doesn't shift the id GUARD_FIXTURE's own tests
+# expect `add_item` to allocate next (max existing number in the section,
+# plus one; see backend/app/services/backlog.py TodoDoc.add_item).
+OWNER_GUARD_FIXTURE = """# Backlog fixture for session.sh start owner guard tests (H29)
+
+## H. Section H heading
+
+- [ ] **H1. Claude owned todo item.** [owner: claude] Nothing special.
+- [ ] **H2. Codex owned todo item.** [owner: codex] Nothing special.
+- [ ] **H3. Kevin owned todo item.** [owner: kevin] Nothing special.
+"""
+
 pytestmark = pytest.mark.skipif(not VENV_PY.exists(), reason="backend/.venv not present in this checkout")
 
 
-def _make_board_root(tmp_path: Path) -> Path:
+def _make_board_root(tmp_path: Path, fixture: str = GUARD_FIXTURE) -> Path:
     board_root = tmp_path / "board"
     board_root.mkdir()
-    (board_root / "TODO.md").write_text(GUARD_FIXTURE, encoding="utf-8")
+    (board_root / "TODO.md").write_text(fixture, encoding="utf-8")
     compliance_dir = board_root / "docs" / "compliance"
     compliance_dir.mkdir(parents=True)
     (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
@@ -107,7 +120,13 @@ def _make_fake_shared_tree(tmp_path: Path) -> Path:
     return shared
 
 
-def _run_start(tmp_path: Path, board_root: Path, shared_tree: Path, *args: str) -> subprocess.CompletedProcess:
+def _run_start(
+    tmp_path: Path,
+    board_root: Path,
+    shared_tree: Path,
+    *args: str,
+    agent: str | None = None,
+) -> subprocess.CompletedProcess:
     worktrees_root = tmp_path / "worktrees"
     driver = tmp_path / "guard_driver.sh"
     driver.write_text(
@@ -135,6 +154,13 @@ def _run_start(tmp_path: Path, board_root: Path, shared_tree: Path, *args: str) 
 
     env = dict(os.environ)
     env["BACKLOG_ROOT"] = str(board_root)
+    # Deterministic default: tests exercising the owner guard (H29) pass
+    # `agent` explicitly; everything else should behave as if the caller
+    # never set BACKLOG_AGENT at all (defaulting to claude), regardless of
+    # what happens to be set in the ambient test environment.
+    env.pop("BACKLOG_AGENT", None)
+    if agent is not None:
+        env["BACKLOG_AGENT"] = agent
 
     return subprocess.run(
         ["bash", str(driver), str(SESSION_SH), str(shared_tree), str(BACKLOG_PY), str(VENV_PY), str(worktrees_root), *args],
@@ -271,3 +297,92 @@ def test_title_wins_over_an_existing_todo_id(tmp_path):
 
     worktree_dir = tmp_path / "worktrees" / "feature-H7-different-fresh-idea"
     assert worktree_dir.is_dir()
+
+
+# ---------------------------------------------------------------------
+# Owner guard (item H29): a session only starts an item owned by its own
+# model type (BACKLOG_AGENT, defaulting to claude), unless --any-owner is
+# passed. An item owned by kevin is refused for every agent type.
+# ---------------------------------------------------------------------
+
+
+def test_start_refuses_item_owned_by_another_agent_when_agent_unset(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H2")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H2 is owned by codex" in result.stderr
+    assert "not claude" in result.stderr
+    assert "--any-owner" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_refuses_item_owned_by_another_agent_for_codex(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H1", agent="codex")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H1 is owned by claude" in result.stderr
+    assert "not codex" in result.stderr
+    assert "--any-owner" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_refuses_kevin_owned_item_for_claude(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H3")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H3 is owned by kevin" in result.stderr
+    assert "--any-owner" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_refuses_kevin_owned_item_for_codex(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H3", agent="codex")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H3 is owned by kevin" in result.stderr
+    assert "--any-owner" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_allows_matching_owner_for_codex_agent(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H2", agent="codex")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    data = _show(board_root, "H2")
+    assert data["state"] == "in-progress"
+
+
+def test_start_any_owner_overrides_mismatched_owner(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H2", "--any-owner")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    data = _show(board_root, "H2")
+    assert data["state"] == "in-progress"
+
+
+def test_start_any_owner_overrides_kevin_owned_item(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H3", "--any-owner")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    data = _show(board_root, "H3")
+    assert data["state"] == "in-progress"
+
+
+def test_start_rejects_invalid_backlog_agent_value(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=OWNER_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H1", agent="gpt5")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "BACKLOG_AGENT" in result.stderr
+    assert "gpt5" in result.stderr
+    assert not (tmp_path / "worktrees").exists()

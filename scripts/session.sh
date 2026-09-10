@@ -36,7 +36,7 @@ VENV_PY="$SHARED_TREE/backend/.venv/bin/python"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/session.sh start <ID> [slug] [--title "New item title"]
+  scripts/session.sh start <ID> [slug] [--title "New item title"] [--any-owner]
       Create a worktree + branch feature-<ID>[-slug] for backlog item <ID>
       (the slug is appended only when you pass one, or one can be derived
       from the item's title), symlink node_modules/.venv into it, mark the
@@ -47,6 +47,15 @@ Usage:
       refuses with an explanation instead of silently attaching to it
       (attaching to a done or already-claimed item is how stray branches
       happen; see item H21).
+
+      Each agent only starts items owned by its own model type. The
+      caller's type comes from the BACKLOG_AGENT environment variable
+      (`claude` or `codex`, defaults to `claude` when unset). If <ID>'s
+      owner does not match BACKLOG_AGENT, or is `kevin`, start refuses
+      with the owner and a pointer to either reassign the item
+      (`scripts/backlog.py owner <ID> <type>`) or pass --any-owner, which
+      skips this check for the case where Kevin has told the session to
+      proceed anyway (see item H29).
 
       With --title: always allocates a FRESH id via `scripts/backlog.py
       add`, added to the section matching <ID>'s leading letter, and never
@@ -125,10 +134,17 @@ cmd_start() {
   [[ -n "$id" ]] || { usage; exit 1; }
   shift
 
-  local slug="" title=""
+  local caller_agent="${BACKLOG_AGENT:-claude}"
+  if [[ "$caller_agent" != "claude" && "$caller_agent" != "codex" ]]; then
+    err "BACKLOG_AGENT must be 'claude' or 'codex' (got '$caller_agent')"
+    exit 1
+  fi
+
+  local slug="" title="" any_owner=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --title) title="${2:-}"; shift 2 ;;
+      --any-owner) any_owner="true"; shift ;;
       *) if [[ -z "$slug" ]]; then slug="$1"; shift; else err "unexpected argument: $1"; exit 1; fi ;;
     esac
   done
@@ -192,6 +208,19 @@ cmd_start() {
         exit 1
         ;;
     esac
+
+    if [[ "$any_owner" != "true" ]]; then
+      local owner
+      owner="$(jq -r '.owner' <<<"$item_data")"
+      if [[ "$owner" == "kevin" ]]; then
+        err "item $id is owned by kevin, not $caller_agent; a $caller_agent session should not start it, even if asked to clear the board. Ask Kevin to do it or reassign it, or pass --any-owner if he has told you to proceed."
+        exit 1
+      elif [[ "$owner" != "$caller_agent" ]]; then
+        err "item $id is owned by $owner, not $caller_agent; a $caller_agent session should not start another agent's item. Reassign it first ('backend/.venv/bin/python scripts/backlog.py owner $id $caller_agent') or pass --any-owner if Kevin has told you to proceed."
+        exit 1
+      fi
+    fi
+
     existing_title="$(jq -r '.title' <<<"$item_data")"
   fi
 

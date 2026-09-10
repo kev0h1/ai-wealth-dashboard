@@ -45,7 +45,17 @@ A TODO.md item line looks like this:
   `scripts/integrate.py` never selects a `rejected` item as a merge
   candidate, `start` or `todo` moves it back out again (clearing both the
   reason and the retained branch).
-- `[owner: kevin]` or `[owner: claude]` says who is doing the work.
+- `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
+  doing the work. Each agent only starts items it owns: a Claude session
+  only starts `[owner: claude]` items, a Codex session only starts
+  `[owner: codex]` items, and `[owner: kevin]` items are Kevin's own and
+  neither agent starts them. `scripts/session.sh start` enforces this by
+  reading the caller's type from the `BACKLOG_AGENT` environment variable
+  (`claude` or `codex`, defaulting to `claude`) and refusing an item whose
+  owner does not match, unless `--any-owner` is passed (see item H29 and
+  "Branch per item" below). An agent that wants an item reassigned asks
+  Kevin, or uses `scripts/backlog.py owner <id> <type>` once Kevin has
+  agreed; it never reassigns another agent's item on its own.
 - `[priority: p1]`, `[priority: p2]` or `[priority: p3]` is the item's
   priority. Absent means `p3`, the tag is only written for `p1`/`p2`, the
   same way `[state: ...]` is only written when the state isn't `todo`.
