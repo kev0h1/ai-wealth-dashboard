@@ -119,7 +119,10 @@ export function buildEstate(
 
   const groups: EstateGroup[] = GROUP_ORDER.map((kind) => {
     const groupRows = rows
-      .filter((r) => r.kind === kind && !r.attention && !r.dormant)
+      // A stale connection is a status on an otherwise real account, not a
+      // separate account kind. Keep it in its normal group and let the
+      // provider-level ReconnectStrip own the repair action.
+      .filter((r) => r.kind === kind && !r.dormant)
       .sort(sortRows);
     return {
       kind,

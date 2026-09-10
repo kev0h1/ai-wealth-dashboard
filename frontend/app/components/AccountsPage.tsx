@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, Tr
 import { api, ApiError, Account, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, KPIs, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
+import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import { buildEstate, filterEstate, type EstateRow, type EstateLens } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
@@ -1275,7 +1276,7 @@ export default function AccountsPage() {
   // Backend already filters by region — accounts contains only the right source.
   // Manual (offline) accounts come back in /accounts too; they're shown in their
   // own editable section, so keep them out of the connected-bank list.
-  const bankAccounts = accounts.filter(a => !a.manual);
+  const bankAccounts = useMemo(() => accounts.filter(a => !a.manual), [accounts]);
 
   // Navigable ledger-rows estate (Wave 2) — combines bank + investment
   // accounts into one normalized list for the Banks-tab view. Replaces the
@@ -1284,9 +1285,36 @@ export default function AccountsPage() {
   // itself, see accountsEstate.ts.
   const estate = useMemo(
     () => buildEstate(bankAccounts, investmentAccounts, pinnedIds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [accounts, investmentAccounts, pinnedIds]
+    [bankAccounts, investmentAccounts, pinnedIds]
   );
+  const reconnectProviders = useMemo(() => {
+    const grouped = new Map<string, ReconnectProvider>();
+    for (const account of bankAccounts) {
+      if (account.status !== "expired") continue;
+      const source = (account as Account & { source?: string }).source;
+      const key = `${source ?? "bank"}:${account.provider_id ?? account.provider}`;
+      const existing = grouped.get(key);
+      if (existing) existing.account_count = (existing.account_count ?? 1) + 1;
+      else grouped.set(key, {
+        provider: account.provider,
+        provider_id: account.provider_id,
+        source,
+        account_count: 1,
+      });
+    }
+    return [...grouped.values()];
+  }, [bankAccounts]);
+  function handleEstateReconnect(provider: ReconnectProvider) {
+    const account = bankAccounts.find((candidate) => {
+      if (candidate.status !== "expired") return false;
+      const source = (candidate as Account & { source?: string }).source;
+      if (provider.provider_id) {
+        return candidate.provider_id === provider.provider_id && source === provider.source;
+      }
+      return candidate.provider === provider.provider && source === provider.source;
+    });
+    void handleReconnect(provider.provider_id, account);
+  }
   // Offline (manual) accounts are deliberately excluded from buildEstate()
   // (net worth, groups, pinned, attention/inactive all stay bank+investment
   // only) — but that also made them invisible to the find bar and lens
@@ -1342,12 +1370,7 @@ export default function AccountsPage() {
         : [],
     [estate.rows, manualEstateRows, estateQuery, estateLens, estateIsFiltering]
   );
-  // An account that's both expired AND £0 belongs only in Attention — don't
-  // also show it in the collapsed Inactive bucket underneath.
-  const inactiveRows = useMemo(
-    () => estate.inactive.filter(r => !estate.attention.some(a => a.id === r.id)),
-    [estate.inactive, estate.attention]
-  );
+  const inactiveRows = estate.inactive;
   function toggleEstateGroup(label: string) {
     setCollapsedGroups(c => {
       const next = { ...c, [label]: !c[label] };
@@ -2761,6 +2784,10 @@ export default function AccountsPage() {
                   </div>
                 )}
 
+                {reconnectProviders.length > 0 && (
+                  <ReconnectStrip providers={reconnectProviders} onReconnect={handleEstateReconnect} />
+                )}
+
                 {/* Find bar */}
                 <div className="relative">
                   <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" aria-hidden="true" />
@@ -2811,7 +2838,6 @@ export default function AccountsPage() {
                           <div key={row.id} className={i > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}>
                             <AccountLedgerRow
                               row={row}
-                              onReconnect={row.attention ? () => handleReconnect((row.raw as Account).provider_id, row.raw as Account) : undefined}
                               onClick={handleEstateRowClick}
                               {...estateTermsProps(row)}
                             />
@@ -2822,31 +2848,6 @@ export default function AccountsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Attention — expired connections, prominent (not tucked away) */}
-                    {estate.attention.length > 0 && (
-                      <div>
-                        <div className="px-1 mb-1.5 flex items-center gap-1.5">
-                          <AlertTriangle size={12} className="text-amber-500 dark:text-amber-400" aria-hidden="true" />
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            Needs reconnecting
-                            <span className="text-slate-400 dark:text-slate-500 font-medium normal-case"> · {estate.attention.length}</span>
-                          </span>
-                        </div>
-                        <div className="glass-card rounded-2xl overflow-hidden border border-amber-200/70 dark:border-amber-800/60">
-                          {estate.attention.map((row, i) => (
-                            <div key={row.id} className={i > 0 ? "border-t border-amber-100 dark:border-amber-900/40" : ""}>
-                              <AccountLedgerRow
-                                row={row}
-                                onReconnect={() => handleReconnect((row.raw as Account).provider_id, row.raw as Account)}
-                                onClick={handleEstateRowClick}
-                                {...estateTermsProps(row)}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Pinned band */}
                     {estate.pinned.length > 0 && (
                       <div>
@@ -2919,8 +2920,8 @@ export default function AccountsPage() {
                     )}
 
                     {/* Inactive — dormant £0 accounts, collapsed by default.
-                        Dedupe: an account that's both expired AND £0 already
-                        appears in Attention above — don't show it twice. */}
+                        A stale account keeps its connection-status dot here;
+                        the provider action stays in the strip above. */}
                     {inactiveRows.length > 0 && (
                       <div>
                         <button

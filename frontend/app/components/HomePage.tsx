@@ -514,13 +514,14 @@ export default function HomePage() {
     .filter(t => !(t.category === "Transfer" && t.amount < 1))
     .slice(0, 6);
 
-  // Top picks: expired connections first (action needed), then the user's
-  // pins from the Accounts page, then autofill with the biggest balances
+  // Top picks: the user's pins, then autofill with the biggest balances.
+  // Expired connections no longer jump this queue: the reconnect strip at
+  // the top of Home already owns that action and account rows only carry a
+  // small status dot.
   const topPickAccounts = useMemo(() => {
     const picks: Account[] = [];
     const seen = new Set<string>();
     const add = (a?: Account) => { if (a && !seen.has(a.id)) { seen.add(a.id); picks.push(a); } };
-    accounts.filter(a => a.status === "expired").forEach(add);
     pinnedIds.forEach(id => add(accounts.find(a => a.id === id)));
     const isSavings = (a: Account) => (a.subtype ?? "").toLowerCase().includes("saving");
     const isCredit  = (a: Account) => a.type.toLowerCase().includes("credit") || (a.subtype ?? "").toLowerCase().includes("credit");
@@ -535,15 +536,16 @@ export default function HomePage() {
     Math.max(0, investmentAccounts.length - 1);
 
   const expiredProviders = useMemo(() => {
-    const seen = new Set<string>();
-    const result: { provider: string; provider_id?: string; source?: string }[] = [];
+    const grouped = new Map<string, { provider: string; provider_id?: string; source?: string; account_count: number }>();
     for (const a of accounts) {
-      if (a.status === "expired" && !seen.has(a.provider)) {
-        seen.add(a.provider);
-        result.push({ provider: a.provider, provider_id: a.provider_id, source: (a as Account & { source?: string }).source });
-      }
+      if (a.status !== "expired") continue;
+      const source = (a as Account & { source?: string }).source;
+      const key = `${source ?? "bank"}:${a.provider_id ?? a.provider}`;
+      const existing = grouped.get(key);
+      if (existing) existing.account_count += 1;
+      else grouped.set(key, { provider: a.provider, provider_id: a.provider_id, source, account_count: 1 });
     }
-    return result;
+    return [...grouped.values()];
   }, [accounts]);
 
   async function handleReconnect(providerId?: string, source?: string) {
@@ -603,7 +605,10 @@ export default function HomePage() {
   // this banner's own attention voice, so "reconnect" was removed from the
   // attention resolver outright rather than gated here.
   const reauthBanner = expiredProviders.length > 0 && (
-    <ReconnectStrip providers={expiredProviders} onReconnect={handleReconnect} />
+    <ReconnectStrip
+      providers={expiredProviders}
+      onReconnect={(provider) => handleReconnect(provider.provider_id, provider.source)}
+    />
   );
 
   return (
