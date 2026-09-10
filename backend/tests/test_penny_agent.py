@@ -825,11 +825,21 @@ def test_check_affordability_ask_when_true_when_envelope_already_short(monkeypat
 # Fix: `_parse_headline_reply_or_none` gained a narrow, tool-grounded
 # fallback (`has_tool_grounding=True`, set whenever this call's own
 # `tools_used` is non-empty) — unlabelled-but-substantial content is
-# accepted as the reply verbatim with a headline synthesised from its first
-# sentence, rather than discarded. A round that never called a tool keeps
-# the original strict all-or-nothing behaviour (test 4 above,
-# `test_run_penny_agent_malformed_final_text_returns_none`, already covers
-# and continues to cover that path unchanged).
+# accepted as the reply verbatim, rather than discarded. A round that never
+# called a tool keeps the original strict all-or-nothing behaviour (test 4
+# above, `test_run_penny_agent_malformed_final_text_returns_none`, already
+# covers and continues to cover that path unchanged).
+#
+# Bug fix, 2026-09-10 (owner-reported on prod: two real replies cut off
+# mid-word at exactly 60 chars, "The £1,175 card balance growth this month
+# came from new spen" and "The £794 you moved to credit cards this period
+# came from 3 p"): this fallback used to also synthesise a headline via
+# `first_sentence[:60]` with no word-boundary trim. Fixed by dropping the
+# synthetic headline entirely (returning "" rather than a truncated
+# fragment) — `PennyConversation.tsx`'s VerdictMsg already renders a falsy
+# `headline` as the `degraded` case, showing the full `reply` as plain body
+# text, so there is nothing to synthesise a headline from in the first
+# place.
 
 def test_parse_headline_reply_or_none_well_formed_ignores_grounding_flag():
     # The ordinary, already-covered path: correctly labelled content parses
@@ -852,9 +862,12 @@ def test_parse_headline_reply_or_none_unlabelled_without_grounding_stays_none():
 
 
 def test_parse_headline_reply_or_none_unlabelled_with_grounding_falls_back():
-    # The exact motivating bug: a real, tool-grounded answer with the
-    # HEADLINE:/REPLY: labels dropped must now be accepted rather than
-    # thrown away.
+    # The exact motivating bug (2026-08-30 iteration): a real, tool-grounded
+    # answer with the HEADLINE:/REPLY: labels dropped must now be accepted
+    # rather than thrown away. No headline is synthesised any more (see the
+    # 2026-09-10 fix above) — the full reply is returned verbatim and the
+    # headline is the empty string, which the frontend renders as plain
+    # body text (VerdictMsg's `degraded` case) rather than a bold verdict.
     raw = (
         "Last month you had £85 of unplaced transactions across 2 payments, "
         "the largest being £46 from Shift4 on 15 August. This is routine "
@@ -864,8 +877,76 @@ def test_parse_headline_reply_or_none_unlabelled_with_grounding_falls_back():
     assert result is not None
     headline, reply = result
     assert reply == raw
-    assert headline  # a non-empty synthesised headline
-    assert len(headline) <= 60
+    assert headline == ""
+
+
+def test_parse_headline_reply_or_none_unlabelled_long_no_headline_never_truncates_midword():
+    # Regression test, 2026-09-10 (Kevin, on prod): an unlabelled reply well
+    # over 60 chars must never be sliced into a truncated headline at all -
+    # there is no headline in the return value any more, only the reply
+    # returned verbatim, untrimmed.
+    raw = (
+        "The total spent across all your subscriptions this month works out "
+        "to a fair amount more than usual because two annual renewals landed "
+        "in the same period as your regular monthly ones."
+    )
+    assert len(raw) > 60
+    headline, reply = penny_agent_module._parse_headline_reply_or_none(raw, has_tool_grounding=True)
+    assert headline == ""
+    assert reply == raw
+
+
+def test_parse_headline_reply_or_none_unlabelled_no_space_in_first_60_chars():
+    # An unlabelled reply whose first 60 characters contain no whitespace at
+    # all (e.g. one very long unbroken token) must not crash and must not
+    # produce a partial-token headline - there is no headline synthesis left
+    # to trip over this at all.
+    raw = "Supercalifragilisticexpialidocious" * 3 + " is not a real spending category."
+    assert " " not in raw[:60]
+    headline, reply = penny_agent_module._parse_headline_reply_or_none(raw, has_tool_grounding=True)
+    assert headline == ""
+    assert reply == raw
+
+
+def test_parse_headline_reply_or_none_unlabelled_exactly_at_60_char_boundary():
+    # A reply whose first sentence is exactly 60 characters - the old code's
+    # exact edge case (Kevin's two real prod strings were both exactly 60
+    # chars). No headline is synthesised, so there is no boundary to get
+    # wrong any more.
+    first_word = "x" * 60
+    assert len(first_word) == 60
+    raw = first_word + " more detail follows in the rest of the reply."
+    headline, reply = penny_agent_module._parse_headline_reply_or_none(raw, has_tool_grounding=True)
+    assert headline == ""
+    assert reply == raw
+
+
+def test_parse_headline_reply_or_none_kevins_real_prod_strings_never_cut_midword():
+    # The exact two strings Kevin saw broken on prod, 2026-09-10, both
+    # exactly 60 characters and both cut mid-word by the old
+    # `first_sentence[:60]` fallback:
+    #   "The £1,175 card balance growth this month came from new spen"
+    #   "The £794 you moved to credit cards this period came from 3 p"
+    # (both actually 63 chars including the trailing partial word, per
+    # Kevin's report - the OLD code cut the underlying longer sentence at
+    # char 60, landing mid-word; these fixtures reproduce that longer
+    # underlying sentence.) Fixed behaviour: no headline is synthesised at
+    # all, so nothing is ever cut mid-word, mid-number, or mid-currency.
+    raw_1 = (
+        "The £1,175 card balance growth this month came from new spending "
+        "on your Amex and Halifax cards, not from interest or fees."
+    )
+    raw_2 = (
+        "The £794 you moved to credit cards this period came from 3 "
+        "payments, the largest being £310 on 2 September."
+    )
+    for raw in (raw_1, raw_2):
+        headline, reply = penny_agent_module._parse_headline_reply_or_none(raw, has_tool_grounding=True)
+        assert headline == ""
+        assert reply == raw
+        # No headline means nothing was ever sliced - the full sentence,
+        # including the currency figures, survives intact.
+        assert "£1,175" in reply or "£794" in reply
 
 
 def test_parse_headline_reply_or_none_trivial_content_with_grounding_stays_none():
