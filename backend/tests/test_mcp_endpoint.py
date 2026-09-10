@@ -35,8 +35,9 @@ class _FakeCursor:
 
 class _FakeAuditCol:
     """Stands in for `mcp_calls_col`: enough of the Motor collection surface
-    for check_mcp_allowance's count_documents, _write_audit's insert_one,
-    and GET /mcp/audit's find(...).sort(...)."""
+    for _write_audit's insert_one and GET /mcp/audit's find(...).sort(...).
+    (F14: the monthly allowance no longer reads this collection at all —
+    see `_FakeCounterCol` below.)"""
 
     def __init__(self, seed: list[dict] | None = None):
         self.docs: list[dict] = list(seed or [])
@@ -54,6 +55,43 @@ class _FakeAuditCol:
         ym = query.get("year_month")
         rows = [d for d in self.docs if d.get("user_id") == uid and d.get("year_month") == ym]
         return _FakeCursor(rows)
+
+
+class _FakeCounterCol:
+    """F14: stands in for `mcp_call_counters_col`. Supports the two calls
+    that matter here: `find_one` (app.core.subscription._mcp_call_count,
+    behind mcp_allowance/check_mcp_allowance) and `update_one` with a
+    realistic-enough `$inc`/`$set`/upsert (app.routers.mcp._write_audit's
+    live increment on every tools/call)."""
+
+    def __init__(self, seed: list[dict] | None = None):
+        self.docs: list[dict] = list(seed or [])
+
+    async def find_one(self, query):
+        uid = query.get("user_id")
+        ym = query.get("year_month")
+        for d in self.docs:
+            if d.get("user_id") == uid and d.get("year_month") == ym:
+                return d
+        return None
+
+    async def update_one(self, query, update, upsert=False):
+        uid = query.get("user_id")
+        ym = query.get("year_month")
+        for d in self.docs:
+            if d.get("user_id") == uid and d.get("year_month") == ym:
+                for k, v in (update.get("$inc") or {}).items():
+                    d[k] = d.get(k, 0) + v
+                for k, v in (update.get("$set") or {}).items():
+                    d[k] = v
+                return
+        if upsert:
+            doc = {"user_id": uid, "year_month": ym}
+            for k, v in (update.get("$inc") or {}).items():
+                doc[k] = v
+            for k, v in (update.get("$set") or {}).items():
+                doc[k] = v
+            self.docs.append(doc)
 
 
 class _FakeSubscription:
@@ -87,14 +125,29 @@ def _patch_subscription(monkeypatch, tier_name="connect", mcp_limit=2000):
 def _patch_audit(monkeypatch, seed=None):
     fake_col = _FakeAuditCol(seed)
     # `mcp.mcp_calls_col` backs _write_audit's insert_one and GET /mcp/audit's
-    # own find(...); `mcp_allowance`'s count_documents (F9) lazily re-imports
-    # mcp_calls_col from app.db.collections, so both names need to point at
-    # the SAME fake for a write in one to be visible to a count in the other.
+    # own find(...); both names need to point at the same fake so a write in
+    # one shows up in a read from the other.
     monkeypatch.setattr(mcp, "mcp_calls_col", fake_col)
     monkeypatch.setattr(db_collections_module, "mcp_calls_col", fake_col)
     # No MCP call packs (F9) in play for these tests — an empty collection
     # keeps settle_mcp_packs/mcp_allowance's pack lookup a no-op.
     monkeypatch.setattr(db_collections_module, "mcp_call_packs_col", _FakeAuditCol())
+
+    # F14: mcp_allowance/check_mcp_allowance read this month's usage from
+    # mcp_call_counters_col, not mcp_calls_col row counts. Seed one counter
+    # doc per (user_id, year_month) present in `seed` so a test that pre-
+    # seeds audit rows to simulate "already used N calls" still sees N via
+    # the counter too. `mcp._write_audit`'s own increments during the test
+    # accumulate naturally on top via `update_one`'s upsert path.
+    from collections import Counter
+    counts = Counter((d.get("user_id"), d.get("year_month")) for d in (seed or []))
+    counter_seed = [
+        {"user_id": uid, "year_month": ym, "count": n}
+        for (uid, ym), n in counts.items()
+    ]
+    fake_counters = _FakeCounterCol(counter_seed)
+    monkeypatch.setattr(mcp, "mcp_call_counters_col", fake_counters)
+    monkeypatch.setattr(db_collections_module, "mcp_call_counters_col", fake_counters)
     return fake_col
 
 

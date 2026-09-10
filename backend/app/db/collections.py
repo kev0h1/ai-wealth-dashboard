@@ -297,6 +297,21 @@ llm_usage_col           = db["llm_usage"]
 # `mcp_tool_calls_per_month` allowance check and GET /mcp/audit.
 mcp_calls_col           = db["mcp_calls"]
 
+# F14: durable per-(user_id, year_month) call counter, one doc per pair:
+# {user_id, year_month, count, updated_at}. Incremented via `$inc` on every
+# metered `tools/call` in app.routers.mcp._write_audit, regardless of `ok`
+# (a failed tool call still counts against the monthly allowance, same as
+# mcp_calls_col's audit row does today). This is the SOURCE OF TRUTH for the
+# monthly MCP allowance (app.core.subscription.mcp_allowance /
+# settle_mcp_packs, via the shared `_mcp_call_count` helper) rather than
+# mcp_calls_col row counts, so that the TTL index on mcp_calls_col (F14,
+# app/main.py, MCP_AUDIT_TTL_DAYS) can reap old audit rows without ever
+# resetting a user's usage mid-cycle. Seeded from existing mcp_calls_col rows
+# once by app.main._seed_mcp_call_counters (idempotent via $setOnInsert), and
+# never itself expires. Indexed unique on (user_id, year_month) in
+# app/main.py's _create_indexes.
+mcp_call_counters_col  = db["mcp_call_counters"]
+
 # F2: OAuth 2.1 authorisation server (app/routers/oauth.py) for the /mcp
 # connector — dynamic client registration, PKCE authorization codes, and
 # opaque access/refresh tokens. See that module's own docstring for the
