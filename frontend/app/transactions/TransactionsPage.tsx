@@ -12,13 +12,14 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
-import { api, Transaction, type SavingsInsight } from "@/lib/api";
+import { api, Transaction, Account, type SavingsInsight } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";
 import BottomNav from "@/components/BottomNav";
 import Spinner from "@/components/Spinner";
 import { TipsLine } from "@/components/TipsLine";
 import { openTipsFor, tipsForMerchants } from "@/lib/spendTips";
+import { getAccountsCached } from "@/lib/accountsCache";
 
 const PAGE_SIZE = 20;
 
@@ -82,6 +83,12 @@ export default function TransactionsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  // Loaded through the shared accounts cache (lib/accountsCache.ts) so
+  // TeachingSheet can resolve selectedTx's bank/badge the same way Home and
+  // Spend do (G37) — fetched once on mount, never blocking the transaction
+  // list; the sheet just renders without an account line until this
+  // resolves.
+  const [accounts, setAccounts] = useState<Account[]>([]);
   // Savings insights for the collapsed tips line under the chips (Step 4,
   // spend-tips promotion) — the same api.getSavingsInsights() call
   // SpendPage.tsx uses for its own categoryInsights, fetched once here on
@@ -98,6 +105,10 @@ export default function TransactionsPage() {
   const insightsLoadedRef = useRef(false);
 
   const swipeTouchStart = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    getAccountsCached().then(setAccounts).catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Also fetches for a merchants-only deep link (no category filter) that
@@ -510,6 +521,7 @@ export default function TransactionsPage() {
       {selectedTx && (
         <TeachingSheet
           transaction={selectedTx}
+          account={accounts.find(a => a.id === selectedTx.account_id)}
           onClose={() => setSelectedTx(null)}
           onUpdated={handleTxUpdated}
         />
