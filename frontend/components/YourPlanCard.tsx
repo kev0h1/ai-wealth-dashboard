@@ -123,16 +123,16 @@ export default function YourPlanCard({
       {pickerOpen && info && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/45 sm:items-center sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setPickerOpen(false); }}>
           <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="plan-picker-title" className="glass-sheet max-h-[94dvh] w-full overflow-y-auto rounded-t-3xl border-t border-slate-200 bg-slate-50 p-4 shadow-xl sm:max-w-md sm:rounded-3xl sm:border dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-4 flex items-start justify-between gap-3 rounded-t-3xl border-b border-slate-200/60 bg-slate-50/95 px-4 pt-4 pb-3 backdrop-blur-sm dark:border-slate-700/60 dark:bg-slate-900/95">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-600 dark:text-slate-300">Your plan</p>
                 <h2 id="plan-picker-title" className="mt-1 text-xl font-bold text-slate-950 dark:text-slate-50">Choose what fits</h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Compare all five plans, then choose how often you want a paid plan to renew.</p>
               </div>
               <button type="button" aria-label="Close plan picker" onClick={() => setPickerOpen(false)} className="grid min-h-11 min-w-11 place-items-center rounded-xl text-slate-500 outline-none active:bg-white focus-visible:ring-2 focus-visible:ring-indigo-500 dark:active:bg-white/[0.05]">
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
+            <p className="-mt-2 mb-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Compare all five plans, then choose how often you want a paid plan to renew.</p>
             <PlanPicker
               key={`${info?.tier ?? "loading"}-${info?.billing_period ?? "monthly"}`}
               info={info}
