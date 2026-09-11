@@ -318,9 +318,9 @@ export default function PlanPicker({
                 className={`min-h-11 rounded-xl px-3 text-xs font-semibold outline-none transition active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 ${period === item.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/70 dark:text-slate-200 dark:ring-slate-600"}`}
               >
                 <span className="block">{SHORT_LABELS[item.id] ?? item.label}</span>
-                <span className={`money mt-0.5 block text-[10px] ${period === item.id ? "text-indigo-100" : "text-slate-600 dark:text-slate-300"}`}>{money(item.total)}</span>
+                <span className={`money mt-0.5 block text-xs ${period === item.id ? "text-indigo-100" : "text-slate-600 dark:text-slate-300"}`}>{money(item.total)}</span>
                 {item.id !== "monthly" && item.saving_gbp > 0 && (
-                  <span className={`money mt-0.5 block text-[10px] font-semibold ${period === item.id ? "text-white" : "text-emerald-700 dark:text-emerald-400"}`}>Save {money(item.saving_gbp)}</span>
+                  <span className={`money mt-0.5 block text-xs font-semibold ${period === item.id ? "text-white" : "text-emerald-700 dark:text-emerald-400"}`}>Save {money(item.saving_gbp)}</span>
                 )}
               </button>
             ))}
