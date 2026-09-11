@@ -293,7 +293,6 @@ def _run_backend_tests() -> None:
     rc, out = _sh(
         [
             str(venv_python), "-m", "pytest", "-q", "-x",
-            "--deselect", "tests/test_spotlight.py::test_material_estimate_change_earns_return_with_reason",
             "tests",
         ],
         cwd=REPO_ROOT / "backend",

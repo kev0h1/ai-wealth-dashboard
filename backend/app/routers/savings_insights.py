@@ -2591,9 +2591,15 @@ def _material_change_reason(d: dict) -> Optional[str]:
     old = d.get("estimate_at_dismissal")
     new = _parse_saving_amount(d.get("savings_estimate"))
     if old and new and abs(new - old) >= max(10.0, 0.2 * old):
-        # Self-explanatory sentence, no arrow/direction word — the frontend
-        # renders this verbatim with no "Back because:" prefix added.
-        return f"Updated: estimated saving now ~£{new:,.0f}/mo"
+        # Self-explanatory sentence, no arrow character and no "up"/"down"
+        # direction word (the arrow-and-verb format this replaced read like
+        # a diff, not prose) — the frontend renders this verbatim with no
+        # "Back because:" prefix added. Both figures are named: the old
+        # estimate is what the user dismissed against, so dropping it left
+        # the callout unable to say what actually changed (H28 — the
+        # material-change rule fired but the reason it returned couldn't
+        # explain why).
+        return f"Updated: estimated saving now ~£{new:,.0f}/mo (was ~£{old:,.0f}/mo)"
 
     dismissed = d.get("spotlight_dismissed_at")
     if dismissed is None or dismissed < datetime.utcnow() - timedelta(days=30):

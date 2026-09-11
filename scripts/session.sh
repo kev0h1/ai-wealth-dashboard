@@ -318,7 +318,6 @@ cmd_finish() {
 
   log "running backend tests in $worktree_dir/backend..."
   (cd "$worktree_dir/backend" && "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
-    --deselect tests/test_spotlight.py::test_material_estimate_change_earns_return_with_reason \
     tests)
 
   log "running frontend typecheck in $worktree_dir/frontend..."
