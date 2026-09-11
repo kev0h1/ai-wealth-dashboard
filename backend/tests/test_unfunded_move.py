@@ -621,3 +621,110 @@ def test_no_viable_source_falls_back_to_todays_notice(monkeypatch):
         "Top up the account, make the move if you already have, or skip it for this month."
         in item["body"]
     )
+
+
+# ── G43 (Kevin, 2026-09-11): "fewest moves is better" ───────────────────────
+# The picker in `_find_legs_for_destination` is shared by this card and the
+# cover-plan "move" card (companion.py's Step 3) — these tests exercise it
+# through the unfunded_move card, but the same fixture shapes prove the
+# behaviour for both call sites since neither wraps the shared function with
+# card-specific selection logic.
+
+def test_single_source_chosen_over_a_valid_two_source_split(monkeypatch):
+    """Two current accounts (£40 headroom each) could split the £70 need
+    between them, but a third current account alone has £290 headroom — the
+    picker must recognise the single-source solution and never touch the
+    other two, even though they appear earlier in account list order and a
+    naive "fill in rank order" picker would have reached for them first."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("accta", 50.0, name="Acct A", provider="natwest"),   # headroom 40
+        _account("acctb", 50.0, name="Acct B", provider="monzo"),     # headroom 40
+        _account("acctc", 300.0, name="Acct C", provider="hsbc"),     # headroom 290
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    assert move["suggested_from_count"] == 1
+    assert move["suggested_from_name"] == "Acct C"
+    assert move["suggested_amount"] == 70
+    assert "Acct A" not in item["body"]
+    assert "Acct B" not in item["body"]
+
+
+def test_savings_pot_not_used_when_current_accounts_combined_cover_it(monkeypatch):
+    """Reproduces Kevin's real account shape (2026-09-11): two current
+    accounts individually fall short of the £70 need but together cover it
+    (£40 + £40), while a savings pot could cover the whole £70 alone in a
+    single leg. The class ranking (current before savings, savings only
+    when NOTHING ELSE covers it) must still win: a two-leg current-only
+    split is the right answer, not a one-leg dip into savings, because
+    moving money out of savings is a different decision."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("accta", 50.0, name="Acct A", provider="natwest"),    # headroom 40
+        _account("acctb", 50.0, name="Acct B", provider="monzo"),      # headroom 40
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    assert move["suggested_from_count"] == 2
+    assert move["suggested_amount"] == 70
+    assert "Halifax" not in item["body"]
+
+
+def test_split_uses_fewest_legs_not_rank_order_fill(monkeypatch):
+    """When a split really is unavoidable, the picker must take the fewest
+    legs that cover it, not just fill candidates in whatever order they
+    happen to iterate in. A small £25-headroom account sits FIRST in
+    account list order, but two £40-headroom accounts together already
+    cover the £70 need — the small one must be left out entirely rather
+    than dragged in as a third leg."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("small", 35.0, name="Small Current", provider="chase"),   # headroom 25, listed FIRST
+        _account("mid1", 50.0, name="Mid One", provider="natwest"),        # headroom 40
+        _account("mid2", 50.0, name="Mid Two", provider="monzo"),          # headroom 40
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    # Fewest legs is 2 (Mid One + Mid Two, £80 combined headroom): a
+    # rank-order fill starting with Small Current would have needed 3.
+    assert move["suggested_from_count"] == 2
+    assert move["suggested_amount"] == 70
+
+
+def test_tie_break_is_deterministic_regardless_of_account_order(monkeypatch):
+    """Two current accounts with EQUAL headroom can each cover the £70 need
+    alone — the picker must resolve this the same way every time (headroom
+    descending, then account id, so it never falls back on incidental dict/
+    list ordering), regardless of which order the accounts happen to load
+    in from the database."""
+    def _accounts(order):
+        base = {
+            "hsbc": _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+            "natwest": _account("natwest", 500.0, name="Natwest Current", provider="natwest"),
+        }
+        premier = _account("premier", 44.68, name="Premier Current Account")
+        return [premier] + [base[k] for k in order]
+
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+
+    items_a, _ = _run(monkeypatch, bills, accounts=_accounts(["hsbc", "natwest"]))
+    items_b, _ = _run(monkeypatch, bills, accounts=_accounts(["natwest", "hsbc"]))
+
+    move_a = _find(items_a, "unfunded_move")["moves"][0]
+    move_b = _find(items_b, "unfunded_move")["moves"][0]
+    assert move_a["suggested_from_count"] == 1
+    assert move_a["suggested_from_name"] == move_b["suggested_from_name"]
+    # "hsbc" sorts before "natwest" by account id — the documented tie-break.
+    assert move_a["suggested_from_name"] == "HSBC Current"
