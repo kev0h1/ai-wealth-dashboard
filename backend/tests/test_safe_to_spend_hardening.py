@@ -5,12 +5,14 @@ the unsupported-region guard, and preference-cache invalidation without
 requiring Mongo.
 """
 import asyncio
+from datetime import date, datetime, timedelta, timezone
 
 import app.routers.analytics as analytics
 import app.routers.preferences as preferences
 import app.routers.allocations as allocations_router
 import app.routers.commitments as commitments_router
 import app.services.cashflow as cashflow_service
+import app.services.income as income_service
 import app.services.net_position as net_position
 import app.services.region as region_service
 
@@ -430,3 +432,199 @@ def test_preferences_patch_invalidates_every_cached_response_for_user(monkeypatc
 
     assert cache.calls == [("user@example.com",)]
     assert result == {"hide_net_worth": False, "dark_mode": True}
+
+
+# ── G35: pin the composed safe_to_spend figure against a fixed fixture ─────
+#
+# Kevin's Safe-to-Spend hero moved from £64 to £276 within a few hours with
+# no transactions posted on the account (2026-09-10). The investigation
+# (see the G35 backlog note) could not point at a single merged commit that
+# changed the number inside that window — the one candidate that touches
+# this exact arithmetic, G16 ("card_growth_reserved must stop being
+# subtracted... for a card with a learned repayment series"), merged the
+# night before the window started, and G24 explicitly preserves "the
+# reserve math is untouched" (its own commit message) and only adds a
+# display-only field. The likelier mechanism is a legitimate scheduled
+# recompute (task_reconcile_truelayer, every 4h) reacting to new
+# information from the bank — e.g. a predicted bill matched to a freshly
+# observed PENDING debit (pending_transactions.py) is structurally excluded
+# from upcoming_bills, or a recurring-series veto (recurring_judge.py,
+# capped at MAX_JUDGEMENTS_PER_REFRESH=10 per refresh) reaching a series for
+# the first time on a later tick — neither of which is a bug. But nothing
+# in this codebase snapshots the number's own components over time (that
+# gap is B18), so the exact mechanism for THIS particular jump could not be
+# reconstructed after the fact.
+#
+# This test is the structural fix asked for regardless of cause: it exercises
+# `compute_safe_to_spend` for real (not a mocked-away stub) against a FIXED,
+# realistic fixture — bills and income landing on both sides of payday, a
+# buffer, commitments and allocations reserves, and two credit cards (one
+# with a learned repayment series, one without, so both the "growth is a
+# fact, not always a reserve" rule AND the fail-closed fallback reserve are
+# exercised) — and pins every named component of the response, not just the
+# headline figure. A future change to this arithmetic (deliberate or not)
+# must update this fixture's expected numbers explicitly; it can never move
+# silently.
+def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
+    uid = "g35-fixture@example.com"
+
+    # Deterministic relative to "today" (never frozen system time) so the
+    # test never rots, but still pins every component to a hand-derived
+    # number — see the walk-through in the comments below.
+    today = date.today()
+    next_payday = today + timedelta(days=14)  # days_until_payday == 14
+    last_synced = datetime(2026, 1, 1, 9, 30, 0, tzinfo=timezone.utc)
+
+    prefs = {
+        "user_id": uid,
+        "safe_to_spend_buffer": 50.0,
+        "pay_period_config": {"type": "calendar_month"},
+    }
+
+    # Two spendable pool accounts (one current, one savings — savings must
+    # never enter spendable_now) and two credit cards, one growing on a
+    # LEARNED repayment series (its growth is a fact only, never reserved)
+    # and one with no learned series (its growth fails closed as a reserve).
+    accounts = [
+        {"name": "Current Account", "balance": 1000.0, "type": "bank",
+         "subtype": "CURRENT", "currency": "GBP"},
+        {"name": "Rainy Day Savings", "balance": 500.0, "type": "bank",
+         "subtype": "SAVINGS", "currency": "GBP"},
+        {"name": "Card A (learned repayment)", "balance": -400.0,
+         "type": "credit card", "subtype": "CREDIT", "currency": "GBP"},
+        {"name": "Card B (no learned repayment)", "balance": -150.0,
+         "type": "credit card", "subtype": "CREDIT", "currency": "GBP"},
+    ]
+    # spendable_now = 1000.0 (savings + both credit cards excluded from the
+    # pool entirely by _account_pool_kind); card_debt = 400 + 150 = 550.0.
+
+    bills = [
+        {"name": "Rent", "days_away": 3, "amount": 600.0, "kind": "commitment"},
+        {"name": "Council Tax", "days_away": 10, "amount": 150.0, "kind": "commitment"},
+        # A pooled transfer into an account already counted in spendable_now
+        # must be excluded from bills_total AND the lowest-balance walk —
+        # this is the G19/pooled-transfers guard, exercised here.
+        {"name": "Move between own current accounts", "days_away": 5,
+         "amount": 200.0, "kind": analytics.MOVEMENT, "dest_account_spendable": True},
+        # A movement to savings is a real outflow from the spendable pool
+        # (not pooled-excluded) — stays in the walk.
+        {"name": "Move to savings", "days_away": 6, "amount": 100.0,
+         "kind": analytics.MOVEMENT, "dest_account_spendable": False},
+    ]
+    # window_bills (pooled transfer excluded) = Rent(600) + Council Tax(150)
+    #   + Move to savings(100) = 850.0; pooled_transfers_excluded = 200.0.
+
+    income = [
+        {"name": "Freelance invoice", "days_away": 7, "amount": 300.0},
+        # Lands exactly ON payday (days_away == days_until_payday), so this
+        # is payday_income, not income_before_payday.
+        {"name": "Salary", "days_away": 14, "amount": 2000.0},
+    ]
+    # income_before_payday = 300.0; payday_income = 2000.0.
+
+    # Lowest-balance walk from spendable_now=1000, debit-before-income on a
+    # shared day (none share a day here, but the ordering rule still
+    # applies): day3 -600=400 (min) -> day6 -100=300 (min) -> day7 +300=600
+    # -> day10 -150=450. lowest_projected_balance = 300.0.
+    # safe_to_spend after buffer: 300 - 50 = 250.0
+    # after commitments_reserved (40): 250 - 40 = 210.0
+    # after allocations_reserved (30.5): 210 - 30.5 = 179.5  (== safe_to_spend_cash)
+    # card_growth_total = 120 (Card A, learned) + 80 (Card B, unlearned) = 200.0
+    # card_growth_reserved = min(200.0, unlearned_growth=80.0) = 80.0
+    # final safe_to_spend: 179.5 - 80.0 = 99.5
+
+    async def fake_region(_uid):
+        return "UK"
+
+    def fake_confirmed_payday(_prefs, _today):
+        return (next_payday, {"schedule": "fixed"})
+
+    async def fake_cashflow_response(_cached, uid=None, prefs=None):
+        return {"upcoming_bills": bills, "upcoming_income": income}
+
+    async def fake_accounts(_uid):
+        return accounts
+
+    async def fake_commitments(_uid):
+        return 40, 2
+
+    async def fake_allocations(_uid):
+        return 30.5, 1
+
+    async def fake_card_growth(_uid, _period_start, _today, _window_bills):
+        return [
+            {"account_id": "cardA", "net_change": 120.0, "growth": 120.0,
+             "unpaid_growth": 120.0, "new_spend": 90.0},
+            {"account_id": "cardB", "net_change": 80.0, "growth": 80.0,
+             "unpaid_growth": 80.0, "new_spend": 80.0},
+        ]
+
+    async def fake_monthly_cashflow(_uid, _region, _cutoff):
+        return {"spending": 2000.0, "n_months": 3}
+
+    async def fake_last_sync(_uid):
+        return last_synced
+
+    monkeypatch.setattr(
+        analytics, "preferences_col", _PrefsCol(prefs),
+    )
+    monkeypatch.setattr(
+        analytics, "cashflow_cache_col",
+        _CacheDocCol({
+            "_id": uid,
+            # Card A's repayment series has been learned onto its account —
+            # this is what keeps its growth OUT of the fail-closed reserve.
+            "recurring_spend": [{"card_dest_account_id": "cardA"}],
+        }),
+    )
+    monkeypatch.setattr(analytics, "card_terms_col", _ListCol([]))
+    monkeypatch.setattr(region_service, "get_user_region", fake_region)
+    monkeypatch.setattr(income_service, "get_confirmed_payday", fake_confirmed_payday)
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_cashflow_response)
+    monkeypatch.setattr(analytics, "_safe_to_spend_accounts", fake_accounts)
+    monkeypatch.setattr(commitments_router, "total_reserved_slices", fake_commitments)
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", fake_allocations)
+    monkeypatch.setattr(net_position, "card_growth_by_card", fake_card_growth)
+    monkeypatch.setattr(cashflow_service, "monthly_cashflow_cached", fake_monthly_cashflow)
+    monkeypatch.setattr(analytics, "last_bank_sync", fake_last_sync)
+
+    result = asyncio.run(analytics.compute_safe_to_spend(uid))
+
+    assert result["status"] == "ok"
+    assert result["calculation_status"] == "complete"
+    assert result["unavailable_components"] == []
+
+    # The composed headline figure and its pre-card-reserve twin.
+    assert result["safe_to_spend"] == 99.5
+    assert result["safe_to_spend_cash"] == 179.5
+
+    # Every named component that feeds it, so a future change can never
+    # move the headline number without this test naming exactly which
+    # component moved and by how much.
+    assert result["next_payday"] == next_payday.isoformat()
+    assert result["days_until_payday"] == 14
+    assert result["bills_total"] == 850.0
+    assert result["pooled_transfers_excluded"] == 200.0
+    assert result["income_before_payday"] == 300.0
+    assert result["payday_income"] == 2000.0
+    assert result["buffer"] == 50.0
+    assert result["spendable_now"] == 1000.0
+    assert result["lowest_projected_balance"] == 300.0
+    assert result["card_debt"] == 550.0
+    assert result["card_growth_total"] == 200.0
+    assert result["card_new_spend_total"] == 170.0
+    assert result["card_growth_reserved"] == 80.0
+    assert result["card_growth_wording"] == "carried"
+    assert result["card_growth_due_date"] is None
+    assert result["commitments_reserved"] == 40
+    assert result["commitments_count"] == 2
+    assert result["commitments_reserved_period_label"] == "monthly"
+    assert result["allocations_reserved"] == 30.5
+    assert result["allocations_count"] == 1
+    assert result["last_synced"] == last_synced.isoformat()
+
+    # state/short_reason/estimated derive from the figures above; pinned so
+    # a change to their thresholds is also forced through this test.
+    assert result["state"] == "tight"
+    assert result["short_reason"] is None
+    assert result["estimated"] is False

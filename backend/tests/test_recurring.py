@@ -110,3 +110,12 @@ def test_transfer_category_still_rejects_two_occurrence_noise():
     # still reject this.
     txns = [txn("REVOLUT TRANSFER", 0, 500.0, "Transfer"), txn("REVOLUT TRANSFER", 7, 500.0, "Transfer")]
     assert keys(_detect_recurring(txns, trusted_categories=TRUSTED)) == set()
+
+
+def test_default_recurring_categories_trusts_mortgage_and_car_finance():
+    """G39: a mortgage/car-finance payment previously detected as recurring
+    via "Bills" must keep being trusted once it's recategorised, or it
+    silently drops out of the Upcoming bills list / bills-at-risk dot the
+    moment G39's category-migration relabels it."""
+    assert "Mortgage" in DEFAULT_RECURRING_CATEGORIES
+    assert "Car finance" in DEFAULT_RECURRING_CATEGORIES

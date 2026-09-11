@@ -201,6 +201,13 @@ MCP_CHEAP_METHOD_PER_MINUTE = int(os.getenv("MCP_CHEAP_METHOD_PER_MINUTE", "240"
 # mcp_calls_col row counts — see app.core.subscription._mcp_call_count.
 MCP_AUDIT_TTL_DAYS = int(os.getenv("MCP_AUDIT_TTL_DAYS", "90"))
 
+# B18: Safe-to-Spend daily history snapshot retention (app/main.py's TTL
+# index on safe_to_spend_history_col.computed_at). Same 90-day bound as the
+# MCP audit log above, for the same reason: enough history for a
+# "what changed since last week/month" read, bounded so the collection can
+# never grow without limit.
+SAFE_TO_SPEND_HISTORY_TTL_DAYS = int(os.getenv("SAFE_TO_SPEND_HISTORY_TTL_DAYS", "90"))
+
 
 _secrets_file = _BACKEND_DIR / ".session_secret"
 if s := os.getenv("SESSION_SECRET"):

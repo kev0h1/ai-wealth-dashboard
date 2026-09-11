@@ -10,7 +10,7 @@ import os
 
 from app.core.config import (
     APP_URL, API_PUBLIC_URL, MCP_AUDIT_TTL_DAYS, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
-    TRUELAYER_CLIENT_ID,
+    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID,
 )
 from app.core.auth import auth_middleware
 from app.db.collections import (
@@ -29,6 +29,7 @@ from app.db.collections import (
     allowed_signups_col,
     billing_customers_col, billing_events_col,
     broadcasts_col, broadcast_receipts_col,
+    safe_to_spend_history_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -363,6 +364,17 @@ async def _create_indexes():
     await broadcast_receipts_col.create_index(
         "sent_at", expireAfterSeconds=365 * 24 * 3600, name="broadcast_receipts_ttl"
     )
+    # B18: daily Safe-to-Spend history snapshot — one doc per (user, day),
+    # so "what changed and why" about the headline figure is answerable
+    # after the fact. TTL mirrors mcp_calls_col's F14 bound (see
+    # SAFE_TO_SPEND_HISTORY_TTL_DAYS's own comment in app/core/config.py).
+    await safe_to_spend_history_col.create_index(
+        [("user_id", 1), ("date", 1)], unique=True, name="safe_to_spend_history_user_date"
+    )
+    await safe_to_spend_history_col.create_index(
+        "computed_at", expireAfterSeconds=SAFE_TO_SPEND_HISTORY_TTL_DAYS * 24 * 3600,
+        name="safe_to_spend_history_ttl",
+    )
 
 
 async def _acquire_migration_lock() -> bool:
@@ -412,6 +424,7 @@ async def _migrate():
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
     asyncio.create_task(_migrate_category_kinds())
+    asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
     asyncio.create_task(_seed_subscriptions())
     asyncio.create_task(_cleanup_stale_connections())
@@ -444,6 +457,18 @@ async def _migrate_category_kinds():
     stats = await migrate_category_kinds()
     if stats["upgraded"]:
         print(f"[startup] category kinds migrated: {stats}")
+
+
+async def _migrate_mortgage_car_finance_categories():
+    """One-time: G39 added the Mortgage/Car finance built-ins -- move any
+    existing Bills/Other transaction their (now-shared) trigger keywords
+    match. See app.services.categorisation.migrate_mortgage_car_finance_categories."""
+    from app.services.categorisation import migrate_mortgage_car_finance_categories
+    stats = await migrate_mortgage_car_finance_categories()
+    if stats["updated"]:
+        print(f"[startup] mortgage/car finance categories migrated: {stats}")
+        for uid in stats["user_ids"]:
+            await data_version.bump(uid)
 
 
 async def _fix_all_users_categories():

@@ -440,7 +440,15 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
 # category that fell through. Verified empirically (see the reversal-netting
 # check first — it was NOT the cause; all 5 series had zero same-account
 # candidate credits within 5 days at any point).
-DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
+# Mortgage / Car finance (G39, 2026-09-11) added alongside Bills: both split
+# out of Bills/Other once they got their own category, and a mortgage or
+# car-finance payment that was previously detected as a recurring bill via
+# "Bills" must keep being detected once it's recategorised — otherwise it
+# silently drops out of the Upcoming bills list / bills-at-risk dot / cashflow
+# projection the moment G39's recategorisation lands, the exact regression
+# this list's own history above (the Transfer/Savings/Investment story) warns
+# about for a category that isn't trusted.
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Mortgage", "Car finance", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
 
 
 def _net_reversals(items: list, credits: list) -> list:
@@ -4046,6 +4054,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "next_payday":         next_payday.isoformat(),
         "days_until_payday":   days_until_payday,
         "bills_total":         bills_total,
+        # B18: the bill-list IDENTITY behind bills_total (name/amount/
+        # days_away only, no transaction detail) — sums to bills_total
+        # exactly. Exists so app.services.safe_to_spend_history's daily
+        # snapshot can record which bills made up the figure, not just the
+        # total, without a second independent computation that could drift
+        # from this one. Not currently read by the frontend; safe to add
+        # (additive, same pattern as CashflowData's other optional fields).
+        "window_bills":        window_bills,
         "pooled_transfers_excluded": pooled_transfers_excluded,
         "income_before_payday": income_before,
         "buffer":              buffer,

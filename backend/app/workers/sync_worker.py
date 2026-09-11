@@ -29,6 +29,7 @@ from app.db.collections import investment_accounts_col, subscriptions_col
 from app.services.investment_prices import refresh_account_prices
 from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
+from app.services.safe_to_spend_history import run_safe_to_spend_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -712,6 +713,20 @@ async def task_retention_sweep(ctx):
     return summary
 
 
+async def task_safe_to_spend_snapshot(ctx):
+    """B18: daily Safe-to-Spend history snapshot — one row per user per
+    calendar day of the headline figure's own components (spendable_now,
+    bills_total, income_before_payday, lowest_projected_balance, buffer,
+    commitments_reserved, allocations_reserved, card_growth_total, and the
+    bill-list identity behind bills_total), so a future "what changed and
+    why" read has real history instead of only ever seeing the latest
+    value. See app/services/safe_to_spend_history.py's module docstring for
+    why this is its own collection rather than needle_history_col."""
+    summary = await run_safe_to_spend_snapshot()
+    logger.info("safe-to-spend snapshot: %s", summary)
+    return summary
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
@@ -719,7 +734,8 @@ class WorkerSettings:
     functions = [task_sync_truelayer, task_sync_yapily, task_sync_mono,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
-                 task_consent_watch, task_retention_sweep, task_trial_reminder]
+                 task_consent_watch, task_retention_sweep, task_trial_reminder,
+                 task_safe_to_spend_snapshot]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -731,6 +747,10 @@ class WorkerSettings:
         # 03:30 UTC nightly: enforces SECURITY.md section 6 (connections 30
         # days after consent ends, dormant accounts after 12 months).
         cron(task_retention_sweep, hour=3, minute=30, run_at_startup=False),
+        # 05:00 UTC daily: B18's Safe-to-Spend snapshot, timed just after the
+        # 04:00 task_reconcile_truelayer tick so the day's snapshot reads
+        # freshly-synced data, and well clear of the 06:30/07:00/08:15 jobs.
+        cron(task_safe_to_spend_snapshot, hour=5, minute=0, run_at_startup=False),
         # 09:00 UTC daily: B22's trial-conversion disclosure reminder,
         # 3 days out from trial_ends_at.
         cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),

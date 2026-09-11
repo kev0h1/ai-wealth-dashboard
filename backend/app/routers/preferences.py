@@ -6,6 +6,11 @@ from app.core.auth import current_user
 from app.db.collections import preferences_col, cashflow_cache_col
 from app.services.notifications import NOTIF_DEFAULTS
 from app.services import response_cache
+# Single source of truth for the recurring-trust default (G39 fix: this file
+# used to carry its own hand-duplicated copy of analytics.py's
+# DEFAULT_RECURRING_CATEGORIES, which would have silently fallen out of sync
+# the moment G39 added Mortgage/Car finance to the real one).
+from app.routers.analytics import DEFAULT_RECURRING_CATEGORIES
 
 router = APIRouter(tags=["preferences"])
 
@@ -76,7 +81,7 @@ async def get_preferences(user: dict = Depends(current_user)):
         # "What-if" figures for the Spend page's debt_burndown widget — local
         # experimentation only, never fed back into card_terms/accounts.
         "debt_burndown_overrides": doc.get("debt_burndown_overrides"),
-        "recurring_categories": doc.get("recurring_categories") or ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"],
+        "recurring_categories": doc.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES,
         "dismissed_recurring":  doc.get("dismissed_recurring", []),
         "cover_plan_excluded_accounts": doc.get("cover_plan_excluded_accounts", []),
         "payday_buffer": doc.get("payday_buffer", 50),
