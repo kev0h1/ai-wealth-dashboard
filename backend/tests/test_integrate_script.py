@@ -273,3 +273,102 @@ def test_wait_and_check_health_passes_when_all_urls_ok(monkeypatch):
     integrate._wait_and_check_health()  # must not raise
 
     assert checked == integrate.HEALTH_URLS
+
+
+# ---------------------------------------------------------------------
+# _one_line_reason / _block (H27 — block reasons must never embed raw
+# multi-line command output into the TODO.md state tag)
+# ---------------------------------------------------------------------
+
+
+def test_one_line_reason_takes_first_non_empty_line_and_strips_brackets():
+    text = "\n  frontend build failed: [next] error TS2345\nsome second line\nthird line\n"
+    assert integrate._one_line_reason(text) == "frontend build failed: next error TS2345"
+
+
+def test_one_line_reason_collapses_internal_whitespace():
+    text = "git   push\torigin\nmain   failed"
+    assert integrate._one_line_reason(text) == "git push origin"
+
+
+def test_one_line_reason_caps_length_with_ellipsis():
+    text = "x" * 2000
+    result = integrate._one_line_reason(text, cap=200)
+    assert len(result) == 200
+    assert result.endswith("...")
+    assert result[:197] == "x" * 197
+
+
+def test_one_line_reason_empty_text_returns_empty_string():
+    assert integrate._one_line_reason("") == ""
+    assert integrate._one_line_reason("   \n   \n") == ""
+
+
+def test_block_writes_single_sanitised_line_logs_full_text_and_adds_note(monkeypatch, capsys):
+    set_state_calls: list[tuple] = []
+    add_note_calls: list[tuple] = []
+
+    def fake_set_state(item_id, state, reason=None, branch=None, actor="claude"):
+        set_state_calls.append((item_id, state, reason, actor))
+        return {"id": item_id}, True
+
+    def fake_add_note(item_id, text, actor="claude"):
+        add_note_calls.append((item_id, text, actor))
+        return {"id": item_id}, True
+
+    monkeypatch.setattr(integrate.backlog, "set_state", fake_set_state)
+    monkeypatch.setattr(integrate.backlog, "add_note", fake_add_note)
+
+    raw_output = "frontend build failed:\n" + "\n".join(f"error line {i}: [module]" for i in range(50))
+    integrate._block("H99", raw_output)
+
+    assert len(set_state_calls) == 1
+    item_id, state, reason, actor = set_state_calls[0]
+    assert item_id == "H99"
+    assert state == "blocked"
+    assert actor == "claude"
+    # single line: no embedded newlines, no stray brackets that would
+    # break the `[state: blocked: ...]` tag.
+    assert "\n" not in reason
+    assert "[" not in reason and "]" not in reason
+    assert reason.startswith("frontend build failed:")
+    assert len(reason) <= 200
+
+    # the full multi-line text is preserved as a board note.
+    assert len(add_note_calls) == 1
+    note_item_id, note_text, note_actor = add_note_calls[0]
+    assert note_item_id == "H99"
+    assert note_actor == "claude"
+    assert note_text == raw_output[:1500]
+
+    # the full text was also logged (at error level, to stderr) before
+    # being truncated for the board.
+    captured = capsys.readouterr()
+    assert "error line 49" in captured.err
+
+
+def test_block_skips_note_when_reason_is_empty(monkeypatch):
+    add_note_calls: list[tuple] = []
+
+    monkeypatch.setattr(integrate.backlog, "set_state", lambda *a, **k: ({}, True))
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: add_note_calls.append((a, k)))
+
+    integrate._block("H99", "")
+
+    assert add_note_calls == []
+
+
+def test_block_swallows_backlog_error_from_set_state(monkeypatch, capsys):
+    def raising_set_state(*a, **k):
+        raise integrate.backlog.BacklogError("H99 is not a known backlog item.")
+
+    add_note_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_state", raising_set_state)
+    monkeypatch.setattr(integrate.backlog, "add_note", lambda *a, **k: add_note_calls.append((a, k)))
+
+    integrate._block("H99", "some reason")  # must not raise
+
+    # never falls through to add_note once the state write itself failed.
+    assert add_note_calls == []
+    captured = capsys.readouterr()
+    assert "could not write block reason for H99" in captured.err

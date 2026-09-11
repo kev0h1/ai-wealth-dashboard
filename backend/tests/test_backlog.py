@@ -166,6 +166,78 @@ def test_set_state_rejects_unknown_state():
         doc.set_state("A1", "done")
 
 
+# ---------------------------------------------------------------------
+# H27 — block/reject reasons and notes are sanitised to a single line, so
+# a caller passing raw multi-line command output (e.g.
+# scripts/integrate.py) can never corrupt the item's one-line format.
+# ---------------------------------------------------------------------
+
+
+def test_one_line_reason_first_line_whitespace_collapsed_brackets_stripped():
+    text = "  frontend build   failed: [next] error\nsecond line\nthird line  "
+    assert backlog.one_line_reason(text) == "frontend build failed: next error"
+
+
+def test_one_line_reason_skips_leading_blank_lines():
+    text = "\n\n   \nactual first line\nsecond line"
+    assert backlog.one_line_reason(text) == "actual first line"
+
+
+def test_one_line_reason_caps_at_200_chars_with_ellipsis():
+    text = "y" * 2000
+    result = backlog.one_line_reason(text)
+    assert len(result) == 200
+    assert result.endswith("...")
+    assert result[:197] == "y" * 197
+
+
+def test_one_line_reason_empty_or_none_input():
+    assert backlog.one_line_reason(None) == ""
+    assert backlog.one_line_reason("") == ""
+    assert backlog.one_line_reason("   \n   \n") == ""
+
+
+def test_set_state_blocked_sanitises_multiline_reason_with_brackets():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    raw_reason = "frontend build failed:\n[next] error TS2345: something [broke]\nmore output\nyet more"
+    doc.set_state("A1", "blocked", reason=raw_reason)
+
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "\n" not in line
+    assert "[state: blocked: frontend build failed:]" in line
+    assert doc.items["A1"].reason == "frontend build failed:"
+
+    # the item line still round-trips through the service's own parser.
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].state == "blocked"
+    assert reparsed.items["A1"].reason == "frontend build failed:"
+    assert "\n" not in reparsed.lines[reparsed.items["A1"].line_no]
+
+
+def test_set_state_blocked_caps_a_very_long_reason_at_200_chars():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "blocked", reason="z" * 2000)
+
+    assert len(doc.items["A1"].reason) == 200
+    assert doc.items["A1"].reason.endswith("...")
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].reason == doc.items["A1"].reason
+
+
+def test_set_state_rejected_sanitises_multiline_reason():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    raw_reason = "reviewer found a bug:\nsee the diff at line 42\n[details omitted]"
+    doc.set_state("A1", "rejected", reason=raw_reason)
+
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "\n" not in line
+    assert doc.items["A1"].reason == "reviewer found a bug:"
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].reason == "reviewer found a bug:"
+
+
 def test_mark_done_clears_state_tag_and_appends_marker():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
     doc.set_state("A1", "blocked", reason="waiting")
@@ -328,6 +400,26 @@ def test_add_note_by_codex_round_trips_through_reparse():
     assert reparsed.items["A1"].notes[-1].text == "a codex note"
 
 
+def test_add_note_collapses_embedded_newlines_to_slash_separated_single_line():
+    # A note is one `TodoDoc.lines` entry (NOTE_RE only ever matches a
+    # whole list line); a raw newline embedded in note text (e.g. a chunk
+    # of command output passed to add_note) must not end up creating
+    # unparsed stray lines the next time the file is loaded (H27).
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.add_note("A1", "line one\nline two\n\nline three  ", "claude")
+
+    assert len(doc.items["A1"].notes) == 1
+    note = doc.items["A1"].notes[0]
+    assert note.text == "line one / line two / line three"
+    assert "\n" not in doc.lines[note.line_no]
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert len(reparsed.items["A1"].notes) == 1
+    assert reparsed.items["A1"].notes[0].text == "line one / line two / line three"
+    # nothing else in the fixture (B1 etc.) was corrupted by the shift.
+    assert reparsed.items["B1"].text == "Something about B1."
+
+
 def test_add_note_on_item_with_no_notes_yet():
     doc = backlog.TodoDoc.parse(TODO_FIXTURE)
     doc.add_note("A1", "first note ever", "kevin")
@@ -437,6 +529,31 @@ def test_public_set_state_start_and_block(paths, mock_git):
     assert item["state"] == "blocked"
     assert item["reason"] == "waiting on Finexer"
     assert "backlog: B1 blocked by claude" in mock_git.call_args_list[1].args[0]
+
+
+def test_public_set_state_blocked_sanitises_raw_multiline_reason(paths, mock_git):
+    # Defence in depth for H27: even a caller that skips its own
+    # sanitisation (e.g. a future scripts/integrate.py regression) can
+    # never write raw multi-line command output through the public
+    # backlog.set_state() entry point — TodoDoc.set_state sanitises
+    # independently, and this is what lands on disk.
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    raw_reason = "npm run build failed:\nModule not found: Error: Can't resolve './Foo'\nBuild failed with 1 error."
+
+    item, committed = backlog.set_state(
+        "B1", "blocked", reason=raw_reason, actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert item["state"] == "blocked"
+    assert item["reason"] == "npm run build failed:"
+    assert committed is True
+
+    on_disk_line = next(
+        line for line in todo_path.read_text(encoding="utf-8").splitlines() if line.startswith("- [ ] **B1.")
+    )
+    assert "npm run build failed:" in on_disk_line
+    assert "Module not found" not in on_disk_line
+    assert "\n" not in on_disk_line
 
 
 def test_public_set_owner(paths, mock_git):
