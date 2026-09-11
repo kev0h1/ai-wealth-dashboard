@@ -440,7 +440,15 @@ def _amount_clusters(items: list, tolerance: float = 0.3) -> list[list]:
 # category that fell through. Verified empirically (see the reversal-netting
 # check first — it was NOT the cause; all 5 series had zero same-account
 # candidate credits within 5 days at any point).
-DEFAULT_RECURRING_CATEGORIES = ["Bills", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
+# Mortgage / Car finance (G39, 2026-09-11) added alongside Bills: both split
+# out of Bills/Other once they got their own category, and a mortgage or
+# car-finance payment that was previously detected as a recurring bill via
+# "Bills" must keep being detected once it's recategorised — otherwise it
+# silently drops out of the Upcoming bills list / bills-at-risk dot / cashflow
+# projection the moment G39's recategorisation lands, the exact regression
+# this list's own history above (the Transfer/Savings/Investment story) warns
+# about for a category that isn't trusted.
+DEFAULT_RECURRING_CATEGORIES = ["Bills", "Mortgage", "Car finance", "Savings", "Investment", "Subscriptions", "Health", "Software", "Debt", "Transfer"]
 
 
 def _net_reversals(items: list, credits: list) -> list:

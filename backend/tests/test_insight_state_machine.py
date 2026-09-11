@@ -574,7 +574,7 @@ def test_expiry_line_default_ttl_states_the_age_not_the_cadence():
         ("mobile", "fixed"),
         ("broadband", "fixed"),
         ("energy", "fixed"),
-        ("mortgage", "fixed"),
+        ("mortgage", "fixed"),      # Mortgage is a COMMITMENT kind (G39)
         ("car_insurance", "fixed"),
         ("home_insurance", "fixed"),
         ("life_insurance", "fixed"),
@@ -582,7 +582,7 @@ def test_expiry_line_default_ttl_states_the_age_not_the_cadence():
         ("water", "fixed"),
         ("tv_licence", "fixed"),
         ("groceries", "fixed"),
-        ("car_finance", "fixed"),   # Transport is a COMMITMENT kind
+        ("car_finance", "fixed"),   # Car finance is a COMMITMENT kind (G39)
         ("gym", "free"),            # Health is a DISCRETIONARY kind
         ("subscriptions", "free"),
         ("eating_out", "free"),
@@ -637,6 +637,14 @@ def test_serialize_insight_exposes_only_a_reliable_spend_category():
     }
     assert _serialize_insight(doc)["app_category"] == "Eating Out"
 
-    # Mortgage insights are merchant-scoped because the bank category is not
-    # reliable; they must not be guessed onto the Bills row.
-    assert _serialize_insight({**doc, "category": "mortgage"})["app_category"] is None
+    # G39 (2026-09-11): mortgage/car_finance used to be merchant-scoped
+    # because the bank category wasn't reliable; both now have their own
+    # built-in category (app.services.categories.BUILTIN_CATEGORY_KINDS) and
+    # resolve here like every other category-backed insight.
+    assert _serialize_insight({**doc, "category": "mortgage"})["app_category"] == "Mortgage"
+    assert _serialize_insight({**doc, "category": "car_finance"})["app_category"] == "Car finance"
+
+    # A category not in CATEGORY_APP_ROUTES at all (LABEL_OPTIONS-only, no
+    # single reliable category to net against) still falls through to None —
+    # this is what "merchant-scoped, no app_category" actually looks like now.
+    assert _serialize_insight({**doc, "category": "home_insurance"})["app_category"] is None

@@ -29,6 +29,8 @@ export const CATEGORY_ICONS: Record<string, string> = {
   Entertainment:    "Film",
   Shopping:         "ShoppingBag",
   Bills:            "Receipt",
+  Mortgage:         "Home",
+  "Car finance":    "Car",
   Subscriptions:    "Repeat",
   Health:           "HeartPulse",
   Beauty:           "Flower2",

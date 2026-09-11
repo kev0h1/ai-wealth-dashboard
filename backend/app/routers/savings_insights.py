@@ -123,13 +123,18 @@ PROMPT_VERSION = 6
 # fraction of its transactions ("2 payments" for a bill paid every month for
 # years). /transactions?category=X searches ALL history via
 # GET /transactions/search, so the evidence behind the insight is complete.
-# mortgage/car_finance: no single reliable category — a mortgage payment can
-# land in "Bills" or "Other" depending on how the user's bank labels it, and
-# a wrong category guess would silently hide the very payments the CTA
-# promises. Routed on merchant alone (bare "/transactions", which
-# _merchant_scoped_route turns into "/transactions?merchants=<names>") so the
-# search is scoped to the transactions that actually triggered the insight,
-# not a category that may not contain them.
+# mortgage/car_finance (G39, 2026-09-11): UNTIL this ticket, neither had a
+# single reliable category — a mortgage payment could land in "Bills" or
+# "Other" depending on how the user's bank labelled it, and a wrong category
+# guess would silently hide the very payments the CTA promises. G39 gave
+# both their own built-in category (app.services.categories.
+# BUILTIN_CATEGORY_KINDS) and fed the same trigger keywords used below into
+# the deterministic categoriser (app.services.categorisation.MERCHANT_PATTERNS),
+# so the category is now reliable and these route like every other
+# category-backed insight. TV licence deliberately stays mapped to Bills —
+# it doesn't have this problem (it's always cleanly "Bills"), so it isn't
+# in this dict's exception list at all, it just uses the Bills route below
+# via LABEL_OPTIONS/_INSIGHT_CATEGORY_TO_APP_CATEGORY.
 CATEGORY_APP_ROUTES: dict[str, str] = {
     "subscriptions": "/transactions?category=Subscriptions",
     "mobile":        "/transactions?category=Bills",
@@ -138,8 +143,8 @@ CATEGORY_APP_ROUTES: dict[str, str] = {
     "groceries":     "/transactions?category=Groceries",
     "eating_out":    "/transactions?category=Eating%20Out",
     "gym":           "/transactions?category=Health",
-    "car_finance":   "/transactions",
-    "mortgage":      "/transactions",
+    "car_finance":   "/transactions?category=Car%20finance",
+    "mortgage":      "/transactions?category=Mortgage",
     "car_insurance": "/transactions?category=Bills",
     "insurance":     "/transactions?category=Bills",
     "water":         "/transactions?category=Bills",
@@ -695,18 +700,29 @@ LABEL_OPTIONS: dict[str, dict] = {
 # else uses, rather than a second hardcoded fixed/free judgement drifting
 # apart from it. `pension` deliberately has no entry: pension/savings
 # contributions are a MOVEMENT, not spend, so they have no job at all.
+#
+# mortgage/car_finance (G39, 2026-09-11): now point at their own built-in
+# categories (added to app.services.categories.BUILTIN_CATEGORY_KINDS, both
+# COMMITMENT) instead of the old best-guess "Bills"/"Transport" — they never
+# belonged in Transport (a car finance payment isn't transport spend) and
+# Bills was only ever a fallback for mortgage because nothing better
+# existed. Both routes below now resolve through CATEGORY_APP_ROUTES to a
+# real "category=" query string too (see that dict's own comment), so
+# `_category_for_net_check` also stops returning None for them. tv_licence
+# deliberately keeps mapping to "Bills" — its insight already has a single
+# reliable category, this ticket didn't touch it.
 _INSIGHT_CATEGORY_TO_APP_CATEGORY: dict[str, str] = {
     "mobile":         "Bills",
     "broadband":      "Bills",
     "energy":         "Bills",
-    "mortgage":       "Bills",
+    "mortgage":       "Mortgage",
     "car_insurance":  "Bills",
     "home_insurance": "Bills",
     "life_insurance": "Bills",
     "council_tax":    "Bills",
     "water":          "Bills",
     "tv_licence":     "Bills",
-    "car_finance":    "Transport",
+    "car_finance":    "Car finance",
     "gym":            "Health",
     "subscriptions":  "Subscriptions",
     "groceries":      "Groceries",
@@ -2146,8 +2162,11 @@ def _merchant_scoped_route(category: str, triggered_by: list[dict]) -> Optional[
     category — "/transactions?category=Bills" becomes
     "/transactions?category=Bills&merchants=Ee%20Ltd" so the search hub can
     pre-filter to the rows that actually triggered this insight. A bare
-    "/transactions" (no category — used where category is unreliable, e.g.
-    mortgage/car_finance) becomes "/transactions?merchants=Ee%20Ltd" instead.
+    "/transactions" (no category — used where category is unreliable) would
+    become "/transactions?merchants=Ee%20Ltd" instead; no category in
+    CATEGORY_APP_ROUTES is actually bare like that any more since G39 gave
+    mortgage/car_finance their own category, but the fallback stays generic
+    for any future category that has the same "no reliable category" shape.
     Up to 3 display names, comma-separated, each URL-encoded. Routes that
     don't drill into a filtered transaction list (e.g. /planning) pass
     through untouched."""
@@ -2452,7 +2471,11 @@ def _serialize_insight(d: dict, kinds: dict | None = None) -> dict:
         # The exact visible Spend category this opportunity can annotate.
         # Derived from the already-authoritative transaction route mapping;
         # null for merchant-only opportunities where guessing a category
-        # would attach the insight to the wrong financial evidence.
+        # would attach the insight to the wrong financial evidence. Since
+        # G39 that is no longer true for mortgage/car_finance — they resolve
+        # to "Mortgage"/"Car finance" here, same as every other category-
+        # backed insight, so their "Penny noticed" callout can sit on that
+        # category's own Spend card instead of nothing.
         "app_category":    _category_for_net_check(cat),
         # "fixed" (a committed bill) | "free" (discretionary) | None — see
         # `_job_for_category`; resolved through the same category-kind
@@ -2613,12 +2636,14 @@ def _category_for_net_check(category_key: str) -> Optional[str]:
     when this insight category has no single reliable spend category to net
     against. Deliberately derived from `CATEGORY_APP_ROUTES` rather than a
     second hand-maintained mapping — that dict already carries exactly this
-    text for every category where it exists (see its own module comment:
-    mortgage/car_finance are routed on merchant alone because no single
-    category is reliable for them, so they correctly fall through to None
-    here too — the category-net check simply can't run for them, and
-    `_check_verified_saving` falls back to merchant-silence-only, the
-    pre-Package-B behaviour)."""
+    text for every category where it exists. Since G39 (2026-09-11) that
+    includes mortgage ("Mortgage") and car_finance ("Car finance") too — both
+    now have a real built-in category, so the category-net check runs for
+    them like everything else. A category with no "category=" in its route
+    (routed on merchant alone) still falls through to None here, and
+    `_check_verified_saving` falls back to merchant-silence-only for it, the
+    pre-Package-B behaviour — there just isn't one left among the categories
+    this router handles today."""
     route = CATEGORY_APP_ROUTES.get(category_key)
     if not route or "category=" not in route:
         return None

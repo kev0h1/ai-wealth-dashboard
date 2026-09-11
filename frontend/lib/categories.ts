@@ -5,6 +5,8 @@ export const CATEGORIES = [
   "Entertainment",
   "Shopping",
   "Bills",
+  "Mortgage",
+  "Car finance",
   "Subscriptions",
   "Health",
   "Beauty",
@@ -35,6 +37,8 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   Entertainment: "#c084fc",  // purple  — fun
   Shopping:      "#f472b6",  // pink    — retail
   Bills:         "#fb7185",  // rose    — recurring
+  Mortgage:      "#49be37",  // grass green — long-term commitment (G39)
+  "Car finance": "#e774d3",  // orchid  — vehicle finance (G39)
   Subscriptions: "#22d3ee",  // cyan    — digital
   Health:        "#2dd4bf",  // teal    — medical
   Beauty:        "#e879f9",  // fuchsia — personal care

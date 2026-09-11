@@ -66,6 +66,27 @@ def test_bucket_period_splits_income_fixed_free_moved_left():
     assert sum(b["shares"].values()) == 100
 
 
+def test_bucket_period_mortgage_and_car_finance_count_as_fixed():
+    """G39: Mortgage and Car finance are COMMITMENT-kind built-ins (see
+    app.services.categories.BUILTIN_CATEGORY_KINDS), so bucket_period's
+    generic `is_commitment(kinds, category)` filter (not a hardcoded list)
+    already puts them in the Fixed job -- this is the "money-shape Fixed
+    bucket inherits COMMITMENT" consequence the ticket calls out, proven
+    here with synthetic fixtures rather than asserted only by reading the
+    kind table."""
+    start, end = date(2026, 7, 1), date(2026, 7, 31)
+    txns = [
+        txn("t1", 3000.0, "Income", "2026-07-01", is_debit=False),
+        txn("t2", 1100.0, "Mortgage", "2026-07-02"),
+        txn("t3", 250.0, "Car finance", "2026-07-03"),
+        txn("t4", 80.0, "Eating Out", "2026-07-10"),
+    ]
+    b = bucket_period(txns, KINDS, SAVING_IDS, start, end)
+    assert b["fixed"] == 1100.0 + 250.0
+    assert b["free"] == 80.0
+    assert set(b["categories"]["fixed"]) == {"Mortgage", "Car finance"}
+
+
 def test_bucket_period_investment_debit_counted_once_in_moved():
     """Investment-category debits are added to moved on top of the saving
     flow. type1 is strictly `category == "Savings"` debits (classify_saving_flow),

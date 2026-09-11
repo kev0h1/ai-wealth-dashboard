@@ -16,6 +16,15 @@ from app.db.collections import (
     statement_transactions_col, mono_transactions_col, mpesa_transactions_col,
 )
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS
+# G39: the mortgage/car-finance savings insights (app.routers.savings_insights)
+# already maintain a merchant-keyword trigger list per category, built to
+# detect these two payment types by lender name. Importing it here (rather
+# than hand-duplicating the same lenders as a second list) is the "single
+# helper" this module already follows for category kinds -- one list of
+# keywords, two consumers (the insight detector, this categoriser), never two
+# lists that can drift apart. No cycle: app.routers.savings_insights imports
+# nothing from this module.
+from app.routers.savings_insights import INSIGHT_CATEGORIES as _INSIGHT_TRIGGER_CATEGORIES
 
 RAW_TRUELAYER_CATEGORIES = {
     "BILL_PAYMENT", "DEBIT", "DIRECT_DEBIT", "PURCHASE",
@@ -24,10 +33,28 @@ RAW_TRUELAYER_CATEGORIES = {
 
 VALID_CATEGORIES = [
     "Groceries", "Eating Out", "Transport", "Entertainment",
-    "Shopping", "Bills", "Subscriptions", "Health", "Beauty", "Travel",
+    "Shopping", "Bills", "Mortgage", "Car finance", "Subscriptions",
+    "Health", "Beauty", "Travel",
     "Software", "Savings", "Investment", "Debt", "Transfer", "Income",
     "Cash", "Charity", "Other",
 ]
+
+def _trigger_alternation(category_key: str) -> re.Pattern:
+    """Word-boundary, case-insensitive alternation built from
+    `_INSIGHT_TRIGGER_CATEGORIES[category_key]['triggers']` -- the same
+    lender/keyword list app.routers.savings_insights uses to detect the
+    mortgage/car_finance savings insight (G39). Sorted longest-first so a
+    multi-word trigger ("santander mortgage") can never be pre-empted by a
+    shorter one sharing a prefix. The boundary is "not immediately preceded
+    or followed by an alphanumeric character" (not bare `\\b`, which behaves
+    oddly next to punctuation like the "+" in some other triggers elsewhere
+    in this file) -- same shape as the boundary savings_insights.py's own
+    `_compile_trigger_patterns` uses, kept deliberately simple here since
+    every trigger in these two categories is plain alphanumeric words."""
+    triggers = sorted(_INSIGHT_TRIGGER_CATEGORIES[category_key]["triggers"], key=len, reverse=True)
+    alternation = "|".join(re.escape(t) for t in triggers)
+    return re.compile(rf'(?<![A-Za-z0-9])(?:{alternation})(?![A-Za-z0-9])', re.I)
+
 
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
@@ -35,6 +62,18 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'interest received|interest earned|interest credit|gross interest|net interest|interest payment to you|interest paid to you|credit interest', re.I), 'Income'),
     (re.compile(r'\bmarcus\b', re.I), 'Transfer'),
     (re.compile(r'nw world mastercar|natwest.*mastercard|world mastercard payment', re.I), 'Debt'),
+
+    # G39: mortgage and car finance now have a category home of their own
+    # (app.services.categories.BUILTIN_CATEGORY_KINDS) instead of falling
+    # into Bills/Other with no reliable evidence trail. Placed ahead of
+    # every general-purpose pattern below (Groceries, Transport's "car
+    # par(k)" rule, Bills' bank-name rule, etc.) so a lender match always
+    # wins -- these two categories exist specifically to be more specific
+    # than "Bills". Triggers are the SAME list savings_insights.py uses to
+    # detect the insight (see _trigger_alternation above): one keyword
+    # list, not a second hand-duplicated one that could drift.
+    (_trigger_alternation("mortgage"), 'Mortgage'),
+    (_trigger_alternation("car_finance"), 'Car finance'),
 
     (re.compile(r'tesco|sainsbury|asda|morrisons?|waitrose|lidl|aldi|iceland food|co-?op\b|ocado|farmfoods|marks.{0,5}spencer food|m&s food|whole foods|budgens|londis|spar\b|nisa\b|costco', re.I), 'Groceries'),
     (re.compile(r"mcdonald'?s?|kfc\b|starbucks|costa coffee|pret\b|nando'?s?|pizza\b|burger king|subway\b|deliveroo|just.?eat|uber.{0,5}eat|ubereats|greggs|domino'?s?|papa.?john|wagamama|itsu\b|leon\b|five.?guys|wetherspoon|yo.?sushi|wasabi|eat\b|caffe nero|cafe\b|restaurant|bistro|brasserie|food.?delivery|hungry.?house|cabana\b|dishoom|hawksmoor|bills restaurant|turtle bay|wahaca|zizzi\b|bella italia|frankie|benny|carluccio|harvester\b|toby carvery|ember inns|mitchells.?butlers|stonehouse\b|vintage inns", re.I), 'Eating Out'),
@@ -77,6 +116,53 @@ def rule_categorise(merchant: str, description: str) -> Optional[str]:
         if pattern.search(text):
             return category
     return None
+
+
+async def migrate_mortgage_car_finance_categories() -> dict:
+    """One-time (idempotent) backfill for G39: the Mortgage/Car finance
+    built-ins and their MERCHANT_PATTERNS entries are new, but the regular
+    re-categorisation pass (`apply_rules_bulk`'s Pass 3) only rescans
+    transactions whose `category` is still None/raw/"Other" -- a mortgage or
+    car-finance payment the engine had ALREADY filed under "Bills" before
+    this ticket needs one explicit sweep to move across; "Other" rows are
+    covered too, as a self-contained belt-and-braces alongside the startup
+    `_fix_all_users_categories` pass in app.main (which reaches the same rows
+    via the ordinary Pass 3 path once these two patterns exist).
+
+    Same precedence discipline as every other write in this module: only
+    ever sets `category` (never `custom_category`), gated on
+    `custom_category: None` in the update filter, so a transaction the user
+    already corrected -- into "Mortgage", "Bills", or anything else -- keeps
+    their word untouched. Scans every user (no user_id filter, no merchant
+    hardcoded to any one person's lenders): general by construction, same as
+    `app.services.categories.migrate_category_kinds`.
+
+    Returns ``{"scanned", "updated", "user_ids"}`` -- the caller (app.main's
+    startup migration) uses ``user_ids`` to bump each affected user's
+    `data_version` so their cached Spend/Safe-to-Spend/Money-Shape responses
+    reflect the recategorised rows immediately, the same cache-invalidation
+    obligation `_fix_all_users_categories` already carries for its own
+    Pass-3-driven updates."""
+    scanned = updated = 0
+    user_ids: set[str] = set()
+    cursor = transactions_col.find(
+        {"custom_category": None, "category": {"$in": ["Bills", "Other"]}},
+        {"user_id": 1, "merchant_name": 1, "description": 1, "category": 1},
+    )
+    async for t in cursor:
+        scanned += 1
+        cat = rule_categorise(t.get("merchant_name") or "", t.get("description") or "")
+        if cat not in ("Mortgage", "Car finance") or cat == t.get("category"):
+            continue
+        result = await transactions_col.update_one(
+            {"_id": t["_id"], "custom_category": None},
+            {"$set": {"category": cat}},
+        )
+        if result.modified_count:
+            updated += 1
+            if t.get("user_id"):
+                user_ids.add(t["user_id"])
+    return {"scanned": scanned, "updated": updated, "user_ids": sorted(user_ids)}
 
 
 async def user_identity(user_id: str) -> dict:
