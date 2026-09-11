@@ -16,10 +16,20 @@
 # those so they can be cleaned up.
 #
 # `start` refuses to attach to an existing item unless it is in `todo`
-# state (an in-progress/blocked/review/done id is a different session's or
-# already finished, not a fresh one to pick up), and `--title` always
-# allocates a brand-new id via `scripts/backlog.py add` rather than assuming
-# the caller guessed a free one; see cmd_start below and item H21.
+# state, OR `in-progress` with no branch recorded (an item H31 "start
+# after approve" left in that shape: `approve <id> "<choice>"` moves a
+# `uat` item back to `in-progress` with its old, already-deleted branch
+# cleared, so the same agent can open a fresh worktree for the winning
+# variant — without this, the uat review loop deadlocked one step after
+# Kevin's approval). An `in-progress` id that DOES have a branch recorded
+# means a worktree is genuinely live on it, and (like blocked/review/uat/
+# rejected/done) still refuses — that's the case item H21 fixed, `start`
+# silently re-attaching to an already-claimed item is how stray branches
+# happen, and this change does not weaken that guard: it only narrows the
+# no-branch-recorded case out of the old blanket "any in-progress id
+# refuses" rule. `--title` always allocates a brand-new id via
+# `scripts/backlog.py add` rather than assuming the caller guessed a free
+# one; see cmd_start below and items H21 and H31.
 #
 # Usage:
 #   scripts/session.sh start <ID> [slug] [--title "New item title"]
@@ -43,10 +53,15 @@ Usage:
       item in-progress, and print the worktree path.
 
       Without --title: <ID> must already exist on the board AND be in
-      `todo` state. If it's in-progress, blocked, review, or done, this
-      refuses with an explanation instead of silently attaching to it
-      (attaching to a done or already-claimed item is how stray branches
-      happen; see item H21).
+      `todo` state, OR `in-progress` with no branch recorded (H31: the
+      state `approve <id> "<choice>"` leaves a uat item in, so the same
+      agent can build the winning variant on a fresh worktree). An
+      `in-progress` id that already has a branch recorded means a
+      worktree is genuinely live on it and still refuses, same as
+      blocked, review, uat, rejected or done — this refuses with an
+      explanation instead of silently attaching to it (attaching to a
+      done or already-claimed item is how stray branches happen; see item
+      H21).
 
       Each agent only starts items owned by its own model type. The
       caller's type comes from the BACKLOG_AGENT environment variable
@@ -142,6 +157,92 @@ derive_slug() {
     | awk '{ n = (NF < 4 ? NF : 4); out = ""; for (i = 1; i <= n; i++) out = out (i > 1 ? "-" : "") $i; print out }'
 }
 
+# Decides whether `start` may attach to an existing item <id>, given its
+# board JSON (as `item_json`/`backlog.py show` prints it). Returns 0 to
+# let the caller proceed to worktree creation (logging why, for the
+# in-progress-no-branch case), or prints a distinct `err` message and
+# returns 1 for every refusal case. Pulled out of cmd_start's inline case
+# statement into its own function, the same way
+# frontend/scripts/build-mobile.sh's require_project_dir was pulled out of
+# build-mobile.sh, so scripts/session-start-state.test.sh can exercise
+# every branch directly by sourcing this file with
+# SESSION_SH_GUARD_ONLY=1, without ever touching git or the filesystem.
+# See item H21 (the guard this must not weaken) and H31 (the narrow
+# in-progress-with-no-branch case it adds).
+decide_start_state() {
+  local id="$1" item_data="$2"
+  local state
+  state="$(jq -r '.state' <<<"$item_data")"
+  case "$state" in
+    todo)
+      return 0
+      ;;
+    in-progress)
+      # H31: an in-progress item with NO branch recorded is exactly the
+      # state an item is in right after `approve <id> "<choice>"` — the
+      # winning variant's old branch was already deleted by integrate,
+      # so there is no live worktree to collide with, and this is
+      # precisely the case that must be startable or the whole uat loop
+      # deadlocks one step after Kevin's approval (H31 "start after
+      # approve"). An in-progress item WITH a branch recorded means a
+      # worktree is genuinely live on it (scripts/session.sh start
+      # writes that branch the moment it creates one, see cmd_start
+      # below), and that case must still refuse exactly as before item
+      # H21's fix: `start` silently re-attaching to an already-claimed
+      # item is how stray branches happen. This narrows that old blanket
+      # "any in-progress id refuses" rule; it does not weaken it.
+      local existing_branch
+      existing_branch="$(jq -r '.branch // empty' <<<"$item_data")"
+      if [[ -n "$existing_branch" ]]; then
+        err "item $id is in-progress on branch $existing_branch; a session is already live on it. Check 'scripts/session.sh list'; if that session is dead, reset it with 'backend/.venv/bin/python scripts/backlog.py todo $id' from the shared tree before starting again."
+        return 1
+      fi
+      log "item $id is in-progress with no branch recorded (approved from uat, or never had a worktree attached); starting a fresh session for it..."
+      return 0
+      ;;
+    review)
+      local branch
+      branch="$(jq -r '.branch // empty' <<<"$item_data")"
+      err "item $id is in review${branch:+ on branch $branch}; it is waiting on the next integrate pass, not a new session."
+      return 1
+      ;;
+    blocked)
+      local reason
+      reason="$(jq -r '.reason // empty' <<<"$item_data")"
+      err "item $id is blocked${reason:+: $reason}; resolve the block before starting a session on it."
+      return 1
+      ;;
+    uat)
+      local link
+      link="$(jq -r '.link // empty' <<<"$item_data")"
+      err "item $id is in uat${link:+, preview at $link}; it is waiting on Kevin's review, not a new session. Once he runs 'backend/.venv/bin/python scripts/backlog.py approve $id \"<choice>\"' (or the Approve control on /ops/go-live) it moves to in-progress and can be started."
+      return 1
+      ;;
+    rejected)
+      local reason
+      reason="$(jq -r '.reason // empty' <<<"$item_data")"
+      err "item $id is rejected${reason:+: $reason}; resolve it first with 'backend/.venv/bin/python scripts/backlog.py start $id' (clears the rejection, moves it to in-progress with no branch) or 'todo $id', then run scripts/session.sh start $id again."
+      return 1
+      ;;
+    done)
+      err "item $id is already done; pass --title \"...\" to open a new item instead of reusing a completed one."
+      return 1
+      ;;
+    *)
+      err "item $id has unrecognised state '$state'; refusing to start a session on it."
+      return 1
+      ;;
+  esac
+}
+
+if [ "${SESSION_SH_GUARD_ONLY:-}" = "1" ]; then
+  # Test-only escape hatch (see scripts/session-start-state.test.sh):
+  # stop right after defining decide_start_state (and the small helpers
+  # it calls: err, log) above, before any real command dispatch, worktree
+  # creation, or board write ever runs.
+  return 0 2>/dev/null || exit 0
+fi
+
 cmd_start() {
   local id="${1:-}"
   [[ -n "$id" ]] || { usage; exit 1; }
@@ -191,36 +292,7 @@ cmd_start() {
       err "item $id not found in the board; pass --title \"...\" to create it"
       exit 1
     fi
-    local state
-    state="$(jq -r '.state' <<<"$item_data")"
-    case "$state" in
-      todo)
-        ;;
-      in-progress)
-        err "item $id is already in-progress; another session may already hold it. Check 'scripts/session.sh list'; if that session is dead, reset it with 'backend/.venv/bin/python scripts/backlog.py todo $id' from the shared tree before starting again."
-        exit 1
-        ;;
-      review)
-        local branch
-        branch="$(jq -r '.branch // empty' <<<"$item_data")"
-        err "item $id is in review${branch:+ on branch $branch}; it is waiting on the next integrate pass, not a new session."
-        exit 1
-        ;;
-      blocked)
-        local reason
-        reason="$(jq -r '.reason // empty' <<<"$item_data")"
-        err "item $id is blocked${reason:+: $reason}; resolve the block before starting a session on it."
-        exit 1
-        ;;
-      done)
-        err "item $id is already done; pass --title \"...\" to open a new item instead of reusing a completed one."
-        exit 1
-        ;;
-      *)
-        err "item $id has unrecognised state '$state'; refusing to start a session on it."
-        exit 1
-        ;;
-    esac
+    decide_start_state "$id" "$item_data" || exit 1
 
     if [[ "$any_owner" != "true" ]]; then
       local owner
@@ -287,8 +359,8 @@ cmd_start() {
     esac
   fi
 
-  log "marking $id in-progress on the board..."
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" start "$id")
+  log "marking $id in-progress on the board (branch $branch)..."
+  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" start "$id" --branch "$branch")
 
   echo
   echo "cd $worktree_dir"
