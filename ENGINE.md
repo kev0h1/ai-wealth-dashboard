@@ -78,7 +78,7 @@ Four tiers, cost-ordered, escalated only when the tier above gives up. Every ans
 
 The ontology, then — what is a category, and what only looks like one:
 
-- **Groceries, Eating Out, Transport, Bills, Subscriptions, Health, Beauty, Travel, Software, Entertainment, Shopping, Cash, Charity** — the **shared spend vocabulary**: the baseline words every user starts with, and what the global merchant catalog maps to as world-fact defaults.
+- **Groceries, Eating Out, Transport, Bills, Mortgage, Car finance, Subscriptions, Health, Beauty, Travel, Software, Entertainment, Shopping, Cash, Charity** — the **shared spend vocabulary**: the baseline words every user starts with, and what the global merchant catalog maps to as world-fact defaults. Mortgage and Car finance (G39, 2026-09-11) split out of Bills/Other once the engine could reliably tell the two apart by lender — before that, "no reliable category" meant the mortgage/car_finance savings insights had nowhere honest to send the user.
 - **Padel, Golf** (user-created) — the **personal spend vocabulary**: the user's words layered on top. The catalog's default might say leisure; the user's mapping says Padel, and their word wins for them (user-scoped, per the Firewall Rule). Functionally identical to the built-ins — baselines, multiples, verdicts — the only difference is who coined the word.
 - **Transfer, Savings, Investment, Debt** — **not categories: movement** (see the Destination Rule below). They survive only as internal kinds so the arithmetic knows "not spend"; nothing is ever filed there again.
 - **Income** — **not a category: a direction.** An internal kind.

@@ -71,12 +71,24 @@ NON_SPEND_KINDS = frozenset({MOVEMENT, INCOME})
 DEFAULT_KIND = DISCRETIONARY
 
 # ── Built-in seed table ──────────────────────────────────────────────────────
-#: Kind for each of the 19 built-in categories. Insertion order is the display
+#: Kind for each of the 21 built-in categories. Insertion order is the display
 #: order and is the source of ``BUILTIN_CATEGORIES``.
 #:
-#: Seeded to reproduce today's behaviour exactly, with ONE deliberate exception:
-#: Health and Beauty are discretionary, recovering the intent of the dead
-#: "Health & Beauty" entry in ``behaviour.py:_DISCRETIONARY``.
+#: Seeded to reproduce today's behaviour exactly, with two deliberate
+#: exceptions: Health and Beauty are discretionary, recovering the intent of
+#: the dead "Health & Beauty" entry in ``behaviour.py:_DISCRETIONARY``; and
+#: Mortgage / Car finance (G39, 2026-09-11) give the two biggest debt-servicing
+#: payments a category home of their own — before this they had no reliable
+#: category at all and landed in Bills or Other depending on how the bank
+#: labelled them (see app.routers.savings_insights's mortgage/car_finance
+#: insights, which detected the payment by merchant but had nowhere honest to
+#: send the user). Both are COMMITMENT, not MOVEMENT: a mortgage or car
+#: finance payment is partly principal and partly interest, but the user
+#: doesn't choose whether to make it this period the way they choose whether
+#: to eat out — it is real, non-discretionary spend, exactly like Bills. Kind
+#: is deliberately not split principal-vs-interest (the bank feed doesn't
+#: carry that split); the whole payment counts as spend, which is the
+#: conservative (under- rather than over-stating Safe-to-Spend) reading.
 BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Groceries":     COMMITMENT,
     "Eating Out":    DISCRETIONARY,
@@ -84,6 +96,8 @@ BUILTIN_CATEGORY_KINDS: dict[str, str] = {
     "Entertainment": DISCRETIONARY,
     "Shopping":      DISCRETIONARY,
     "Bills":         COMMITMENT,
+    "Mortgage":      COMMITMENT,
+    "Car finance":   COMMITMENT,
     "Subscriptions": DISCRETIONARY,
     "Health":        DISCRETIONARY,   # behaviour change — see module docs/report
     "Beauty":        DISCRETIONARY,   # behaviour change — see module docs/report

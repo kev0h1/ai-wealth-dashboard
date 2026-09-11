@@ -394,6 +394,7 @@ async def _migrate():
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
     asyncio.create_task(_migrate_category_kinds())
+    asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
     asyncio.create_task(_seed_subscriptions())
     asyncio.create_task(_cleanup_stale_connections())
@@ -426,6 +427,18 @@ async def _migrate_category_kinds():
     stats = await migrate_category_kinds()
     if stats["upgraded"]:
         print(f"[startup] category kinds migrated: {stats}")
+
+
+async def _migrate_mortgage_car_finance_categories():
+    """One-time: G39 added the Mortgage/Car finance built-ins -- move any
+    existing Bills/Other transaction their (now-shared) trigger keywords
+    match. See app.services.categorisation.migrate_mortgage_car_finance_categories."""
+    from app.services.categorisation import migrate_mortgage_car_finance_categories
+    stats = await migrate_mortgage_car_finance_categories()
+    if stats["updated"]:
+        print(f"[startup] mortgage/car finance categories migrated: {stats}")
+        for uid in stats["user_ids"]:
+            await data_version.bump(uid)
 
 
 async def _fix_all_users_categories():

@@ -197,3 +197,55 @@ def test_user_allowed_categories_bounds_custom_category_names():
     assert len(customs) <= 30
     assert all(len(c) <= 40 for c in customs)
     assert all("\n" not in c for c in customs)
+
+
+# ── G39: Mortgage / Car finance ─────────────────────────────────────────────
+# The deterministic categoriser now shares its mortgage/car_finance keyword
+# lists with app.routers.savings_insights.INSIGHT_CATEGORIES (one list, two
+# consumers -- see _trigger_alternation's own docstring) rather than a second
+# hand-duplicated set. These tests exercise the categoriser's own public
+# surface (rule_categorise), not the insight detector.
+
+def test_mortgage_merchant_categorised_as_mortgage():
+    assert rule_categorise("NATIONWIDE BS", "MORTGAGE PAYMENT") == "Mortgage"
+    assert rule_categorise("", "HALIFAX MORTGE 12345678") == "Mortgage"
+    assert rule_categorise("Santander Mortgage", "") == "Mortgage"
+    assert rule_categorise("", "BARCLAYS MORTGAGE DD") == "Mortgage"
+
+
+def test_car_finance_merchant_categorised_as_car_finance():
+    assert rule_categorise("BLACK HORSE", "") == "Car finance"
+    assert rule_categorise("", "MOTONOVO FINANCE DD") == "Car finance"
+    assert rule_categorise("", "CAR FINANCE PAYMENT") == "Car finance"
+    assert rule_categorise("", "HIRE PURCHASE AGREEMENT") == "Car finance"
+
+
+def test_mortgage_and_car_finance_take_priority_over_generic_bills_and_transport():
+    """The new patterns sit ahead of the generic Bills/Transport rules in
+    MERCHANT_PATTERNS (first-match-wins) -- a lender match must win even
+    when the description also carries words the generic rules key on."""
+    # "council" nowhere here, but a mortgage DD could plausibly also mention
+    # a bank the generic Bills rule doesn't recognise -- the real guarantee
+    # under test is that the mortgage/car-finance patterns are checked before
+    # the catch-all Transport "car par(k)" rule can misfire on "car finance".
+    assert rule_categorise("", "CAR FINANCE CO LTD DD PAYMENT") == "Car finance"
+    assert rule_categorise("", "NATIONWIDE BUILDING SOCIETY MORTGE") == "Mortgage"
+
+
+def test_mortgage_word_boundary_does_not_match_inside_unrelated_words():
+    # "mortg" is a real trigger (short bank-abbreviation stem) -- make sure
+    # the boundary still refuses to match it mid-word.
+    assert rule_categorise("", "IMMORTGARDEN NURSERY") is None
+
+
+def test_car_finance_patterns_use_same_source_list_as_savings_insights():
+    """Single source of truth: the categoriser's Mortgage/Car finance
+    patterns are built from app.routers.savings_insights.INSIGHT_CATEGORIES,
+    not a second hardcoded keyword list -- every trigger in that list must
+    actually be matched by rule_categorise, proving the two never drift."""
+    from app.routers.savings_insights import INSIGHT_CATEGORIES
+
+    for trigger in INSIGHT_CATEGORIES["mortgage"]["triggers"]:
+        assert rule_categorise("", trigger.upper()) == "Mortgage", trigger
+    for trigger in INSIGHT_CATEGORIES["car_finance"]["triggers"]:
+        assert rule_categorise("", trigger.upper()) == "Car finance", trigger
