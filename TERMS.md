@@ -2,9 +2,7 @@
 <!-- The sections marked mcp-connector:start/end below are shown in the app only when the MCP connector flag (MCP_CONNECTOR_ENABLED / NEXT_PUBLIC_MCP_CONNECTOR) is on; this file keeps the full text regardless, as the canonical published copy. -->
 # Sorted Terms & Conditions
 
-> **DRAFT for review, not yet published. Requires legal review before publication.**
-
-**Last updated:** 11 September 2026
+**Last updated:** 2026-09-11
 **Version:** 1.0
 
 These terms and conditions ("**Terms**") govern your use of Sorted (the "**Service**", "**App**"), a personal finance dashboard provided by AURIQ LTD. By creating an account or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.
