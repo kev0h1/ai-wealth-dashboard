@@ -21,6 +21,7 @@ from pymongo.errors import DuplicateKeyError
 
 import app.routers.broadcast as broadcast_router
 import app.services.broadcast as broadcast
+import app.services.retention as retention
 from app.routers.broadcast import (
     AudienceSpec, ComposeRequest, SendRequest,
     broadcast_preview, broadcast_send, list_offers, dismiss_offer,
@@ -171,6 +172,19 @@ def _env(monkeypatch):
     monkeypatch.setattr(broadcast, "penny_allowance", _fake_penny_allowance)
     monkeypatch.setattr(broadcast, "notif_pref", _fake_notif_pref)
     monkeypatch.setattr(broadcast, "BILLING_ENABLED", False)
+
+    # B24: resolve_audience's candidate pool is now _real_user_ids(), which
+    # calls app.services.retention.account_has_data per candidate. Every
+    # fixture in this file models a genuine, engaged user (that is the
+    # whole point of USERS/TIERS/PENNY_REMAINING), so account_has_data is
+    # faked True for exactly the USERS this file already sets up — a real
+    # account-data check (touching real Mongo collections) has no business
+    # running in this fully-faked-Mongo test file, and B24's own audience-
+    # narrowing behaviour is covered by tests/test_broadcast_real_audience.py
+    # instead.
+    async def _fake_account_has_data(uid):
+        return uid in USERS
+    monkeypatch.setattr(retention, "account_has_data", _fake_account_has_data)
 
     push = _Push()
     monkeypatch.setattr(broadcast, "send_push_to_user", push)
