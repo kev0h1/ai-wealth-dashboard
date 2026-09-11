@@ -350,7 +350,7 @@ class BacklogItem:
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
-    branch: Optional[str] = None  # set when state == "review", "rejected" or "uat"
+    branch: Optional[str] = None  # set when state == "review", "rejected", "uat", or "in-progress" with a live worktree attached (see H31 "start after approve")
     priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
     unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
     link: Optional[str] = None  # preview link, set when state == "uat" (see H31)
@@ -366,7 +366,7 @@ class BacklogItem:
             "owner": self.owner,
             "state": state,
             "reason": self.reason if state in ("blocked", "rejected") else None,
-            "branch": self.branch if state in ("review", "rejected", "uat") else None,
+            "branch": self.branch if state in ("review", "rejected", "uat", "in-progress") else None,
             "link": self.link if state == "uat" else None,
             "uat_review": self.uat_review if state == "review" else False,
             "done_at": self.done_at,
@@ -408,9 +408,11 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         tail = UNBLOCKS_RE.sub("", tail, count=1)
 
     # The standalone `[branch: ...]` tag (used by `rejected`/`uat` to retain
-    # the branch that produced them) is parsed before STATE_RE below so a
-    # `review` item's inline branch (which STATE_RE captures directly)
-    # always wins if somehow both are present.
+    # the branch that produced them, and by `in-progress` to record the
+    # branch a live worktree is attached to, see H31 "start after
+    # approve") is parsed before STATE_RE below so a `review` item's
+    # inline branch (which STATE_RE captures directly) always wins if
+    # somehow both are present.
     branch_tag: Optional[str] = None
     branch_m = BRANCH_RE.search(tail)
     if branch_m:
@@ -454,7 +456,7 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
-        branch=branch if state in ("review", "rejected", "uat") else None,
+        branch=branch if state in ("review", "rejected", "uat", "in-progress") else None,
         priority=priority,
         unblocks=unblocks,
         link=link if state == "uat" else None,
@@ -485,6 +487,14 @@ def _render_item_line(item: BacklogItem) -> str:
         elif item.state == "uat":
             segments.append(f"[state: uat: {item.link or ''}]")
             if item.branch:
+                segments.append(f"[branch: {item.branch}]")
+        elif item.state == "in-progress":
+            segments.append("[state: in-progress]")
+            if item.branch:
+                # A live worktree's branch, recorded so `scripts/session.sh
+                # start` can tell "a session is genuinely live on this"
+                # apart from "in-progress with no branch", the state an
+                # item is in right after `approve` — see H31.
                 segments.append(f"[branch: {item.branch}]")
         else:
             segments.append(f"[state: {item.state}]")
@@ -621,6 +631,24 @@ class TodoDoc:
             # produced this preview stays visible.
             item.branch = branch or item.branch
             item.link = normalised_link
+            item.uat_review = False
+        elif state == "in-progress":
+            # Unlike rejected/uat above, this does NOT retain a prior
+            # branch when none is passed: `branch` here means "the live
+            # worktree currently attached", not "the branch that produced
+            # this", so it must be exactly what the caller passes, not a
+            # fallback to whatever was there before (see H31 "start after
+            # approve" — approve lands here with no branch, and any stale
+            # branch from the uat/review it came from must be cleared, not
+            # carried over, since integrate already deleted it). Recorded
+            # by `scripts/session.sh start` the moment it creates a fresh
+            # worktree, so `scripts/session.sh start` on a *different*
+            # session can tell "already live" (branch set) apart from
+            # "in-progress with no branch", the state an item is in right
+            # after `approve` and the one case it's now allowed to attach
+            # to.
+            item.branch = branch
+            item.link = None
             item.uat_review = False
         else:
             item.branch = None
@@ -906,7 +934,7 @@ def set_state(
         item = doc.set_state(item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review)
         doc.save(resolved_path)
     action = {
-        "in-progress": "started",
+        "in-progress": (f"started (branch {branch})" if branch else "started"),
         "blocked": "blocked",
         "todo": "reset to to-do",
         "review": f"sent to review ({branch})",
@@ -973,7 +1001,11 @@ def set_approved(
     deliberately never reassigns owner the way a plain `start` implicitly
     would leave it. Raises if the item isn't currently in `uat` (there's
     nothing to approve about a review or a todo item; use `review` /
-    `reject` / `start` for those). See H31."""
+    `reject` / `start` for those). Lands with NO branch recorded (the old
+    branch was already deleted by integrate) — that is deliberately the
+    one `in-progress` shape `scripts/session.sh start` is willing to
+    attach to, so it can open a fresh worktree for the winning variant.
+    See H31."""
     if not choice or not choice.strip():
         raise BacklogError("a choice is required to approve a uat item")
     resolved_path = todo_path or _todo_path()

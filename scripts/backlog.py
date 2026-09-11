@@ -25,7 +25,11 @@ Commands:
                                         "## <section>. ..." (e.g. A, H) with
                                         the next free id in that section.
                                         Prints just the new id on stdout.
-    start <id>                          Mark an item in progress.
+    start <id> [--branch <name>]        Mark an item in progress. --branch
+                                        records the live worktree's branch
+                                        (scripts/session.sh start passes
+                                        this); omit it for a plain mark
+                                        with no worktree attached.
     block <id> "<reason>"               Mark an item blocked, with a reason.
     review <id> --branch <name> [--uat-review]
                                         Mark an item in review on a branch
@@ -154,7 +158,7 @@ def cmd_add(args: argparse.Namespace) -> None:
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    result, committed = backlog.set_state(args.item_id, "in-progress", actor=args.actor)
+    result, committed = backlog.set_state(args.item_id, "in-progress", branch=args.branch, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -253,6 +257,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_start = sub.add_parser("start", help="Mark an item in progress.")
     p_start.add_argument("item_id")
+    p_start.add_argument(
+        "--branch",
+        default=None,
+        help=(
+            "Record the branch a live worktree is attached to (scripts/session.sh start passes this). "
+            "Omit for a plain 'mark in progress' with no worktree, e.g. a manual start from the board."
+        ),
+    )
     add_actor(p_start)
     p_start.set_defaults(func=cmd_start)
 

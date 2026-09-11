@@ -29,6 +29,12 @@ A TODO.md item line looks like this:
   meaningless once the item is done (the checkbox wins). The `review`
   state and its branch are set by `scripts/session.sh finish` and
   consumed by `scripts/integrate.py`, see "Branch per item" below.
+  `in-progress` can carry its own `[branch: <name>]` tag too (H31): set
+  the moment `scripts/session.sh start` creates a live worktree, so a
+  second `start` on the same id can tell "a session is genuinely live on
+  this" (branch recorded, refuses) apart from "approved from a uat round,
+  no worktree yet" (no branch, the one case `start` now accepts besides
+  `todo` — see "Branch per item" below).
 - A design round never sits `blocked` waiting for Kevin to choose between
   variants he cannot open. See "Design work" in `CLAUDE.md` and
   `AGENTS.md`: build coded, linkable variants under
@@ -74,12 +80,18 @@ A TODO.md item line looks like this:
   selects a `uat` item as a merge candidate either — landing there is the
   point, so it can never be merged a second time. `scripts/backlog.py
   approve <ID> "<choice>"` records which variant Kevin picked as a dated
-  note and moves the item back to `in-progress` with its owner UNCHANGED,
+  note and moves the item back to `in-progress` with its owner UNCHANGED
+  and NO branch recorded (the old one was already deleted by integrate),
   so the same agent implements the winner on a fresh branch; only valid
-  on an item currently in `uat`. Landing in `uat` also pushes Kevin a
-  notification (FCM/APNs/webpush, same path as every other push) with the
-  preview link in the body, gated by his own notification preference and
-  sent only to him, never broadcast — see "Notification" below.
+  on an item currently in `uat`. That in-progress-with-no-branch shape is
+  what makes "the same agent implements the winner on a fresh branch"
+  literally true: it is the one `in-progress` case `scripts/session.sh
+  start` accepts besides `todo` (H31 "start after approve" — see "Branch
+  per item" below), so nothing has to be done by hand to open the next
+  worktree. Landing in `uat` also pushes Kevin a notification
+  (FCM/APNs/webpush, same path as every other push) with the preview link
+  in the body, gated by his own notification preference and sent only to
+  him, never broadcast — see "Notification" below.
 - `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
   doing the work. Each agent only starts items it owns: a Claude session
   only starts `[owner: claude]` items, a Codex session only starts
@@ -116,13 +128,21 @@ either file. It exposes:
   `.items()` and `.questions()` returning plain dicts ready to serialise.
 - `set_done(item_id, done, commit=None, actor="claude")`
 - `set_state(item_id, state, reason=None, branch=None, link=None, uat_review=False, actor="claude")`:
-  `state` is `"todo"`, `"in-progress"`, `"blocked"` (needs `reason`),
-  `"review"` (needs `branch`), `"rejected"` (needs `reason`; retains the
-  item's existing branch unless a different one is passed explicitly) or
-  `"uat"` (needs `link`, validated/normalised by `normalise_preview_link`;
-  retains the item's existing branch the same way `rejected` does).
-  `uat_review=True` only does anything when `state="review"`, where it
-  sets the item's `[uat-review]` flag.
+  `state` is `"todo"`, `"in-progress"` (optionally takes `branch`, see
+  below), `"blocked"` (needs `reason`), `"review"` (needs `branch`),
+  `"rejected"` (needs `reason`; retains the item's existing branch unless
+  a different one is passed explicitly) or `"uat"` (needs `link`,
+  validated/normalised by `normalise_preview_link`; retains the item's
+  existing branch the same way `rejected` does). `uat_review=True` only
+  does anything when `state="review"`, where it sets the item's
+  `[uat-review]` flag. `"in-progress"` is the one state where `branch` is
+  neither required nor retained from whatever the item had before: it is
+  exactly what's passed, `None` by default — `scripts/session.sh start`
+  passes the live worktree's branch the moment it creates one (H31 "start
+  after approve"), and `approve` deliberately passes none, clearing
+  whatever branch the item's `uat` round had (that branch was already
+  deleted by integrate, so carrying it forward would be a stale
+  reference, not a live one).
 - `set_review(item_id, branch, actor="claude", uat_review=False)`,
   convenience wrapper over `set_state(..., "review", branch=branch,
   uat_review=uat_review)`.
@@ -176,7 +196,7 @@ successful write or a manual `git add && git commit`.
 ```bash
 backend/.venv/bin/python scripts/backlog.py list
 backend/.venv/bin/python scripts/backlog.py add A "New item title" --owner claude
-backend/.venv/bin/python scripts/backlog.py start <id>
+backend/.venv/bin/python scripts/backlog.py start <id> [--branch <name>]
 backend/.venv/bin/python scripts/backlog.py block <id> "<reason>"
 backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug> [--uat-review]
 backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>"
@@ -191,6 +211,14 @@ backend/.venv/bin/python scripts/backlog.py priority <id> p1|p2|p3
 backend/.venv/bin/python scripts/backlog.py unblocks <id> Q5,Q6
 backend/.venv/bin/python scripts/backlog.py status Q7 ready|needs-kevin|blocked-deploy|submitted
 ```
+
+`start --branch <name>` records the branch a live worktree is attached
+to (H31: `scripts/session.sh start` passes this the moment it creates
+one); omit it for a plain "mark in progress" with no worktree, e.g. a
+manual start from the board. This is also what `start` narrows its own
+guard on: an `in-progress` item is only startable again through
+`scripts/session.sh start` when it has NO branch recorded, see "Branch
+per item" below.
 
 `priority` defaults to `p3` when never set. `unblocks` takes a
 comma-separated list of question ids (`Q5,Q6`); pass an empty string
@@ -370,11 +398,34 @@ scripts/session.sh list
   checks that
   `import app` in the worktree's `backend/` resolves to the worktree's own
   package rather than the shared tree's, marks the item in-progress on the
-  board, and prints the worktree path plus the rules above. If `<ID>`
-  isn't on the board yet, pass `--title "..."` and it runs
-  `scripts/backlog.py add` first (into the section matching `<ID>`'s
-  leading letter), the id it actually uses is whatever `add` allocates,
-  printed on the way past.
+  board with the new branch recorded (`scripts/backlog.py start <ID>
+  --branch feature-<ID>[-slug]`), and prints the worktree path plus the
+  rules above. If `<ID>` isn't on the board yet, pass `--title "..."` and
+  it runs `scripts/backlog.py add` first (into the section matching
+  `<ID>`'s leading letter), the id it actually uses is whatever `add`
+  allocates, printed on the way past.
+
+  `<ID>` must already be on the board AND either `todo`, or `in-progress`
+  with NO branch recorded — the latter is a narrow, deliberate addition
+  (H31 "start after approve"): `approve <ID> "<choice>"` (see "uat state"
+  above) moves a `uat` item back to `in-progress` with its old,
+  already-deleted branch cleared, specifically so the same agent can open
+  a fresh worktree for the winning variant. Without this, the whole uat
+  review loop deadlocked one step after Kevin's approval — `approve` said
+  "the same agent implements the winner on a fresh branch" but nothing
+  could actually attach a worktree to it. An `in-progress` item that
+  already HAS a branch recorded means a worktree is genuinely live on it
+  (the moment `start` creates one it records that branch, as above), and
+  `start` still refuses that case exactly as it did before this change —
+  it is the original item H21 guard (`start` silently re-attaching to an
+  already-claimed item is how stray branches happen), narrowed rather
+  than weakened: only the specific "in-progress with no branch" shape was
+  carved out, every other refusal (`blocked`, `review`, `uat`, `rejected`,
+  `done`, `in-progress` with a branch) is unchanged, each with its own
+  distinct message. The state-decision logic lives in `decide_start_state`
+  in `scripts/session.sh`, exercised directly (no git, no filesystem) by
+  `scripts/session-start-state.test.sh`, and end to end (real worktrees,
+  a synthetic fake shared tree) by `backend/tests/test_session_start_guard.py`.
 - `finish [--uat-review]` runs inside the worktree: the backend test
   suite, then the frontend typecheck (not a full `npm run build`,
   integrate does that once, after merging, rather than every session
