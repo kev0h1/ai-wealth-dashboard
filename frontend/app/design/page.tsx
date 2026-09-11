@@ -22,6 +22,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "spend-period-round",
+    name: "spend-period-round",
+    description:
+      "G38 Spend period-view design round (Kevin 2026-09-11): the 'Also running warm' mini-row keeps its pace chip inline with the amount while the hero 'Needs a look' card stacks the chip under the amount in a two-row grid (components/SpendVerdictView.tsx) — asked as a round on the WHOLE period view, not a chip patch · Current renders the real, unmodified SpendHeader/SpendVerdictView/SpendShapeCard against this route's own dense fixture, showing the inconsistency exactly as shipped / A 'One ledger, ranked': hero and grouped-tile split removed, every notable is one row in one ranked list, one row template throughout / B 'Tiered dashboard, unified row': keeps today's three-tier IA (hero card, grouped tile, calm list) but the hero's header row and a mini-row's header row are the SAME component at two sizes, so figure+badge can never diverge again / C 'The sentence leads': the reading gets its own headline line with no card chrome, notables become a horizontally-scrolling strip of attention cards with one shared detail panel, calm categories compress into a 2-column tile grid · every variant places a notable's figure and pace badge on ONE line, never stacked, resolving the named inconsistency at its root · fixture data only, no API calls, live Spend components untouched except Baseline's read-only import of the real header/verdict-view/shape-card · ?variant=current|a|b|c&mode=light|dark",
+    states: [{ label: "Everything", value: "everything" }],
+  },
+  {
     slug: "g29-reconnect-rows",
     name: "g29-reconnect-rows",
     description:
