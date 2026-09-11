@@ -224,6 +224,16 @@ def _ceil5(amount: float) -> int:
     return math.ceil(amount / 5) * 5
 
 
+def _um_topup_gap(amount_due: float, balance: float) -> float:
+    """G42: the gap between what an account holds right now and what its
+    own overdue movement needs — "the gap between the source balance and
+    the amount due" from the ticket, verbatim. Never negative: a live
+    balance that already covers the amount owes nothing (the account's
+    bounced status can be a few hours stale relative to this request's live
+    balance read, since bank data only refreshes on the 4-hourly sync)."""
+    return max(0.0, float(amount_due) - float(balance))
+
+
 def _gbp(x: float) -> str:
     """Whole-pound GBP string with thousands separators, e.g. 1175 -> "£1,175",
     999 -> "£999", -20 -> "−£20" (Unicode minus, not a hyphen, matching
@@ -1797,6 +1807,88 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             # this is not a second, conflicting notion of "safe".
             source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
 
+    # ── Shared source finder (G42, 2026-09-11) ───────────────────────────────
+    # Ranks and picks legs to fund `amount_needed` at `dest_acct`: current
+    # accounts first, then savings, then offline — a savings pot is only ever
+    # reached once every current account is exhausted, because moving money
+    # out of savings is a different decision from moving it between current
+    # accounts and must never be offered first. Each source's headroom is
+    # `source_capacity` (already reserves that source's own bills/income and
+    # any envelope allocations — see `_source_min_running` above) minus a £10
+    # buffer, consumed IN PLACE here so a source's contribution across
+    # multiple destinations/calls in the same computation can never
+    # double-spend. Both the forward-looking cover-plan "move" card (Step 3,
+    # immediately below) and the unfunded_move top-up suggestion (section 5d)
+    # call this exact function — reused, not reimplemented, per the owner's
+    # "wire the same source finder in, don't fork it" instruction. Returns
+    # bare leg dicts (`amount`, `dest_acct`, `move_map`, `_src_name`); each
+    # caller attaches whatever extra display fields its own card needs.
+    def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map) -> list[dict]:
+        candidate_sources = []
+        for acc in all_uk_accounts:
+            sid = acc["_str_id"]
+            if sid == dest_acct or sid in excluded_sources:
+                continue
+            if _is_current(acc) and not _is_savings(acc):
+                if min_running.get(sid, 0.0) < 0:
+                    continue  # skip accounts that are themselves short
+                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
+                if headroom >= 5:
+                    candidate_sources.append(("current", sid, acc, headroom))
+        for acc in all_uk_accounts:
+            sid = acc["_str_id"]
+            if sid == dest_acct or sid in excluded_sources:
+                continue
+            if _is_savings(acc):
+                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
+                if headroom >= 5:
+                    candidate_sources.append(("savings", sid, acc, headroom))
+        # Offline accounts last: real money, but reaching it means a manual
+        # transfer, so in practice it is the least liquid source we suggest.
+        for acc in offline_accounts:
+            sid = acc["_str_id"]
+            if sid == dest_acct or sid in excluded_sources:
+                continue
+            headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
+            if headroom >= 5:
+                candidate_sources.append(("offline", sid, acc, headroom))
+
+        legs: list[dict] = []
+        used_sources: set[str] = set()   # belt-and-braces: one source per destination
+        remaining = amount_needed
+        for _src_type, sid, acc, _headroom_snapshot in candidate_sources:
+            if remaining <= 0:
+                break
+            # Re-read live capacity — the snapshot is stale if this source
+            # already contributed to an earlier destination/call.
+            headroom = source_capacity.get(sid, 0.0) - 10
+            if headroom < 5:
+                continue
+            if sid in used_sources:
+                continue
+            leg_amount = min(remaining, headroom)
+            # Floor partial legs to nearest £5; final leg takes exact remainder
+            if leg_amount < remaining:
+                leg_amount = math.floor(leg_amount / 5) * 5
+            if leg_amount < 5:
+                continue
+            src_name = _clean_name(acc.get("name"), sid)
+            src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
+            src_provider = _provider_of(acc)
+            src_own_bills = acct_bills_total.get(sid, 0.0)
+            src_reserved = reserved_by_source.get(sid, 0.0)
+            move_map = build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved)
+            legs.append({
+                "amount": leg_amount,
+                "dest_acct": dest_acct,
+                "move_map": move_map,
+                "_src_name": src_name,
+            })
+            source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
+            used_sources.add(sid)
+            remaining -= leg_amount
+        return legs
+
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
     uncovered: list[dict] = []
@@ -1937,90 +2029,21 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                 },
             }
 
-        # Build ordered candidate sources: current accounts first (excluding savings
-        # accounts which would otherwise match _is_current via type=="BANK"), then
-        # savings, then offline (manually-tracked) accounts. Offline accounts are
-        # last because reaching them requires the user to make a manual transfer, so
-        # they are treated as the least liquid option. Accounts explicitly excluded
-        # by the user's cover_plan_excluded_accounts preference are skipped in all passes.
-        candidate_sources = []
-        for acc in all_uk_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct:
-                continue
-            if sid in excluded_sources:
-                continue
-            if _is_current(acc) and not _is_savings(acc):
-                if min_running.get(sid, 0.0) < 0:
-                    continue  # skip accounts that are themselves short
-                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
-                if headroom >= 5:
-                    candidate_sources.append(("current", sid, acc, headroom))
-        for acc in all_uk_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct:
-                continue
-            if sid in excluded_sources:
-                continue
-            if _is_savings(acc):
-                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
-                if headroom >= 5:
-                    candidate_sources.append(("savings", sid, acc, headroom))
-        # Offline accounts last: real money, but reaching it means a manual
-        # transfer, so in practice it is the least liquid source we suggest.
-        for acc in offline_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct:
-                continue
-            if sid in excluded_sources:
-                continue
-            headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
-            if headroom >= 5:
-                candidate_sources.append(("offline", sid, acc, headroom))
-
-        # Build legs (without headline — assigned after consolidation below).
-        # headroom is re-read from source_capacity each iteration (not the stale
-        # snapshot) to prevent over-draw when one source covers multiple destinations.
-        legs = []
-        used_sources: set[str] = set()   # belt-and-braces: one source per destination
-        remaining = amount_needed
-        for src_type, sid, acc, _headroom_snapshot in candidate_sources:
-            if remaining <= 0:
-                break
-            # Re-read live capacity — the snapshot is stale if this source already
-            # contributed to an earlier destination in this shortfall pass.
-            headroom = source_capacity.get(sid, 0.0) - 10
-            if headroom < 5:
-                continue
-            # Belt-and-braces: skip if this source already has a leg for this destination
-            if sid in used_sources:
-                continue
-            leg_amount = min(remaining, headroom)
-            # Floor partial legs to nearest £5; final leg takes exact remainder
-            if leg_amount < remaining:
-                leg_amount = math.floor(leg_amount / 5) * 5
-            if leg_amount < 5:
-                continue
-            src_name = _clean_name(acc.get("name"), sid)
-            src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
-            src_provider = _provider_of(acc)
-            src_own_bills = acct_bills_total.get(sid, 0.0)
-            src_reserved = reserved_by_source.get(sid, 0.0)
-            move_map = _build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved)
-            legs.append({
-                "amount": leg_amount,
-                "dest_acct": dest_acct,
-                "dest_name": dest_name,
-                "bill_name": bill_name,
-                "bill_amount": bill_amount,
-                "bill_weekday": bill_weekday,
-                "shortfall": shortfall,
-                "move_map": move_map,
-                "_src_name": src_name,
-            })
-            source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
-            used_sources.add(sid)
-            remaining -= leg_amount
+        # Candidate ranking + leg-picking is the shared `_find_legs_for_
+        # destination` (defined in Step 2 above) — current accounts first,
+        # then savings, then offline, each capped by its own remaining
+        # `source_capacity` (which already reserves that source's own
+        # obligations) and consumed in place so a source can't double-spend
+        # across destinations. This call site is unchanged behaviourally by
+        # the G42 extraction; only the per-destination display fields below
+        # are attached locally rather than baked into the shared function.
+        legs = _find_legs_for_destination(dest_acct, amount_needed, _build_move_map)
+        for _leg in legs:
+            _leg["dest_name"] = dest_name
+            _leg["bill_name"] = bill_name
+            _leg["bill_amount"] = bill_amount
+            _leg["bill_weekday"] = bill_weekday
+            _leg["shortfall"] = shortfall
 
         if legs:
             covered.extend(legs)
@@ -2667,6 +2690,81 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                         return _clean_name(_acc.get("name"), acct_id), _provider_of(_acc)
                 return acct_id, "Bank"
 
+            # ── G42 (Kevin, 2026-09-11): top-up suggestion, per qualifying
+            # account — reuses `_find_legs_for_destination`, the SAME source
+            # finder the cover-plan "move" card uses (defined in Step 2
+            # above), rather than a second implementation. Computed per
+            # ACCOUNT, not per move: two qualifying moves sharing one account
+            # share one balance, so what needs covering is their combined
+            # amount due against that one balance, not each bill's amount
+            # taken in isolation against the same unchanged figure.
+            #
+            # `kind` distinguishes three outcomes so the copy below can tell
+            # "nothing to suggest because the account already holds enough"
+            # (`no_gap` — the live balance can be a few hours fresher than
+            # the walk that flagged this as bounced) apart from "no viable
+            # source exists" (`no_source` — today's original notice still
+            # applies), and only the latter falls back to the fixed sentence.
+            _um_suggestion_by_acct: dict[str, dict] = {}
+            for _um_acct2 in {a for a, _ in _um_qualifying}:
+                _um_total_due = sum(
+                    float(_b2.get("amount") or 0) for _a2, _b2 in _um_qualifying if _a2 == _um_acct2
+                )
+                _um_balance = live_balances.get(_um_acct2, 0.0)
+                _um_gap = _um_topup_gap(_um_total_due, _um_balance)
+                if _um_gap <= 0.5:
+                    _um_suggestion_by_acct[_um_acct2] = {"kind": "no_gap"}
+                    continue
+                _um_dest_name, _um_dest_provider = _um_account_display(_um_acct2)
+
+                def _um_build_move_map(
+                    src_id, src_name, src_provider, src_balance, src_own_bills,
+                    leg_amount, src_reserved=0.0,
+                    _dest_acct=_um_acct2, _dest_name=_um_dest_name,
+                    _dest_provider=_um_dest_provider, _dest_balance=_um_balance,
+                    _total_due=_um_total_due,
+                ):
+                    if src_own_bills > 0:
+                        safe_note = f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
+                    else:
+                        safe_note = "Nothing due from this account right now"
+                    return {
+                        "from": {
+                            "account_id": src_id, "name": src_name, "provider": src_provider,
+                            "balance": float(src_balance), "safe_note": safe_note,
+                            "reserved_for_allocations": round(src_reserved, 2),
+                        },
+                        "to": {
+                            "account_id": _dest_acct, "name": _dest_name, "provider": _dest_provider,
+                            "balance": float(_dest_balance),
+                            "incoming": f"£{int(round(_total_due)):,} due",
+                        },
+                    }
+
+                # Same buffered sizing convention the cover-plan card uses
+                # (`amount_needed = _ceil5(shortfall) + 10`) — the raw gap is
+                # kept separately (`_um_gap`, above) for honest display/tests.
+                _um_amount_needed = _ceil5(_um_gap) + 10
+                _um_legs = _find_legs_for_destination(_um_acct2, _um_amount_needed, _um_build_move_map)
+                if not _um_legs:
+                    _um_suggestion_by_acct[_um_acct2] = {"kind": "no_source"}
+                    continue
+                _um_leg_total = sum(_l["amount"] for _l in _um_legs)
+                _um_suggestion_by_acct[_um_acct2] = {
+                    "kind": "found",
+                    "amount": _um_leg_total,
+                    "gap": round(_um_gap, 2),
+                    "covers_all": (_um_amount_needed - _um_leg_total) <= 0.5,
+                    "sources": [
+                        {
+                            "account_id": _l["move_map"]["from"]["account_id"],
+                            "name": _l["_src_name"],
+                            "amount": _l["amount"],
+                        }
+                        for _l in _um_legs
+                    ],
+                }
+
             _um_moves: list[dict] = []
             for _a, _b in _um_qualifying:
                 _um_src_name, _um_src_bank = _um_account_display(_a)
@@ -2676,6 +2774,8 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                 # sends as `date` to /cashflow/skip-occurrence, see
                 # UpcomingEditSheet.tsx's `item.original_date ?? item.expected_date`).
                 _um_due = _b.get("original_date") or _b.get("expected_date")
+                _um_sugg = _um_suggestion_by_acct.get(_a) or {}
+                _um_found = _um_sugg.get("kind") == "found"
                 _um_moves.append({
                     "key": _b.get("name", ""),
                     "label": _humanise_bill_name(_b.get("name", "")),
@@ -2685,6 +2785,20 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     "source_account_id": _a,
                     "source_name": _um_src_name,
                     "source_bank": _um_src_bank,
+                    # G42 top-up suggestion — null unless a viable source was
+                    # found for this move's account (see `_um_suggestion_by_
+                    # acct` above). `suggested_from_name` is only populated
+                    # for a single-source suggestion; a split suggestion
+                    # leaves it null and carries `suggested_from_count > 1`
+                    # instead, matching the cover-plan card's own singular-
+                    # vs-multi-row distinction.
+                    "suggested_amount": _um_sugg.get("amount") if _um_found else None,
+                    "suggested_from_name": (
+                        _um_sugg["sources"][0]["name"]
+                        if _um_found and len(_um_sugg["sources"]) == 1 else None
+                    ),
+                    "suggested_from_count": len(_um_sugg["sources"]) if _um_found else 0,
+                    "suggested_covers_all": _um_sugg.get("covers_all") if _um_found else None,
                 })
             # Soonest-due first — matches the rest of the file's "most urgent
             # first" convention.
@@ -2702,9 +2816,52 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     f"£{m['amount']:,} to {m['label']} from {humanise_account_name(m['source_name'])} "
                     f"was due {_um_when}."
                 )
-            _um_sentences.append(
-                "Top up the account, make the move if you already have, or skip it for this month."
+            # One combined top-up sentence per account (not per move) —
+            # matches the gap arithmetic above, which is computed per
+            # account, and avoids repeating the same suggestion once for
+            # every qualifying bill sitting on it.
+            _um_seen_accts: set[str] = set()
+            for _a, _b in _um_qualifying:
+                if _a in _um_seen_accts:
+                    continue
+                _um_seen_accts.add(_a)
+                _sugg = _um_suggestion_by_acct.get(_a) or {}
+                if _sugg.get("kind") != "found":
+                    continue
+                _acct_display, _ = _um_account_display(_a)
+                _covers_phrase = "covers it." if _sugg["covers_all"] else "covers most of it."
+                if len(_sugg["sources"]) == 1:
+                    _um_sentences.append(
+                        f"Moving £{_sugg['amount']:,} from {humanise_account_name(_sugg['sources'][0]['name'])} "
+                        f"to {humanise_account_name(_acct_display)} {_covers_phrase}"
+                    )
+                else:
+                    _um_sentences.append(
+                        f"Moving £{_sugg['amount']:,} across {len(_sugg['sources'])} accounts "
+                        f"to {humanise_account_name(_acct_display)} {_covers_phrase}"
+                    )
+            # Today's original notice only for an account with NO viable
+            # source (`no_source`) — an account that already holds enough
+            # (`no_gap`) or that already got a specific suggestion above
+            # needs no generic fallback tacked on.
+            _um_any_unresolved = any(
+                (_um_suggestion_by_acct.get(_a) or {}).get("kind") == "no_source"
+                for _a, _b in _um_qualifying
             )
+            if _um_any_unresolved:
+                _um_sentences.append(
+                    "Top up the account, make the move if you already have, or skip it for this month."
+                )
+            elif any(s.get("kind") == "found" for s in _um_suggestion_by_acct.values()):
+                _um_sentences.append("Skip this month instead if you'd rather.")
+            else:
+                # Every qualifying account's live balance already covers its
+                # own total due (`no_gap` on all of them) — the walk that
+                # flagged this ran on a slightly stale balance read. Nothing
+                # to suggest moving; just point at the fact.
+                _um_sentences.append(
+                    "These accounts may already hold enough. Check before skipping."
+                )
             body = " ".join(_um_sentences)
 
             _um_first = _um_moves[0]

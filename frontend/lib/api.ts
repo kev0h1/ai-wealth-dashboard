@@ -1279,6 +1279,19 @@ export type UnfundedMoveEntry = {
   source_account_id: string;
   source_name: string;
   source_bank: string;
+  // G42 (2026-09-11): the reused cover-plan source finder's verdict for
+  // THIS move's account — null on every field when no viable source
+  // exists (the card's `body` then carries today's original notice
+  // sentence instead). `suggested_from_name` is only populated for a
+  // single-source suggestion; a split across multiple sources leaves it
+  // null and `suggested_from_count` says how many, matching the sibling
+  // "move" card's own singular-vs-multi-row split. Not yet rendered as
+  // its own row anywhere — the suggestion currently reaches the user via
+  // `item.body`'s prose, which already says the same thing.
+  suggested_amount?: number | null;
+  suggested_from_name?: string | null;
+  suggested_from_count?: number;
+  suggested_covers_all?: boolean | null;
 };
 
 export type CompanionItem = {
