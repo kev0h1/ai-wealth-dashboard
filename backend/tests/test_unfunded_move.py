@@ -728,3 +728,81 @@ def test_tie_break_is_deterministic_regardless_of_account_order(monkeypatch):
     assert move_a["suggested_from_name"] == move_b["suggested_from_name"]
     # "hsbc" sorts before "natwest" by account id — the documented tie-break.
     assert move_a["suggested_from_name"] == "HSBC Current"
+
+
+# ── G44 (Kevin, 2026-09-11): "it's not telling me where to move it from" ────
+# G42 wired the source finder in but discarded its legs down to a count
+# (`suggested_from_count`) — these tests exercise the new `suggested_sources`
+# field that carries the full per-leg list through instead, the thing the
+# frontend renders as one row per source (HomeBrief.tsx's MoveCard-shared
+# MoveSourcesLedger).
+
+def test_single_source_suggestion_carries_one_leg_summing_to_the_total(monkeypatch):
+    """Same shape as test_viable_current_account_chosen_over_savings_pot —
+    one viable source — but this asserts on the NEW `suggested_sources`
+    list rather than just the summary fields."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    move = _find(items, "unfunded_move")["moves"][0]
+    sources = move["suggested_sources"]
+    assert len(sources) == 1
+    leg = sources[0]
+    assert leg["name"] == "HSBC Current"
+    assert leg["provider"] == "hsbc"
+    assert leg["account_id"] == "hsbc"
+    assert leg["amount"] == 70
+    # The leg(s) must sum to the total the card headlines — a breakdown that
+    # doesn't add up to its own total is worse than no breakdown at all.
+    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
+
+
+def test_three_source_suggestion_carries_three_legs_summing_to_the_total(monkeypatch):
+    """Three current accounts with £25 headroom each (£35 balance - £10
+    buffer): no pair reaches the £70 need (25+25=50), so the fewest-legs
+    picker must take all three. Kevin's own real shape (2026-09-11): £70
+    suggested across 3 accounts to cover £100 to American Express."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("accta", 35.0, name="Acct A", provider="natwest"),   # headroom 25
+        _account("acctb", 35.0, name="Acct B", provider="monzo"),     # headroom 25
+        _account("acctc", 35.0, name="Acct C", provider="hsbc"),      # headroom 25
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    move = _find(items, "unfunded_move")["moves"][0]
+    assert move["suggested_from_count"] == 3
+    sources = move["suggested_sources"]
+    assert len(sources) == 3
+    assert {s["name"] for s in sources} == {"Acct A", "Acct B", "Acct C"}
+    assert {s["provider"] for s in sources} == {"natwest", "monzo", "hsbc"}
+    # Sanity-check the legs sum: a breakdown that doesn't match its own
+    # total is worse than no breakdown.
+    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
+
+
+def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):
+    """No-source fallback (same fixture as
+    test_no_viable_source_falls_back_to_todays_notice) must carry an EMPTY
+    `suggested_sources` list, not a null/missing field, matching
+    `suggested_from_count`'s existing 0 convention — the frontend renders no
+    ledger rows and falls back to the fixed notice sentence in `body`."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("hsbc", -5.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    move = _find(items, "unfunded_move")["moves"][0]
+    assert move["suggested_sources"] == []
+    assert (
+        "Top up the account, make the move if you already have, or skip it for this month."
+        in _find(items, "unfunded_move")["body"]
+    )
