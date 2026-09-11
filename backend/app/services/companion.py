@@ -1807,7 +1807,7 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
             # this is not a second, conflicting notion of "safe".
             source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
 
-    # ── Shared source finder (G42, 2026-09-11) ───────────────────────────────
+    # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11) ──
     # Ranks and picks legs to fund `amount_needed` at `dest_acct`: current
     # accounts first, then savings, then offline — a savings pot is only ever
     # reached once every current account is exhausted, because moving money
@@ -1823,70 +1823,124 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
     # "wire the same source finder in, don't fork it" instruction. Returns
     # bare leg dicts (`amount`, `dest_acct`, `move_map`, `_src_name`); each
     # caller attaches whatever extra display fields its own card needs.
+    #
+    # G43 (Kevin, 2026-09-11): "fewer moves is better" — WITHIN the class
+    # ranking above (current before savings before offline, a class only
+    # reached once every earlier class combined can't cover the amount), the
+    # class actually used to fund the move is picked for the FEWEST legs, not
+    # by filling candidates in whatever order they happen to iterate in:
+    #   - if that class's total headroom covers `remaining` on its own, take
+    #     the smallest prefix of its candidates (sorted by headroom, highest
+    #     first) whose combined headroom reaches `remaining` — size 1 when a
+    #     single source can do it alone, more only when none can;
+    #   - if the class falls short even combined, it's exhausted in full (as
+    #     before) and the residual carries into the next class down the
+    #     ranking, since "nothing else covers it" is what licenses reaching
+    #     into savings/offline at all.
+    # The highest-headroom-first order is also the tie-break for "more than
+    # one single source could do it alone" (owner's rule 4): it's deterministic
+    # (headroom desc, then account id, so two equal-headroom accounts still
+    # resolve the same way every run) and it leaves the healthiest remaining
+    # balance in the source(s) used, since spare headroom is what's left over.
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map) -> list[dict]:
-        candidate_sources = []
-        for acc in all_uk_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct or sid in excluded_sources:
-                continue
-            if _is_current(acc) and not _is_savings(acc):
-                if min_running.get(sid, 0.0) < 0:
+        legs: list[dict] = []
+        used_sources: set[str] = set()   # belt-and-braces: one source per destination
+
+        def _live_class(accounts, predicate, require_non_negative_current=False):
+            out = []
+            for acc in accounts:
+                sid = acc["_str_id"]
+                if sid == dest_acct or sid in excluded_sources or sid in used_sources:
+                    continue
+                if not predicate(acc):
+                    continue
+                if require_non_negative_current and min_running.get(sid, 0.0) < 0:
                     continue  # skip accounts that are themselves short
                 headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
                 if headroom >= 5:
-                    candidate_sources.append(("current", sid, acc, headroom))
-        for acc in all_uk_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct or sid in excluded_sources:
-                continue
-            if _is_savings(acc):
-                headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
-                if headroom >= 5:
-                    candidate_sources.append(("savings", sid, acc, headroom))
-        # Offline accounts last: real money, but reaching it means a manual
-        # transfer, so in practice it is the least liquid source we suggest.
-        for acc in offline_accounts:
-            sid = acc["_str_id"]
-            if sid == dest_acct or sid in excluded_sources:
-                continue
-            headroom = source_capacity.get(sid, 0.0) - 10  # keep £10 buffer
-            if headroom >= 5:
-                candidate_sources.append(("offline", sid, acc, headroom))
+                    out.append((sid, acc, headroom))
+            # Deterministic order: highest headroom first (the account left
+            # with the healthiest remaining balance/most spare capacity),
+            # account id as the final tie-break.
+            out.sort(key=lambda t: (-t[2], t[0]))
+            return out
 
-        legs: list[dict] = []
-        used_sources: set[str] = set()   # belt-and-braces: one source per destination
-        remaining = amount_needed
-        for _src_type, sid, acc, _headroom_snapshot in candidate_sources:
-            if remaining <= 0:
-                break
-            # Re-read live capacity — the snapshot is stale if this source
-            # already contributed to an earlier destination/call.
-            headroom = source_capacity.get(sid, 0.0) - 10
-            if headroom < 5:
-                continue
-            if sid in used_sources:
-                continue
-            leg_amount = min(remaining, headroom)
-            # Floor partial legs to nearest £5; final leg takes exact remainder
-            if leg_amount < remaining:
-                leg_amount = math.floor(leg_amount / 5) * 5
-            if leg_amount < 5:
-                continue
+        def _make_leg(sid, acc, leg_amount):
             src_name = _clean_name(acc.get("name"), sid)
             src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
             src_provider = _provider_of(acc)
             src_own_bills = acct_bills_total.get(sid, 0.0)
             src_reserved = reserved_by_source.get(sid, 0.0)
             move_map = build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved)
-            legs.append({
+            return {
                 "amount": leg_amount,
                 "dest_acct": dest_acct,
                 "move_map": move_map,
                 "_src_name": src_name,
-            })
-            source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
-            used_sources.add(sid)
-            remaining -= leg_amount
+            }
+
+        class_specs = [
+            (all_uk_accounts, lambda acc: _is_current(acc) and not _is_savings(acc), True),
+            (all_uk_accounts, _is_savings, False),
+            # Offline accounts last: real money, but reaching it means a
+            # manual transfer, so in practice it is the least liquid source.
+            (offline_accounts, lambda acc: True, False),
+        ]
+
+        remaining = amount_needed
+        for accounts, predicate, require_non_negative in class_specs:
+            if remaining <= 0:
+                break
+            # Re-read live capacity each class — headroom shrinks and
+            # `used_sources` grows as earlier classes/legs commit.
+            live = _live_class(accounts, predicate, require_non_negative)
+            if not live:
+                continue
+
+            class_total = sum(headroom for _sid, _acc, headroom in live)
+            if class_total < remaining:
+                # This class, even combined, falls short — take all of it and
+                # carry the residual into the next class down the ranking.
+                for sid, acc, headroom in live:
+                    if remaining <= 0:
+                        break
+                    leg_amount = min(remaining, headroom)
+                    if leg_amount < remaining:
+                        leg_amount = math.floor(leg_amount / 5) * 5
+                    if leg_amount < 5:
+                        continue
+                    legs.append(_make_leg(sid, acc, leg_amount))
+                    source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
+                    used_sources.add(sid)
+                    remaining -= leg_amount
+                continue
+
+            # This class alone can cover what's left — use the fewest
+            # sources that do it: the smallest headroom-descending prefix
+            # whose combined headroom reaches `remaining` (size 1 whenever a
+            # single source has the capacity, since that's always the first
+            # prefix checked).
+            cum = 0.0
+            chosen = []
+            for cand in live:
+                chosen.append(cand)
+                cum += cand[2]
+                if cum >= remaining:
+                    break
+            leg_remaining = remaining
+            for i, (sid, acc, headroom) in enumerate(chosen):
+                is_final = i == len(chosen) - 1
+                leg_amount = min(leg_remaining, headroom)
+                if not is_final and leg_amount < leg_remaining:
+                    leg_amount = math.floor(leg_amount / 5) * 5
+                if leg_amount < 5:
+                    continue
+                legs.append(_make_leg(sid, acc, leg_amount))
+                source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
+                used_sources.add(sid)
+                leg_remaining -= leg_amount
+            remaining = leg_remaining
+            break
         return legs
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
