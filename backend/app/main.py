@@ -10,7 +10,7 @@ import os
 
 from app.core.config import (
     APP_URL, API_PUBLIC_URL, MCP_AUDIT_TTL_DAYS, MCP_CONNECTOR_ENABLED, MCP_ONLY, MCP_ORIGIN,
-    TRUELAYER_CLIENT_ID,
+    SAFE_TO_SPEND_HISTORY_TTL_DAYS, TRUELAYER_CLIENT_ID,
 )
 from app.core.auth import auth_middleware
 from app.db.collections import (
@@ -28,6 +28,7 @@ from app.db.collections import (
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     billing_customers_col, billing_events_col,
+    safe_to_spend_history_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -345,6 +346,17 @@ async def _create_indexes():
     await billing_customers_col.create_index("user_id", unique=True)
     await billing_customers_col.create_index("stripe_customer_id", unique=True, sparse=True)
     await billing_events_col.create_index("event_id", unique=True)
+    # B18: daily Safe-to-Spend history snapshot — one doc per (user, day),
+    # so "what changed and why" about the headline figure is answerable
+    # after the fact. TTL mirrors mcp_calls_col's F14 bound (see
+    # SAFE_TO_SPEND_HISTORY_TTL_DAYS's own comment in app/core/config.py).
+    await safe_to_spend_history_col.create_index(
+        [("user_id", 1), ("date", 1)], unique=True, name="safe_to_spend_history_user_date"
+    )
+    await safe_to_spend_history_col.create_index(
+        "computed_at", expireAfterSeconds=SAFE_TO_SPEND_HISTORY_TTL_DAYS * 24 * 3600,
+        name="safe_to_spend_history_ttl",
+    )
 
 
 async def _acquire_migration_lock() -> bool:
