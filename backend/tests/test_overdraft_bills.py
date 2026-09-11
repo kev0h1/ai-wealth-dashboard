@@ -360,3 +360,70 @@ def test_at_risk_count_movement_only_bounce_on_overdrawn_account_not_counted(mon
     can fail expensively."""
     bills = [_bill("Own transfer to savings", 2, 900.0, "premier", -30.61, kind=MOVEMENT)]
     assert _run_at_risk(monkeypatch, bills) == 0
+
+
+# ── SHARED-FIXTURE LOCKSTEP CHECK (G42, 2026-09-11) ─────────────────────────
+# `test_three_mirrored_filters_share_the_same_predicate` above proves the
+# three sims share one `is_assessable_bill` object; it does not prove they
+# still AGREE once each independently re-derives its own bills/income window
+# and runs `_walk_events` over it. This runs the exact same bills/accounts
+# fixture through all three code paths — companion.compute_today_items,
+# analytics.at_risk_count, and spend_impact._cashflow_window +
+# companion._walk_events (the same shared walk, fed the window spend_impact
+# builds on its own) — and checks they land on the identical £35.00 deficit,
+# not just "something negative". Numbers are chosen to divide exactly (no
+# rounding) so the comparison is exact, not approximate.
+def _run_cashflow_window(monkeypatch, bills, accounts):
+    import app.services.spend_impact as spend_impact
+
+    monkeypatch.setattr(spend_impact, "cashflow_cache_col", FakeCol([{"_id": UID}]))
+    monkeypatch.setattr(spend_impact, "preferences_col", FakeCol([]))
+    monkeypatch.setattr(spend_impact, "accounts_col", FakeCol(accounts))
+    monkeypatch.setattr(
+        analytics, "cashflow_cache_col", FakeCol([{"_id": UID, "patterns_version": PATTERNS_VERSION}])
+    )
+
+    async def fake_resp(cached, uid=None, prefs=None):
+        return {"upcoming_bills": bills, "upcoming_income": [], "internal_inflows": []}
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
+
+    import app.services.pay_period as pay_period
+    import app.services.income as income
+    monkeypatch.setattr(income, "get_confirmed_payday", lambda prefs, today_d: None)
+    monkeypatch.setattr(pay_period, "_next_payday", lambda today_d, pay_cfg: TODAY + timedelta(days=10))
+
+    return asyncio.run(spend_impact._cashflow_window(UID))
+
+
+def test_shared_fixture_three_sims_agree_on_the_same_deficit(monkeypatch):
+    """One account, one bill, no other source — deliberately whole-pound
+    numbers (balance -30.00, bill 5.00) so the walk's deficit is exactly
+    £35.00 with no rounding to obscure a real drift.
+
+    1. companion.compute_today_items: the "move" card (no other account
+       exists to cover it, so this is the uncovered/no-source branch) must
+       quote the £35 gap.
+    2. analytics.at_risk_count: must count exactly this one bill as at risk.
+    3. spend_impact._cashflow_window, walked with the SAME `_walk_events`
+       companion uses internally, must show `premier`'s min_running at
+       exactly -35.00 — the same figure companion's card is built from,
+       independently re-derived.
+    """
+    accounts = [_account("premier", -30.0)]
+    bills = [_bill("Account fee", 2, 5.0, "premier", -30.0, kind="commitment")]
+
+    # (1) companion
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    move = _find(items, "move")
+    assert move is not None
+    assert "£35" in move["headline"] or "£35" in move["body"]
+
+    # (2) analytics.at_risk_count
+    assert _run_at_risk(monkeypatch, bills) == 1
+
+    # (3) spend_impact._cashflow_window + the shared `_walk_events`
+    window = _run_cashflow_window(monkeypatch, bills, accounts)
+    assert window is not None
+    _, min_running, _, _ = companion._walk_events(window["events"], window["balances"])
+    assert min_running["premier"] == -35.0

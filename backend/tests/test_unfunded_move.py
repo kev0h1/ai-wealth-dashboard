@@ -161,10 +161,10 @@ def _commitment_bill(name, amount, account_id, days_away):
     }
 
 
-def _account(acct_id, balance, provider="barclays", name=None):
+def _account(acct_id, balance, provider="barclays", name=None, subtype="TRANSACTION", atype="BANK"):
     return {
         "_id": acct_id, "user_id": UID, "name": name or acct_id, "balance": balance,
-        "subtype": "TRANSACTION", "type": "BANK", "provider": provider,
+        "subtype": subtype, "type": atype, "provider": provider,
     }
 
 
@@ -508,3 +508,116 @@ def test_movement_and_real_bill_coexist_move_card_represents_the_real_bill_only(
         assert _find(items, "unfunded_move") is not None
     finally:
         mp.undo()
+
+
+# ── G42: source finder wired into unfunded_move ──────────────────────────
+# Kevin, 2026-09-11: the card previously ended in a fixed notice sentence and
+# never offered a source, even though the sibling cover-plan "move" card
+# already knows how to say "move £X from A to B". These reuse the exact same
+# `_find_legs_for_destination` ranking (current accounts, then savings, then
+# offline, each capped by its own remaining `source_capacity`, which already
+# reserves that source's own obligations) rather than a second
+# implementation — see companion.py section 5d.
+
+def test_gap_arithmetic():
+    """The ticket's own numbers, verbatim: £100 due, £44.68 held, £55.32
+    gap. Never negative when the balance already covers the amount."""
+    import pytest
+    assert companion._um_topup_gap(100.0, 44.68) == pytest.approx(55.32)
+    assert companion._um_topup_gap(50.0, 80.0) == 0.0
+    assert companion._um_topup_gap(50.0, 50.0) == 0.0
+
+
+def test_viable_current_account_chosen_over_savings_pot(monkeypatch):
+    """Kevin's exact shape: Premier holds £44.68, owes £100 to American
+    Express. HSBC (current) and Halifax (savings) can both cover the gap —
+    the ranking must pick HSBC first, never touching the savings pot, per
+    the owner's 'moving money out of savings to pay a card is a different
+    decision' instruction."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    assert item is not None
+    move = item["moves"][0]
+    # Gap = 100 - 44.68 = 55.32; buffered sizing = ceil5(55.32) + 10 = 70,
+    # same convention the cover-plan card uses, and HSBC's £500 easily
+    # covers the whole £70 in one leg.
+    assert move["suggested_amount"] == 70
+    assert move["suggested_from_name"] == "HSBC Current"
+    assert move["suggested_from_count"] == 1
+    assert move["suggested_covers_all"] is True
+    assert "Halifax" not in item["body"]
+    assert "Moving £70 from HSBC Current" in item["body"]
+    # The old fixed notice must not still be tacked on once a source is found.
+    assert "Top up the account, make the move if you already have" not in item["body"]
+
+
+def test_savings_offered_only_when_nothing_else_covers(monkeypatch):
+    """Same shape, but the only OTHER current account is itself short (its
+    own live balance is negative, so the walk's `min_running` for it is
+    negative) — with no viable current account, the savings pot is the
+    right call, not a card that silently ignores the gap."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("hsbc", -5.0, name="HSBC Current", provider="hsbc"),
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    assert move["suggested_from_name"] == "Halifax Savings"
+    assert move["suggested_amount"] == 70
+
+
+def test_candidate_source_excluded_when_its_own_obligations_consume_it(monkeypatch):
+    """A candidate current account that looks flush on balance alone but
+    has its own upcoming bill eating almost all of it must not be offered —
+    "a source must still reserve its own obligations first." A second,
+    genuinely spare current account is offered instead."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("tight", 200.0, name="Tight Current", provider="natwest"),
+        _account("spare", 200.0, name="Spare Current", provider="monzo"),
+    ]
+    bills = [
+        _mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                 pending=True, days_past_due=2, original_date="2026-09-09"),
+        # Tight's own bill: 200 balance - 195 bill leaves only £5 headroom,
+        # well under the £10 safety buffer every source must keep.
+        _commitment_bill("Council Tax", 195.0, "tight", days_away=5),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    assert move["suggested_from_name"] == "Spare Current"
+    assert "Tight" not in item["body"]
+
+
+def test_no_viable_source_falls_back_to_todays_notice(monkeypatch):
+    """Other accounts exist, but none are viable (the only other one is
+    itself short and there is no savings pot) — must fall back to exactly
+    today's fixed notice wording, unchanged, the same way the cover-plan
+    card's own no-viable-source branch does."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("hsbc", -5.0, name="HSBC Current", provider="hsbc"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    item = _find(items, "unfunded_move")
+    move = item["moves"][0]
+    assert move["suggested_amount"] is None
+    assert move["suggested_from_name"] is None
+    assert (
+        "Top up the account, make the move if you already have, or skip it for this month."
+        in item["body"]
+    )
