@@ -111,7 +111,16 @@ async def _all_user_ids() -> list[str]:
 
 async def _matches_state(uid: str, state: str) -> bool:
     if state == "penny_cap":
-        allowance = await penny_allowance(uid)
+        # B23: persist=False — resolving an audience is a preview, and must
+        # never perform penny_allowance's usual pack-settlement WRITE just
+        # because a candidate user was evaluated against this filter (that
+        # was the actual defect: previewing an audience was silently
+        # mutating every candidate's penny_topups_col docs). persist=False
+        # still runs the identical settlement arithmetic in memory, so
+        # `remaining` here is the truthful as-if-settled number (matching
+        # what the user's own next real penny_allowance call would report),
+        # it just never writes it back — see _settle_packs' own docstring.
+        allowance = await penny_allowance(uid, persist=False)
         remaining = allowance.get("remaining")
         # None means the tier is unlimited — can never be "at the cap".
         return remaining is not None and remaining <= 0
@@ -127,6 +136,15 @@ async def resolve_audience(audience: dict) -> list[str]:
     `audience` shape: {"type": "everyone"} | {"type": "tier", "tier": one
     of app.core.subscription.TIER_BY_NAME} | {"type": "state", "state":
     one of STATE_KEYS}.
+
+    B23: side-effect free. `get_subscription` and `notif_pref` were always
+    plain reads; the "state" branch's `_matches_state` used to also run
+    `penny_allowance`'s pack-settlement WRITE (`_settle_packs` persisting
+    draw-downs to `penny_topups_col`) for every candidate, so merely
+    previewing an audience mutated real user data. It now calls
+    `penny_allowance(uid, persist=False)`, which runs the identical
+    settlement arithmetic without writing it — see that function's
+    docstring. Nothing this function calls, transitively, ever writes.
     """
     kind = (audience or {}).get("type")
     if kind not in AUDIENCE_TYPES:
