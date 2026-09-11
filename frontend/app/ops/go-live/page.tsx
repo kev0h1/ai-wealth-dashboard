@@ -21,6 +21,7 @@
 // single-file version too long to hold in one head.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { ChevronDown } from "lucide-react";
 import { api, type AllowlistResponse, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
@@ -242,6 +243,9 @@ export default function GoLivePage() {
         <header className="mb-2">
           <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">Go-live readiness</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Finexer production access: 1 Oct 2026</p>
+          <Link href="/ops/broadcast" className="mt-2 inline-block text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+            Send an offer broadcast
+          </Link>
           <div className="mt-5">
             <HeaderHero items={data.items} done={done} total={total} />
           </div>

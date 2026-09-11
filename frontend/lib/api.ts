@@ -1426,6 +1426,45 @@ export type AllowlistResponse = {
   /** ALLOWED_EMAILS env var — read-only reference, never editable here. */
   env_seeded: string[];
 };
+// B20: admin-composed offer broadcasts — owner-only compose/preview/send
+// surface (backend/app/routers/broadcast.py) plus the in-app-card half any
+// signed-in user reads (`GET /offers`). Never carries the raw recipient
+// list to the browser, only a count and a masked sample — see
+// broadcast.py's `_public_broadcast`.
+export type BroadcastAudience =
+  | { type: "everyone" }
+  | { type: "tier"; tier: "statements" | "lite" | "standard" | "connect" | "max" }
+  | { type: "state"; state: "penny_cap" };
+
+export type BroadcastRecord = {
+  id: string;
+  title: string;
+  body: string;
+  url: string;
+  audience: BroadcastAudience;
+  status: "draft" | "sending" | "sent";
+  recipient_count: number;
+  recipient_sample: string[];
+  created_at: string;
+  created_by: string;
+  sent_at: string | null;
+  dry_run: boolean | null;
+  results: {
+    recipient_count: number;
+    delivered: number;
+    skipped_optout: number;
+    skipped_already_sent: number;
+  } | null;
+};
+
+export type OfferCardData = {
+  id: string;
+  title: string;
+  body: string;
+  url: string;
+  sent_at: string;
+};
+
 export type GoLiveItemAction =
   | { action: "done"; commit?: string }
   | { action: "reopen" }
@@ -3179,4 +3218,19 @@ export const api = {
     post<AllowlistResponse>("/admin/allowlist", { email, note: note || undefined }),
   revokeAllowlist: (key: string) =>
     del<AllowlistResponse>(`/admin/allowlist/${encodeURIComponent(key)}`),
+
+  // B20: admin broadcasts — bot-or-owner only on the backend; from this
+  // browser client that always means the owner's own session. Preview
+  // resolves the audience and freezes it (never sends); send is the
+  // separate, explicit confirm step. See backend/app/services/broadcast.py.
+  previewBroadcast: (body: { title: string; body: string; url?: string; audience: BroadcastAudience }) =>
+    post<BroadcastRecord>("/admin/broadcast/preview", body),
+  sendBroadcast: (broadcastId: string, dryRun: boolean) =>
+    post<BroadcastRecord>(`/admin/broadcast/${encodeURIComponent(broadcastId)}/send`, { dry_run: dryRun }),
+  listBroadcasts: () => get<{ broadcasts: BroadcastRecord[] }>("/admin/broadcast"),
+
+  // The in-app-card half of a sent broadcast — any signed-in user, scoped
+  // to their own unread offers.
+  listOffers: () => get<{ offers: OfferCardData[] }>("/offers"),
+  dismissOffer: (id: string) => post<{ ok: boolean }>(`/offers/${encodeURIComponent(id)}/dismiss`),
 };

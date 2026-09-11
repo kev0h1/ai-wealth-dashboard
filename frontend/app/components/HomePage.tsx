@@ -15,6 +15,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { getPayPeriodWithConfig } from "@/lib/payPeriod";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";
+import OfferCard from "@/components/OfferCard";
 import ValueDeliveredStat from "@/components/ValueDeliveredStat";
 import UpcomingBillsStrip from "@/components/UpcomingBillsStrip";
 import ThisMonthStrip from "@/components/ThisMonthStrip";
@@ -747,6 +748,10 @@ export default function HomePage() {
                 <UpcomingBillsStrip onReady={onBillsReady} />
                 <ThisMonthStrip summary={needle} summaryStatus={needleStatus} onReady={onMonthReady} />
                 <HomeInsightSpotlight onReady={onSpotlightReady} />
+                {/* B20: admin-sent offer, if any is unread. Self-fetching,
+                    renders nothing when there's nothing to show — same
+                    convention as the strips above. */}
+                <OfferCard />
               </div>
             </div>
           )}

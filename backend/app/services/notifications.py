@@ -45,6 +45,16 @@ NOTIF_DEFAULTS = {
     # toggle exists yet; default on is deliberate (dead connections are
     # silent otherwise).
     "connection_health":        True,
+    # B20: admin-composed offer broadcasts (app/services/broadcast.py). No
+    # Settings UI toggle exists yet, same as connection_health above, but
+    # the preference is fully live: PATCH /preferences already accepts
+    # {"notification_prefs": {"offers": false}} through this same
+    # NOTIF_DEFAULTS-driven mechanism (see app.routers.preferences._notif_prefs),
+    # so a user can opt out today even without a dedicated switch, and
+    # broadcast.resolve_audience honours it via notif_pref() exactly like
+    # every other category. Defaults on, matching every other high-signal
+    # category here — a user who wants it off can already turn it off.
+    "offers":                   True,
 }
 
 # Outflows that aren't real consumption are never counted against spend

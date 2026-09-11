@@ -5,6 +5,7 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from pymongo.errors import OperationFailure
 
 import os
 
@@ -28,6 +29,7 @@ from app.db.collections import (
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     billing_customers_col, billing_events_col,
+    broadcasts_col, broadcast_receipts_col,
     safe_to_spend_history_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
@@ -43,7 +45,7 @@ from app.routers import (
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
     penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
-    mcp as mcp_router, oauth as oauth_router,
+    mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -94,6 +96,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
         admin_usage.router,
         admin_allowlist.router,
         billing_router.router,
+        broadcast_router.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
@@ -223,91 +226,166 @@ def build_app(mcp_connector_enabled: bool, mcp_only: bool = False) -> FastAPI:
 app = build_app(MCP_CONNECTOR_ENABLED, mcp_only=MCP_ONLY)
 
 
+def _normalise_index_key(keys) -> list[tuple]:
+    """`create_index` accepts either a bare field name (implicit ascending)
+    or a list of (field, direction) pairs; `index_information()` always
+    reports the list-of-pairs form. Normalise both to the same shape so a
+    requested key pattern can be compared against an existing index's."""
+    if isinstance(keys, str):
+        return [(keys, 1)]
+    return [tuple(k) for k in keys]
+
+
+async def _ensure_index(col, keys, **kwargs) -> None:
+    """Create one index without letting a schema hiccup take the whole API
+    down at startup. A missing or stale index degrades performance or
+    retention, it does not justify refusing to serve — every failure here
+    is logged loudly (ERROR, with the collection and index name/keys, so
+    it is actionable) and swallowed, never silently dropped and never
+    fatal.
+
+    One failure mode gets more than a log line: IndexOptionsConflict
+    (Mongo error code 85, "an equivalent index already exists with a
+    different name and options") means an index on this EXACT key
+    pattern already exists under different options. That happened for
+    real: an earlier version of the B20 broadcasts index block asked for
+    two separate indexes on `broadcasts.created_at` under different
+    names, which Mongo always rejects this way, and the first deploy of
+    that collection crash-looped the API 8 times before the bad merge was
+    rolled back, leaving a stale plain index behind on the (empty)
+    collection. Reconciled automatically here: find the existing index(es)
+    on this precise key pattern (never a broader sweep of the collection's
+    OTHER indexes), drop them by name, and create the intended one in
+    their place.
+    """
+    log = logging.getLogger("app.startup")
+    name = kwargs.get("name")
+    try:
+        await col.create_index(keys, **kwargs)
+        return
+    except OperationFailure as e:
+        if e.code != 85:  # not IndexOptionsConflict — nothing to reconcile
+            log.error(
+                "index creation failed for %s on %s (%r): %s",
+                name or keys, col.name, keys, e,
+            )
+            return
+    except Exception as e:
+        log.error(
+            "index creation failed for %s on %s (%r): %s",
+            name or keys, col.name, keys, e, exc_info=True,
+        )
+        return
+
+    # Only reached after an IndexOptionsConflict above.
+    try:
+        target_key = _normalise_index_key(keys)
+        existing = await col.index_information()
+        stale = [
+            idx_name for idx_name, spec in existing.items()
+            if idx_name != "_id_"
+            and idx_name != name
+            and _normalise_index_key(spec.get("key") or []) == target_key
+        ]
+        for idx_name in stale:
+            await col.drop_index(idx_name)
+        log.error(
+            "index conflict on %s (%r): dropped stale index(es) %s, recreating as %s",
+            col.name, keys, stale, name or keys,
+        )
+        await col.create_index(keys, **kwargs)
+    except Exception as e:
+        log.error(
+            "index reconciliation failed for %s on %s (%r): %s",
+            name or keys, col.name, keys, e, exc_info=True,
+        )
+
+
 @app.on_event("startup")
 async def _create_indexes():
-    await transactions_col.create_index("account_id")
-    await transactions_col.create_index("date")
-    await transactions_col.create_index("user_id")
+    await _ensure_index(transactions_col, "account_id")
+    await _ensure_index(transactions_col, "date")
+    await _ensure_index(transactions_col, "user_id")
     # Compound indexes for the paginated per-account list (filter + sort in one)
     # and the cross-account queries (user_id + date range).
-    await transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
-    await transactions_col.create_index([("user_id", 1), ("date", -1)])
+    await _ensure_index(transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
+    await _ensure_index(transactions_col, [("user_id", 1), ("date", -1)])
     # ENGINE.md "Identity" stage — the similar-endpoint's primary lookup path
     # (an exact equality match on merchant_key), so it's an index hit rather
     # than the regex-prefix scan kept only as a fallback for rows missing the
     # field.
-    await transactions_col.create_index([("user_id", 1), ("merchant_key", 1), ("transaction_type", 1)])
-    await yapily_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
-    await yapily_transactions_col.create_index([("user_id", 1), ("date", -1)])
-    await statement_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
-    await statement_transactions_col.create_index([("user_id", 1), ("date", -1)])
-    await mpesa_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
-    await mpesa_transactions_col.create_index([("user_id", 1), ("date", -1)])
-    await mono_transactions_col.create_index([("account_id", 1), ("user_id", 1), ("date", -1)])
-    await accounts_col.create_index("connection_id")
-    await accounts_col.create_index("user_id")
-    await connections_col.create_index("user_id")
-    await preferences_col.create_index("user_id", unique=True)
-    await chat_sessions_col.create_index("user_id")
-    await chat_sessions_col.create_index([("created_at", 1)], expireAfterSeconds=604800)
-    await episodic_memory_col.create_index("user_id", unique=True)
-    await user_categories_col.create_index("user_id", unique=True)
-    await budgets_col.create_index([("user_id", 1), ("region", 1)], unique=True)
-    await mono_connections_col.create_index("user_id")
-    await mono_accounts_col.create_index("user_id")
-    await mono_transactions_col.create_index([("user_id", 1), ("date", -1)])
-    await savings_insights_col.create_index("expires_at", expireAfterSeconds=0, sparse=True)
-    await savings_insights_col.create_index([("user_id", 1), ("category", 1)])
-    await savings_labels_col.create_index([("user_id", 1), ("merchant_key", 1)], unique=True)
-    await subscriptions_col.create_index("user_id", unique=True)
-    await subscription_usage_col.create_index([("user_id", 1), ("year_month", 1)], unique=True)
+    await _ensure_index(transactions_col, [("user_id", 1), ("merchant_key", 1), ("transaction_type", 1)])
+    await _ensure_index(yapily_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
+    await _ensure_index(yapily_transactions_col, [("user_id", 1), ("date", -1)])
+    await _ensure_index(statement_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
+    await _ensure_index(statement_transactions_col, [("user_id", 1), ("date", -1)])
+    await _ensure_index(mpesa_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
+    await _ensure_index(mpesa_transactions_col, [("user_id", 1), ("date", -1)])
+    await _ensure_index(mono_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
+    await _ensure_index(accounts_col, "connection_id")
+    await _ensure_index(accounts_col, "user_id")
+    await _ensure_index(connections_col, "user_id")
+    await _ensure_index(preferences_col, "user_id", unique=True)
+    await _ensure_index(chat_sessions_col, "user_id")
+    await _ensure_index(chat_sessions_col, [("created_at", 1)], expireAfterSeconds=604800)
+    await _ensure_index(episodic_memory_col, "user_id", unique=True)
+    await _ensure_index(user_categories_col, "user_id", unique=True)
+    await _ensure_index(budgets_col, [("user_id", 1), ("region", 1)], unique=True)
+    await _ensure_index(mono_connections_col, "user_id")
+    await _ensure_index(mono_accounts_col, "user_id")
+    await _ensure_index(mono_transactions_col, [("user_id", 1), ("date", -1)])
+    await _ensure_index(savings_insights_col, "expires_at", expireAfterSeconds=0, sparse=True)
+    await _ensure_index(savings_insights_col, [("user_id", 1), ("category", 1)])
+    await _ensure_index(savings_labels_col, [("user_id", 1), ("merchant_key", 1)], unique=True)
+    await _ensure_index(subscriptions_col, "user_id", unique=True)
+    await _ensure_index(subscription_usage_col, [("user_id", 1), ("year_month", 1)], unique=True)
     # Statements-tier upload cap (app.core.subscription check_statement_upload_allowed).
-    await statement_uploads_col.create_index([("user_id", 1), ("year_month", 1)])
-    await cashflow_cache_col.create_index("computed_at")
-    await webhook_events_col.create_index([("status", 1), ("received_at", 1)])
+    await _ensure_index(statement_uploads_col, [("user_id", 1), ("year_month", 1)])
+    await _ensure_index(cashflow_cache_col, "computed_at")
+    await _ensure_index(webhook_events_col, [("status", 1), ("received_at", 1)])
     # TTL: auto-delete webhook event logs after 30 days
     try:
         await webhook_events_col.drop_index("received_at_1")
     except Exception:
         pass
-    await webhook_events_col.create_index(
+    await _ensure_index(webhook_events_col,
         "received_at", expireAfterSeconds=30 * 24 * 3600, name="webhook_ttl"
     )
-    await checkpoints_col.create_index([("user_id", 1), ("status", 1), ("period_end", 1)])
-    await checkpoints_col.create_index([("user_id", 1), ("ref", 1), ("period_end", 1)])
-    await category_intent_col.create_index(
+    await _ensure_index(checkpoints_col, [("user_id", 1), ("status", 1), ("period_end", 1)])
+    await _ensure_index(checkpoints_col, [("user_id", 1), ("ref", 1), ("period_end", 1)])
+    await _ensure_index(category_intent_col,
         [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
-    await commitments_col.create_index([("user_id", 1), ("status", 1)])
-    await allocations_col.create_index([("user_id", 1), ("active", 1)])
+    await _ensure_index(commitments_col, [("user_id", 1), ("status", 1)])
+    await _ensure_index(allocations_col, [("user_id", 1), ("active", 1)])
     # Penny Agent Mode v1 — 15-minute proposal TTL (owner decision,
     # 2026-08-30, see PENNY_TOOLS.md). expires_at is set at creation time
     # (app.services.penny_tools._create_proposal); Mongo reaps the doc
     # itself once it's past that instant, no separate sweep job needed.
-    await penny_proposals_col.create_index([("user_id", 1), ("_id", 1)])
-    await penny_proposals_col.create_index("expires_at", expireAfterSeconds=0)
+    await _ensure_index(penny_proposals_col, [("user_id", 1), ("_id", 1)])
+    await _ensure_index(penny_proposals_col, "expires_at", expireAfterSeconds=0)
     # ENGINE.md "The One Stream Rule" — the uniform teaching-event feed.
-    await teaching_events_col.create_index([("user_id", 1), ("created_at", -1)])
+    await _ensure_index(teaching_events_col, [("user_id", 1), ("created_at", -1)])
     # Append-only event log with no consumer/rollup yet — TTL bounds growth
     # (365d retention) rather than letting it accumulate forever.
-    await teaching_events_col.create_index([("created_at", 1)], expireAfterSeconds=31536000)
+    await _ensure_index(teaching_events_col, [("created_at", 1)], expireAfterSeconds=31536000)
     # Response cache (app/services/response_cache.py) — one entry per
     # (user_id, name); TTL is the 6h safety bound described there.
     # user_data_version_col needs no explicit index: `_id` (uid) already has
     # Mongo's automatic primary-key index.
-    await response_cache_col.create_index([("user_id", 1), ("name", 1)], unique=True)
-    await response_cache_col.create_index(
+    await _ensure_index(response_cache_col, [("user_id", 1), ("name", 1)], unique=True)
+    await _ensure_index(response_cache_col,
         "computed_at", expireAfterSeconds=6 * 3600, name="response_cache_ttl"
     )
     # F3 /mcp connector audit log (app/routers/mcp.py) — GET /mcp/audit's
     # per-user, per-month read.
-    await mcp_calls_col.create_index([("user_id", 1), ("year_month", 1)])
+    await _ensure_index(mcp_calls_col, [("user_id", 1), ("year_month", 1)])
     # F14: TTL — rows older than MCP_AUDIT_TTL_DAYS (default 90) are
     # reaped automatically. The monthly allowance does NOT depend on this
     # collection's row count any more (see mcp_call_counters_col above),
     # so expiry here only ever affects the audit log a user can browse,
     # never their usage total.
-    await mcp_calls_col.create_index(
+    await _ensure_index(mcp_calls_col,
         "ts", expireAfterSeconds=MCP_AUDIT_TTL_DAYS * 24 * 3600, name="mcp_audit_ttl"
     )
     # F14: GET /mcp/audit's cursor-paginated full-log page sorts by
@@ -318,42 +396,64 @@ async def _create_indexes():
     # or (for month=all) a full collection scan. This index lets Mongo
     # narrow to the user via the prefix and walk `ts` already in the
     # required order for every shape of the query.
-    await mcp_calls_col.create_index(
+    await _ensure_index(mcp_calls_col,
         [("user_id", 1), ("ts", -1)], name="mcp_audit_user_ts"
     )
     # F14: durable per-(user_id, year_month) call counter backing the
     # monthly MCP allowance (app.core.subscription._mcp_call_count),
     # immune to the mcp_calls_col TTL above.
-    await mcp_call_counters_col.create_index([("user_id", 1), ("year_month", 1)], unique=True)
+    await _ensure_index(mcp_call_counters_col, [("user_id", 1), ("year_month", 1)], unique=True)
     # F2 OAuth 2.1 authorisation server (app/routers/oauth.py). Codes and
     # tokens each TTL themselves out via their own `expires_at` (revocation
     # is an application-level flag, not what reaps the doc — a revoked
     # token still disappears naturally once it would have expired anyway).
-    await oauth_codes_col.create_index("expires_at", expireAfterSeconds=0)
-    await oauth_tokens_col.create_index("expires_at", expireAfterSeconds=0)
+    await _ensure_index(oauth_codes_col, "expires_at", expireAfterSeconds=0)
+    await _ensure_index(oauth_tokens_col, "expires_at", expireAfterSeconds=0)
     # GET /oauth/connections' per-user, per-client rollup.
-    await oauth_tokens_col.create_index([("uid", 1), ("client_id", 1)])
+    await _ensure_index(oauth_tokens_col, [("uid", 1), ("client_id", 1)])
     # Revocation cascades ("the family") and the code-reuse cascade walk
     # these two.
-    await oauth_tokens_col.create_index("pair_id")
-    await oauth_tokens_col.create_index("origin_code_hash")
+    await _ensure_index(oauth_tokens_col, "pair_id")
+    await _ensure_index(oauth_tokens_col, "origin_code_hash")
     # D5 in-app sign-up allow list (app/core/allowlist.py) — `key` is the
     # Gmail-dot-insensitive lookup every sign-in queries by, unique so a
     # re-invite is always an update, never a duplicate doc.
-    await allowed_signups_col.create_index("key", unique=True)
+    await _ensure_index(allowed_signups_col, "key", unique=True)
     # B5 Stripe billing — one customer doc per user, and the webhook
     # idempotency ledger keyed on Stripe's own event id.
-    await billing_customers_col.create_index("user_id", unique=True)
-    await billing_customers_col.create_index("stripe_customer_id", unique=True, sparse=True)
-    await billing_events_col.create_index("event_id", unique=True)
+    await _ensure_index(billing_customers_col, "user_id", unique=True)
+    await _ensure_index(billing_customers_col, "stripe_customer_id", unique=True, sparse=True)
+    await _ensure_index(billing_events_col, "event_id", unique=True)
+    # B20 admin broadcasts. One index on `created_at`, not two: a TTL
+    # index is still an ordinary ascending btree index on that field, so
+    # it already serves the /ops history list's `.sort("created_at", -1)`
+    # as well as the 365-day retention bound (long enough to investigate
+    # a mistake, not kept forever, see app/db/collections.py). A second,
+    # unnamed plain index on the SAME key used to sit here too — Mongo
+    # rejects that as IndexOptionsConflict (two indexes can't share a key
+    # pattern under different names/options), which took the API down at
+    # the first deploy of this collection (see B20 incident notes). Do
+    # not add a second index on this key again.
+    await _ensure_index(broadcasts_col,
+        "created_at", expireAfterSeconds=365 * 24 * 3600, name="broadcast_ttl"
+    )
+    # Per-recipient receipts: GET /offers reads unread ones for one user,
+    # and app.services.broadcast.send_broadcast relies on `_id`'s own
+    # automatic uniqueness ("{broadcast_id}:{user_id}") for its
+    # per-recipient idempotency guard, so no extra unique index is needed
+    # for that. Same TTL bound as broadcasts_col above.
+    await _ensure_index(broadcast_receipts_col, [("user_id", 1), ("read_at", 1)])
+    await _ensure_index(broadcast_receipts_col,
+        "sent_at", expireAfterSeconds=365 * 24 * 3600, name="broadcast_receipts_ttl"
+    )
     # B18: daily Safe-to-Spend history snapshot — one doc per (user, day),
     # so "what changed and why" about the headline figure is answerable
     # after the fact. TTL mirrors mcp_calls_col's F14 bound (see
     # SAFE_TO_SPEND_HISTORY_TTL_DAYS's own comment in app/core/config.py).
-    await safe_to_spend_history_col.create_index(
+    await _ensure_index(safe_to_spend_history_col,
         [("user_id", 1), ("date", 1)], unique=True, name="safe_to_spend_history_user_date"
     )
-    await safe_to_spend_history_col.create_index(
+    await _ensure_index(safe_to_spend_history_col,
         "computed_at", expireAfterSeconds=SAFE_TO_SPEND_HISTORY_TTL_DAYS * 24 * 3600,
         name="safe_to_spend_history_ttl",
     )
