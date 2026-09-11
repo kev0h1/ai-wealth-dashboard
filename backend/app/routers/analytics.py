@@ -4046,6 +4046,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "next_payday":         next_payday.isoformat(),
         "days_until_payday":   days_until_payday,
         "bills_total":         bills_total,
+        # B18: the bill-list IDENTITY behind bills_total (name/amount/
+        # days_away only, no transaction detail) — sums to bills_total
+        # exactly. Exists so app.services.safe_to_spend_history's daily
+        # snapshot can record which bills made up the figure, not just the
+        # total, without a second independent computation that could drift
+        # from this one. Not currently read by the frontend; safe to add
+        # (additive, same pattern as CashflowData's other optional fields).
+        "window_bills":        window_bills,
         "pooled_transfers_excluded": pooled_transfers_excluded,
         "income_before_payday": income_before,
         "buffer":              buffer,

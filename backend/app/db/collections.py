@@ -346,3 +346,36 @@ oauth_codes_col        = db["oauth_codes"]
 # token hash this one replaced, or None for a token minted straight from
 # the code exchange)}.
 oauth_tokens_col       = db["oauth_tokens"]
+
+# B18: one daily Safe-to-Spend snapshot per user, so "what changed and why"
+# about the headline figure is answerable after the fact instead of only in
+# the instant a request is served. NOT `needle_history_col` — that
+# collection already has a live, incompatible schema (one doc per CLOSED
+# PAY PERIOD, keyed `f"{uid}:{period_end}"`, for the month-close reward
+# narrative in app/services/needle.py) and non-zero real data; reusing it
+# for a daily, mid-period, different-shape snapshot would collide with that
+# feature's own readers (app/services/cycle_story.py,
+# app/routers/companion.py, app/routers/cards.py,
+# app/services/account_cascade.py's deletion sweep) instead of adding a
+# clean new read for this one.
+#
+# Keyed `f"{user_id}:{date}"` (one upsert per user per calendar day — a
+# worker retry or a second run the same day overwrites, never duplicates).
+# {_id, user_id, date (YYYY-MM-DD), computed_at (UTC datetime — the TTL
+# index field, app/main.py's _create_indexes, SAFE_TO_SPEND_HISTORY_TTL_DAYS
+# = 90, mirroring mcp_calls_col's F14 bound: enough history for a "what
+# changed since last week/last month" read, small enough per-user
+# (≤90 docs, each a handful of floats and a short bill list) to need no
+# separate size cap), next_payday, days_until_payday, safe_to_spend,
+# safe_to_spend_cash, state, spendable_now, bills_total,
+# income_before_payday, lowest_projected_balance, buffer,
+# commitments_reserved, allocations_reserved, card_growth_total,
+# card_growth_reserved, bills: [{name, amount, days_away}, ...] (the
+# window's bill-list IDENTITY, not full transaction detail, so a future
+# diff can name which bill appeared/disappeared, not just that the total
+# moved)}. Written by app.workers.sync_worker.task_safe_to_spend_snapshot,
+# a daily cron job (see WorkerSettings.cron_jobs below), one doc per user
+# who has a cashflow cache to compute from. Read path (a diff service +
+# Penny/MCP tool + Home-card surfacing) is a follow-up — see B18's backlog
+# note for what that still needs.
+safe_to_spend_history_col = db["safe_to_spend_history"]
