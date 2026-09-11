@@ -293,7 +293,9 @@ def _pack_covers_month(pack: dict, ym: str) -> bool:
     return expires_at.strftime("%Y-%m") >= ym
 
 
-async def _settle_packs(email: str, now: datetime, *, col, tier_limit_key: str, usage_fn) -> list[dict]:
+async def _settle_packs(
+    email: str, now: datetime, *, col, tier_limit_key: str, usage_fn, persist: bool = True,
+) -> list[dict]:
     """Shared implementation behind `settle_topups` (Penny message packs,
     B11) and `settle_mcp_packs` (MCP connector call packs, F9) — the two
     only differ in which collection holds the pack docs, which
@@ -308,12 +310,23 @@ async def _settle_packs(email: str, now: datetime, *, col, tier_limit_key: str, 
     doc's own `settled_months` list, so re-running this for a month already
     settled is a no-op check with no DB write.
 
+    `persist=False` (B23) runs the exact same computation — the returned
+    packs reflect what settlement WOULD produce, so a caller reading
+    `remaining`/`settled_months` off the result sees the truthful,
+    as-if-settled numbers — but skips every `col.update_one` call, so no
+    document is touched. This is for read-only callers (B20's broadcast
+    audience preview, which must never mutate a candidate's pack records
+    just by evaluating whether they match a filter) that need the correct
+    number without performing the settlement write; the write is left for
+    whichever caller next reads this with `persist=True` (default), e.g.
+    the user's own next `penny_allowance`/`mcp_allowance` check.
+
     The current month is never settled here — its usage is still moving,
     so the caller (`penny_allowance`/`mcp_allowance`) reads it live (this
     month's overflow is simply tier_limit vs used, no pack draw-down
     needed against it beyond the ordinary `limit = tier_limit + pack
-    remaining` sum). Returns the user's full (possibly just-mutated) list
-    of pack docs so the caller doesn't have to re-query."""
+    remaining` sum). Returns the user's full (possibly just-mutated, if
+    `persist`) list of pack docs so the caller doesn't have to re-query."""
     packs = [doc async for doc in col.find({"user_id": email})]
     if not packs:
         return packs
@@ -349,29 +362,32 @@ async def _settle_packs(email: str, now: datetime, *, col, tier_limit_key: str, 
             settled_months = list(p.get("settled_months") or []) + [ym]
             p["remaining"] = new_remaining
             p["settled_months"] = settled_months
-            await col.update_one(
-                {"_id": p["_id"]},
-                {"$set": {"remaining": new_remaining, "settled_months": settled_months}},
-            )
+            if persist:
+                await col.update_one(
+                    {"_id": p["_id"]},
+                    {"$set": {"remaining": new_remaining, "settled_months": settled_months}},
+                )
 
         for p in not_covering:
             settled_months = list(p.get("settled_months") or []) + [ym]
             p["settled_months"] = settled_months
-            await col.update_one(
-                {"_id": p["_id"]}, {"$set": {"settled_months": settled_months}},
-            )
+            if persist:
+                await col.update_one(
+                    {"_id": p["_id"]}, {"$set": {"settled_months": settled_months}},
+                )
 
         ym = _ym_after(ym)
 
     return packs
 
 
-async def settle_topups(email: str, now: datetime) -> list[dict]:
+async def settle_topups(email: str, now: datetime, *, persist: bool = True) -> list[dict]:
     """Thin wrapper around `_settle_packs` for Penny message top-up packs
     (`penny_topups_col`, B11) — kept as its own name/signature so existing
     callers and tests are unaffected by the F9 refactor. See
-    `_settle_packs` for the shared algorithm and `penny_allowance` for how
-    the result is folded into this month's limit."""
+    `_settle_packs` for the shared algorithm (including `persist=False`,
+    B23) and `penny_allowance` for how the result is folded into this
+    month's limit."""
     from app.core.llm import monthly_usage
     from app.db.collections import penny_topups_col
 
@@ -382,6 +398,7 @@ async def settle_topups(email: str, now: datetime) -> list[dict]:
     return await _settle_packs(
         email, now, col=penny_topups_col,
         tier_limit_key="penny_messages_per_month", usage_fn=_penny_usage,
+        persist=persist,
     )
 
 
@@ -399,13 +416,13 @@ async def _mcp_call_count(email: str, ym: str) -> int:
     return int(doc["count"]) if doc else 0
 
 
-async def settle_mcp_packs(email: str, now: datetime) -> list[dict]:
+async def settle_mcp_packs(email: str, now: datetime, *, persist: bool = True) -> list[dict]:
     """Thin wrapper around `_settle_packs` for MCP connector call packs
     (`mcp_call_packs_col`, F9). Usage is read via `_mcp_call_count` (F14:
     the durable per-month counter, not `mcp_calls_col` row counts) rather
     than through `app.core.llm.monthly_usage`, which only knows about LLM
     pipelines. See `mcp_allowance` for how the result is folded into this
-    month's limit."""
+    month's limit, and `_settle_packs` for `persist=False` (B23)."""
     from app.db.collections import mcp_call_packs_col
 
     async def _mcp_usage(email: str, ym: str) -> int:
@@ -414,10 +431,11 @@ async def settle_mcp_packs(email: str, now: datetime) -> list[dict]:
     return await _settle_packs(
         email, now, col=mcp_call_packs_col,
         tier_limit_key="mcp_tool_calls_per_month", usage_fn=_mcp_usage,
+        persist=persist,
     )
 
 
-async def penny_allowance(email: str) -> dict:
+async def penny_allowance(email: str, *, persist: bool = True) -> dict:
     """This calendar month's Penny message allowance for `email`: the
     user's tier limit (`penny_messages_per_month`, None = unlimited) plus
     the total `remaining` balance of every active (unexpired, unsettled
@@ -443,7 +461,16 @@ async def penny_allowance(email: str) -> dict:
     imported lazily inside the function, matching this module's own
     `get_subscription`/`check_connection_limit` convention above, so a
     test can monkeypatch either module's attribute and have it picked up
-    here without a fresh top-level import cycle."""
+    here without a fresh top-level import cycle.
+
+    `persist=False` (B23) computes the exact same numbers — including
+    what past-month pack settlement WOULD produce — but never writes that
+    settlement to `penny_topups_col`. Every ordinary caller (GET
+    /subscription, can_i.py, penny_chips.py) keeps the default
+    `persist=True` and performs the write as before; only B20's broadcast
+    audience "penny_cap" filter reads with `persist=False`, since a
+    preview must never mutate a candidate user's pack records just by
+    evaluating whether they match."""
     from app.core.llm import monthly_usage
 
     sub = await get_subscription(email)
@@ -452,7 +479,7 @@ async def penny_allowance(email: str) -> dict:
     now = datetime.now(timezone.utc)
     ym = now.strftime("%Y-%m")
 
-    packs = await settle_topups(email, now)
+    packs = await settle_topups(email, now, persist=persist)
 
     active_packs = [
         p for p in packs
@@ -487,7 +514,7 @@ async def penny_allowance(email: str) -> dict:
     }
 
 
-async def mcp_allowance(email: str) -> dict:
+async def mcp_allowance(email: str, *, persist: bool = True) -> dict:
     """This calendar month's MCP connector call allowance for `email` — the
     F9 twin of `penny_allowance` above, sharing `_settle_packs` via
     `settle_mcp_packs`. Only Connect and Max have `mcp_tool_calls_per_month`
@@ -505,14 +532,18 @@ async def mcp_allowance(email: str) -> dict:
     still explain an unused pack), "pack_expires_soonest" (ISO date of the
     soonest-expiring ACTIVE pack, or None), "packs_bought_this_month"
     (count of packs with this calendar month as their purchase month, any
-    source)}`."""
+    source)}`.
+
+    `persist=False` (B23) — same meaning as `penny_allowance`'s own
+    parameter: correct, as-if-settled numbers, no write to
+    `mcp_call_packs_col`."""
     sub = await get_subscription(email)
     tier_limit = sub.limit("mcp_tool_calls_per_month")
 
     now = datetime.now(timezone.utc)
     ym = now.strftime("%Y-%m")
 
-    packs = await settle_mcp_packs(email, now)
+    packs = await settle_mcp_packs(email, now, persist=persist)
 
     active_packs = [
         p for p in packs

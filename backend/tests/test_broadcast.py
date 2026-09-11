@@ -125,7 +125,15 @@ async def _fake_get_subscription(email):
     return type("Sub", (), {"tier_name": TIERS.get(email, "max")})()
 
 
-async def _fake_penny_allowance(email):
+_PENNY_ALLOWANCE_CALLS: list[tuple[str, bool]] = []
+
+
+async def _fake_penny_allowance(email, *, persist=True):
+    # B23: resolve_audience now calls penny_allowance(uid, persist=False)
+    # for the "state" filter, so this fake must accept that keyword the
+    # same way the real function does, and records it so a test can assert
+    # the audience-preview path never asks for persist=True.
+    _PENNY_ALLOWANCE_CALLS.append((email, persist))
     return {"remaining": PENNY_REMAINING.get(email)}
 
 
@@ -146,6 +154,7 @@ class _Push:
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     monkeypatch.setattr(broadcast_router, "PRIMARY_EMAIL", "kevin.maingi12@gmail.com")
+    _PENNY_ALLOWANCE_CALLS.clear()
 
     user_profiles = FakeCollection([{"_id": u} for u in USERS])
     preferences = FakeCollection([{"_id": u, "user_id": u} for u in USERS])
@@ -166,7 +175,7 @@ def _env(monkeypatch):
     push = _Push()
     monkeypatch.setattr(broadcast, "send_push_to_user", push)
 
-    return {"broadcasts": broadcasts, "receipts": receipts, "push": push}
+    return {"broadcasts": broadcasts, "receipts": receipts, "push": push, "penny_allowance_calls": _PENNY_ALLOWANCE_CALLS}
 
 
 def run(coro):
@@ -245,6 +254,18 @@ def test_tier_filter(_env):
 def test_state_penny_cap_filter(_env):
     ids = run(broadcast.resolve_audience({"type": "state", "state": "penny_cap"}))
     assert set(ids) == {"bob@example.com"}
+
+
+def test_state_filter_never_asks_penny_allowance_to_persist(_env):
+    """B23: evaluating the 'penny_cap' state filter must never trigger
+    penny_allowance's settlement WRITE. resolve_audience is required to
+    call penny_allowance(uid, persist=False) for every candidate; this
+    asserts the call contract directly rather than only inferring it from
+    the absence of an exception."""
+    run(broadcast.resolve_audience({"type": "state", "state": "penny_cap"}))
+    calls = _env["penny_allowance_calls"]
+    assert calls, "expected penny_allowance to have been called at all"
+    assert all(persist is False for _email, persist in calls), calls
 
 
 def test_unknown_audience_type_rejected(_env):
