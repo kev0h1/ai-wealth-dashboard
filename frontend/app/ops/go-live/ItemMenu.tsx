@@ -10,7 +10,7 @@ import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { PRIORITY_LABEL, PRIORITY_ORDER, type GoLiveItem, type GoLivePriority } from "@/lib/goLive";
 
-type Mode = "menu" | "block" | "reject" | "note" | "unblocks";
+type Mode = "menu" | "block" | "reject" | "approve" | "note" | "unblocks";
 
 export function ItemMenu({
   item,
@@ -19,6 +19,7 @@ export function ItemMenu({
   onMoveToTodo,
   onBlock,
   onReject,
+  onApprove,
   onNote,
   onPriority,
   onUnblocks,
@@ -29,6 +30,7 @@ export function ItemMenu({
   onMoveToTodo: () => void;
   onBlock: (reason: string) => void;
   onReject: (reason: string) => void;
+  onApprove: (choice: string) => void;
   onNote: (text: string) => void;
   onPriority: (priority: GoLivePriority) => void;
   onUnblocks: (questions: string[]) => void;
@@ -102,6 +104,15 @@ export function ItemMenu({
               Reject
             </button>
           )}
+          {item.state === "uat" && (
+            <button
+              type="button"
+              onClick={() => setMode("approve")}
+              className="flex min-h-9 w-full items-center rounded-lg px-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/5"
+            >
+              Approve
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setMode("note")}
@@ -145,10 +156,16 @@ export function ItemMenu({
         </div>
       )}
 
-      {open && (mode === "block" || mode === "reject" || mode === "note") && (
+      {open && (mode === "block" || mode === "reject" || mode === "approve" || mode === "note") && (
         <div className="absolute right-0 top-10 z-10 w-64 rounded-xl border border-slate-200 bg-white p-2.5 shadow-lg dark:border-white/10 dark:bg-slate-800">
           <label className="mb-1.5 block text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-            {mode === "block" ? "Reason for blocking" : mode === "reject" ? "Reason for rejecting" : "Note"}
+            {mode === "block"
+              ? "Reason for blocking"
+              : mode === "reject"
+              ? "Reason for rejecting"
+              : mode === "approve"
+              ? "Which variant"
+              : "Note"}
           </label>
           <textarea
             autoFocus
@@ -171,6 +188,7 @@ export function ItemMenu({
               onClick={() => {
                 if (mode === "block") onBlock(draft.trim());
                 else if (mode === "reject") onReject(draft.trim());
+                else if (mode === "approve") onApprove(draft.trim());
                 else onNote(draft.trim());
                 closeAll();
               }}

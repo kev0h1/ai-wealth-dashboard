@@ -13,11 +13,13 @@ Model on a TODO.md item line:
       - note (2026-09-06, kevin): a note about A1.
 
 `[state: ...]` is one of `in-progress`, `blocked: <reason>`,
-`review: <branch>`, or `rejected: <reason>` (see docs/ops/BACKLOG.md
-"Branch per item" — a session finishing work on a worktree branch sends
-the item to review with the branch name attached, and
-`scripts/integrate.py` either merges it to `done` or bounces it back to
-`blocked` with the conflict/failure reason); absent means to do. A
+`review: <branch>`, `rejected: <reason>`, or `uat: <link>` (see
+docs/ops/BACKLOG.md "Branch per item" — a session finishing work on a
+worktree branch sends the item to review with the branch name attached,
+and `scripts/integrate.py` either merges it to `done`, to `uat` (a
+design round awaiting Kevin's choice on a real, rebuilt UAT page — see
+H31), or bounces it back to `blocked` with the conflict/failure reason);
+absent means to do. A
 reviewer who finds a defect in an item sitting in `review` marks it
 `rejected` instead of leaving it in `review` — a `review` item is treated
 as consent to merge by any integrate pass, including one from a
@@ -28,7 +30,21 @@ refused) in a separate `[branch: <name>]` tag, since the `[state:
 rejected: ...]` slot is already carrying the reason; `scripts/integrate.py`
 never selects a `rejected` item as a merge candidate. Moving a rejected
 item back to `todo` or `in-progress` clears both the rejection reason and
-the retained branch. The checkbox carries done/not-done, independent of
+the retained branch. `uat` is the analogous state for a design round: a
+branch whose diff is nothing but new preview variants under
+`frontend/app/design/` (flagged explicitly via `scripts/session.sh finish
+<ID> --uat-review`, or caught by a backstop heuristic in
+`scripts/integrate.py` when the merged diff touches only that tree) still
+gets merged and rebuilds UAT like any other item, but lands in `uat`
+instead of `done`, carrying a preview link in the `[state: uat: <link>]`
+slot and (like `rejected`) retaining the branch it came from in a
+separate `[branch: <name>]` tag. `uat`, like `rejected`, is never picked
+up by `scripts/integrate.py`'s own candidate selection — landing there is
+the whole point, so it can never be merged a second time. `approve <id>
+"<choice>"` records which variant Kevin picked as a dated note and moves
+the item back to `in-progress` with its owner unchanged, so the same
+agent implements the winner on a fresh branch. See H31 and
+docs/ops/BACKLOG.md. The checkbox carries done/not-done, independent of
 the state tag — marking an item done clears any state tag. A done item
 gets a trailing `(done 2026-09-06, abc1234)` marker (commit hash optional,
 and for an integrated item is the merge commit on main). Notes are
@@ -52,6 +68,7 @@ import logging
 import os
 import re
 import subprocess
+import urllib.parse
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
@@ -98,12 +115,59 @@ COMPLIANCE_PATH = _compliance_path()
 GIT_AUTHOR = "Sorted Ops <ops@auriqltd.co.uk>"
 GIT_TIMEOUT = 15
 
-ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected")
+ITEM_STATES = ("todo", "in-progress", "blocked", "review", "rejected", "uat")
 QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
 REASON_CAP = 200
+
+# H31: the only host a `uat` preview link is ever allowed to point at.
+# Kevin opens these links from his phone, not this VPS's loopback
+# interface — a 127.0.0.1/localhost link (what a dev server prints) would
+# be dead on arrival for him, which is exactly the B19 failure mode this
+# state exists to fix (a preview link that served main's stale page).
+# See normalise_preview_link() below.
+PUBLIC_UAT_HOST = "uat.wealth.auriqltd.co.uk"
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "0.0.0.0", "::1"}
+
+
+def normalise_preview_link(raw: Optional[str]) -> str:
+    """Validate/normalise a `uat` preview link so a loopback URL can never
+    be stored on the board (see PUBLIC_UAT_HOST above). A loopback host
+    (with or without a port) is silently rewritten onto the public UAT
+    host, keeping the path and query — this is what lets
+    `scripts/integrate.py` build a link without knowing or caring what
+    host it happens to be running against. Anything else must already BE
+    the public UAT host; any other domain raises, since a stray link to
+    some other site is far more likely a mistake (or a copy-paste from a
+    local dev session) than a deliberate choice. Raises BacklogError on
+    anything that isn't a parseable absolute URL at all."""
+    if not raw or not raw.strip():
+        raise BacklogError("a preview link is required to set state to uat")
+    # A URL never legitimately contains whitespace or the `[`/`]` that
+    # would corrupt the `[state: uat: <link>]` tag (see one_line_reason
+    # above for the same discipline on blocked/rejected reasons).
+    collapsed = re.sub(r"\s+", "", raw.strip()).replace("[", "").replace("]", "")
+    if not collapsed:
+        raise BacklogError("a preview link is required to set state to uat")
+    candidate = collapsed if "://" in collapsed else f"https://{collapsed}"
+    try:
+        parsed = urllib.parse.urlsplit(candidate)
+    except ValueError:
+        raise BacklogError(f"not a valid preview link: {raw!r}") from None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise BacklogError(f"not a valid preview link: {raw!r}")
+    if host in _LOOPBACK_HOSTS:
+        rebuilt = parsed._replace(scheme="https", netloc=PUBLIC_UAT_HOST)
+        return urllib.parse.urlunsplit(rebuilt)
+    if host != PUBLIC_UAT_HOST:
+        raise BacklogError(
+            f"preview link must be on {PUBLIC_UAT_HOST} (got {host!r}), not some other host"
+        )
+    rebuilt = parsed._replace(scheme="https")
+    return urllib.parse.urlunsplit(rebuilt)
 
 
 def one_line_reason(text: Optional[str], cap: int = REASON_CAP) -> str:
@@ -155,14 +219,20 @@ ITEM_RE = re.compile(
     r"(?P<tail>.*)$"
 )
 OWNER_RE = re.compile(r"\[owner:\s*(kevin|claude|codex)\]")
-STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected)(?::\s*([^\]]*))?\]")
+STATE_RE = re.compile(r"\[state:\s*(in-progress|blocked|review|rejected|uat)(?::\s*([^\]]*))?\]")
 PRIORITY_RE = re.compile(r"\[priority:\s*(p1|p2|p3)\]")
 UNBLOCKS_RE = re.compile(r"\[unblocks:\s*([^\]]*)\]")
-# A rejected item's branch is stored separately from `[state: rejected:
-# <reason>]` (that slot already carries the reason) so the reviewer can
-# still see which branch was refused. Not used by any other state today —
-# `review` keeps its branch inline as `[state: review: <branch>]`.
+# A rejected (or uat) item's branch is stored separately from `[state:
+# rejected: <reason>]` / `[state: uat: <link>]` (those slots already carry
+# a reason or a link) so it's still visible which branch produced this —
+# `review` keeps its branch inline as `[state: review: <branch>]` instead.
 BRANCH_RE = re.compile(r"\[branch:\s*([^\]]*)\]")
+# H31: set by `scripts/session.sh finish <ID> --uat-review` while an item
+# sits in `review`, telling `scripts/integrate.py` to land the merge in
+# `uat` instead of `done` once it's clean (the same job the backstop
+# heuristic over the merged diff's paths does when this marker is
+# missing). Presence-only, no value, so it's not part of STATE_RE.
+UAT_REVIEW_RE = re.compile(r"\[uat-review\]")
 DONE_SUFFIX_RE = re.compile(r"\(done\s+(\d{4}-\d{2}-\d{2})(?:,\s*([^)]+))?\)\s*$")
 NOTE_RE = re.compile(r"^  - note \((\d{4}-\d{2}-\d{2}), (kevin|claude|codex)\): (.*)$")
 
@@ -273,16 +343,18 @@ class BacklogItem:
     text: str
     owner: Optional[str]
     done: bool
-    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" (meaningless once done)
+    state: str  # "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" (meaningless once done)
     reason: Optional[str]
     done_at: Optional[str]
     commit: Optional[str]
     line_no: int
     raw_line: str
     notes: list[BacklogNote] = field(default_factory=list)
-    branch: Optional[str] = None  # set when state == "review" or "rejected"
+    branch: Optional[str] = None  # set when state == "review", "rejected" or "uat"
     priority: str = DEFAULT_PRIORITY  # "p1" | "p2" | "p3", defaults to p3 when absent
     unblocks: list[str] = field(default_factory=list)  # question ids this item unblocks
+    link: Optional[str] = None  # preview link, set when state == "uat" (see H31)
+    uat_review: bool = False  # set via `[uat-review]` while state == "review" (see H31)
 
     def to_dict(self) -> dict:
         state = "done" if self.done else self.state
@@ -294,7 +366,9 @@ class BacklogItem:
             "owner": self.owner,
             "state": state,
             "reason": self.reason if state in ("blocked", "rejected") else None,
-            "branch": self.branch if state in ("review", "rejected") else None,
+            "branch": self.branch if state in ("review", "rejected", "uat") else None,
+            "link": self.link if state == "uat" else None,
+            "uat_review": self.uat_review if state == "review" else False,
             "done_at": self.done_at,
             "commit": self.commit,
             "notes": [n.to_dict() for n in self.notes],
@@ -333,8 +407,8 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         unblocks = _parse_unblocks(unblocks_m.group(1))
         tail = UNBLOCKS_RE.sub("", tail, count=1)
 
-    # The standalone `[branch: ...]` tag (used by `rejected` to retain the
-    # branch it was rejected on) is parsed before STATE_RE below so a
+    # The standalone `[branch: ...]` tag (used by `rejected`/`uat` to retain
+    # the branch that produced them) is parsed before STATE_RE below so a
     # `review` item's inline branch (which STATE_RE captures directly)
     # always wins if somehow both are present.
     branch_tag: Optional[str] = None
@@ -343,8 +417,15 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         branch_tag = branch_m.group(1).strip() or None
         tail = BRANCH_RE.sub("", tail, count=1)
 
+    uat_review = False
+    uat_review_m = UAT_REVIEW_RE.search(tail)
+    if uat_review_m:
+        uat_review = True
+        tail = UAT_REVIEW_RE.sub("", tail, count=1)
+
     state = "todo"
     reason: Optional[str] = None
+    link: Optional[str] = None
     branch: Optional[str] = branch_tag
     state_m = STATE_RE.search(tail)
     if state_m:
@@ -354,6 +435,8 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
             reason = detail
         elif state == "review":
             branch = detail
+        elif state == "uat":
+            link = detail
         tail = STATE_RE.sub("", tail, count=1)
 
     text = re.sub(r"\s{2,}", " ", tail).strip()
@@ -371,9 +454,11 @@ def _parse_item_line(match: "re.Match[str]", section: str, line_no: int, raw_lin
         commit=commit if done else None,
         line_no=line_no,
         raw_line=raw_line,
-        branch=branch if state in ("review", "rejected") else None,
+        branch=branch if state in ("review", "rejected", "uat") else None,
         priority=priority,
         unblocks=unblocks,
+        link=link if state == "uat" else None,
+        uat_review=uat_review if state == "review" else False,
     )
 
 
@@ -391,8 +476,14 @@ def _render_item_line(item: BacklogItem) -> str:
             segments.append(f"[state: blocked: {item.reason or ''}]")
         elif item.state == "review":
             segments.append(f"[state: review: {item.branch or ''}]")
+            if item.uat_review:
+                segments.append("[uat-review]")
         elif item.state == "rejected":
             segments.append(f"[state: rejected: {item.reason or ''}]")
+            if item.branch:
+                segments.append(f"[branch: {item.branch}]")
+        elif item.state == "uat":
+            segments.append(f"[state: uat: {item.link or ''}]")
             if item.branch:
                 segments.append(f"[branch: {item.branch}]")
         else:
@@ -482,7 +573,13 @@ class TodoDoc:
         return item
 
     def set_state(
-        self, item_id: str, state: str, reason: Optional[str] = None, branch: Optional[str] = None
+        self,
+        item_id: str,
+        state: str,
+        reason: Optional[str] = None,
+        branch: Optional[str] = None,
+        link: Optional[str] = None,
+        uat_review: bool = False,
     ) -> BacklogItem:
         if state not in ITEM_STATES:
             raise BacklogError(f"invalid state: {state!r} (must be one of {ITEM_STATES})")
@@ -490,24 +587,45 @@ class TodoDoc:
             raise BacklogError("branch is required to set state to review")
         if state == "rejected" and not reason:
             raise BacklogError("reason is required to set state to rejected")
+        if state == "uat" and not link:
+            raise BacklogError("link is required to set state to uat")
         # Sanitise before storing so a raw multi-line reason (e.g. command
         # output passed straight through from scripts/integrate.py) can
         # never corrupt the item's one-line `[state: ...]` tag — see
         # one_line_reason() above and H27.
         sanitised_reason = one_line_reason(reason) if reason else None
+        # Same defence in depth for a `uat` link (H31): validated/normalised
+        # here, at the lowest level, not just in the module-level set_uat()
+        # wrapper, so a caller that talks to TodoDoc directly can never
+        # write a loopback URL to disk either.
+        normalised_link = normalise_preview_link(link) if state == "uat" else None
         item = self.item(item_id)
         item.state = state
         item.reason = sanitised_reason if state in ("blocked", "rejected") else None
         if state == "review":
             item.branch = branch
+            item.link = None
+            item.uat_review = uat_review
         elif state == "rejected":
             # A rejection normally follows straight out of `review`, so
             # retain whatever branch the item already had (the branch it's
             # being rejected on) unless the caller explicitly passes a
             # different one; going to any other state below clears it.
             item.branch = branch or item.branch
+            item.link = None
+            item.uat_review = False
+        elif state == "uat":
+            # A design round landing in uat normally follows straight out
+            # of `review` too (see H31) — same "retain the branch unless
+            # told otherwise" rule as rejected above, so the branch that
+            # produced this preview stays visible.
+            item.branch = branch or item.branch
+            item.link = normalised_link
+            item.uat_review = False
         else:
             item.branch = None
+            item.link = None
+            item.uat_review = False
         self._rewrite(item)
         return item
 
@@ -774,6 +892,8 @@ def set_state(
     state: str,
     reason: Optional[str] = None,
     branch: Optional[str] = None,
+    link: Optional[str] = None,
+    uat_review: bool = False,
     actor: str = "claude",
     *,
     todo_path: Optional[Path] = None,
@@ -783,7 +903,7 @@ def set_state(
     resolved_root = repo_root or _repo_root()
     with _locked(resolved_root):
         doc = TodoDoc.load(resolved_path)
-        item = doc.set_state(item_id, state, reason=reason, branch=branch)
+        item = doc.set_state(item_id, state, reason=reason, branch=branch, link=link, uat_review=uat_review)
         doc.save(resolved_path)
     action = {
         "in-progress": "started",
@@ -791,6 +911,7 @@ def set_state(
         "todo": "reset to to-do",
         "review": f"sent to review ({branch})",
         "rejected": f"rejected ({reason})",
+        "uat": f"sent to uat ({item.link})",
     }[state]
     committed = _git_commit_and_push([resolved_path], f"backlog: {item_id} {action} by {actor}", resolved_root)
     return item.to_dict(), committed
@@ -800,6 +921,7 @@ def set_review(
     item_id: str,
     branch: str,
     actor: str = "claude",
+    uat_review: bool = False,
     *,
     todo_path: Optional[Path] = None,
     repo_root: Optional[Path] = None,
@@ -807,8 +929,68 @@ def set_review(
     """Convenience wrapper over `set_state(..., "review", branch=branch)` —
     what `scripts/session.sh finish` calls once tests are green and the
     branch is pushed, and what `scripts/integrate.py` reads back to find
-    the branches waiting to be merged into main."""
-    return set_state(item_id, "review", branch=branch, actor=actor, todo_path=todo_path, repo_root=repo_root)
+    the branches waiting to be merged into main. `uat_review=True` (passed
+    through from `scripts/session.sh finish <ID> --uat-review`) marks this
+    as a design round: `scripts/integrate.py` lands a clean merge in `uat`
+    instead of `done` when it sees the flag (see H31), same as its own
+    backstop heuristic does when the flag is missing but the merged diff
+    touches only `frontend/app/design/`."""
+    return set_state(
+        item_id, "review", branch=branch, uat_review=uat_review, actor=actor, todo_path=todo_path, repo_root=repo_root
+    )
+
+
+def set_uat(
+    item_id: str,
+    link: str,
+    actor: str = "claude",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Move `item_id` into `uat`: a design round has landed on a rebuilt
+    UAT and is waiting on Kevin's review, not on integrate's next pass
+    (`uat` is never selected as a merge candidate — see
+    `scripts/integrate.py` `_review_items()`, which only ever looks at
+    `review` state). `link` is validated/normalised by
+    `normalise_preview_link` so a loopback URL can never be stored; see
+    H31."""
+    return set_state(item_id, "uat", link=link, actor=actor, todo_path=todo_path, repo_root=repo_root)
+
+
+def set_approved(
+    item_id: str,
+    choice: str,
+    actor: str = "kevin",
+    *,
+    todo_path: Optional[Path] = None,
+    repo_root: Optional[Path] = None,
+) -> tuple[dict, bool]:
+    """Kevin's pick from a `uat` round: records `choice` as a dated note
+    (same date/actor/history shape as any other note) and moves the item
+    back to `in-progress` with its owner left UNCHANGED, so the same agent
+    that built the variants implements the winner on a fresh branch — this
+    deliberately never reassigns owner the way a plain `start` implicitly
+    would leave it. Raises if the item isn't currently in `uat` (there's
+    nothing to approve about a review or a todo item; use `review` /
+    `reject` / `start` for those). See H31."""
+    if not choice or not choice.strip():
+        raise BacklogError("a choice is required to approve a uat item")
+    resolved_path = todo_path or _todo_path()
+    resolved_root = repo_root or _repo_root()
+    choice_clean = choice.strip()
+    with _locked(resolved_root):
+        doc = TodoDoc.load(resolved_path)
+        item = doc.item(item_id)
+        if item.state != "uat":
+            raise BacklogError(f"{item_id} is not awaiting uat review (state: {item.state})")
+        doc.add_note(item_id, f"approved: {choice_clean}", actor)
+        item = doc.set_state(item_id, "in-progress")
+        doc.save(resolved_path)
+    committed = _git_commit_and_push(
+        [resolved_path], f"backlog: {item_id} approved ({choice_clean}) by {actor}", resolved_root
+    )
+    return item.to_dict(), committed
 
 
 def set_rejected(

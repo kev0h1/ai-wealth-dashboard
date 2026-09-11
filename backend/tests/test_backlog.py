@@ -1316,3 +1316,346 @@ def test_cli_show_unknown_item_errors(tmp_path):
     result = _cli_show(board_root, "H999")
     assert result.returncode == 1
     assert "not a known backlog item" in result.stderr
+
+
+# ---------------------------------------------------------------------
+# uat state (H31) — a design round lands here instead of `done` so Kevin
+# reviews it on a real, rebuilt UAT page. Mirrors the shape H25 established
+# for `rejected`: retains the branch in a separate [branch: ...] tag,
+# never a merge candidate, cleared when the item moves anywhere else.
+# ---------------------------------------------------------------------
+
+
+def test_normalise_preview_link_rejects_empty():
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link("")
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link(None)
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link("   ")
+
+
+def test_normalise_preview_link_normalises_loopback_hosts():
+    assert (
+        backlog.normalise_preview_link("http://127.0.0.1:3030/design/plan-picker")
+        == "https://uat.wealth.auriqltd.co.uk/design/plan-picker"
+    )
+    assert (
+        backlog.normalise_preview_link("http://localhost:3030/design")
+        == "https://uat.wealth.auriqltd.co.uk/design"
+    )
+    # Scheme-less input is treated as an absolute URL against https, not a
+    # path relative to something else.
+    assert backlog.normalise_preview_link("127.0.0.1/design") == "https://uat.wealth.auriqltd.co.uk/design"
+
+
+def test_normalise_preview_link_accepts_the_public_host_and_forces_https():
+    assert (
+        backlog.normalise_preview_link("http://uat.wealth.auriqltd.co.uk/design/plan-picker")
+        == "https://uat.wealth.auriqltd.co.uk/design/plan-picker"
+    )
+    assert (
+        backlog.normalise_preview_link("https://uat.wealth.auriqltd.co.uk/design")
+        == "https://uat.wealth.auriqltd.co.uk/design"
+    )
+
+
+def test_normalise_preview_link_rejects_any_other_host():
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link("https://evil.example.com/design")
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link("https://wealth.auriqltd.co.uk/design")  # close, but not the UAT subdomain
+
+
+def test_normalise_preview_link_rejects_not_a_url():
+    with pytest.raises(backlog.BacklogError):
+        backlog.normalise_preview_link("not a url at all, just text")
+
+
+def test_state_uat_requires_a_link():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    with pytest.raises(backlog.BacklogError):
+        doc.set_state("A1", "uat")
+
+
+def test_state_uat_round_trip_parses_and_renders_link_and_retains_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "uat", link="http://127.0.0.1:3030/design")
+
+    item = doc.items["A1"]
+    line = doc.lines[item.line_no]
+    assert "[state: uat: https://uat.wealth.auriqltd.co.uk/design]" in line
+    assert "[branch: feature-A1-first-item]" in line
+    assert item.state == "uat"
+    assert item.link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert item.branch == "feature-A1-first-item"
+    assert item.to_dict()["link"] == "https://uat.wealth.auriqltd.co.uk/design"
+    assert item.to_dict()["branch"] == "feature-A1-first-item"
+    assert item.to_dict()["state"] == "uat"
+
+    # A loopback link must never actually reach disk, only its normalised
+    # form — this is the core H31 safety property.
+    assert "127.0.0.1" not in line
+    assert "127.0.0.1" not in doc.text()
+
+    first_text = doc.text()
+    reparsed = backlog.TodoDoc.parse(first_text)
+    a1 = reparsed.items["A1"]
+    assert a1.state == "uat"
+    assert a1.link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert a1.branch == "feature-A1-first-item"
+    # Idempotent re-serialisation, same guarantee every other state has.
+    assert reparsed.text() == first_text
+
+
+def test_state_uat_without_prior_review_can_take_an_explicit_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "uat", link="https://uat.wealth.auriqltd.co.uk/design", branch="feature-A1-alt")
+    assert doc.items["A1"].branch == "feature-A1-alt"
+
+
+def test_uat_then_moved_to_todo_clears_link_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "uat", link="https://uat.wealth.auriqltd.co.uk/design")
+    doc.set_state("A1", "todo")
+
+    item = doc.items["A1"]
+    assert item.state == "todo"
+    assert item.link is None
+    assert item.branch is None
+    line = doc.lines[item.line_no]
+    assert "[state:" not in line
+    assert "[branch:" not in line
+
+
+def test_mark_done_from_uat_clears_state_link_and_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    doc.set_state("A1", "uat", link="https://uat.wealth.auriqltd.co.uk/design")
+    doc.set_done("A1", True, commit="deadbee")
+
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[state:" not in line
+    assert "[branch:" not in line
+    assert doc.items["A1"].state == "todo"
+    d = doc.items["A1"].to_dict()
+    assert d["link"] is None
+    assert d["branch"] is None
+
+
+def test_uat_review_flag_round_trips_while_in_review_and_is_cleared_on_uat():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item", uat_review=True)
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[uat-review]" in line
+    assert doc.items["A1"].uat_review is True
+    assert doc.items["A1"].to_dict()["uat_review"] is True
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].uat_review is True
+    assert reparsed.text() == doc.text()
+
+    # Landing in uat consumes the flag; it is meaningless once merged.
+    doc.set_state("A1", "uat", link="https://uat.wealth.auriqltd.co.uk/design")
+    assert doc.items["A1"].uat_review is False
+    assert doc.items["A1"].to_dict()["uat_review"] is False
+    assert "[uat-review]" not in doc.lines[doc.items["A1"].line_no]
+
+
+def test_review_without_uat_review_flag_defaults_false():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "review", branch="feature-A1-first-item")
+    assert doc.items["A1"].uat_review is False
+    assert "[uat-review]" not in doc.lines[doc.items["A1"].line_no]
+
+
+def test_set_approved_records_choice_moves_to_in_progress_owner_unchanged():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    # A3 is owned by claude in the fixture.
+    doc.set_state("A3", "review", branch="feature-A3-third-item")
+    doc.set_state("A3", "uat", link="https://uat.wealth.auriqltd.co.uk/design")
+
+    item = doc.item("A3")
+    assert item.state == "uat"
+    doc.add_note("A3", "approved: Variant B, the weighted instrument", "kevin")
+    item = doc.set_state("A3", "in-progress")
+
+    assert item.state == "in-progress"
+    assert item.owner == "claude"  # unchanged, still the original owner
+    assert item.link is None
+    assert item.branch is None
+    notes = doc.items["A3"].notes
+    assert notes[-1].text == "approved: Variant B, the weighted instrument"
+    assert notes[-1].actor == "kevin"
+
+
+def test_public_set_uat_normalises_link_and_writes_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    mock_git.reset_mock()
+
+    item, committed = backlog.set_uat(
+        "A1", "http://127.0.0.1:3030/design", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "uat"
+    assert item["link"] == "https://uat.wealth.auriqltd.co.uk/design"
+    assert item["branch"] == "feature-A1-first-item"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: A1 sent to uat (https://uat.wealth.auriqltd.co.uk/design) by claude" in commit_call.args[0]
+
+
+def test_public_set_uat_rejects_a_non_public_host(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_uat(
+            "A1", "https://evil.example.com/design", actor="claude", todo_path=todo_path, repo_root=repo_root
+        )
+    # Nothing was written for this failed call.
+    reloaded = backlog.TodoDoc.load(todo_path)
+    assert reloaded.items["A1"].state == "todo"
+
+
+def test_public_set_approved_writes_note_and_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_uat(
+        "A1", "https://uat.wealth.auriqltd.co.uk/design", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    mock_git.reset_mock()
+
+    item, committed = backlog.set_approved(
+        "A1", "Variant B", actor="kevin", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "in-progress"
+    assert item["owner"] == "claude"  # A1's original owner in TODO_FIXTURE, unchanged
+    assert item["notes"][-1]["text"] == "approved: Variant B"
+    assert item["notes"][-1]["actor"] == "kevin"
+    commit_calls = [c.args[0] for c in mock_git.call_args_list if c.args[0][:2] == ["git", "commit"]]
+    assert any("backlog: A1 approved (Variant B) by kevin" in call for call in commit_calls)
+
+
+def test_public_set_approved_requires_item_to_be_in_uat(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    # A1 is plain todo in the fixture, never sent to uat.
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_approved("A1", "Variant B", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+
+def test_public_set_approved_requires_a_choice(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_uat(
+        "A1", "https://uat.wealth.auriqltd.co.uk/design", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    with pytest.raises(backlog.BacklogError):
+        backlog.set_approved("A1", "   ", actor="kevin", todo_path=todo_path, repo_root=repo_root)
+
+
+def test_list_output_shows_uat_link_and_branch(paths, mock_git):
+    todo_path, compliance_path = paths
+    repo_root = todo_path.parent
+    backlog.set_review("A1", "feature-A1-first-item", actor="claude", todo_path=todo_path, repo_root=repo_root)
+    backlog.set_uat(
+        "A1", "https://uat.wealth.auriqltd.co.uk/design", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    snapshot = backlog.load(todo_path=todo_path, compliance_path=compliance_path)
+    a1 = next(i for i in snapshot.items() if i["id"] == "A1")
+    assert a1["state"] == "uat"
+    assert a1["link"] == "https://uat.wealth.auriqltd.co.uk/design"
+    assert a1["branch"] == "feature-A1-first-item"
+
+
+def test_cli_uat_and_approve_round_trip(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+
+    review_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "review", "A1", "--branch", "feature-A1-first-item", "--uat-review"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert review_result.returncode == 0, review_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[uat-review]" in saved
+
+    uat_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "uat", "A1", "--link", "http://127.0.0.1:3030/design"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert uat_result.returncode == 0, uat_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: uat: https://uat.wealth.auriqltd.co.uk/design]" in saved
+    assert "127.0.0.1" not in saved
+    assert "[uat-review]" not in saved  # consumed on landing
+
+    list_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "list"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert list_result.returncode == 0, list_result.stderr
+    assert "uat" in list_result.stdout
+
+    approve_result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "approve", "A1", "Variant B, the weighted instrument"],
+        cwd=other_cwd, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert approve_result.returncode == 0, approve_result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: in-progress]" in saved
+    assert "[owner: claude]" in saved  # A1's owner, unchanged by approve
+    assert "approved: Variant B, the weighted instrument" in saved
+
+
+def test_cli_uat_without_link_errors(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "uat", "A1"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    # argparse itself rejects the missing required --link flag.
+    assert result.returncode != 0
+
+
+def test_cli_approve_on_non_uat_item_errors(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "approve", "A1", "Variant B"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 1
+    assert "not awaiting uat review" in result.stderr

@@ -16,6 +16,7 @@ import logging
 from datetime import datetime, timedelta
 from datetime import date as _date
 
+from app.core.config import PRIMARY_EMAIL
 from app.core.push import send_push_to_user, notify_new_transactions
 from app.db.collections import (
     preferences_col, savings_goals_col,
@@ -45,6 +46,13 @@ NOTIF_DEFAULTS = {
     # toggle exists yet; default on is deliberate (dead connections are
     # silent otherwise).
     "connection_health":        True,
+    # H31: a design round landed on a rebuilt UAT and is waiting on the
+    # owner's review. No UI toggle exists yet either; default on for the
+    # same reason as connection_health above, and this only ever reaches
+    # PRIMARY_EMAIL regardless (see notify_uat_ready below), never the
+    # broadcast every other notifier here implicitly allows by taking an
+    # arbitrary user_id.
+    "uat_review":                True,
     # B20: admin-composed offer broadcasts (app/services/broadcast.py). No
     # Settings UI toggle exists yet, same as connection_health above, but
     # the preference is fully live: PATCH /preferences already accepts
@@ -694,3 +702,34 @@ async def send_period_digest(user_id: str) -> None:
             )
     except Exception as _needle_push_exc:
         log.warning("needle push failed for %s: %s", user_id, _needle_push_exc)
+
+
+# ---------------------------------------------------------------------
+# H31: uat review — a design round landed on a rebuilt UAT and is waiting
+# on Kevin's choice. Called by scripts/integrate.py (not from
+# notify_after_sync's per-user sync loop above; this fires from a merge,
+# not a bank sync), so it takes the item and link directly rather than
+# discovering anything from transactions.
+# ---------------------------------------------------------------------
+
+
+async def notify_uat_ready(item_id: str, title: str, link: str) -> dict | None:
+    """Tell Kevin a design round landed in `uat` and is ready for his
+    review, through the same FCM/APNs/webpush path as every other push
+    (`send_push_to_user`), gated by his own notification preference like
+    any other notifier here (see NOTIF_DEFAULTS' "uat_review" key). Sent
+    only to PRIMARY_EMAIL, the account owner: `user_id` is the account
+    email everywhere in this codebase (see app.core.auth.current_user),
+    and `/ops/go-live` (where a `uat` item is reviewed) is owner-only end
+    to end (`backend/app/routers/ops.py` `_require_owner`), so this is
+    never a broadcast to every allow-listed tester the way some of the
+    checks above implicitly are by taking an arbitrary user_id. Returns
+    None if the preference is off (nothing sent), else the
+    send_push_to_user result dict, so a caller (scripts/integrate.py) can
+    log what happened without needing to know the delivery internals."""
+    if not await notif_pref(PRIMARY_EMAIL, "uat_review"):
+        return None
+    body = f"{title}. Preview: {link}" if title else f"Ready for your review. Preview: {link}"
+    if len(body) > 180:
+        body = body[:177] + "…"
+    return await send_push_to_user(PRIMARY_EMAIL, f"{item_id} landed on UAT", body, url=link)

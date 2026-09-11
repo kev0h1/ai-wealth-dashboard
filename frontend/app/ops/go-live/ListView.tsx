@@ -109,6 +109,7 @@ function ItemRow({
             onMoveToTodo={() => onAction({ action: "todo" })}
             onBlock={(reason) => onAction({ action: "block", reason })}
             onReject={(reason) => onAction({ action: "reject", reason })}
+            onApprove={(choice) => onAction({ action: "approve", choice })}
             onNote={(text) => onAction({ action: "note", text })}
             onPriority={(priority) => onAction({ action: "priority", priority })}
             onUnblocks={(questions) => onAction({ action: "unblocks", questions })}
@@ -189,13 +190,33 @@ export function ListView({
   // integrate pass (or Kevin skimming the board) could miss it entirely
   // (see H25 — a rejection that only lived in conversation got overtaken
   // by a concurrent integrate pass before it landed anywhere durable).
+  // UAT items get the same treatment (H31): a design round waiting on
+  // Kevin's choice must read the same way, pinned above the rest, not
+  // buried inside its section where it could sit unnoticed. UAT is pinned
+  // first (Kevin taps into a live preview, a lighter ask than a rejection)
+  // and Rejected right after it.
+  const uatItems = sections.flatMap((section) => section.items.filter((item) => item.state === "uat"));
   const rejectedItems = sections.flatMap((section) => section.items.filter((item) => item.state === "rejected"));
   const regularSections = sections
-    .map((section) => ({ ...section, items: section.items.filter((item) => item.state !== "rejected") }))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.state !== "rejected" && item.state !== "uat"),
+    }))
     .filter((section) => section.items.length > 0);
 
   return (
     <div className="space-y-3">
+      {uatItems.length > 0 && (
+        <SectionCard
+          key="uat"
+          heading="UAT, waiting on you"
+          items={uatItems}
+          defaultOpen
+          pendingIds={pendingIds}
+          saveNotes={saveNotes}
+          onAction={onAction}
+        />
+      )}
       {rejectedItems.length > 0 && (
         <SectionCard
           key="rejected"
@@ -212,7 +233,7 @@ export function ListView({
           key={section.section}
           heading={section.heading}
           items={section.items}
-          defaultOpen={idx === 0 && rejectedItems.length === 0}
+          defaultOpen={idx === 0 && uatItems.length === 0 && rejectedItems.length === 0}
           pendingIds={pendingIds}
           saveNotes={saveNotes}
           onAction={onAction}

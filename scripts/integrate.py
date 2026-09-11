@@ -42,8 +42,19 @@ pass, which merged the rejected branch anyway).
      failure output is logged at error level and recorded as a board note
      (up to ~1,500 characters); the `[state: blocked: ...]` tag itself only
      ever gets a single sanitised line, capped at 200 characters (see H27).
-  5. On success: `git push origin main`, mark the item done with the merge
-     commit, delete the remote branch, and remove the worktree (if any).
+  5. On success: `git push origin main`. If the item is a design round —
+     flagged explicitly via `scripts/session.sh finish <ID> --uat-review`
+     (recorded on the board as the item's `uat_review` flag) or, as a
+     backstop, if the merge's own diff touches only
+     `frontend/app/design/` — mark it `uat` with a preview link instead of
+     `done`, and push Kevin a notification through the existing FCM/APNs
+     path (`app.services.notifications.notify_uat_ready`). Otherwise mark
+     it done with the merge commit. Either way: delete the remote branch
+     and remove the worktree (if any) — see H31.
+
+An item already in `uat` is never a merge candidate either, for the same
+reason a `rejected` one isn't: `_review_items()` only ever selects items
+in state `review`.
 
 Never runs two passes concurrently (a lock file under the repo root gates
 that) and refuses outright unless the shared tree is on `main` and clean
@@ -171,6 +182,59 @@ def _changed_paths(sha_range: str) -> set[str]:
     if rc != 0:
         return set()
     return {line.strip() for line in out.splitlines() if line.strip()}
+
+
+# H31: a design round (new preview variants under frontend/app/design/ for
+# Kevin to pick from, nothing else) lands in `uat` instead of `done` so it
+# rebuilds UAT with a real, working preview and notifies Kevin, rather than
+# the old deadlock where AGENTS.md required a working preview link before
+# blocking, but the branch that would have produced it was still sitting
+# unmerged (see B19). This is decided two ways: explicitly, by
+# `scripts/session.sh finish <ID> --uat-review` (recorded on the board as
+# the item's `uat_review` flag while it sits in `review`), or, as a
+# backstop when that flag was forgotten, by DESIGN_ROUND_DIFF below over
+# the merge's own changed paths.
+_DESIGN_ROUND_PREFIX = "frontend/app/design/"
+
+
+def _is_design_round_diff(changed: set[str]) -> bool:
+    """True only when every changed path is under frontend/app/design/ — a
+    branch that touches so much as one file outside that tree (a
+    production component, a shared lib, a test) is never just a design
+    round by this heuristic, however small the rest of the diff is; see
+    AGENTS.md "Design work", which already forbids touching a production
+    component from one of these branches, so a diff confined to
+    frontend/app/design/ is never anything else. An empty diff (e.g. a
+    merge that only touched board metadata) does not count — there is
+    nothing to preview."""
+    if not changed:
+        return False
+    return all(p.startswith(_DESIGN_ROUND_PREFIX) for p in changed)
+
+
+def _design_round_preview_link() -> str:
+    """The link `scripts/integrate.py` stores on a `uat` item it lands
+    automatically: the public design-preview index, which lists every
+    registered preview directory (the `check:design-index` gate, run
+    below by `_run_frontend_checks`, guarantees every one this merge added
+    is registered there). Pointing at the index rather than guessing a
+    single slug is deliberate — a round can add more than one variant
+    directory, and the index is always correct regardless of how many."""
+    return f"https://{backlog.PUBLIC_UAT_HOST}/design"
+
+
+def _notify_uat_ready(item_id: str, title: str, link: str) -> None:
+    """Best-effort push to Kevin that `item_id` landed in uat, through the
+    existing FCM/APNs/webpush path in app.services.notifications (see
+    notify_uat_ready there for the preference gate and the owner-only
+    targeting). Never allowed to fail the integrate run — a push failure
+    here is logged and swallowed, same discipline as every other
+    non-critical step in this script."""
+    import asyncio
+
+    from app.services.notifications import notify_uat_ready
+
+    asyncio.run(notify_uat_ready(item_id, title, link))
 
 
 def _http_ok(url: str) -> bool:
@@ -433,10 +497,31 @@ def _integrate_one(item: dict) -> tuple[str, str]:
 
     merge_sha_rc, merge_sha_out = _sh(["git", "rev-parse", "HEAD"])
     merge_sha = merge_sha_out.strip() if merge_sha_rc == 0 else ""
-    try:
-        backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
-    except backlog.BacklogError as exc:
-        print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
+
+    # H31: a design round (flagged explicitly via `--uat-review`, or caught
+    # by the backstop heuristic when that flag was forgotten) lands in
+    # `uat` instead of `done` — the code is merged and UAT is rebuilt with
+    # it either way, the only difference is that this is not the finished
+    # implementation, just variants waiting on Kevin's choice.
+    is_design_round = bool(item.get("uat_review")) or _is_design_round_diff(changed)
+    if is_design_round:
+        preview_link = _design_round_preview_link()
+        try:
+            backlog.set_uat(item_id, preview_link, actor="claude")
+            landed_detail = f"landed in uat, preview {preview_link}"
+        except backlog.BacklogError as exc:
+            print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
+            landed_detail = "landed in uat, board write failed"
+        try:
+            _notify_uat_ready(item_id, title, preview_link)
+        except Exception as exc:  # noqa: BLE001 - a push failure must never fail the integrate run
+            print(f"warning: could not notify Kevin for {item_id}: {exc}", file=sys.stderr)
+    else:
+        try:
+            backlog.set_done(item_id, True, commit=merge_sha, actor="claude")
+        except backlog.BacklogError as exc:
+            print(f"warning: {item_id} merged but board write failed: {exc}", file=sys.stderr)
+        landed_detail = "done"
 
     _sh(["git", "push", "origin", "--delete", branch], timeout=30)
     worktree_dir = _find_worktree_for_branch(branch)
@@ -444,7 +529,7 @@ def _integrate_one(item: dict) -> tuple[str, str]:
         _sh(["git", "worktree", "remove", "--force", worktree_dir], timeout=30)
     _sh(["git", "branch", "-D", branch], timeout=15)
 
-    return "merged", f"{item_id}: merged {branch} as {merge_sha[:7] if merge_sha else '?'}"
+    return "merged", f"{item_id}: merged {branch} as {merge_sha[:7] if merge_sha else '?'} ({landed_detail})"
 
 
 def integrate_once(allow_branch: Optional[str] = None) -> int:

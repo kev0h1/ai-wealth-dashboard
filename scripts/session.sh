@@ -64,12 +64,25 @@ Usage:
       is whatever scripts/backlog.py add allocates, printed prominently by
       this command; use that id (not <ID>) for finish/abandon.
 
-  scripts/session.sh finish <ID>
+  scripts/session.sh finish <ID> [--uat-review]
       Run inside the worktree for <ID>: backend tests, frontend typecheck,
       then the design preview index check, then the legal content
       marker/renumbering check, then push the branch and mark the item
       "review" with that branch. Refuses if the worktree is dirty or any
       check fails.
+
+      --uat-review flags this branch as a design round (new preview
+      variants under frontend/app/design/<slug>/ for Kevin to choose
+      between, nothing else): scripts/integrate.py lands a clean merge of
+      it in the "uat" state instead of "done", so it rebuilds UAT and
+      notifies Kevin with a real, working preview link instead of the item
+      being blocked on a link nobody has built yet. Pass this whenever the
+      branch's only job is to show Kevin variants; a branch that also
+      folds an already-approved winner into production code is a normal
+      finish, not this. scripts/integrate.py also catches an unflagged
+      design round via a backstop heuristic (the merged diff touches only
+      frontend/app/design/), but flag it explicitly when you know, don't
+      rely on the backstop.
 
   scripts/session.sh abandon <ID>
       Delete the worktree and its branch, reset the item to to-do with a
@@ -290,6 +303,15 @@ cmd_start() {
 cmd_finish() {
   local id="${1:-}"
   [[ -n "$id" ]] || { usage; exit 1; }
+  shift || true
+
+  local uat_review=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --uat-review) uat_review="true"; shift ;;
+      *) err "unexpected argument: $1"; exit 1 ;;
+    esac
+  done
 
   local worktree_dir
   worktree_dir="$(find_worktree_for_id "$id")"
@@ -332,11 +354,17 @@ cmd_finish() {
   log "pushing $branch..."
   git -C "$worktree_dir" push -u origin "$branch"
 
-  log "marking $id in review on branch $branch..."
-  (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" review "$id" --branch "$branch")
-
-  echo
-  echo "$id is in review on branch $branch. The next integrate pass will merge it into main."
+  if [[ "$uat_review" == "true" ]]; then
+    log "marking $id in review on branch $branch (flagged --uat-review)..."
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" review "$id" --branch "$branch" --uat-review)
+    echo
+    echo "$id is in review on branch $branch, flagged as a design round. A clean integrate pass will land it in uat, not done, and notify Kevin with a preview link."
+  else
+    log "marking $id in review on branch $branch..."
+    (cd "$SHARED_TREE" && "$VENV_PY" "$BACKLOG_PY" review "$id" --branch "$branch")
+    echo
+    echo "$id is in review on branch $branch. The next integrate pass will merge it into main."
+  fi
 }
 
 cmd_abandon() {

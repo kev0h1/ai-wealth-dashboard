@@ -372,3 +372,219 @@ def test_block_swallows_backlog_error_from_set_state(monkeypatch, capsys):
     assert add_note_calls == []
     captured = capsys.readouterr()
     assert "could not write block reason for H99" in captured.err
+
+
+# ---------------------------------------------------------------------
+# H31 — a design round lands in `uat` instead of `done`: the backstop diff
+# heuristic, the review-candidate exclusion (uat is never picked up
+# again, same protection `rejected` already has), and _integrate_one's own
+# branch decision between set_uat and set_done.
+# ---------------------------------------------------------------------
+
+
+def test_is_design_round_diff_true_when_every_path_under_frontend_design():
+    changed = {
+        "frontend/app/design/plan-picker/page.tsx",
+        "frontend/app/design/plan-picker/VariantA.tsx",
+        "frontend/app/design/page.tsx",  # the index itself, still under the tree
+    }
+    assert integrate._is_design_round_diff(changed) is True
+
+
+def test_is_design_round_diff_false_when_a_production_component_is_also_touched():
+    changed = {
+        "frontend/app/design/plan-picker/page.tsx",
+        "frontend/app/components/HomePage.tsx",  # one file outside the tree is enough
+    }
+    assert integrate._is_design_round_diff(changed) is False
+
+
+def test_is_design_round_diff_false_for_backend_only_change():
+    assert integrate._is_design_round_diff({"backend/app/services/x.py"}) is False
+
+
+def test_is_design_round_diff_false_for_empty_diff():
+    assert integrate._is_design_round_diff(set()) is False
+
+
+def test_design_round_preview_link_is_on_the_public_uat_host():
+    link = integrate._design_round_preview_link()
+    assert link == "https://uat.wealth.auriqltd.co.uk/design"
+    assert link.startswith("https://" + integrate.backlog.PUBLIC_UAT_HOST)
+
+
+def test_notify_uat_ready_delegates_to_notifications_service_no_real_transport(monkeypatch):
+    """Proves the notification path without ever touching a real
+    APNs/FCM/webpush transport: app.services.notifications.notify_uat_ready
+    itself is replaced with a fake coroutine, so nothing downstream of it
+    (send_push_to_user, the actual HTTP calls) ever runs. No real push is
+    sent by this test."""
+    import app.services.notifications as notifications_module
+
+    calls: list[tuple] = []
+
+    async def fake_notify_uat_ready(item_id, title, link):
+        calls.append((item_id, title, link))
+        return {"apns": {}, "fcm": {}, "webpush": {}}
+
+    monkeypatch.setattr(notifications_module, "notify_uat_ready", fake_notify_uat_ready)
+
+    integrate._notify_uat_ready("H31", "UAT review swimlane", "https://uat.wealth.auriqltd.co.uk/design")
+
+    assert calls == [("H31", "UAT review swimlane", "https://uat.wealth.auriqltd.co.uk/design")]
+
+
+def test_review_items_excludes_uat_and_rejected_only_review_is_a_candidate(monkeypatch):
+    """Exercises integrate.py's own candidate-selection function
+    (_review_items) directly against a synthetic board snapshot containing
+    one `review` item, one `uat` item and one `rejected` item — only the
+    `review` item must come back. This is the real safety property H31
+    depends on: an item that already landed in `uat` must never be picked
+    up as a merge candidate again."""
+
+    class _FakeTodo:
+        def items(self):
+            return {
+                "H1": {"id": "H1", "state": "review", "branch": "feature-H1-thing", "title": "Review candidate"},
+                "H2": {"id": "H2", "state": "uat", "branch": "feature-H2-thing", "link": "https://uat.wealth.auriqltd.co.uk/design", "title": "Landed in uat"},
+                "H3": {"id": "H3", "state": "rejected", "branch": "feature-H3-thing", "reason": "nope", "title": "Rejected"},
+            }
+
+    class _FakeSnapshot:
+        def items(self):
+            return list(_FakeTodo().items().values())
+
+    monkeypatch.setattr(integrate.backlog, "load", lambda: _FakeSnapshot())
+
+    candidates = integrate._review_items()
+
+    print("synthetic board: H1=review, H2=uat, H3=rejected")
+    print("candidates returned by _review_items():", candidates)
+
+    assert [c["id"] for c in candidates] == ["H1"]
+    assert all(c["state"] == "review" for c in candidates)
+
+
+def _fake_sh_factory(extra=None):
+    def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
+        if extra is not None:
+            handled = extra(cmd)
+            if handled is not None:
+                return handled
+        if cmd[:2] == ["git", "rev-parse"]:
+            return 0, "deadbeef1234567890deadbeef1234567890dead"
+        return 0, ""
+
+    return fake_sh
+
+
+def _patch_integrate_one_plumbing(monkeypatch, changed_paths):
+    """Stubs out every side-effecting step _integrate_one takes around the
+    merge itself (dependency install, tests, frontend gate, restarts,
+    health check, worktree/branch cleanup) so only the uat-vs-done landing
+    decision under test actually does anything observable."""
+    monkeypatch.setattr(integrate, "_sh", _fake_sh_factory())
+    monkeypatch.setattr(integrate, "_changed_paths", lambda sha_range: changed_paths)
+    monkeypatch.setattr(integrate, "_install_dependencies", lambda changed: None)
+    monkeypatch.setattr(integrate, "_run_backend_tests", lambda: None)
+    monkeypatch.setattr(integrate, "_run_frontend_checks", lambda changed: None)
+    monkeypatch.setattr(integrate, "_restart_services", lambda changed: None)
+    monkeypatch.setattr(integrate, "_wait_and_check_health", lambda: None)
+    monkeypatch.setattr(integrate, "_find_worktree_for_branch", lambda branch: None)
+
+
+def test_integrate_one_lands_in_uat_when_uat_review_flag_is_set(monkeypatch):
+    _patch_integrate_one_plumbing(monkeypatch, {"frontend/app/design/plan-picker/page.tsx"})
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    notify_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: notify_calls.append((item_id, title, link)))
+
+    item = {"id": "H31", "branch": "feature-H31-thing", "title": "UAT review swimlane", "uat_review": True}
+    result, detail = integrate._integrate_one(item)
+
+    print("uat_review flag set, diff is design-round-only -> result:", result, detail)
+
+    assert result == "merged"
+    assert "landed in uat" in detail
+    assert len(uat_calls) == 1
+    assert uat_calls[0][0] == "H31"
+    assert uat_calls[0][1] == "https://uat.wealth.auriqltd.co.uk/design"
+    assert done_calls == []  # never marked plain done
+    assert len(notify_calls) == 1
+    assert notify_calls[0] == ("H31", "UAT review swimlane", "https://uat.wealth.auriqltd.co.uk/design")
+
+
+def test_integrate_one_lands_in_uat_via_backstop_heuristic_when_flag_missing(monkeypatch):
+    """The flag was forgotten (uat_review absent/False), but the merge's
+    own diff touches nothing outside frontend/app/design/ — the backstop
+    heuristic must still catch it."""
+    _patch_integrate_one_plumbing(
+        monkeypatch, {"frontend/app/design/plan-picker/page.tsx", "frontend/app/design/page.tsx"}
+    )
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+
+    item = {"id": "B19", "branch": "feature-B19-thing", "title": "Plan-picker variants", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("uat_review flag missing, diff is design-round-only (backstop) -> result:", result, detail)
+
+    assert result == "merged"
+    assert "landed in uat" in detail
+    assert len(uat_calls) == 1
+    assert done_calls == []
+
+
+def test_integrate_one_lands_in_done_for_a_normal_merge_not_a_design_round(monkeypatch):
+    """Neither the flag nor the backstop applies (the diff touches a real
+    component, not just frontend/app/design/) -> the ordinary done path,
+    unchanged from before H31."""
+    _patch_integrate_one_plumbing(monkeypatch, {"backend/app/routers/analytics.py"})
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+
+    item = {"id": "G1", "branch": "feature-G1-thing", "title": "Fix a real bug", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("normal merge, diff touches a backend file -> result:", result, detail)
+
+    assert result == "merged"
+    assert detail.endswith("(done)")
+    assert uat_calls == []
+    assert len(done_calls) == 1
+
+
+def test_integrate_one_design_round_diff_with_a_production_file_also_touched_is_not_uat(monkeypatch):
+    """A diff that touches frontend/app/design/ AND a production component
+    is not a design round by the backstop heuristic (and the flag is
+    missing here too) -> ordinary done path."""
+    _patch_integrate_one_plumbing(
+        monkeypatch, {"frontend/app/design/plan-picker/page.tsx", "frontend/components/HomePage.tsx"}
+    )
+
+    uat_calls: list[tuple] = []
+    done_calls: list[tuple] = []
+    monkeypatch.setattr(integrate.backlog, "set_uat", lambda item_id, link, actor="claude": (uat_calls.append((item_id, link, actor)), ({}, True))[1])
+    monkeypatch.setattr(integrate.backlog, "set_done", lambda *a, **k: (done_calls.append((a, k)), ({}, True))[1])
+    monkeypatch.setattr(integrate, "_notify_uat_ready", lambda item_id, title, link: None)
+
+    item = {"id": "G2", "branch": "feature-G2-thing", "title": "Also touches production", "uat_review": False}
+    result, detail = integrate._integrate_one(item)
+
+    print("design-round diff PLUS a production file -> result:", result, detail)
+
+    assert result == "merged"
+    assert uat_calls == []
+    assert len(done_calls) == 1

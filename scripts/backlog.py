@@ -27,10 +27,15 @@ Commands:
                                         Prints just the new id on stdout.
     start <id>                          Mark an item in progress.
     block <id> "<reason>"               Mark an item blocked, with a reason.
-    review <id> --branch <name>         Mark an item in review on a branch
+    review <id> --branch <name> [--uat-review]
+                                        Mark an item in review on a branch
                                         (see docs/ops/BACKLOG.md "Branch per
                                         item" — scripts/session.sh finish
                                         calls this once tests are green).
+                                        --uat-review flags this as a design
+                                        round: scripts/integrate.py lands a
+                                        clean merge in "uat" instead of
+                                        "done" (see the "uat" command below).
     reject <id> "<reason>"              Reject an item sitting in review,
                                         with a reason (required). Use this
                                         the moment a reviewer finds a defect
@@ -41,6 +46,28 @@ Commands:
                                         item's branch so the reviewer can see
                                         which branch was refused; start or
                                         todo moves it back out again.
+    uat <id> --link <url>               Move an item into "uat": a design
+                                        round has landed on a rebuilt UAT
+                                        and is waiting on Kevin's review, not
+                                        on the next integrate pass ("uat" is
+                                        never picked up as a merge
+                                        candidate). The link must be on the
+                                        public UAT host
+                                        (uat.wealth.auriqltd.co.uk); a
+                                        127.0.0.1/localhost link is
+                                        normalised onto it automatically,
+                                        any other host is rejected. Normally
+                                        set automatically by
+                                        scripts/integrate.py; this command
+                                        is for a manual retrofit.
+    approve <id> "<choice>"             Record which variant Kevin picked
+                                        from a "uat" round (required) as a
+                                        dated note, and move the item back
+                                        to "in-progress" with its owner
+                                        UNCHANGED, so the same agent
+                                        implements the winner on a fresh
+                                        branch. Only valid on an item
+                                        currently in "uat".
     todo <id>                           Reset an item to to-do (clears any
                                         state tag, including a rejection;
                                         used by session.sh abandon).
@@ -137,12 +164,22 @@ def cmd_block(args: argparse.Namespace) -> None:
 
 
 def cmd_review(args: argparse.Namespace) -> None:
-    result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor)
+    result, committed = backlog.set_review(args.item_id, args.branch, actor=args.actor, uat_review=args.uat_review)
     _print_result(args.item_id, result, committed)
 
 
 def cmd_reject(args: argparse.Namespace) -> None:
     result, committed = backlog.set_rejected(args.item_id, args.reason, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_uat(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_uat(args.item_id, args.link, actor=args.actor)
+    _print_result(args.item_id, result, committed)
+
+
+def cmd_approve(args: argparse.Namespace) -> None:
+    result, committed = backlog.set_approved(args.item_id, args.choice, actor=args.actor)
     _print_result(args.item_id, result, committed)
 
 
@@ -228,6 +265,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_review = sub.add_parser("review", help="Mark an item in review on a branch.")
     p_review.add_argument("item_id")
     p_review.add_argument("--branch", required=True)
+    p_review.add_argument(
+        "--uat-review",
+        action="store_true",
+        help="Flag this as a design round: integrate lands a clean merge in uat instead of done.",
+    )
     add_actor(p_review)
     p_review.set_defaults(func=cmd_review)
 
@@ -238,6 +280,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_reject.add_argument("reason")
     add_actor(p_reject)
     p_reject.set_defaults(func=cmd_reject)
+
+    p_uat = sub.add_parser(
+        "uat", help="Move an item into uat (waiting on Kevin's review), with a preview link."
+    )
+    p_uat.add_argument("item_id")
+    p_uat.add_argument("--link", required=True)
+    add_actor(p_uat)
+    p_uat.set_defaults(func=cmd_uat)
+
+    p_approve = sub.add_parser(
+        "approve",
+        help="Record Kevin's pick from a uat round and move the item back to in-progress (owner unchanged).",
+    )
+    p_approve.add_argument("item_id")
+    p_approve.add_argument("choice")
+    add_actor(p_approve)
+    p_approve.set_defaults(func=cmd_approve)
 
     p_todo = sub.add_parser("todo", help="Reset an item to to-do (clears any state tag, including a rejection).")
     p_todo.add_argument("item_id")

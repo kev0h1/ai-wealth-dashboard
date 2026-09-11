@@ -1,17 +1,18 @@
 "use client";
 
-// The page hero: overall done/total progress plus four small at-a-glance
-// figures (P1 open, blocked, in review, rejected) computed from the
+// The page hero: overall done/total progress plus five small at-a-glance
+// figures (P1 open, blocked, in review, rejected, UAT) computed from the
 // unfiltered board so they always read as the whole picture, not the
 // current filter. Rejected reads amber like Blocked, never red: a
 // rejection is a reviewer asking for a decision, not a failure (see
-// DESIGN.md "The Red Is Risk Rule").
+// DESIGN.md "The Red Is Risk Rule"). UAT reads the same amber, "waiting
+// on you", never a failure either (see H31).
 
 import { headerFigures, type GoLiveItem } from "@/lib/goLive";
 
 export function HeaderHero({ items, done, total }: { items: GoLiveItem[]; done: number; total: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const { p1Open, blocked, inReview, rejected } = headerFigures(items);
+  const { p1Open, blocked, inReview, rejected, uat } = headerFigures(items);
 
   return (
     <div className="glass-hero rounded-3xl p-5">
@@ -22,7 +23,7 @@ export function HeaderHero({ items, done, total }: { items: GoLiveItem[]; done: 
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
         <div className="h-full rounded-full bg-indigo-500" style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-4 grid grid-cols-4 gap-3">
+      <div className="mt-4 grid grid-cols-5 gap-3">
         <div>
           <p className="money text-lg font-bold text-amber-700 dark:text-amber-300">{p1Open}</p>
           <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">P1 open</p>
@@ -38,6 +39,10 @@ export function HeaderHero({ items, done, total }: { items: GoLiveItem[]; done: 
         <div>
           <p className="money text-lg font-bold text-amber-700 dark:text-amber-300">{rejected}</p>
           <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Rejected</p>
+        </div>
+        <div>
+          <p className="money text-lg font-bold text-amber-700 dark:text-amber-300">{uat}</p>
+          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">UAT</p>
         </div>
       </div>
     </div>

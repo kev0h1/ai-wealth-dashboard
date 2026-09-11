@@ -102,17 +102,18 @@ function sourceLaneFor(item: GoLiveItem, lanes: GoLiveLaneMode): string {
 
 /** Whether `laneKey`/`column` is a legal drop target for `activeItem` (or,
  *  when nothing is being dragged, whether it could ever be one — used to
- *  decide the droppable's `disabled` flag). Review and Rejected are never
- *  targets: review is set automatically when a session finishes work, and
- *  rejecting requires a reason a drag can't capture, so it only ever
- *  happens through the detail sheet's "Reject, with a reason" control (see
- *  ItemDetailSheet.tsx). Section lanes are fixed by id (no cross-lane
- *  drops). Owner lanes allow moving freely between any of
- *  kevin/claude/codex but never *into* "unassigned" — there's no action
- *  that un-assigns an owner — while staying within an already unassigned
- *  item's own lane is fine. */
+ *  decide the droppable's `disabled` flag). Review, Rejected and UAT are
+ *  never targets: review is set automatically when a session finishes
+ *  work, rejecting requires a reason a drag can't capture, and UAT
+ *  requires a preview link a drag can't capture either (both only ever
+ *  happen through a control in the detail sheet — "Reject, with a reason"
+ *  and "Approve, which variant", see ItemDetailSheet.tsx). Section lanes
+ *  are fixed by id (no cross-lane drops). Owner lanes allow moving freely
+ *  between any of kevin/claude/codex but never *into* "unassigned" —
+ *  there's no action that un-assigns an owner — while staying within an
+ *  already unassigned item's own lane is fine. */
 function isValidDropTarget(activeItem: GoLiveItem | undefined, lanes: GoLiveLaneMode, laneKey: string, column: GoLiveItemState): boolean {
-  if (column === "review" || column === "rejected") return false;
+  if (column === "review" || column === "rejected" || column === "uat") return false;
   if (!activeItem) return true;
   const sourceLane = sourceLaneFor(activeItem, lanes);
   if (lanes === "section") return laneKey === sourceLane;
@@ -308,6 +309,9 @@ function LaneRow({
               {col.key === "review" && (
                 <p className="mb-1.5 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Set automatically when work finishes</p>
               )}
+              {col.key === "uat" && (
+                <p className="mb-1.5 px-0.5 text-[10px] text-slate-400 dark:text-slate-500">Set when a design round lands</p>
+              )}
               <ColumnCell
                 laneKey={laneKey}
                 column={col.key}
@@ -393,6 +397,7 @@ function DesktopBoardGrid({
         >
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">{col.label}</p>
           {col.key === "review" && <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">Automatic</p>}
+          {col.key === "uat" && <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">Automatic</p>}
         </div>
       ))}
 
