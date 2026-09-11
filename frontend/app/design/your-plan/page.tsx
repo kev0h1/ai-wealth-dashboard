@@ -261,22 +261,41 @@ function Preview() {
   const current: TierName | null = context === "settings" ? "standard" : null;
   const [selected, setSelected] = useState<TierName>(() => current ?? "statements");
   const note = NOTES[variant];
+  // B22: Kevin's agreed pricing of 2026-09-11 (TODO.md B22 notes), matching
+  // backend/app/core/subscription.py's TIER_BILLING_PRICES_GBP verbatim —
+  // this preview fabricates a SubscriptionInfo (no API call), so it has to
+  // hand-carry the same explicit totals the real endpoint now serves,
+  // not a naive monthly-times-months multiplication.
+  const AGREED_TOTALS: Record<TierName, { monthly: number; three_months: number; six_months: number; annual: number }> = {
+    statements: { monthly: 0, three_months: 0, six_months: 0, annual: 0 },
+    lite:       { monthly: 5.99, three_months: 16.99, six_months: 31.99, annual: 59.99 },
+    standard:   { monthly: 9.99, three_months: 28.99, six_months: 53.99, annual: 99.99 },
+    connect:    { monthly: 12.99, three_months: 36.99, six_months: 69.99, annual: 129.99 },
+    max:        { monthly: 16.99, three_months: 48.99, six_months: 91.99, annual: 169.99 },
+  };
+  const PERIOD_MONTHS: Record<"monthly" | "three_months" | "six_months" | "annual", number> = {
+    monthly: 1, three_months: 3, six_months: 6, annual: 12,
+  };
+  const PERIOD_LABELS: Record<"monthly" | "three_months" | "six_months" | "annual", string> = {
+    monthly: "Monthly", three_months: "Every 3 months", six_months: "Every 6 months", annual: "Yearly",
+  };
   const previewInfo = {
     tier: current ?? "statements",
     status: "active",
     prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, tier.price])),
-    billing_prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, {
-      monthly: tier.price,
-      three_months: Number((tier.price * 3).toFixed(2)),
-      six_months: Number((tier.price * 6).toFixed(2)),
-      annual: Number((tier.price * 12).toFixed(2)),
-    }])),
-    billing_periods: {
-      monthly: { months: 1, label: "Monthly" },
-      three_months: { months: 3, label: "Every 3 months" },
-      six_months: { months: 6, label: "Every 6 months" },
-      annual: { months: 12, label: "Yearly" },
-    },
+    billing_prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, AGREED_TOTALS[tier.id]])),
+    billing_periods: Object.fromEntries(TIERS.map((tier) => [
+      tier.id,
+      (Object.keys(PERIOD_MONTHS) as (keyof typeof PERIOD_MONTHS)[]).map((id) => {
+        const months = PERIOD_MONTHS[id];
+        const total = AGREED_TOTALS[tier.id][id];
+        const monthlyTotal = tier.price * months;
+        const saving_gbp = Number(Math.max(0, monthlyTotal - total).toFixed(2));
+        const per_month_gbp = Number((total / months).toFixed(2));
+        return { id, label: PERIOD_LABELS[id], months, total, saving_gbp, per_month_gbp };
+      }),
+    ])),
+    trial_periods: ["annual"],
     billing_live: billing === "on",
     trial_days: 14,
     trial_charge_on: "2026-09-25",

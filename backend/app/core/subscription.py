@@ -42,10 +42,7 @@ TIER_PRICES_GBP = {
 }
 
 # B21: paid plans can renew monthly, every three months, every six months,
-# or yearly. Kevin has not set discounted longer-term prices, so each total
-# is the existing monthly price multiplied by the number of months. Keeping
-# these totals server-side gives the UI and tests one source of truth and
-# avoids claiming a saving that has not been agreed.
+# or yearly.
 SUBSCRIPTION_BILLING_PERIODS = {
     "monthly":      {"months": 1,  "label": "Monthly"},
     "three_months": {"months": 3,  "label": "Every 3 months"},
@@ -53,13 +50,55 @@ SUBSCRIPTION_BILLING_PERIODS = {
     "annual":       {"months": 12, "label": "Yearly"},
 }
 SUBSCRIPTION_TRIAL_DAYS = 14
+
+# B22: Kevin's agreed pricing of 2026-09-11 (TODO.md B22 notes). Every
+# longer-period total is set here explicitly, not computed from the
+# monthly price, because these totals carry a genuine saving (about 16.6%
+# on every tier's annual price, less on three/six months) — the earlier
+# B21 placeholder multiplied the monthly price by the number of months,
+# which claimed no saving at all and was wrong. Statements stays free on
+# every period. billing_period_detail() below is the one place that turns
+# a (tier, period) pair into months/label/total/saving/per-month, so
+# GET /subscription and the tests reading this table can never drift.
 TIER_BILLING_PRICES_GBP = {
-    tier: {
-        period: round(monthly_price * int(detail["months"]), 2)
-        for period, detail in SUBSCRIPTION_BILLING_PERIODS.items()
-    }
-    for tier, monthly_price in TIER_PRICES_GBP.items()
+    "statements": {"monthly": 0.0,   "three_months": 0.0,   "six_months": 0.0,    "annual": 0.0},
+    "lite":       {"monthly": 5.99,  "three_months": 16.99, "six_months": 31.99,  "annual": 59.99},
+    "standard":   {"monthly": 9.99,  "three_months": 28.99, "six_months": 53.99,  "annual": 99.99},
+    "connect":    {"monthly": 12.99, "three_months": 36.99, "six_months": 69.99,  "annual": 129.99},
+    "max":        {"monthly": 16.99, "three_months": 48.99, "six_months": 91.99,  "annual": 169.99},
 }
+
+# Kevin decides: which periods are offered at all. He may remove
+# "three_months" if it doesn't carry its keep (TODO.md B22 note, still
+# open at time of writing).
+SUBSCRIPTION_PERIODS_ENABLED = ("monthly", "three_months", "six_months", "annual")
+
+# Kevin decides: which of the enabled periods carry the 14-day introductory
+# trial. He may widen this to every period — the coordinator's own
+# recommendation (TODO.md B22 note) is that the trial should never be a
+# lever into a 12-month commitment, only the discounted periods should be.
+SUBSCRIPTION_TRIAL_PERIODS = ("annual",)
+
+
+def billing_period_detail(tier: str, period: str) -> dict:
+    """The one calculation GET /subscription (app.routers.subscription)
+    and tests/test_billing.py's price-table tests both read, so the API
+    payload and the tests can never quietly drift apart. Returns months,
+    label, total (TIER_BILLING_PRICES_GBP[tier][period]), saving_gbp (the
+    saving in pounds versus paying the monthly price for that many
+    months, clamped to never go negative) and per_month_gbp (total spread
+    evenly across the period's months)."""
+    period_detail = SUBSCRIPTION_BILLING_PERIODS[period]
+    months = int(period_detail["months"])
+    label = period_detail["label"]
+    total = TIER_BILLING_PRICES_GBP[tier][period]
+    monthly_price = TIER_PRICES_GBP[tier]
+    saving_gbp = round(max(0.0, monthly_price * months - total), 2)
+    per_month_gbp = round(total / months, 2) if months else total
+    return {
+        "months": months, "label": label, "total": total,
+        "saving_gbp": saving_gbp, "per_month_gbp": per_month_gbp,
+    }
 
 # B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): three
 # top-up packs, good/better/best. The middle pack is the target ("Most

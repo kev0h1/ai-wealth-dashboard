@@ -61,7 +61,8 @@ from app.core.config import (
 )
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP_PACKS, SUBSCRIPTION_BILLING_PERIODS,
-    SUBSCRIPTION_TRIAL_DAYS, TIER_BY_NAME, grant_pack,
+    SUBSCRIPTION_PERIODS_ENABLED, SUBSCRIPTION_TRIAL_DAYS,
+    SUBSCRIPTION_TRIAL_PERIODS, TIER_BY_NAME, grant_pack,
 )
 
 logger = logging.getLogger(__name__)
@@ -257,14 +258,17 @@ async def create_checkout_session(
 ) -> str:
     """Start a Stripe Checkout session for `uid`. `kind` is "subscription"
     (mode="subscription", `target` a tier name, with a server-validated
-    recurring billing period and an optional 14-day annual-only trial)
-    or "pack" (mode="payment", `target` a pack id). `client_reference_id`
-    and `metadata` both carry `uid` (belt and braces — Stripe recommends
-    both) plus `kind`/`target`, which is how the webhook handler below
-    knows what to grant once payment completes; the client never gets to
-    specify an amount, only which already-configured Stripe price to buy.
-    Raises BillingNotLive if BILLING_ENABLED is false, or BillingError if
-    the target/period has no configured price id."""
+    recurring billing period and an optional 14-day trial, gated to
+    whichever periods app.core.subscription.SUBSCRIPTION_TRIAL_PERIODS
+    lists) or "pack" (mode="payment", `target` a pack id).
+    `client_reference_id` and `metadata` both carry `uid` (belt and
+    braces — Stripe recommends both) plus `kind`/`target`, which is how
+    the webhook handler below knows what to grant once payment completes;
+    the client never gets to specify an amount, only which
+    already-configured Stripe price to buy. Raises BillingNotLive if
+    BILLING_ENABLED is false, or BillingError if the target/period has no
+    configured price id, the period isn't currently offered, or a trial is
+    requested on a period that doesn't carry one."""
     if not BILLING_ENABLED:
         raise BillingNotLive()
     if kind not in ("subscription", "pack"):
@@ -272,8 +276,10 @@ async def create_checkout_session(
 
     if kind == "subscription" and billing_period not in SUBSCRIPTION_BILLING_PERIODS:
         raise BillingError("billing_period must be monthly, three_months, six_months or annual")
-    if trial and (kind != "subscription" or billing_period != "annual"):
-        raise BillingError("the 14-day trial is only available with annual billing")
+    if kind == "subscription" and billing_period not in SUBSCRIPTION_PERIODS_ENABLED:
+        raise BillingError(f"billing_period '{billing_period}' is not currently offered")
+    if trial and (kind != "subscription" or billing_period not in SUBSCRIPTION_TRIAL_PERIODS):
+        raise BillingError("the 14-day trial is not available with this billing period")
     price_id = _price_id_for(kind, target, billing_period)
     if not price_id:
         raise BillingError(f"no Stripe price configured for {kind}:{target}")
