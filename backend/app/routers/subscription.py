@@ -7,7 +7,8 @@ from app.core.auth import current_user
 from app.core.config import BILLING_ENABLED, BOT_SECRET
 from app.core.subscription import (
     MCP_CALL_PACKS, PENNY_TOPUP, PENNY_TOPUP_LIFETIME_DAYS, PENNY_TOPUP_PACKS,
-    TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
+    SUBSCRIPTION_BILLING_PERIODS, SUBSCRIPTION_TRIAL_DAYS,
+    TIER_BILLING_PRICES_GBP, TIER_BY_NAME, TIER_LIMITS, TIER_PRICES_GBP,
     get_subscription, grant_pack, mcp_allowance, penny_allowance,
 )
 from app.db.collections import subscriptions_col
@@ -86,6 +87,15 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "tier":         sub.tier_name,
         "status":       sub.status,
         "prices_gbp":   TIER_PRICES_GBP,
+        "billing_prices_gbp": TIER_BILLING_PRICES_GBP,
+        "billing_periods": SUBSCRIPTION_BILLING_PERIODS,
+        "trial_days": SUBSCRIPTION_TRIAL_DAYS,
+        "trial_charge_on": (datetime.now(timezone.utc) + timedelta(days=SUBSCRIPTION_TRIAL_DAYS)).date().isoformat(),
+        "billing_period": getattr(sub, "billing_period", None),
+        "trial_ends_at": sub.trial_ends_at.isoformat() if getattr(sub, "trial_ends_at", None) else None,
+        "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
+        "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
+        "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
         "billing_live": BILLING_ENABLED,
         # Legacy single-pack shape, kept for one release (see PENNY_TOPUP's
         # own comment in core/subscription.py) alongside the real pack list.
@@ -96,6 +106,40 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "mcp":          mcp,
         "mcp_packs":    MCP_CALL_PACKS,
     }
+
+
+@router.post("/subscription/select-free")
+async def select_free_tier(user: dict = Depends(current_user)):
+    """Let a user explicitly choose Statements without Stripe.
+
+    An active Stripe subscription must be cancelled in Stripe's portal so
+    changing an app document can never leave a paid renewal running unseen.
+    """
+    email = user["email"]
+    existing = await subscriptions_col.find_one({"user_id": email})
+    if existing and existing.get("source") == "stripe" and existing.get("status") in {
+        "active", "trialing", "past_due",
+    }:
+        raise HTTPException(409, "Cancel your paid subscription in billing first")
+
+    now = datetime.now(timezone.utc)
+    await subscriptions_col.update_one(
+        {"user_id": email},
+        {
+            "$set": {
+                "user_id": email, "tier": "statements", "status": "active",
+                "managed_by": "self", "updated_at": now,
+            },
+            "$unset": {
+                "expires_at": "", "trial_ends_at": "", "billing_period": "",
+                "cancel_at_period_end": "", "stripe_subscription_id": "",
+                "source": "",
+            },
+            "$setOnInsert": {"started_at": now},
+        },
+        upsert=True,
+    )
+    return {"ok": True, "tier": "statements"}
 
 
 @router.patch("/subscription/admin/set-tier")

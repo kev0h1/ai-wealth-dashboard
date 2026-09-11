@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
 import app.core.config as config_module
 import app.core.subscription as subscription_module
@@ -55,7 +56,22 @@ class _FakeCol:
 
     @staticmethod
     def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
+        for key, value in (q or {}).items():
+            if key == "$or":
+                if not any(_FakeCol._match(d, branch) for branch in value):
+                    return False
+                continue
+            if isinstance(value, dict) and "$exists" in value:
+                if (key in d) is not bool(value["$exists"]):
+                    return False
+                continue
+            if isinstance(value, dict) and "$lte" in value:
+                if key not in d or d[key] > value["$lte"]:
+                    return False
+                continue
+            if d.get(key) != value:
+                return False
+        return True
 
     async def find_one(self, query=None, projection=None):
         query = query or {}
@@ -75,12 +91,32 @@ class _FakeCol:
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
+                for key in (update.get("$unset") or {}):
+                    d.pop(key, None)
                 return
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
             new_doc.update(update.get("$setOnInsert") or {})
             self.docs.append(new_doc)
+
+    async def find_one_and_update(self, filt, update, upsert=False, return_document=None):
+        for d in self.docs:
+            if self._match(d, filt):
+                d.update(update.get("$set") or {})
+                for key in (update.get("$unset") or {}):
+                    d.pop(key, None)
+                return d
+        if upsert:
+            user_id = filt.get("user_id")
+            if user_id and any(d.get("user_id") == user_id for d in self.docs):
+                raise DuplicateKeyError("duplicate user_id")
+            new_doc = {"user_id": user_id} if user_id else {}
+            new_doc.update(update.get("$set") or {})
+            new_doc.update(update.get("$setOnInsert") or {})
+            self.docs.append(new_doc)
+            return new_doc
+        return None
 
 
 class _InsertResult:
@@ -183,6 +219,11 @@ def _patch_billing_enabled(monkeypatch, enabled: bool, *, price_ids: dict | None
 _FULL_PRICE_IDS = {
     "lite": "price_lite", "standard": "price_standard",
     "connect": "price_connect", "max": "price_max",
+    **{
+        f"{tier}_{period}": f"price_{tier}_{period}"
+        for tier in ("lite", "standard", "connect", "max")
+        for period in ("three_months", "six_months", "annual")
+    },
     "penny_small": "price_penny_small", "penny_medium": "price_penny_medium",
     "penny_large": "price_penny_large", "mcp_1000": "price_mcp_1000",
 }
@@ -209,6 +250,10 @@ def test_billing_enabled_requires_secret_key_and_every_price_id():
     # and all(required keys present).
     required = config_module._STRIPE_REQUIRED_PRICE_KEYS
     complete = {k: f"price_{k}" for k in required}
+    assert len(required) == 20
+    assert "lite_three_months" in required
+    assert "standard_six_months" in required
+    assert "max_annual" in required
     assert bool("sk_test_x") and all(k in complete for k in required)
 
     incomplete = dict(complete)
@@ -225,7 +270,7 @@ def test_create_checkout_session_for_a_tier(monkeypatch):
     monkeypatch.setattr(billing_module, "stripe", fake_stripe)
     monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
-    _patch_collections(monkeypatch, billing_customers_col=_FakeCol())
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
 
     url = _run(billing_module.create_checkout_session(
         UID, kind="subscription", target="standard",
@@ -236,12 +281,155 @@ def test_create_checkout_session_for_a_tier(monkeypatch):
     call = fake_stripe.checkout_calls[0]
     assert call["mode"] == "subscription"
     assert call["client_reference_id"] == UID
-    assert call["metadata"] == {"uid": UID, "kind": "subscription", "target": "standard"}
+    expected_metadata = {
+        "uid": UID, "kind": "subscription", "target": "standard",
+        "billing_period": "monthly", "trial": "false",
+    }
+    assert call["metadata"] == expected_metadata
+    assert call["subscription_data"] == {"metadata": expected_metadata}
     assert call["line_items"] == [{"price": "price_standard", "quantity": 1}]
     assert call["success_url"] == "https://app/success"
     assert call["cancel_url"] == "https://app/cancel"
     # A Stripe customer was created and persisted for reuse.
     assert len(fake_stripe.customer_calls) == 1
+
+
+def test_create_checkout_session_for_three_month_period(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    _run(billing_module.create_checkout_session(
+        UID, kind="subscription", target="lite", billing_period="three_months",
+        success_url="https://app/success", cancel_url="https://app/cancel",
+    ))
+
+    call = fake_stripe.checkout_calls[0]
+    assert call["line_items"] == [{"price": "price_lite_three_months", "quantity": 1}]
+    assert call["metadata"]["billing_period"] == "three_months"
+    assert "trial_period_days" not in call["subscription_data"]
+
+
+def test_create_checkout_session_annual_trial_is_fixed_at_14_days(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    _run(billing_module.create_checkout_session(
+        UID, kind="subscription", target="max", billing_period="annual", trial=True,
+        success_url="https://app/success", cancel_url="https://app/cancel",
+    ))
+
+    call = fake_stripe.checkout_calls[0]
+    assert call["line_items"] == [{"price": "price_max_annual", "quantity": 1}]
+    assert call["payment_method_collection"] == "always"
+    assert call["subscription_data"]["trial_period_days"] == 14
+    assert call["subscription_data"]["metadata"]["trial"] == "true"
+
+
+def test_create_checkout_session_rejects_trial_on_non_annual_period(monkeypatch):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    with pytest.raises(billing_module.BillingError, match="only available with annual"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="monthly", trial=True,
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_checkout_rejects_second_subscription_for_active_stripe_user(monkeypatch):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, subscriptions_col=_FakeCol([{
+        "user_id": UID, "tier": "lite", "status": "active",
+        "source": "stripe", "stripe_subscription_id": "sub_live",
+    }]))
+    with pytest.raises(billing_module.BillingError, match="existing subscription"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="annual",
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_checkout_rejects_repeat_trial_after_expired_stripe_subscription(monkeypatch):
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, subscriptions_col=_FakeCol([{
+        "user_id": UID, "tier": "standard", "status": "expired",
+        "source": "stripe", "stripe_subscription_id": "sub_old",
+    }]))
+    with pytest.raises(billing_module.BillingError, match="already been used"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="annual", trial=True,
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_subscription_checkout_reservation_reuses_same_session_and_blocks_different_choice(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    args = dict(
+        kind="subscription", target="lite", billing_period="annual", trial=True,
+        success_url="https://app/success", cancel_url="https://app/cancel",
+    )
+    first = _run(billing_module.create_checkout_session(UID, **args))
+    retry = _run(billing_module.create_checkout_session(UID, **args))
+
+    assert retry == first
+    assert len(fake_stripe.checkout_calls) == 1
+    assert fake_stripe.checkout_calls[0]["idempotency_key"]
+    with pytest.raises(billing_module.BillingError, match="already open"):
+        _run(billing_module.create_checkout_session(
+            UID, kind="subscription", target="max", billing_period="annual", trial=True,
+            success_url="https://app/success", cancel_url="https://app/cancel",
+        ))
+
+
+def test_subscription_checkout_retry_after_lost_response_reuses_stripe_idempotency_key(monkeypatch):
+    fake_stripe = _make_fake_stripe()
+    monkeypatch.setattr(billing_module, "stripe", fake_stripe)
+    monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
+    _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
+    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(), subscriptions_col=_FakeCol())
+
+    real_create = fake_stripe.checkout.Session.create
+    attempts = []
+
+    def flaky_create(**kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise TimeoutError("response lost")
+        return real_create(**kwargs)
+
+    monkeypatch.setattr(fake_stripe.checkout.Session, "create", staticmethod(flaky_create))
+    args = dict(
+        kind="subscription", target="lite", billing_period="annual", trial=True,
+        success_url="https://app/success", cancel_url="https://app/cancel",
+    )
+
+    with pytest.raises(TimeoutError, match="response lost"):
+        _run(billing_module.create_checkout_session(UID, **args))
+    url = _run(billing_module.create_checkout_session(UID, **args))
+
+    assert url == "https://checkout.stripe.com/test/1"
+    assert attempts[0]["idempotency_key"] == attempts[1]["idempotency_key"]
+
+
+def test_expired_stripe_subscription_remains_marked_as_previously_paid(monkeypatch):
+    _patch_collections(monkeypatch, subscriptions_col=_FakeCol([{
+        "user_id": UID, "tier": "standard", "status": "expired",
+        "source": "stripe", "stripe_subscription_id": "sub_old",
+    }]))
+
+    sub = _run(subscription_module.get_subscription(UID))
+
+    assert sub.status == "expired"
+    assert sub.has_paid_subscription is True
 
 
 def test_create_checkout_session_for_a_pack(monkeypatch):
@@ -282,9 +470,11 @@ def test_create_checkout_session_reuses_existing_customer(monkeypatch):
     monkeypatch.setattr(billing_module, "stripe", fake_stripe)
     monkeypatch.setattr(billing_module, "STRIPE_SECRET_KEY", "sk_test_x")
     _patch_billing_enabled(monkeypatch, True, price_ids=_FULL_PRICE_IDS)
-    _patch_collections(monkeypatch, billing_customers_col=_FakeCol(
-        [{"user_id": UID, "stripe_customer_id": "cus_existing"}]
-    ))
+    _patch_collections(
+        monkeypatch,
+        billing_customers_col=_FakeCol([{"user_id": UID, "stripe_customer_id": "cus_existing"}]),
+        subscriptions_col=_FakeCol(),
+    )
 
     _run(billing_module.create_checkout_session(
         UID, kind="subscription", target="lite",
@@ -340,6 +530,32 @@ def test_billing_router_checkout_live_returns_url(monkeypatch):
         {"kind": "pack", "target": "small"}, user={"email": UID},
     ))
     assert result["url"].startswith("https://checkout.stripe.com/test/")
+
+
+def test_billing_router_uses_fixed_onboarding_return_urls(monkeypatch):
+    captured = {}
+
+    async def _fake_checkout(uid, **kwargs):
+        captured.update(kwargs)
+        return "https://checkout.stripe.com/test/onboarding"
+
+    _patch_billing_enabled(monkeypatch, True)
+    monkeypatch.setattr(billing_module, "create_checkout_session", _fake_checkout)
+    result = _run(billing_router_module.create_checkout(
+        {
+            "kind": "subscription", "target": "standard",
+            "billing_period": "annual", "trial": True, "flow": "onboarding",
+            "success_url": "https://attacker.invalid/success",
+        },
+        user={"email": UID},
+    ))
+
+    assert result["url"].endswith("/onboarding")
+    assert captured["success_url"].endswith("/?billing=success")
+    assert captured["cancel_url"].endswith("/?billing=cancelled")
+    assert "attacker.invalid" not in captured["success_url"]
+    assert captured["billing_period"] == "annual"
+    assert captured["trial"] is True
 
 
 def test_billing_router_portal_404_without_customer(monkeypatch):
@@ -505,6 +721,31 @@ def test_subscription_created_upserts_tier_and_active_status(monkeypatch):
     assert doc["status"] == "active"
     assert doc["stripe_subscription_id"] == "sub_123"
     assert doc["source"] == "stripe"
+    assert doc["billing_period"] == "monthly"
+
+
+def test_subscription_trialing_tracks_annual_period_and_trial_end(monkeypatch):
+    fake_subs = _FakeCol()
+    _patch_collections(monkeypatch, billing_events_col=_FakeCol(), subscriptions_col=fake_subs)
+    monkeypatch.setattr(billing_module, "STRIPE_PRICE_IDS", _FULL_PRICE_IDS)
+
+    trial_end_ts = int((datetime.now(timezone.utc) + timedelta(days=14)).timestamp())
+    period_end_ts = int((datetime.now(timezone.utc) + timedelta(days=379)).timestamp())
+    event = {
+        "id": "evt_sub_trial", "type": "customer.subscription.created",
+        "data": {"object": {
+            "id": "sub_trial", "customer": "cus_1", "status": "trialing",
+            "trial_end": trial_end_ts, "current_period_end": period_end_ts,
+            "cancel_at_period_end": False, "metadata": {"uid": UID},
+            "items": {"data": [{"price": {"id": "price_standard_annual"}}]},
+        }},
+    }
+    result = _run(billing_module.handle_event(event))
+    assert result["result"]["status"] == "trialing"
+    assert result["result"]["billing_period"] == "annual"
+    assert fake_subs.docs[0]["trial_ends_at"] is not None
+    assert fake_subs.docs[0]["trial_used_at"] is not None
+    assert fake_subs.docs[0]["cancel_at_period_end"] is False
 
 
 def test_subscription_updated_maps_past_due_status(monkeypatch):
@@ -581,6 +822,7 @@ def test_get_subscription_billing_live_reflects_flag(monkeypatch):
         return subscription_module.Subscription(subscription_module.Tier.MAX)
 
     monkeypatch.setattr(subscription_router_module, "get_subscription", _fake_get_subscription)
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", _FakeCol())
 
     _patch_billing_enabled(monkeypatch, False)
     result = _run(subscription_router_module.get_subscription_info(user={"email": UID}))
@@ -589,3 +831,26 @@ def test_get_subscription_billing_live_reflects_flag(monkeypatch):
     _patch_billing_enabled(monkeypatch, True)
     result = _run(subscription_router_module.get_subscription_info(user={"email": UID}))
     assert result["billing_live"] is True
+
+
+def test_select_free_tier_is_available_without_billing(monkeypatch):
+    fake_subs = _FakeCol()
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
+
+    result = _run(subscription_router_module.select_free_tier(user={"email": UID}))
+    assert result == {"ok": True, "tier": "statements"}
+    assert fake_subs.docs[0]["tier"] == "statements"
+    assert fake_subs.docs[0]["managed_by"] == "self"
+
+
+def test_select_free_tier_does_not_hide_an_active_stripe_renewal(monkeypatch):
+    fake_subs = _FakeCol([{
+        "user_id": UID, "tier": "standard", "status": "active",
+        "source": "stripe", "stripe_subscription_id": "sub_123",
+    }])
+    monkeypatch.setattr(subscription_router_module, "subscriptions_col", fake_subs)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(subscription_router_module.select_free_tier(user={"email": UID}))
+    assert exc.value.status_code == 409
+    assert fake_subs.docs[0]["tier"] == "standard"

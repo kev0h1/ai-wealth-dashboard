@@ -45,18 +45,30 @@ async def create_checkout(body: dict, user: dict = Depends(current_user)):
 
     kind = (body.get("kind") or "").strip().lower()
     target = (body.get("target") or "").strip()
+    billing_period = (body.get("billing_period") or "monthly").strip().lower()
+    trial = body.get("trial", False)
+    flow = (body.get("flow") or "settings").strip().lower()
     if kind not in ("subscription", "pack"):
         raise HTTPException(400, "kind must be 'subscription' or 'pack'")
     if not target:
         raise HTTPException(400, "target required")
+    if not isinstance(trial, bool):
+        raise HTTPException(400, "trial must be true or false")
+    if flow not in ("settings", "onboarding"):
+        raise HTTPException(400, "flow must be 'settings' or 'onboarding'")
 
-    success_url = body.get("success_url") or f"{APP_URL}/settings?billing=success"
-    cancel_url = body.get("cancel_url") or f"{APP_URL}/settings?billing=cancelled"
+    if flow == "onboarding":
+        success_url = f"{APP_URL}/?billing=success"
+        cancel_url = f"{APP_URL}/?billing=cancelled"
+    else:
+        success_url = f"{APP_URL}/settings?billing=success"
+        cancel_url = f"{APP_URL}/settings?billing=cancelled"
 
     try:
         url = await billing_service.create_checkout_session(
             user["email"], kind=kind, target=target,
             success_url=success_url, cancel_url=cancel_url,
+            billing_period=billing_period, trial=trial,
         )
     except billing_service.BillingError as exc:
         raise HTTPException(400, str(exc))
@@ -97,6 +109,10 @@ async def billing_status(user: dict = Depends(current_user)):
         "status":        sub.status,
         "expires_at":    sub_doc.get("expires_at").isoformat() if sub_doc and sub_doc.get("expires_at") else None,
         "has_customer":  bool(customer_doc and customer_doc.get("stripe_customer_id")),
+        "billing_period": sub_doc.get("billing_period") if sub_doc else None,
+        "trial_ends_at": sub_doc.get("trial_ends_at").isoformat() if sub_doc and sub_doc.get("trial_ends_at") else None,
+        "renews_at": sub_doc.get("expires_at").isoformat() if sub_doc and sub_doc.get("expires_at") else None,
+        "cancel_at_period_end": bool(sub_doc and sub_doc.get("cancel_at_period_end")),
     }
 
 
