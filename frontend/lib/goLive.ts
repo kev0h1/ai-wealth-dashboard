@@ -11,7 +11,7 @@
 
 export type GoLiveStatus = "ready" | "needs-kevin" | "blocked-deploy" | "submitted";
 export type GoLiveOwner = "kevin" | "claude" | "codex";
-export type GoLiveItemState = "todo" | "in-progress" | "blocked" | "review" | "rejected" | "done";
+export type GoLiveItemState = "todo" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "done";
 export type GoLivePriority = "p1" | "p2" | "p3";
 
 // ---------------------------------------------------------------------
@@ -53,6 +53,8 @@ export type GoLiveItem = {
   state: GoLiveItemState;
   reason: string | null;
   branch: string | null;
+  link: string | null;
+  uat_review: boolean;
   done_at: string | null;
   commit: string | null;
   notes: GoLiveNote[];
@@ -162,6 +164,7 @@ export const BOARD_COLUMNS: { key: GoLiveItemState; label: string }[] = [
   { key: "blocked", label: "Blocked" },
   { key: "review", label: "In review" },
   { key: "rejected", label: "Rejected" },
+  { key: "uat", label: "UAT" },
   { key: "done", label: "Done" },
 ];
 
@@ -174,7 +177,7 @@ export const BOARD_COLUMNS: { key: GoLiveItemState; label: string }[] = [
  *  everything that isn't done and isn't in-progress/blocked/review/rejected
  *  into one chip (i.e. plain to-do items), matching the spec's "Open = not
  *  done". */
-export type GoLiveFilterState = "open" | "in-progress" | "blocked" | "review" | "rejected" | "done";
+export type GoLiveFilterState = "open" | "in-progress" | "blocked" | "review" | "rejected" | "uat" | "done";
 
 export const FILTER_STATE_LABEL: Record<GoLiveFilterState, string> = {
   open: "Open",
@@ -182,9 +185,18 @@ export const FILTER_STATE_LABEL: Record<GoLiveFilterState, string> = {
   blocked: "Blocked",
   review: "In review",
   rejected: "Rejected",
+  uat: "UAT",
   done: "Done",
 };
-export const FILTER_STATE_ORDER: GoLiveFilterState[] = ["open", "in-progress", "blocked", "review", "rejected", "done"];
+export const FILTER_STATE_ORDER: GoLiveFilterState[] = [
+  "open",
+  "in-progress",
+  "blocked",
+  "review",
+  "rejected",
+  "uat",
+  "done",
+];
 
 export function itemFilterState(item: GoLiveItem): GoLiveFilterState {
   return item.state === "todo" ? "open" : item.state;
@@ -343,11 +355,12 @@ export function filterQuestions(questions: GoLiveQuestion[], items: GoLiveItem[]
 
 export function headerFigures(
   items: GoLiveItem[]
-): { p1Open: number; blocked: number; inReview: number; rejected: number } {
+): { p1Open: number; blocked: number; inReview: number; rejected: number; uat: number } {
   return {
     p1Open: items.filter((i) => i.priority === "p1" && i.state !== "done").length,
     blocked: items.filter((i) => i.state === "blocked").length,
     inReview: items.filter((i) => i.state === "review").length,
     rejected: items.filter((i) => i.state === "rejected").length,
+    uat: items.filter((i) => i.state === "uat").length,
   };
 }

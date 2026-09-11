@@ -38,6 +38,7 @@ export function ItemDetailSheet({
 }) {
   const [blockReason, setBlockReason] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [approveChoice, setApproveChoice] = useState("");
   const [noteText, setNoteText] = useState("");
   const [unblocksDraft, setUnblocksDraft] = useState(item.unblocks.join(", "));
 
@@ -217,6 +218,46 @@ export function ItemDetailSheet({
                   className="min-h-9 shrink-0 rounded-lg bg-slate-800 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-slate-700"
                 >
                   Reject
+                </button>
+              </div>
+            </div>
+          )}
+
+          {item.state === "uat" && item.link && (
+            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+              Preview:{" "}
+              <a
+                href={item.link}
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-indigo-600 underline dark:text-indigo-400"
+              >
+                {item.link}
+              </a>
+            </p>
+          )}
+
+          {item.state === "uat" && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Approve, which variant</label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={approveChoice}
+                  onChange={(e) => setApproveChoice(e.target.value)}
+                  placeholder="Which one, e.g. Variant B"
+                  className="min-h-9 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  disabled={pending || !approveChoice.trim()}
+                  onClick={() => {
+                    onAction({ action: "approve", choice: approveChoice.trim() });
+                    setApproveChoice("");
+                  }}
+                  className="min-h-9 shrink-0 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Approve
                 </button>
               </div>
             </div>

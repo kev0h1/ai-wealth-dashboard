@@ -24,18 +24,20 @@ A TODO.md item line looks like this:
   optional). Marking an item done clears any state tag; reopening it
   clears the done marker and leaves the state at to do.
 - `[state: in-progress]`, `[state: blocked: <reason>]`,
-  `[state: review: feature-<ID>-<slug>]` or `[state: rejected: <reason>]`
-  is the workflow state. Absent means to do. It is meaningless once the
-  item is done (the checkbox wins). The `review` state and its branch are
-  set by `scripts/session.sh finish` and consumed by
-  `scripts/integrate.py`, see "Branch per item" below.
-- A `blocked` reason on a design item must point at something Kevin can
-  actually see, never at a choice he hasn't been shown yet. See "Design
-  work" in `CLAUDE.md` and `AGENTS.md`: it requires coded, linkable
-  variants under `frontend/app/design/<slug>/` to exist before an item is
-  blocked for Kevin's choice, the fix for the B19 mistake, where an item
-  was blocked "awaiting Kevin's choice of plan-picker variant" with no
-  variants built.
+  `[state: review: feature-<ID>-<slug>]`, `[state: rejected: <reason>]` or
+  `[state: uat: <link>]` is the workflow state. Absent means to do. It is
+  meaningless once the item is done (the checkbox wins). The `review`
+  state and its branch are set by `scripts/session.sh finish` and
+  consumed by `scripts/integrate.py`, see "Branch per item" below.
+- A design round never sits `blocked` waiting for Kevin to choose between
+  variants he cannot open. See "Design work" in `CLAUDE.md` and
+  `AGENTS.md`: build coded, linkable variants under
+  `frontend/app/design/<slug>/`, then finish the session with
+  `scripts/session.sh finish <ID> --uat-review` so a clean integrate pass
+  lands the item in `uat` with a working link, instead of blocking it on a
+  choice Kevin cannot see yet — the fix for the B19 mistake, where an item
+  was blocked "awaiting Kevin's choice of plan-picker variant" with the
+  branch still unpushed and no working link. See "uat state" below.
 - `rejected` is what a reviewer sets the moment they find a defect in an
   item sitting in `review`, instead of leaving it there. `review` alone
   is treated as consent to merge by any integrate pass, including one
@@ -52,6 +54,32 @@ A TODO.md item line looks like this:
   `scripts/integrate.py` never selects a `rejected` item as a merge
   candidate, `start` or `todo` moves it back out again (clearing both the
   reason and the retained branch).
+- `uat` (H31) is the analogous state for a design round: a branch that
+  builds new preview variants under `frontend/app/design/` and nothing
+  else still gets merged and rebuilds UAT like any other item, but lands
+  in `uat` instead of `done` — flagged explicitly by
+  `scripts/session.sh finish <ID> --uat-review` (recorded on the item as
+  `[uat-review]` while it sits in `review`, consumed the moment it lands),
+  or, as a backstop when that flag was forgotten, whenever the merged
+  diff touches only `frontend/app/design/`. `uat` requires a link, which
+  must be on the public UAT host, `https://uat.wealth.auriqltd.co.uk`; a
+  loopback link (127.0.0.1, localhost) is silently rewritten onto that
+  host, any other host is rejected outright
+  (`backend/app/services/backlog.py` `normalise_preview_link`) — Kevin
+  opens this from his phone, a link to this VPS's loopback interface
+  would be dead on arrival, exactly the B19 failure mode this state
+  exists to close. Like `rejected`, a `uat` item keeps the branch that
+  produced it in a separate `[branch: <name>]` tag (the `[state: uat:
+  ...]` slot already carries the link), and `scripts/integrate.py` never
+  selects a `uat` item as a merge candidate either — landing there is the
+  point, so it can never be merged a second time. `scripts/backlog.py
+  approve <ID> "<choice>"` records which variant Kevin picked as a dated
+  note and moves the item back to `in-progress` with its owner UNCHANGED,
+  so the same agent implements the winner on a fresh branch; only valid
+  on an item currently in `uat`. Landing in `uat` also pushes Kevin a
+  notification (FCM/APNs/webpush, same path as every other push) with the
+  preview link in the body, gated by his own notification preference and
+  sent only to him, never broadcast — see "Notification" below.
 - `[owner: kevin]`, `[owner: claude]` or `[owner: codex]` says who is
   doing the work. Each agent only starts items it owns: a Claude session
   only starts `[owner: claude]` items, a Codex session only starts
@@ -87,15 +115,35 @@ either file. It exposes:
 - `load(todo_path=None, compliance_path=None)`, read-only snapshot with
   `.items()` and `.questions()` returning plain dicts ready to serialise.
 - `set_done(item_id, done, commit=None, actor="claude")`
-- `set_state(item_id, state, reason=None, branch=None, actor="claude")`:
+- `set_state(item_id, state, reason=None, branch=None, link=None, uat_review=False, actor="claude")`:
   `state` is `"todo"`, `"in-progress"`, `"blocked"` (needs `reason`),
-  `"review"` (needs `branch`) or `"rejected"` (needs `reason`; retains the
-  item's existing branch unless a different one is passed explicitly).
-- `set_review(item_id, branch, actor="claude")`, convenience wrapper over
-  `set_state(..., "review", branch=branch)`.
+  `"review"` (needs `branch`), `"rejected"` (needs `reason`; retains the
+  item's existing branch unless a different one is passed explicitly) or
+  `"uat"` (needs `link`, validated/normalised by `normalise_preview_link`;
+  retains the item's existing branch the same way `rejected` does).
+  `uat_review=True` only does anything when `state="review"`, where it
+  sets the item's `[uat-review]` flag.
+- `set_review(item_id, branch, actor="claude", uat_review=False)`,
+  convenience wrapper over `set_state(..., "review", branch=branch,
+  uat_review=uat_review)`.
 - `set_rejected(item_id, reason, actor="claude")`, convenience wrapper
   over `set_state(..., "rejected", reason=reason)`, what a reviewer uses
   the moment they find a defect in an item sitting in `review`.
+- `set_uat(item_id, link, actor="claude")`, convenience wrapper over
+  `set_state(..., "uat", link=link)` — what `scripts/integrate.py` calls
+  when it lands a design round, or what a session/Kevin calls by hand to
+  retrofit an item that should have gone through this path.
+- `set_approved(item_id, choice, actor="kevin")`: records `choice` as a
+  dated note and calls `set_state(..., "in-progress")`, leaving `owner`
+  untouched. Raises `BacklogError` if the item isn't currently in `uat`.
+- `normalise_preview_link(raw)`: validates/normalises a `uat` link. A
+  loopback host (127.0.0.1, localhost, 0.0.0.0, ::1, with or without a
+  port) is rewritten onto `PUBLIC_UAT_HOST`
+  (`uat.wealth.auriqltd.co.uk`), keeping the path/query; any other host
+  raises `BacklogError`; anything that isn't a parseable URL at all raises
+  too. Called both by `set_uat` above and, for defence in depth, inside
+  `TodoDoc.set_state` itself, so a caller that talks to `TodoDoc` directly
+  can never write a loopback link to disk either.
 - `add_item(section, title, owner=None, actor="claude")`, allocates the
   next id in `section` and appends it as a new to-do item.
 - `set_owner(item_id, owner, actor="claude")`
@@ -130,8 +178,10 @@ backend/.venv/bin/python scripts/backlog.py list
 backend/.venv/bin/python scripts/backlog.py add A "New item title" --owner claude
 backend/.venv/bin/python scripts/backlog.py start <id>
 backend/.venv/bin/python scripts/backlog.py block <id> "<reason>"
-backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug>
+backend/.venv/bin/python scripts/backlog.py review <id> --branch feature-<id>-<slug> [--uat-review]
 backend/.venv/bin/python scripts/backlog.py reject <id> "<reason>"
+backend/.venv/bin/python scripts/backlog.py uat <id> --link <url>
+backend/.venv/bin/python scripts/backlog.py approve <id> "<choice>"
 backend/.venv/bin/python scripts/backlog.py todo <id>
 backend/.venv/bin/python scripts/backlog.py done <id> --commit <sha>
 backend/.venv/bin/python scripts/backlog.py reopen <id>
@@ -148,7 +198,17 @@ comma-separated list of question ids (`Q5,Q6`); pass an empty string
 moment a reviewer finds a defect in an item sitting in `review`, never
 leave the item sitting in `review` while the correction happens
 elsewhere, since `review` alone is treated as consent to merge by any
-integrate pass, including one from a concurrent session.
+integrate pass, including one from a concurrent session. `review
+--uat-review` flags a branch as a design round so a clean integrate pass
+lands it in `uat` instead of `done` (see "uat state" above and "Branch
+per item" below); normally set by `scripts/session.sh finish <ID>
+--uat-review`, not called directly. `uat <id> --link <url>` moves an item
+into `uat` by hand (the link is validated/normalised, see
+`normalise_preview_link` above); this is what `scripts/integrate.py`
+calls automatically on a clean design-round merge, use it directly only
+to retrofit an item. `approve <id> "<choice>"` requires the item to
+currently be in `uat`, records the choice as a note, and moves it back to
+`in-progress` with its owner unchanged.
 
 Every command takes `--actor kevin|claude` (defaults to `claude`), which
 is what shows up in the commit message and any note. Sessions should
@@ -174,7 +234,8 @@ raw markdown plus the parsed `items` (each with `priority` and
 `unblocks`) and `questions` (each with `unblocked_by`) so the page never
 re-parses anything itself. `POST /ops/go-live/items/{id}` accepts the
 same actions as the CLI's mutators, including `priority` (body
-`{priority}`) and `unblocks` (body `{questions: [...]}`, `[]` clears);
+`{priority}`), `unblocks` (body `{questions: [...]}`, `[]` clears),
+`uat` (body `{link}`) and `approve` (body `{choice}`);
 `POST /ops/go-live/questions/{q}` sets a question's status. Both always
 attribute the write to `kevin` (the page is owner-only end to end), and
 return the full refreshed GET payload plus `committed`. The page replaces
@@ -184,8 +245,8 @@ false.
 
 A sticky filter bar sits under the header: owner (All / Kevin / Claude),
 priority chips (P1/P2/P3, multi-select), state chips (Open / In progress
-/ Blocked / In review / Rejected / Done, "Open" means not done), a search
-box, and a List/Board view toggle. All of it persists together under one
+/ Blocked / In review / Rejected / UAT / Done, "Open" means not done), a
+search box, and a List/Board view toggle. All of it persists together under one
 localStorage key (`wd_go_live_filters`, see `lib/goLive.ts`). The filters
 apply to both views and to the questionnaire section: a question is shown
 when its own status falls in the selected state chips, or, once an owner
@@ -196,33 +257,39 @@ open work is gating.
 List view is the original layout (sections as collapsible cards, items as
 rows) plus a priority pill and "unblocks Q5, Q6" tags on each item, and a
 "Unblocked by A1, A2" line on each question card whose ids scroll to that
-item's row. Rejected items are pulled out of their section into a
-standalone "Rejected, needs a decision" lane pinned above the rest of the
-backlog (`ListView.tsx`), so a rejection reads as something needing a
-decision, never blends into the ordinary per-section list, and can't be
-missed the way it could before H25 (a rejection that only lived in
-conversation, with no board state of its own). The item's "more actions"
-menu gained "Priority" (three-way) and "Unblocks…" (a comma-separated
-inline field) alongside Start/Block/Note, plus "Reject" (shown only on an
-item in `review`, requires a reason, same reason-textarea pattern as
-Block). Board view is a kanban: columns To do / In progress / Blocked /
-In review / Rejected / Done, swimlanes by section or owner (a "Lanes:
-Section | Owner" switch), each lane collapsible with per-column counts
-and a horizontally scrolling row of columns (the lane label stays put).
-Cards show the id in mono, a two-line-clamped title, an owner-initial
-chip, the priority pill, unblocks tags and a note count; tapping one
-opens `ItemDetailSheet.tsx`, a popover with the same controls as the list
-row (done, reopen, start, block with reason, reject with reason on a
-review item, note, owner, priority, unblocks). Review and Rejected are
-never drag targets, review is set automatically and rejecting needs a
-reason a drag can't capture, so both only ever change through a control,
-same discipline as every other state change. The header hero keeps the
-overall done/total count and adds four figures computed from the whole
-(unfiltered) board: P1 items still open, blocked items, items in review,
-and rejected items. Rejected reads amber everywhere on this page, the
-same treatment as Blocked, never red, a rejection means a reviewer wants
-a decision, not that anything has failed (DESIGN.md "The Red Is Risk
-Rule").
+item's row. UAT and Rejected items are pulled out of their section into
+standalone lanes pinned above the rest of the backlog (`ListView.tsx`):
+"UAT, waiting on you" first, then "Rejected, needs a decision" — a design
+round waiting on Kevin's choice, or a rejection, must read as something
+needing attention, never blend into the ordinary per-section list, and
+can't be missed the way a rejection could before H25 (one that only lived
+in conversation, with no board state of its own). The item's "more
+actions" menu gained "Priority" (three-way) and "Unblocks…" (a
+comma-separated inline field) alongside Start/Block/Note, plus "Reject"
+(shown only on an item in `review`, requires a reason, same
+reason-textarea pattern as Block) and "Approve" (H31, shown only on an
+item in `uat`, records which variant Kevin picked, same textarea
+pattern). Board view is a kanban: columns To do / In progress / Blocked /
+In review / Rejected / UAT / Done, swimlanes by section or owner (a
+"Lanes: Section | Owner" switch), each lane collapsible with per-column
+counts and a horizontally scrolling row of columns (the lane label stays
+put). Cards show the id in mono, a two-line-clamped title, an
+owner-initial chip, the priority pill, unblocks tags and a note count;
+tapping one opens `ItemDetailSheet.tsx`, a popover with the same controls
+as the list row (done, reopen, start, block with reason, reject with
+reason on a review item, approve which variant on a uat item with a
+tappable preview link, note, owner, priority, unblocks). Review, Rejected
+and UAT are never drag targets: review is set automatically, rejecting
+needs a reason a drag can't capture, and approving a uat item needs a
+choice a drag can't capture either, so all three only ever change through
+a control, same discipline as every other state change. The header hero
+keeps the overall done/total count and adds five figures computed from
+the whole (unfiltered) board: P1 items still open, blocked items, items
+in review, rejected items, and items in uat. Rejected and UAT both read
+amber everywhere on this page, the same treatment as Blocked, never red:
+a rejection means a reviewer wants a decision and a uat item means Kevin
+has a real page to look at, neither means anything has failed (DESIGN.md
+"The Red Is Risk Rule").
 
 ## The shared working tree caveat
 
@@ -308,13 +375,19 @@ scripts/session.sh list
   `scripts/backlog.py add` first (into the section matching `<ID>`'s
   leading letter), the id it actually uses is whatever `add` allocates,
   printed on the way past.
-- `finish` runs inside the worktree: the backend test suite, then the
-  frontend typecheck (not a full `npm run build`, integrate does that
-  once, after merging, rather than every session building its own copy of
-  the frontend). It refuses if the worktree is dirty or either check
-  fails. On success it pushes the branch and calls
+- `finish [--uat-review]` runs inside the worktree: the backend test
+  suite, then the frontend typecheck (not a full `npm run build`,
+  integrate does that once, after merging, rather than every session
+  building its own copy of the frontend). It refuses if the worktree is
+  dirty or either check fails. On success it pushes the branch and calls
   `scripts/backlog.py review <ID> --branch feature-<ID>[-slug]`, which is
   the new `[state: review: feature-<ID>[-slug]]` tag integrate looks for.
+  `--uat-review` additionally passes `--uat-review` through to that call,
+  flagging the branch as a design round (H31): a clean integrate pass
+  lands it in `uat` instead of `done`. Pass this whenever the branch's
+  only job is new preview variants under `frontend/app/design/<slug>/`
+  for Kevin to choose between; see "Design work" in `CLAUDE.md` /
+  `AGENTS.md`.
 - `abandon` deletes the worktree and its local branch and resets the item
   to to-do with a note, for a session that didn't pan out.
 
@@ -350,14 +423,37 @@ sanitised line of at most 200 characters (first line only, whitespace
 collapsed, no `[`/`]`), whatever the caller passed in; the full command
 output goes to the integrate log at error level and to a board note
 instead, so the detail is not lost, it just never corrupts the item's
-one-line format (see H27). A clean pass
-pushes `main`, marks the item done with the merge commit
-(`scripts/backlog.py done <ID> --merge <sha>`, `--merge` is just `--commit`
-under another name for readability at the call site), deletes the remote
-branch and the worktree, and moves on to the next item. It prints a merged
-/ blocked / skipped summary at the end and exits non-zero only if the
+one-line format (see H27). A clean pass pushes `main`, then decides
+between two landings (H31): if the item's `uat_review` flag is set (from
+`scripts/session.sh finish <ID> --uat-review`) or, as a backstop, if the
+merge's own diff touches only `frontend/app/design/`
+(`_is_design_round_diff`), it marks the item `uat` with a preview link on
+`https://uat.wealth.auriqltd.co.uk/design` (`scripts/backlog.py uat <ID>
+--link <url>`) and pushes Kevin a notification through the existing
+FCM/APNs/webpush path (`app.services.notifications.notify_uat_ready`,
+gated by his own notification preference, sent only to him). Otherwise it
+marks the item done with the merge commit (`scripts/backlog.py done <ID>
+--merge <sha>`, `--merge` is just `--commit` under another name for
+readability at the call site). Either way it deletes the remote branch
+and the worktree and moves on to the next item — a `uat` item is not
+"finished" the way `done` is, but its code is already merged and its
+branch already gone, same as any other clean pass. It prints a merged /
+blocked / skipped summary at the end and exits non-zero only if the
 shared-tree preconditions themselves failed (wrong branch, dirty tree, lock
 held), a blocked item is a normal, expected outcome, not a script failure.
+A `uat` item, like a `rejected` one, is never selected as a merge
+candidate again (`_review_items()` only ever looks at `review` state), so
+there is no risk of the same design round being merged twice.
+
+**Notification** (H31): the push Kevin gets when an item lands in `uat`
+goes through `app.services.notifications.notify_uat_ready(item_id, title,
+link)`, which calls the same `send_push_to_user` every other notifier in
+that module uses (APNs, FCM and web push together), gated by a
+`"uat_review"` key in `NOTIF_DEFAULTS` (default on, no Settings toggle
+yet, same as `connection_health`) and sent only to `PRIMARY_EMAIL` — the
+account owner, never a broadcast to every allow-listed tester, since
+`/ops/go-live` (where a `uat` item is reviewed) is owner-only end to end.
+The preview link is in the push body and is also the tap-through URL.
 
 `ops/integrate.service` + `ops/integrate.timer` run `--once` every 10
 minutes; they are **not installed by default**. To install:

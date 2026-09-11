@@ -120,13 +120,18 @@ async def go_live(user: dict = Depends(current_user)):
 
 
 class ItemActionRequest(BaseModel):
-    action: Literal["done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo"]
+    action: Literal[
+        "done", "reopen", "start", "block", "reject", "note", "owner", "priority", "unblocks", "todo",
+        "uat", "approve",
+    ]
     reason: Optional[str] = None
     text: Optional[str] = None
     owner: Optional[Literal["kevin", "claude", "codex"]] = None
     commit: Optional[str] = None
     priority: Optional[Literal["p1", "p2", "p3"]] = None
     questions: Optional[list[str]] = None
+    link: Optional[str] = None
+    choice: Optional[str] = None
 
 
 class QuestionStatusRequest(BaseModel):
@@ -199,6 +204,16 @@ async def go_live_item_action(item_id: str, body: ItemActionRequest, user: dict 
                 raise HTTPException(400, "questions is required")
             _, committed = backlog.set_unblocks(
                 item_id, body.questions, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
+            )
+        elif body.action == "uat":
+            if not body.link:
+                raise HTTPException(400, "link is required to move an item to uat")
+            _, committed = backlog.set_uat(item_id, body.link, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root)
+        elif body.action == "approve":
+            if not body.choice:
+                raise HTTPException(400, "choice is required to approve a uat item")
+            _, committed = backlog.set_approved(
+                item_id, body.choice, actor=_PAGE_ACTOR, todo_path=todo_path, repo_root=root
             )
         else:  # unreachable given the Literal type, kept for clarity
             raise HTTPException(400, f"unknown action: {body.action}")

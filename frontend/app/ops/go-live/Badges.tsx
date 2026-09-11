@@ -57,6 +57,16 @@ export function StatePill({ item }: { item: GoLiveItem }) {
       </span>
     );
   }
+  if (item.state === "uat") {
+    // Same amber treatment as Blocked/Rejected, never red: a design round
+    // waiting on Kevin's choice is not a failure of anything (see H31 and
+    // DESIGN.md "The Red Is Risk Rule").
+    return (
+      <span className="inline-flex max-w-[220px] shrink-0 items-center truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        UAT, waiting on you
+      </span>
+    );
+  }
   // done
   const short = item.commit ? item.commit.slice(0, 7) : null;
   return (
