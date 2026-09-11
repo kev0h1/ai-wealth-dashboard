@@ -1659,3 +1659,222 @@ def test_cli_approve_on_non_uat_item_errors(tmp_path):
     )
     assert result.returncode == 1
     assert "not awaiting uat review" in result.stderr
+
+
+# ---------------------------------------------------------------------
+# "start after approve" (H31 follow-up): approve moves a uat item to
+# in-progress, but scripts/session.sh start only ever attached to a `todo`
+# item, so nobody could open a worktree for the winning variant and the
+# loop deadlocked one step later than before. The fix: `in-progress` with
+# NO branch recorded (exactly the shape approve leaves an item in) is now
+# a second, narrow case scripts/session.sh start accepts; `in-progress`
+# WITH a branch (a worktree is genuinely live) still refuses, same as
+# blocked/review/uat/rejected/done — the guard item H21 added is
+# unweakened, just narrowed.
+# ---------------------------------------------------------------------
+
+
+def test_state_in_progress_with_branch_round_trips_and_renders_branch_tag():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[state: in-progress]" in line
+    assert "[branch: feature-A1-first-item]" in line
+    assert doc.items["A1"].branch == "feature-A1-first-item"
+    assert doc.items["A1"].to_dict()["branch"] == "feature-A1-first-item"
+
+    reparsed = backlog.TodoDoc.parse(doc.text())
+    assert reparsed.items["A1"].state == "in-progress"
+    assert reparsed.items["A1"].branch == "feature-A1-first-item"
+    assert reparsed.text() == doc.text()
+
+
+def test_state_in_progress_without_branch_renders_no_branch_tag():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress")
+    line = doc.lines[doc.items["A1"].line_no]
+    assert line.rstrip().endswith(doc.items["A1"].text) or "[branch:" not in line
+    assert "[branch:" not in line
+    assert doc.items["A1"].branch is None
+    assert doc.items["A1"].to_dict()["branch"] is None
+
+
+def test_approve_lands_in_progress_with_no_branch_even_though_uat_had_one():
+    """The core H31 follow-up property: approve must NOT carry the old
+    (already-deleted-by-integrate) branch forward onto the in-progress
+    item, or scripts/session.sh start's new no-branch check would
+    wrongly refuse it as 'already live'."""
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A3", "review", branch="feature-A3-third-item")
+    doc.set_state("A3", "uat", link="https://uat.wealth.auriqltd.co.uk/design")
+    assert doc.items["A3"].branch == "feature-A3-third-item"
+
+    doc.add_note("A3", "approved: Variant B", "kevin")
+    item = doc.set_state("A3", "in-progress")
+
+    assert item.state == "in-progress"
+    assert item.branch is None
+    assert item.to_dict()["branch"] is None
+    line = doc.lines[item.line_no]
+    assert "[branch:" not in line
+    assert "feature-A3-third-item" not in line
+
+
+def test_in_progress_branch_is_not_retained_across_a_second_start_without_branch():
+    """Going in-progress -> in-progress again with no branch passed (e.g.
+    a plain 'backlog.py start <id>' with no --branch) must clear a
+    previously-recorded branch, not silently keep serving the old one as
+    if a worktree were still live."""
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "in-progress")  # no branch this time
+    assert doc.items["A1"].branch is None
+    assert "[branch:" not in doc.lines[doc.items["A1"].line_no]
+
+
+def test_moving_in_progress_with_branch_to_blocked_clears_the_branch():
+    doc = backlog.TodoDoc.parse(TODO_FIXTURE)
+    doc.set_state("A1", "in-progress", branch="feature-A1-first-item")
+    doc.set_state("A1", "blocked", reason="waiting on Kevin")
+    assert doc.items["A1"].branch is None
+    line = doc.lines[doc.items["A1"].line_no]
+    assert "[branch:" not in line
+
+
+def test_public_set_state_in_progress_with_branch_writes_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_state(
+        "B1", "in-progress", branch="feature-B1-thing", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["state"] == "in-progress"
+    assert item["branch"] == "feature-B1-thing"
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: B1 started (branch feature-B1-thing) by claude" in commit_call.args[0]
+
+
+def test_public_set_state_in_progress_without_branch_writes_plain_commit_message(paths, mock_git):
+    todo_path, _ = paths
+    repo_root = todo_path.parent
+    item, committed = backlog.set_state(
+        "B1", "in-progress", actor="claude", todo_path=todo_path, repo_root=repo_root
+    )
+    assert committed is True
+    assert item["branch"] is None
+    commit_call = mock_git.call_args_list[1]
+    assert "backlog: B1 started by claude" in commit_call.args[0]
+
+
+def test_cli_start_with_branch_flag_round_trips(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "start", "A1", "--branch", "feature-A1-first-item"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: in-progress]" in saved
+    assert "[branch: feature-A1-first-item]" in saved
+
+    show_result = _cli_show(board_root, "A1")
+    data = json.loads(show_result.stdout)
+    assert data["state"] == "in-progress"
+    assert data["branch"] == "feature-A1-first-item"
+
+
+def test_cli_start_without_branch_flag_records_no_branch(tmp_path):
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_BACKLOG), "start", "A1"],
+        cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = (board_root / "TODO.md").read_text(encoding="utf-8")
+    assert "[state: in-progress]" in saved
+    assert "[branch:" not in saved
+
+
+def test_end_to_end_uat_loop_including_start_after_approve(tmp_path):
+    """The full deliverable, exercised through the real CLI end to end on
+    a synthetic board (never a real board item): in-progress -> review
+    --uat-review -> (simulated integrate landing) uat with a link ->
+    approve -> in-progress with no branch -> start succeeds again with a
+    NEW branch. Mirrors exactly what scripts/integrate.py and
+    scripts/session.sh do, without touching git/worktrees, which the
+    shell-level test covers separately."""
+    board_root = tmp_path / "board"
+    board_root.mkdir()
+    (board_root / "TODO.md").write_text(TODO_FIXTURE, encoding="utf-8")
+    compliance_dir = board_root / "docs" / "compliance"
+    compliance_dir.mkdir(parents=True)
+    (compliance_dir / "finexer-agent-controls-2026-09.md").write_text(COMPLIANCE_FIXTURE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["BACKLOG_ROOT"] = str(board_root)
+
+    def run(*args):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS_BACKLOG), *args],
+            cwd=board_root, env=env, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == 0, f"{args} failed: {result.stderr}"
+        return result
+
+    # 1. a session claims A1 with a live worktree branch.
+    run("start", "A1", "--branch", "feature-A1-first-item")
+    state = json.loads(run("show", "A1").stdout)
+    assert state["state"] == "in-progress" and state["branch"] == "feature-A1-first-item"
+
+    # a second session must not be able to attach while this one is live
+    # (session.sh's own refusal is covered by the shell test; here we
+    # confirm the board data it reads on).
+    assert state["branch"] == "feature-A1-first-item"
+
+    # 2. session finishes: sent to review, flagged as a design round.
+    run("review", "A1", "--branch", "feature-A1-first-item", "--uat-review")
+    state = json.loads(run("show", "A1").stdout)
+    assert state["state"] == "review" and state["uat_review"] is True
+
+    # 3. simulated integrate landing: uat with a preview link.
+    run("uat", "A1", "--link", "https://uat.wealth.auriqltd.co.uk/design")
+    state = json.loads(run("show", "A1").stdout)
+    assert state["state"] == "uat"
+    assert state["link"] == "https://uat.wealth.auriqltd.co.uk/design"
+    assert state["branch"] == "feature-A1-first-item"  # retained through uat
+
+    # 4. Kevin approves a variant.
+    run("approve", "A1", "Variant B, the weighted instrument")
+    state = json.loads(run("show", "A1").stdout)
+    assert state["state"] == "in-progress"
+    assert state["branch"] is None  # old branch cleared, no worktree live
+    assert state["owner"] == "claude"  # unchanged
+    assert state["notes"][-1]["text"] == "approved: Variant B, the weighted instrument"
+
+    # 5. a fresh session can now start on it again, with a NEW branch.
+    run("start", "A1", "--branch", "feature-A1-first-item-v2")
+    state = json.loads(run("show", "A1").stdout)
+    assert state["state"] == "in-progress"
+    assert state["branch"] == "feature-A1-first-item-v2"
+
+    print("end-to-end uat loop (CLI level):")
+    print("  in-progress(branch) -> review --uat-review -> uat(link) -> approve -> in-progress(no branch) -> start(new branch)")
+    print("  final state:", state)

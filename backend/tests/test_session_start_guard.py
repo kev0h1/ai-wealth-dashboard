@@ -60,10 +60,24 @@ GUARD_FIXTURE = """# Backlog fixture for session.sh start guard tests
 ## H. Section H heading
 
 - [ ] **H1. Todo item, ready to start.** [owner: claude] Nothing special.
-- [ ] **H2. In progress item.** [owner: claude] [state: in-progress] Someone already has it.
+- [ ] **H2. In progress item.** [owner: claude] [state: in-progress] [branch: feature-H2-in-progress-item] Someone already has it.
 - [ ] **H3. Blocked item with a reason.** [owner: claude] [state: blocked: waiting on Kevin] Needs Kevin.
+- [ ] **H4. Approved uat item, no branch recorded.** [owner: claude] [state: in-progress] Approved from a uat round (H31); ready for a fresh session.
 - [ ] **H5. Review item.** [owner: claude] [state: review: feature-H5-thing] Sent to review.
 - [x] **H6. Done item.** [owner: claude] Already done. (done 2026-09-01, abc1234)
+"""
+
+# Separate fixture for the H31 uat/rejected refusal tests, kept apart from
+# GUARD_FIXTURE for the same reason OWNER_GUARD_FIXTURE below is: adding
+# items here would shift the id GUARD_FIXTURE's own --title tests expect
+# add_item to allocate next (max existing number in the section H, plus
+# one -> H7).
+UAT_REJECTED_GUARD_FIXTURE = """# Backlog fixture for session.sh start uat/rejected guard tests (H31)
+
+## H. Section H heading
+
+- [ ] **H1. Uat item awaiting Kevin.** [owner: claude] [state: uat: https://uat.wealth.auriqltd.co.uk/design] [branch: feature-H1-thing] Waiting on Kevin's review.
+- [ ] **H2. Rejected item.** [owner: claude] [state: rejected: broke the safe-to-spend guard] [branch: feature-H2-thing] Needs a decision.
 """
 
 # Separate fixture for the item-H29 owner guard tests below, kept apart
@@ -195,13 +209,63 @@ def _show(board_root: Path, item_id: str) -> dict:
 # ---------------------------------------------------------------------
 
 
-def test_start_refuses_in_progress_item(tmp_path):
+def test_start_refuses_in_progress_item_with_a_branch_recorded(tmp_path):
+    """H31: an in-progress item WITH a branch recorded means a worktree is
+    genuinely live on it (scripts/session.sh start writes that branch the
+    moment it creates one) -- this is exactly the case item H21 added the
+    guard for, and it must still refuse, unweakened."""
     board_root = _make_board_root(tmp_path)
     shared_tree = _make_fake_shared_tree(tmp_path)
     result = _run_start(tmp_path, board_root, shared_tree, "H2")
     assert result.returncode == 1, result.stdout + result.stderr
-    assert "H2 is already in-progress" in result.stderr
+    assert "H2 is in-progress on branch feature-H2-in-progress-item" in result.stderr
+    assert "already live on it" in result.stderr
     assert "session.sh list" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_succeeds_on_in_progress_item_with_no_branch_recorded(tmp_path):
+    """H31 "start after approve": the whole point of this change. An item
+    approve <id> "<choice>" left in-progress with NO branch (its old
+    branch already deleted by integrate) must be startable, or the uat
+    review loop deadlocks one step after Kevin's approval. This is the
+    literal shape `approve` leaves an item in -- see H4 in GUARD_FIXTURE."""
+    board_root = _make_board_root(tmp_path)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H4")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "finish with: scripts/session.sh finish H4" in result.stdout
+
+    worktree_dir = tmp_path / "worktrees" / "feature-H4-approved-uat-item-no"
+    assert worktree_dir.is_dir()
+
+    data = _show(board_root, "H4")
+    assert data["state"] == "in-progress"
+    # A fresh worktree's branch is now recorded on the board (H31), so a
+    # *second* concurrent start attempt on H4 would now correctly refuse.
+    assert data["branch"] == "feature-H4-approved-uat-item-no"
+
+
+def test_start_refuses_uat_item_and_includes_link(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=UAT_REJECTED_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H1")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H1 is in uat" in result.stderr
+    assert "https://uat.wealth.auriqltd.co.uk/design" in result.stderr
+    assert "waiting on Kevin" in result.stderr
+    assert "approve" in result.stderr
+    assert not (tmp_path / "worktrees").exists()
+
+
+def test_start_refuses_rejected_item_and_includes_reason(tmp_path):
+    board_root = _make_board_root(tmp_path, fixture=UAT_REJECTED_GUARD_FIXTURE)
+    shared_tree = _make_fake_shared_tree(tmp_path)
+    result = _run_start(tmp_path, board_root, shared_tree, "H2")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "H2 is rejected" in result.stderr
+    assert "broke the safe-to-spend guard" in result.stderr
+    assert "resolve it first" in result.stderr
     assert not (tmp_path / "worktrees").exists()
 
 
