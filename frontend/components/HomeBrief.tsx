@@ -132,6 +132,59 @@ function resolveBankChip(provider: string) {
   };
 }
 
+type MoveLedgerLeg = { provider: string; name: string; amount: number };
+
+// G44 (Kevin, 2026-09-11): shared per-source ledger — bank icon + account
+// name + mono amount per row, ending in a "Moving £X" total row. Extracted
+// from MoveCard's cover-plan "b+c) Sources ledger tile" (this markup used to
+// live inline there only) so UnfundedMoveCard's per-move source breakdown
+// renders the exact same row, not a second implementation that could drift
+// from it. `totalAmount` defaults to the sum of `legs` (MoveCard's own
+// convention); UnfundedMoveCard passes the move's own `suggested_amount`
+// explicitly since that figure is already the buffered/rounded total the
+// backend computed, not just a client-side re-sum.
+function MoveSourcesLedger({
+  legs,
+  hideNetWorth,
+  totalAmount,
+}: {
+  legs: MoveLedgerLeg[];
+  hideNetWorth: boolean;
+  totalAmount?: number;
+}) {
+  const total = totalAmount ?? legs.reduce((s, l) => s + l.amount, 0);
+  return (
+    <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
+      {legs.map((leg, idx) => {
+        const chip = resolveBankChip(leg.provider);
+        return (
+          <div key={idx} className="flex items-center gap-2.5 px-3 py-1.5 min-h-[44px]">
+            <BankBadge
+              logoSrc={chip.logoSrc}
+              initials={chip.initials}
+              initialsSize={chip.initialsSize}
+              altText={chip.label}
+              brandBg={chip.bg}
+            />
+            <span className="flex-1 min-w-0">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
+            </span>
+            <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+              {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
+            </span>
+          </div>
+        );
+      })}
+      {/* Total row */}
+      <div className="flex items-center justify-between gap-2.5 px-3 min-h-[44px]">
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Moving <span className="money">{hideNetWorth ? "£••••" : `£${Math.round(total).toLocaleString("en-GB")}`}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Dismiss × — the ONE dismiss-x treatment for cards across the app (owner
 // decision, Kevin 2026-08-27, /design/dismiss-x — V2 "Glass chip", lifted
 // verbatim from that page's DismissV2). Replaces the old bare-ghost x that
@@ -614,31 +667,61 @@ function UnfundedMoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribu
           {/* Per-move list — name, mono money figure (DESIGN.md's Money Is
               Mono rule, .money = --font-mono), due date, quiet skip.
               `amount` arrives pre-rounded to whole pounds from the backend
-              (int(round(...)) server-side), so no decimal places here. */}
+              (int(round(...)) server-side), so no decimal places here.
+              G44 (Kevin, 2026-09-11): "it's not telling me where to move it
+              from" — each move that carries a `suggested_sources` list (G42
+              wired the source finder in but only surfaced a count) gets the
+              SAME per-source ledger tile the cover-plan MoveCard renders
+              (MoveSourcesLedger, above), directly below its row. The row
+              itself — label, date, amount, "Skip this month" — is
+              untouched: only the padding moved from the row onto a wrapping
+              block so the ledger can sit under it without disturbing the
+              row's own layout or the DismissChip/skip tap targets. Shown at
+              most once per source ACCOUNT (`renderedLedgerAccts`), matching
+              the backend's own per-account (not per-move) dedup for the
+              body's prose sentence — two bills sharing one account would
+              otherwise repeat the identical breakdown twice. */}
           <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-700/60">
-            {moves.map(m => {
-              const dateStr = m.expected_date
-                ? new Date(m.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-                : "recently";
-              return (
-                <div key={m.key} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
-                    <p className="text-[12px] text-slate-400 dark:text-slate-500">{dateStr}</p>
+            {(() => {
+              const renderedLedgerAccts = new Set<string>();
+              return moves.map(m => {
+                const dateStr = m.expected_date
+                  ? new Date(m.expected_date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+                  : "recently";
+                const sources = m.suggested_sources;
+                const showLedger = !!sources && sources.length > 0 && !renderedLedgerAccts.has(m.source_account_id);
+                if (showLedger) renderedLedgerAccts.add(m.source_account_id);
+                return (
+                  <div key={m.key} className="py-2 first:pt-0 last:pb-0">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200 truncate">{m.label}</p>
+                        <p className="text-[12px] text-slate-400 dark:text-slate-500">{dateStr}</p>
+                      </div>
+                      <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
+                        {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleSkip(m)}
+                        className="flex-shrink-0 text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
+                      >
+                        Skip this month
+                      </button>
+                    </div>
+                    {showLedger && (
+                      <div className="mt-2">
+                        <MoveSourcesLedger
+                          legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount }))}
+                          hideNetWorth={hideNetWorth}
+                          totalAmount={m.suggested_amount ?? undefined}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <span className="money text-[13px] font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                    {hideNetWorth ? "£••••" : `£${m.amount.toLocaleString("en-GB")}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleSkip(m)}
-                    className="flex-shrink-0 text-[12px] font-medium text-slate-500 dark:text-slate-400 hover:underline underline-offset-2 focus:outline-none focus-visible:underline"
-                  >
-                    Skip this month
-                  </button>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
           <button
             onClick={() => router.push(route)}
@@ -825,35 +908,8 @@ export function MoveCard({ item, router, hideNetWorth, maskAmounts, hideAttribut
             );
           })()}
 
-          {/* b+c) Sources ledger tile */}
-          <div className="glass-tile rounded-xl divide-y divide-slate-100 dark:divide-slate-700/60 mb-2">
-            {legs.map((leg, idx) => {
-              const chip = resolveBankChip(leg.provider);
-              return (
-                <div key={idx} className="flex items-center gap-2.5 px-3 py-1.5 min-h-[44px]">
-                  <BankBadge
-                    logoSrc={chip.logoSrc}
-                    initials={chip.initials}
-                    initialsSize={chip.initialsSize}
-                    altText={chip.label}
-                    brandBg={chip.bg}
-                  />
-                  <span className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
-                  </span>
-                  <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
-                    {hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`}
-                  </span>
-                </div>
-              );
-            })}
-            {/* Total row */}
-            <div className="flex items-center justify-between gap-2.5 px-3 min-h-[44px]">
-              <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Moving <span className="money">{hideNetWorth ? "£••••" : `£${Math.round(totalAmount).toLocaleString("en-GB")}`}</span>
-              </span>
-            </div>
-          </div>
+          {/* b+c) Sources ledger tile — shared MoveSourcesLedger, see G44 */}
+          <MoveSourcesLedger legs={legs} hideNetWorth={hideNetWorth} totalAmount={totalAmount} />
 
           {/* Footer — merged assurance line + residual */}
           {(() => {

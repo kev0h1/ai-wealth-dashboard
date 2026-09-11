@@ -1285,13 +1285,21 @@ export type UnfundedMoveEntry = {
   // sentence instead). `suggested_from_name` is only populated for a
   // single-source suggestion; a split across multiple sources leaves it
   // null and `suggested_from_count` says how many, matching the sibling
-  // "move" card's own singular-vs-multi-row split. Not yet rendered as
-  // its own row anywhere — the suggestion currently reaches the user via
-  // `item.body`'s prose, which already says the same thing.
+  // "move" card's own singular-vs-multi-row split.
   suggested_amount?: number | null;
   suggested_from_name?: string | null;
   suggested_from_count?: number;
   suggested_covers_all?: boolean | null;
+  // G44 (2026-09-11): the FULL per-leg breakdown behind `suggested_amount`
+  // — one entry per source account, in the same shape MoveCard's own
+  // `move_map.from` legs use (account_id/name/provider/amount), so
+  // UnfundedMoveCard can render each source as its own row via the shared
+  // MoveSourcesLedger component (HomeBrief.tsx) instead of only stating a
+  // count. Empty array (not null/undefined) when no viable source was
+  // found, matching `suggested_from_count`'s 0 convention — the per-leg
+  // amounts always sum to `suggested_amount` (backend-asserted, see
+  // backend/tests/test_unfunded_move.py).
+  suggested_sources?: { account_id: string; name: string; provider: string; amount: number }[];
 };
 
 export type CompanionItem = {

@@ -2813,6 +2813,13 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                         {
                             "account_id": _l["move_map"]["from"]["account_id"],
                             "name": _l["_src_name"],
+                            # G44 (Kevin, 2026-09-11): carry the provider
+                            # through too, not just the name — the frontend
+                            # renders each leg with the SAME bank-icon row
+                            # component the cover-plan MoveCard already uses
+                            # (MoveSourcesLedger, HomeBrief.tsx), which needs
+                            # a provider to resolve the icon.
+                            "provider": _l["move_map"]["from"]["provider"],
                             "amount": _l["amount"],
                         }
                         for _l in _um_legs
@@ -2853,6 +2860,27 @@ async def compute_today_items(uid: str, payday_preview: bool = False, persist: b
                     ),
                     "suggested_from_count": len(_um_sugg["sources"]) if _um_found else 0,
                     "suggested_covers_all": _um_sugg.get("covers_all") if _um_found else None,
+                    # G44 (Kevin, 2026-09-11): "it's not telling me where to
+                    # move it from" — G42 wired the source finder in but
+                    # only surfaced a count (`suggested_from_count`) and,
+                    # for the single-source case, a name. Carry the FULL
+                    # per-leg list through so the frontend can render each
+                    # source as its own row (bank icon + name + amount),
+                    # the same shape the cover-plan MoveCard's `move_map`
+                    # legs already use. Empty (not null) when no source was
+                    # found, matching `suggested_from_count`'s 0 convention.
+                    "suggested_sources": (
+                        [
+                            {
+                                "account_id": s["account_id"],
+                                "name": s["name"],
+                                "provider": s["provider"],
+                                "amount": s["amount"],
+                            }
+                            for s in _um_sugg["sources"]
+                        ]
+                        if _um_found else []
+                    ),
                 })
             # Soonest-due first — matches the rest of the file's "most urgent
             # first" convention.
