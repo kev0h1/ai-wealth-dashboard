@@ -41,6 +41,26 @@ TIER_PRICES_GBP = {
     "max":        16.99,
 }
 
+# B21: paid plans can renew monthly, every three months, every six months,
+# or yearly. Kevin has not set discounted longer-term prices, so each total
+# is the existing monthly price multiplied by the number of months. Keeping
+# these totals server-side gives the UI and tests one source of truth and
+# avoids claiming a saving that has not been agreed.
+SUBSCRIPTION_BILLING_PERIODS = {
+    "monthly":      {"months": 1,  "label": "Monthly"},
+    "three_months": {"months": 3,  "label": "Every 3 months"},
+    "six_months":   {"months": 6,  "label": "Every 6 months"},
+    "annual":       {"months": 12, "label": "Yearly"},
+}
+SUBSCRIPTION_TRIAL_DAYS = 14
+TIER_BILLING_PRICES_GBP = {
+    tier: {
+        period: round(monthly_price * int(detail["months"]), 2)
+        for period, detail in SUBSCRIPTION_BILLING_PERIODS.items()
+    }
+    for tier, monthly_price in TIER_PRICES_GBP.items()
+}
+
 # B11 (docs/pricing/tiering-unit-economics-mcp-2026-09.md section 9): three
 # top-up packs, good/better/best. The middle pack is the target ("Most
 # popular"); the largest is priced about 10% under the Standard-to-Max
@@ -140,10 +160,22 @@ _LEGACY_TIER_MAP = {
 
 
 class Subscription:
-    def __init__(self, tier: Tier, status: str = "active"):
+    def __init__(
+        self, tier: Tier, status: str = "active", *,
+        billing_period: str | None = None,
+        trial_ends_at: datetime | None = None,
+        renews_at: datetime | None = None,
+        cancel_at_period_end: bool = False,
+        has_paid_subscription: bool = False,
+    ):
         self.tier = tier
         self.status = status
         self.limits = TIER_LIMITS[tier]
+        self.billing_period = billing_period
+        self.trial_ends_at = trial_ends_at
+        self.renews_at = renews_at
+        self.cancel_at_period_end = cancel_at_period_end
+        self.has_paid_subscription = has_paid_subscription
 
     @property
     def tier_name(self) -> str:
@@ -163,12 +195,16 @@ async def get_subscription(email: str) -> Subscription:
 
     default_tier = _default_tier()
     doc = await subscriptions_col.find_one({"user_id": email})
-    if not doc or doc.get("status") == "expired":
+    if not doc:
         return Subscription(default_tier)
+
+    stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
+    if doc.get("status") == "expired":
+        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
 
     expires_at = doc.get("expires_at")
     if expires_at and expires_at < datetime.now(timezone.utc):
-        return Subscription(default_tier)
+        return Subscription(default_tier, "expired", has_paid_subscription=stripe_backed)
 
     stored_name = (doc.get("tier") or "").strip().lower()
     if stored_name in TIER_BY_NAME:
@@ -183,7 +219,14 @@ async def get_subscription(email: str) -> Subscription:
         elif stored_name:
             logger.info("subscription: unrecognised tier '%s' mapped to default tier '%s' for user", stored_name, TIER_NAMES[tier])
 
-    return Subscription(tier, doc.get("status", "active"))
+    return Subscription(
+        tier, doc.get("status", "active"),
+        billing_period=doc.get("billing_period"),
+        trial_ends_at=doc.get("trial_ends_at"),
+        renews_at=doc.get("expires_at"),
+        cancel_at_period_end=bool(doc.get("cancel_at_period_end")),
+        has_paid_subscription=stripe_backed,
+    )
 
 
 def _ym_tuple(ym: str) -> tuple[int, int]:

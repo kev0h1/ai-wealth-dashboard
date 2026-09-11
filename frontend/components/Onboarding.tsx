@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { Wallet, ChevronRight, Check, Building2, ShieldCheck } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type SubscriptionInfo } from "@/lib/api";
 import PennyMark from "@/components/PennyMark";
+import PlanPicker from "@/components/PlanPicker";
 import { isNativePlatform } from "@/lib/nativeAuth";
 import {
   isAvailable as checkBiometryAvailability,
@@ -17,7 +18,7 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
-type Step = "welcome" | "profile" | "payday" | "income" | "bank" | "secure";
+type Step = "welcome" | "profile" | "payday" | "plan" | "income" | "bank" | "secure";
 
 const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "Last Friday of month",  sub: "Typical UK monthly salary",         value: { type: "last_friday" } },
@@ -29,7 +30,7 @@ const PAY_OPTIONS: { label: string; sub: string; value: object | null }[] = [
   { label: "I'll set this later",   sub: "",                                   value: null },
 ];
 
-const STEP_DOTS: Step[] = ["profile", "payday", "income", "bank", "secure"];
+const STEP_DOTS: Step[] = ["profile", "payday", "plan", "income", "bank", "secure"];
 
 // Defined outside Onboarding so its identity is stable across renders —
 // an inner component would remount on every state change and steal focus.
@@ -73,6 +74,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   const [bioSupported, setBioSupported] = useState(false);
   const [bioVerifying, setBioVerifying] = useState(false);
   const [bioError, setBioError] = useState<string | null>(null);
+  const [planInfo, setPlanInfo] = useState<SubscriptionInfo | null | undefined>(undefined);
 
   useEffect(() => {
     if (isNativePlatform()) {
@@ -92,6 +94,19 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     rn.postMessage(JSON.stringify({ type: "biometrics:get", id }));
     return () => window.removeEventListener("native-biometrics", onResult);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || localStorage.getItem("wealth_onboarding_resume") !== "plan") return;
+    const billingResult = new URLSearchParams(window.location.search).get("billing");
+    queueMicrotask(() => setStep(billingResult === "success" ? "income" : "plan"));
+  }, []);
+
+  useEffect(() => {
+    if (step !== "plan" || planInfo !== undefined) return;
+    api.getSubscription()
+      .then(setPlanInfo)
+      .catch(() => setPlanInfo(null));
+  }, [planInfo, step]);
 
   function setBiometrics(enabled: boolean) {
     if (isNativePlatform()) {
@@ -137,6 +152,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     // Mark onboarding complete only here — at the very end — so refreshing
     // mid-flow doesn't skip the pay-period and bank steps.
     try { await api.updateProfile(`${firstName.trim()} ${lastName.trim()}`, postcode.trim()); } catch {}
+    localStorage.removeItem("wealth_onboarding_resume");
     localStorage.setItem("wealth_tutorial_pending", "1");
     onComplete();
   }
@@ -164,7 +180,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
     if (chosen) {
       try { await api.updatePreferences({ pay_period_config: chosen }); } catch {}
     }
-    setStep("income");
+    setStep("plan");
   }
 
   // Show 107,000 not 107000 while not focused — mirrors SettingsPage's fmtDigits.
@@ -344,6 +360,31 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
         >
           Continue
         </button>
+      </Shell>
+    );
+  }
+
+  // ── plan ───────────────────────────────────────────────────────────────────
+  if (step === "plan") {
+    return (
+      <Shell dotIndex={dotIndex}>
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Choose your plan</h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+            Statements is free and selected for you. Paid plans can renew monthly, every 3 months, every 6 months or yearly.
+          </p>
+        </div>
+        {planInfo === undefined ? (
+          <div className="rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm dark:bg-slate-800 dark:text-slate-400">Checking plan availability…</div>
+        ) : planInfo === null ? (
+          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Could not load the plans</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Check your connection, then try again. No plan has been selected.</p>
+            <button type="button" onClick={() => setPlanInfo(undefined)} className="mt-3 min-h-11 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:text-slate-200">Try again</button>
+          </div>
+        ) : (
+          <PlanPicker info={planInfo} context="onboarding" onContinue={() => { localStorage.removeItem("wealth_onboarding_resume"); setStep("income"); }} />
+        )}
       </Shell>
     );
   }

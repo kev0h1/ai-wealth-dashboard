@@ -60,7 +60,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "your-plan",
     name: "your-plan",
     description:
-      "Backlog B19: five-tier plan-picker design round before production wiring · A capability ladder (recommended), B full plan cards, C needs-first rows · Settings and onboarding contexts · light/dark modes · billing off/on states · Statements selected by default · static fixtures, no API calls",
+      "B19/B21: five-tier plan-picker · approved A capability ladder now uses the production PlanPicker with monthly, 3-month, 6-month and yearly renewal choices plus a 14-day annual trial · B full plan cards and C needs-first rows retained for comparison · Settings and onboarding contexts · light/dark modes · billing off/on states · preview-only fixtures, no plan or payment changes",
     states: [
       { label: "A · capability ladder", value: "a" },
       { label: "B · full cards", value: "b" },

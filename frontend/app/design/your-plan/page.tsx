@@ -8,10 +8,11 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import PlanPicker from "@/components/PlanPicker";
+import type { SubscriptionInfo } from "@wealth/shared";
 import {
   ArrowLeft,
   Check,
-  ChevronDown,
   ChevronRight,
   Crown,
   FileText,
@@ -82,8 +83,8 @@ const TIERS: Tier[] = [
 const NOTES: Record<Variant, { title: string; thesis: string; risk: string }> = {
   a: {
     title: "A · Capability ladder · recommended",
-    thesis: "All five choices stay visible. One selected rung opens to show exactly what that plan includes.",
-    risk: "Comparing every detail still takes five taps, but the default view stays compact enough for a phone.",
+    thesis: "All five choices stay visible. The selected rung opens into monthly, 3-month, 6-month and yearly renewal choices, with the 14-day trial disclosed against yearly billing.",
+    risk: "Longer terms add one decision after the plan choice, so renewal wording stays next to the final action rather than inside every tier row.",
   },
   b: {
     title: "B · Plan cards",
@@ -123,39 +124,6 @@ function Includes({ tier, quiet = false }: { tier: Tier; quiet?: boolean }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function VariantA({ selected, current, onSelect }: { selected: TierName; current: TierName | null; onSelect: (tier: TierName) => void }) {
-  return (
-    <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 dark:bg-[#1e293b] dark:shadow-none dark:ring-white/[0.07]">
-      {TIERS.map((tier, index) => {
-        const active = tier.id === selected;
-        const Icon = tier.icon;
-        return (
-          <details key={tier.id} open={active ? true : undefined} className={`group ${index ? "border-t border-slate-100 dark:border-white/[0.06]" : ""}`}>
-            <summary onClick={(event) => { event.preventDefault(); onSelect(tier.id); }} className={`flex min-h-[68px] cursor-pointer list-none items-center gap-3 px-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden ${active ? "bg-indigo-50/70 dark:bg-indigo-400/[0.06]" : "active:bg-slate-50 dark:active:bg-white/[0.04]"}`}>
-              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"}`}>
-                <Icon size={16} aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="text-[14px] font-bold text-slate-900 dark:text-slate-100">{tier.name}</span>
-                  {active && <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-400/10 dark:text-indigo-300">{tier.id === current ? "Current" : "Selected"}</span>}
-                </span>
-                <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">{tier.lead}</span>
-              </span>
-              <Price tier={tier} compact />
-              <ChevronDown size={15} aria-hidden="true" className="shrink-0 text-slate-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-            </summary>
-            <div className="border-t border-indigo-100/70 bg-indigo-50/40 px-4 pb-4 pt-3 dark:border-indigo-400/10 dark:bg-indigo-400/[0.035]">
-              <p className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">{tier.lead}</p>
-              <Includes tier={tier} />
-            </div>
-          </details>
-        );
-      })}
-    </div>
   );
 }
 
@@ -293,6 +261,26 @@ function Preview() {
   const current: TierName | null = context === "settings" ? "standard" : null;
   const [selected, setSelected] = useState<TierName>(() => current ?? "statements");
   const note = NOTES[variant];
+  const previewInfo = {
+    tier: current ?? "statements",
+    status: "active",
+    prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, tier.price])),
+    billing_prices_gbp: Object.fromEntries(TIERS.map((tier) => [tier.id, {
+      monthly: tier.price,
+      three_months: Number((tier.price * 3).toFixed(2)),
+      six_months: Number((tier.price * 6).toFixed(2)),
+      annual: Number((tier.price * 12).toFixed(2)),
+    }])),
+    billing_periods: {
+      monthly: { months: 1, label: "Monthly" },
+      three_months: { months: 3, label: "Every 3 months" },
+      six_months: { months: 6, label: "Every 6 months" },
+      annual: { months: 12, label: "Yearly" },
+    },
+    billing_live: billing === "on",
+    trial_days: 14,
+    trial_charge_on: "2026-09-25",
+  } as SubscriptionInfo;
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", mode === "dark");
@@ -327,8 +315,14 @@ function Preview() {
           </header>
         )}
 
-        {variant === "a" ? <VariantA selected={selected} current={current} onSelect={setSelected} /> : variant === "b" ? <VariantB selected={selected} current={current} onSelect={setSelected} /> : <VariantC selected={selected} current={current} onSelect={setSelected} />}
-        <ChoiceAction selected={selected} current={current} billing={billing} context={context} />
+        {variant === "a" ? (
+          <PlanPicker info={previewInfo} context={context} previewOnly />
+        ) : (
+          <>
+            {variant === "b" ? <VariantB selected={selected} current={current} onSelect={setSelected} /> : <VariantC selected={selected} current={current} onSelect={setSelected} />}
+            <ChoiceAction selected={selected} current={current} billing={billing} context={context} />
+          </>
+        )}
 
         <section className="mt-7 rounded-2xl border border-dashed border-slate-300 px-4 py-3 dark:border-slate-700" aria-label="Design notes">
           <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-400">{note.title}</p>

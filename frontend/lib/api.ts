@@ -3081,8 +3081,13 @@ export const api = {
   // this request. Callers redirect the browser to the returned `url`
   // (window.location.assign), same convention as any other hosted-checkout
   // redirect.
-  startCheckout: (kind: "subscription" | "pack", target: string) =>
-    post<{ url: string }>("/billing/checkout", { kind, target }),
+  startCheckout: (
+    kind: "subscription" | "pack",
+    target: string,
+    options: { billing_period?: import("@wealth/shared").SubscriptionBillingPeriod; trial?: boolean; flow?: "settings" | "onboarding" } = {},
+  ) => post<{ url: string }>("/billing/checkout", { kind, target, ...options }),
+
+  selectFreePlan: () => post<{ ok: true; tier: "statements" }>("/subscription/select-free", {}),
 
   // B5: opens Stripe's customer portal (manage/cancel a subscription,
   // update the card on file) for the signed-in user. 404s if they have no

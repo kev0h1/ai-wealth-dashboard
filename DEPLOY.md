@@ -543,21 +543,24 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    pass (test mode has its own separate keys and price ids from live mode
    — nothing here is a "go live" step by itself).
 2. In the Stripe dashboard, create one **Product** per paid tier (Lite,
-   Standard, Connect, Max — Statements is free, it never needs a Stripe
-   price) with a recurring **Price** in **GBP** matching
-   `TIER_PRICES_GBP` in `backend/app/core/subscription.py` exactly (as of
-   this writing: Lite £5.99/mo, Standard £9.99/mo, Connect £12.99/mo, Max
-   £16.99/mo — check the source, this doc can drift).
+   Standard, Connect, Max; Statements is free and never needs a Stripe
+   price). Give each product four recurring Prices: monthly, every 3
+   months, every 6 months and yearly. Match `TIER_BILLING_PRICES_GBP` in
+   `backend/app/core/subscription.py` exactly. Until Kevin agrees longer-
+   term discounts, those totals are the monthly price multiplied by the
+   term. The 14-day introductory offer uses the same yearly Price with a
+   server-set Stripe trial, not a fifth Price.
 3. Create one Product with three one-off **Prices** for the Penny top-up
    packs (`PENNY_TOPUP_PACKS`: small 20 messages/£0.99, medium 100
    messages/£2.99, large 200 messages/£4.99), and one Product with one
    one-off Price for the MCP call pack (`MCP_CALL_PACKS`: mcp_1000, 1000
    calls/£2.99).
 4. Copy each Price's id (`price_...`) into `STRIPE_PRICE_IDS` as
-   `key=price_id` pairs, comma-separated: `lite=price_...,
-   standard=price_...,connect=price_...,max=price_...,
-   penny_small=price_...,penny_medium=price_...,penny_large=price_...,
-   mcp_1000=price_...`. All eight keys are required — `BILLING_ENABLED`
+   `key=price_id` pairs, comma-separated. Monthly uses the bare tier key,
+   for example `lite`; longer terms use `lite_three_months`,
+   `lite_six_months` and `lite_annual`, repeated for Standard, Connect and
+   Max. Packs remain `penny_small`, `penny_medium`, `penny_large` and
+   `mcp_1000`. All 20 keys are required; `BILLING_ENABLED`
    stays false if even one is missing (fail closed, see
    `docs/ops/ENV.md`'s `STRIPE_PRICE_IDS` row).
 5. Copy the test-mode **Secret key** (`sk_test_...`) into
@@ -570,12 +573,16 @@ is reachable yet, no Stripe account exists as of this writing (Kevin,
    `customer.subscription.updated`, `customer.subscription.deleted`,
    `invoice.payment_failed`. Copy the endpoint's **Signing secret**
    (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
-7. Redeploy (or restart, on UAT) with the three env vars set.
+7. Configure Stripe's customer portal to allow switching between every
+   paid product and all four recurring Prices, cancellation and payment-
+   method updates. Existing subscribers always use the portal for changes;
+   Checkout is server-blocked from creating a second active subscription.
+8. Redeploy (or restart, on UAT) with the three env vars set.
    `GET /subscription`'s `billing_live` (and `GET /billing/status`) flips
    true, and the frontend swaps every "Available soon" row for a real
    button. Test the whole loop with Stripe's test card numbers before
    touching anything live-mode.
-8. App Store and Play subscription products are a deliberately separate
+9. App Store and Play subscription products are a deliberately separate
    pass (they need the store listings, A9/C5) — the seam for them is
    `POST /billing/checkout`'s `kind`/`target` contract and
    `app.services.billing.grant_pack`/the `subscriptions_col` shape, which
