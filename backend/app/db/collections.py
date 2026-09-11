@@ -311,6 +311,29 @@ mcp_calls_col           = db["mcp_calls"]
 # app/main.py's _create_indexes.
 mcp_call_counters_col  = db["mcp_call_counters"]
 
+# B20: admin-composed offer broadcasts (app/services/broadcast.py,
+# app/routers/broadcast.py). One doc per composed offer: {_id (uuid4 hex),
+# title, body, url, audience (the filter definition, e.g. {"type": "tier",
+# "tier": "lite"}), status ("draft" -> "sending" -> "sent", a compare-and-
+# swap on status is the top-level idempotency guard against a double
+# submit), recipient_ids (the audience snapshot resolved and shown to the
+# operator at preview time, frozen so what gets sent is exactly what was
+# previewed), recipient_count, created_at, created_by, sent_at, dry_run,
+# results ({delivered, skipped_optout, skipped_already_sent, push})}.
+# TTL'd a year out (app/main.py's _create_indexes) — long enough to
+# investigate a mistake, bounded so the collection doesn't grow forever.
+broadcasts_col          = db["broadcasts"]
+
+# B20: one doc per (broadcast, recipient) actually sent, `_id` = "
+# {broadcast_id}:{user_id}" so a unique-key insert is the per-recipient
+# idempotency guard (a retried/duplicated send loop can only ever claim
+# each recipient once, even across process crashes). {broadcast_id,
+# user_id, title, body, url, sent_at, dry_run, push (the
+# send_push_to_user result), read_at (null until the recipient dismisses
+# the matching in-app card via GET/POST /offers)}. Same TTL as
+# broadcasts_col.
+broadcast_receipts_col  = db["broadcast_receipts"]
+
 # F2: OAuth 2.1 authorisation server (app/routers/oauth.py) for the /mcp
 # connector — dynamic client registration, PKCE authorization codes, and
 # opaque access/refresh tokens. See that module's own docstring for the

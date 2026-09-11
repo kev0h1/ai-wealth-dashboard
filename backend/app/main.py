@@ -28,6 +28,7 @@ from app.db.collections import (
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
     billing_customers_col, billing_events_col,
+    broadcasts_col, broadcast_receipts_col,
 )
 from app.services.categorisation import apply_rules_bulk, RAW_TRUELAYER_CATEGORIES
 from app.services import data_version
@@ -42,7 +43,7 @@ from app.routers import (
     checkpoints, card_terms, debt_plan as debt_plan_router, grow, can_i,
     commitments, spend_verdict, tax, scenario, allocations, money_shape,
     penny_chip, ops, admin_usage, admin_allowlist, billing as billing_router,
-    mcp as mcp_router, oauth as oauth_router,
+    mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
 )
 
 if _dsn := os.getenv("SENTRY_DSN"):
@@ -93,6 +94,7 @@ def _routers(mcp_connector_enabled: bool) -> list:
         admin_usage.router,
         admin_allowlist.router,
         billing_router.router,
+        broadcast_router.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
@@ -345,6 +347,22 @@ async def _create_indexes():
     await billing_customers_col.create_index("user_id", unique=True)
     await billing_customers_col.create_index("stripe_customer_id", unique=True, sparse=True)
     await billing_events_col.create_index("event_id", unique=True)
+    # B20 admin broadcasts. `created_at` for the /ops history list;
+    # 365-day TTL bounds the send-record's retention (long enough to
+    # investigate a mistake, not kept forever) — see app/db/collections.py.
+    await broadcasts_col.create_index("created_at")
+    await broadcasts_col.create_index(
+        "created_at", expireAfterSeconds=365 * 24 * 3600, name="broadcast_ttl"
+    )
+    # Per-recipient receipts: GET /offers reads unread ones for one user,
+    # and app.services.broadcast.send_broadcast relies on `_id`'s own
+    # automatic uniqueness ("{broadcast_id}:{user_id}") for its
+    # per-recipient idempotency guard, so no extra unique index is needed
+    # for that. Same TTL bound as broadcasts_col above.
+    await broadcast_receipts_col.create_index([("user_id", 1), ("read_at", 1)])
+    await broadcast_receipts_col.create_index(
+        "sent_at", expireAfterSeconds=365 * 24 * 3600, name="broadcast_receipts_ttl"
+    )
 
 
 async def _acquire_migration_lock() -> bool:
