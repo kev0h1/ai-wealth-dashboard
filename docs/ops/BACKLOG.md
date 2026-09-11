@@ -344,8 +344,13 @@ changed at all (the worker imports services and core modules under
 `backend/app`, not just `backend/app/workers`, so cron code never runs
 stale), and checks both health endpoints. Any failure there rolls the merge back
 (`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
-and blocks the item with the first 300 characters of whatever failed, main
-never sits on a broken merge waiting for someone to notice. A clean pass
+and blocks the item; main never sits on a broken merge waiting for someone
+to notice. Block and reject reasons are stored on the board as a single
+sanitised line of at most 200 characters (first line only, whitespace
+collapsed, no `[`/`]`), whatever the caller passed in; the full command
+output goes to the integrate log at error level and to a board note
+instead, so the detail is not lost, it just never corrupts the item's
+one-line format (see H27). A clean pass
 pushes `main`, marks the item done with the merge commit
 (`scripts/backlog.py done <ID> --merge <sha>`, `--merge` is just `--commit`
 under another name for readability at the call site), deletes the remote

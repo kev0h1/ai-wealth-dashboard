@@ -38,8 +38,10 @@ pass, which merged the rejected branch anyway).
      `backend/app`, not just `backend/app/workers`, so any backend change
      can affect its cron code); then checks both health endpoints.
   4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
-     services again from the restored tree, and block the item with the
-     first 300 characters of the failure.
+     services again from the restored tree, and block the item. The full
+     failure output is logged at error level and recorded as a board note
+     (up to ~1,500 characters); the `[state: blocked: ...]` tag itself only
+     ever gets a single sanitised line, capped at 200 characters (see H27).
   5. On success: `git push origin main`, mark the item done with the merge
      commit, delete the remote branch, and remove the worktree (if any).
 
@@ -314,12 +316,41 @@ def _find_worktree_for_branch(branch: str) -> Optional[str]:
     return None
 
 
+def _one_line_reason(text: str, cap: int = 200) -> str:
+    """Collapse a possibly multi-line block reason (e.g. raw command
+    output) to a single line safe for the `[state: blocked: ...]` tag:
+    first non-empty line, whitespace collapsed, no `[`/`]`, capped to
+    `cap` characters with an ellipsis. Thin wrapper over
+    `backlog.one_line_reason` so `TodoDoc.set_state` (which sanitises
+    independently — defence in depth) and this script never drift apart.
+    See H27: a raw multi-line command-output reason written straight into
+    the state tag corrupted the G29/G32 item lines on 2026-09-10 and
+    caused a merge conflict between two coordinator sessions."""
+    return backlog.one_line_reason(text, cap=cap)
+
+
 def _block(item_id: str, reason: str) -> None:
+    """Block `item_id` with `reason`, which may be many lines of raw
+    command output. The full text is logged at error level (captured by
+    journald when this runs under integrate.timer, or the terminal when
+    run by hand) and, best-effort, recorded as a board note (capped at
+    ~1,500 characters) — only a single sanitised line ever reaches the
+    `[state: blocked: ...]` tag itself, see `_one_line_reason`."""
+    full_text = reason or ""
+    if full_text.strip():
+        print(f"error: {item_id} blocked, full detail follows:\n{full_text}", file=sys.stderr)
+    one_line = _one_line_reason(full_text)
     try:
-        backlog.set_state(item_id, "blocked", reason=reason, actor="claude")
+        backlog.set_state(item_id, "blocked", reason=one_line, actor="claude")
     except backlog.BacklogError:
-        logger_note = f"integrate: could not write block reason for {item_id}: {reason}"
+        logger_note = f"integrate: could not write block reason for {item_id}: {one_line}"
         print(logger_note, file=sys.stderr)
+        return
+    if full_text.strip():
+        try:
+            backlog.add_note(item_id, full_text.strip()[:1500], actor="claude")
+        except backlog.BacklogError as exc:
+            print(f"warning: could not add detail note for {item_id}: {exc}", file=sys.stderr)
 
 
 def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
@@ -389,16 +420,16 @@ def _integrate_one(item: dict) -> tuple[str, str]:
         _restart_services(changed)
         _wait_and_check_health()
     except IntegrateError as exc:
-        detail = str(exc)[:300]
+        full_text = str(exc)
         _rollback_and_restart(pre_sha, changed)
-        _block(item_id, detail)
-        return "blocked", f"{item_id}: {detail}"
+        _block(item_id, full_text)
+        return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
 
     rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
     if rc != 0:
-        detail = ("git push origin main failed:\n" + out)[:300]
+        full_text = "git push origin main failed:\n" + out
         _rollback_and_restart(pre_sha, changed)
-        _block(item_id, detail)
+        _block(item_id, full_text)
         return "blocked", f"{item_id}: push failed"
 
     merge_sha_rc, merge_sha_out = _sh(["git", "rev-parse", "HEAD"])
@@ -453,8 +484,10 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 try:
                     result, detail = _integrate_one(item)
                 except Exception as exc:  # noqa: BLE001 - one item's bug must not kill the run
-                    result, detail = "blocked", f"{item['id']}: unexpected error: {exc}"
-                    _block(item["id"], str(exc)[:300])
+                    full_text = str(exc)
+                    result = "blocked"
+                    detail = f"{item['id']}: unexpected error: {_one_line_reason(full_text)}"
+                    _block(item["id"], f"unexpected error: {full_text}")
                 print(f"[{result}] {detail}")
                 {"merged": merged, "blocked": blocked, "skipped": skipped}[result].append(detail)
 

@@ -103,6 +103,51 @@ QUESTION_STATUSES = ("ready", "needs-kevin", "blocked-deploy", "submitted")
 OWNERS = ("kevin", "claude", "codex")
 PRIORITIES = ("p1", "p2", "p3")
 DEFAULT_PRIORITY = "p3"
+REASON_CAP = 200
+
+
+def one_line_reason(text: Optional[str], cap: int = REASON_CAP) -> str:
+    """Sanitise a `blocked`/`rejected` reason to one line safe for the
+    `[state: blocked: ...]` / `[state: rejected: ...]` tag: take the first
+    non-empty line, collapse internal whitespace, strip `[`/`]` (either
+    would close the tag early or open a spurious new one), and cap the
+    length with an ellipsis. Every writer of a blocked/rejected reason —
+    `scripts/backlog.py`, the `/ops/go-live` page, and
+    `scripts/integrate.py`'s own block reasons — goes through
+    `TodoDoc.set_state`, which calls this, so it is the one place that has
+    to hold the one-line-per-item format (see H27: a raw multi-line
+    command-output reason from `scripts/integrate.py` corrupted the
+    G29/G32 item lines on 2026-09-10 and caused a merge conflict between
+    two coordinator sessions)."""
+    if not text:
+        return ""
+    first_line = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            first_line = stripped
+            break
+    collapsed = re.sub(r"\s+", " ", first_line).strip()
+    collapsed = collapsed.replace("[", "").replace("]", "")
+    if len(collapsed) > cap:
+        if cap > 3:
+            collapsed = collapsed[: cap - 3].rstrip() + "..."
+        else:
+            collapsed = collapsed[:cap]
+    return collapsed
+
+
+def _collapse_note_text(text: str) -> str:
+    """Notes are one line each in TODO.md (`NOTE_RE` only ever matches a
+    single list line) — a note containing a literal newline would insert a
+    line into `TodoDoc.lines` that does not start with the `  - note (...)`
+    prefix, so it silently stops being a note on the next parse and just
+    sits in the file as stray text. Collapse embedded newlines to " / "
+    instead of dropping them, so multi-line detail (e.g. a chunk of
+    command output passed to `add_note`) stays readable on one line."""
+    parts = [p.strip() for p in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return " / ".join(p for p in parts if p)
+
 
 SECTION_HEADING_RE = re.compile(r"^## ([A-H])\. (.+)$")
 ITEM_RE = re.compile(
@@ -445,9 +490,14 @@ class TodoDoc:
             raise BacklogError("branch is required to set state to review")
         if state == "rejected" and not reason:
             raise BacklogError("reason is required to set state to rejected")
+        # Sanitise before storing so a raw multi-line reason (e.g. command
+        # output passed straight through from scripts/integrate.py) can
+        # never corrupt the item's one-line `[state: ...]` tag — see
+        # one_line_reason() above and H27.
+        sanitised_reason = one_line_reason(reason) if reason else None
         item = self.item(item_id)
         item.state = state
-        item.reason = reason if state in ("blocked", "rejected") else None
+        item.reason = sanitised_reason if state in ("blocked", "rejected") else None
         if state == "review":
             item.branch = branch
         elif state == "rejected":
@@ -551,7 +601,7 @@ class TodoDoc:
 
     def add_note(self, item_id: str, text: str, actor: str) -> BacklogItem:
         item = self.item(item_id)
-        note_line = f"  - note ({today_str()}, {actor}): {text}"
+        note_line = f"  - note ({today_str()}, {actor}): {_collapse_note_text(text)}"
         insert_at = item.line_no + 1 + len(item.notes)
         self.lines.insert(insert_at, note_line)
         reparsed = TodoDoc.parse(self.text())
